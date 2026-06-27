@@ -39,7 +39,7 @@ def check(name: str, condition: bool, detail: str = "") -> None:
 
 def test_dataset_download() -> None:
     print("\n-- 1. Dataset Download --")
-    from src.data.aslg_dataset import download_aslg_dataset
+    from src.datasets.aslg_dataset import download_aslg_dataset
 
     dataset = download_aslg_dataset(cache_dir="data/test_cache")
     check("Dataset is DatasetDict", hasattr(dataset, "keys"))
@@ -55,7 +55,7 @@ def test_dataset_download() -> None:
 
 def test_vocabulary(dataset) -> list[str]:
     print("\n-- 2. Vocabulary --")
-    from src.data.aslg_dataset import (
+    from src.datasets.aslg_dataset import (
         BOS_GLOSS,
         EOS_GLOSS,
         UNK_GLOSS,
@@ -87,7 +87,7 @@ def test_vocabulary(dataset) -> list[str]:
 
 def test_transition_matrix(dataset, vocab) -> None:
     print("\n-- 3. Transition Matrix --")
-    from src.data.transition_matrix import (
+    from src.datasets.transition_matrix import (
         compute_bigram_transitions,
         load_transition_matrix,
         save_transition_matrix,
@@ -126,7 +126,7 @@ def test_transition_matrix(dataset, vocab) -> None:
 
 def test_t2g_dataset(dataset) -> None:
     print("\n-- 4. T2G Dataset --")
-    from src.data.aslg_dataset import build_t2g_dataset
+    from src.datasets.aslg_dataset import build_t2g_dataset
 
     t2g = build_t2g_dataset(dataset, split="train", max_samples=50)
     check("T2G dataset has correct size", len(t2g) == 50)

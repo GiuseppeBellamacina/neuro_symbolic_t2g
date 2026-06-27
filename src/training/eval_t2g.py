@@ -36,11 +36,11 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from src.data.aslg_dataset import (
+from src.datasets.aslg_dataset import (
     download_aslg_dataset,
     load_vocabulary,
 )
-from src.data.transition_matrix import (
+from src.datasets.transition_matrix import (
     load_transition_matrix,
     sequence_score_bigram,
 )

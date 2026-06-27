@@ -34,7 +34,7 @@ def check(name: str, condition: bool, detail: str = "") -> None:
 
 def test_data_to_grammar_chain() -> None:
     print("\n-- 1. Data ? Grammar Coherence --")
-    from src.data.aslg_dataset import (
+    from src.datasets.aslg_dataset import (
         download_aslg_dataset,
         extract_gloss_vocabulary,
     )
@@ -72,11 +72,11 @@ def test_data_to_grammar_chain() -> None:
 
 def test_grammar_to_rewards_chain() -> None:
     print("\n-- 2. Grammar ? Rewards Coherence --")
-    from src.data.aslg_dataset import (
+    from src.datasets.aslg_dataset import (
         download_aslg_dataset,
         extract_gloss_vocabulary,
     )
-    from src.data.transition_matrix import compute_bigram_transitions
+    from src.datasets.transition_matrix import compute_bigram_transitions
     from src.rewards.t2g_rewards import (
         build_t2g_reward_functions,
         initialize_rewards,
@@ -116,11 +116,11 @@ def test_grammar_to_rewards_chain() -> None:
 
 def test_rewards_to_metrics_chain() -> None:
     print("\n-- 3. Rewards ? Metrics Coherence --")
-    from src.data.aslg_dataset import (
+    from src.datasets.aslg_dataset import (
         download_aslg_dataset,
         extract_gloss_vocabulary,
     )
-    from src.data.transition_matrix import compute_bigram_transitions
+    from src.datasets.transition_matrix import compute_bigram_transitions
     from src.rewards.t2g_rewards import initialize_rewards
     from src.utils.metrics import (
         compute_detailed_metrics,
@@ -159,11 +159,11 @@ def test_rewards_to_metrics_chain() -> None:
 
 def test_callbacks_interface() -> None:
     print("\n-- 4. Callbacks Interface Coherence --")
-    from src.data.aslg_dataset import (
+    from src.datasets.aslg_dataset import (
         download_aslg_dataset,
         extract_gloss_vocabulary,
     )
-    from src.data.transition_matrix import compute_bigram_transitions
+    from src.datasets.transition_matrix import compute_bigram_transitions
     from src.rewards.t2g_rewards import (
         build_t2g_reward_functions,
         initialize_rewards,

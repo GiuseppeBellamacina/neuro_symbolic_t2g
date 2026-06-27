@@ -32,19 +32,19 @@ from typing import Any
 import numpy as np
 import torch
 import wandb
-from datasets import Dataset
 from dotenv import load_dotenv
 from transformers.integrations.integration_utils import WandbCallback
 from transformers.trainer_callback import ProgressCallback
 from trl import GRPOConfig, GRPOTrainer  # type: ignore[import]
 
-from src.data.aslg_dataset import (
+from datasets import Dataset
+from src.datasets.aslg_dataset import (
     build_t2g_dataset,
     download_aslg_dataset,
     extract_gloss_vocabulary,
     save_vocabulary,
 )
-from src.data.transition_matrix import (
+from src.datasets.transition_matrix import (
     compute_bigram_transitions,
     load_transition_matrix,
     save_transition_matrix,
@@ -272,7 +272,7 @@ def main() -> None:
 
     # Extract vocabulary (or load from cache)
     if Path(vocab_path).exists():
-        from src.data.aslg_dataset import load_vocabulary
+        from src.datasets.aslg_dataset import load_vocabulary
 
         vocab = load_vocabulary(vocab_path)
     else:

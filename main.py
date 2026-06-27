@@ -35,14 +35,14 @@ def test_data_ingestion() -> None:
     logger.info("TESTING: Data Ingestion & Transition Matrix")
     logger.info("=" * 60)
 
-    from src.data.aslg_dataset import (
+    from src.datasets.aslg_dataset import (
         build_t2g_dataset,
         download_aslg_dataset,
         extract_gloss_vocabulary,
         load_vocabulary,
         save_vocabulary,
     )
-    from src.data.transition_matrix import (
+    from src.datasets.transition_matrix import (
         compute_bigram_transitions,
         load_transition_matrix,
         save_transition_matrix,
@@ -191,11 +191,11 @@ def test_reward_functions() -> None:
     logger.info("TESTING: Reward Functions")
     logger.info("=" * 60)
 
-    from src.data.aslg_dataset import (
+    from src.datasets.aslg_dataset import (
         download_aslg_dataset,
         extract_gloss_vocabulary,
     )
-    from src.data.transition_matrix import compute_bigram_transitions
+    from src.datasets.transition_matrix import compute_bigram_transitions
     from src.rewards.t2g_rewards import (
         build_t2g_reward_functions,
         gloss_format_reward,
@@ -289,7 +289,7 @@ def test_single_generation() -> None:
         logger.info("Skipping generation test.")
         return
 
-    from src.data.aslg_dataset import (
+    from src.datasets.aslg_dataset import (
         download_aslg_dataset,
         extract_gloss_vocabulary,
     )

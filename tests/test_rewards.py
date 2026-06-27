@@ -38,7 +38,7 @@ def setup_rewards():
 
     import numpy as np
 
-    from src.data.transition_matrix import save_transition_matrix
+    from src.datasets.transition_matrix import save_transition_matrix
     from src.rewards.t2g_rewards import initialize_rewards
 
     vocab = [
