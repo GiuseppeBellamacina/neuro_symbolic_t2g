@@ -101,8 +101,7 @@ def compute_pass_at_1(
         Pass@1 rate in [0, 1].
     """
     passes = sum(
-        1 for c, r in zip(completions, references)
-        if rouge_l_score(c, r) >= threshold
+        1 for c, r in zip(completions, references) if rouge_l_score(c, r) >= threshold
     )
     return passes / max(len(completions), 1)
 

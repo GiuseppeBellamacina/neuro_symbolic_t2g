@@ -98,7 +98,7 @@ srun --account dl-course-q2 --partition dl-course-q2 --qos gpu-medium \
 
 ```bash
 cd ~/neuro_symbolic_t2g
-bash src/cluster/setup.sh
+bash cluster/setup.sh
 ```
 
 Lo script:
@@ -120,10 +120,10 @@ exit
 
 ### 4.1. Modifica lo script SLURM
 
-Apri `src/cluster/train.sh` e imposta i tuoi parametri:
+Apri `cluster/train.sh` e imposta i tuoi parametri:
 
 ```bash
-nano ~/neuro_symbolic_t2g/src/cluster/train.sh
+nano ~/neuro_symbolic_t2g/cluster/train.sh
 ```
 
 Modifica queste righe:
@@ -138,7 +138,7 @@ Modifica queste righe:
 
 ### 4.2. Adatta il config YAML alla GPU
 
-Il config base è `config/grpo_t2g_qwen05.yaml`. Per GPU diverse da L40S:
+Il config base è `experiments/configs/t2g/grpo_qwen05.yaml`. Per GPU diverse da L40S:
 
 **Per V100 (no bf16):**
 
@@ -176,19 +176,19 @@ grpo:
 ```bash
 cd ~/neuro_symbolic_t2g
 mkdir -p logs
-CONFIG=config/grpo_t2g_qwen05.yaml sbatch src/cluster/train.sh
+CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/train.sh
 ```
 
 ### 5.2. Evaluation su checkpoint
 
 ```bash
-CONFIG=config/grpo_t2g_qwen05.yaml CHECKPOINT=checkpoints/qwen05/final sbatch src/cluster/eval.sh
+CONFIG=experiments/configs/t2g/grpo_qwen05.yaml CHECKPOINT=experiments/checkpoints/grpo/t2g/qwen05/final sbatch cluster/eval.sh
 ```
 
 ### 5.3. Riprendere da un checkpoint
 
 ```bash
-CONFIG=config/grpo_t2g_qwen05.yaml EXTRA_ARGS="--resume" sbatch src/cluster/train.sh
+CONFIG=experiments/configs/t2g/grpo_qwen05.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 ```
 
 ---
@@ -199,7 +199,7 @@ La pipeline orchestrata esegue **train → eval** in sequenza automatica:
 
 ```bash
 # Carica gli alias (una volta per sessione)
-source ~/neuro_symbolic_t2g/src/cluster/aliases.sh
+source ~/neuro_symbolic_t2g/cluster/aliases.sh
 
 # Avvia pipeline train+eval
 t2g-run-all
@@ -228,11 +228,11 @@ t2g-monitor
 
 ```bash
 # 1. Training
-CONFIG=config/grpo_t2g_qwen05.yaml sbatch src/cluster/train.sh
+CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/train.sh
 # Aspetta che finisca (controlla con: squeue -u $USER)
 
 # 2. Evaluation
-CONFIG=config/grpo_t2g_qwen05.yaml CHECKPOINT=checkpoints/qwen05/final sbatch src/cluster/eval.sh
+CONFIG=experiments/configs/t2g/grpo_qwen05.yaml CHECKPOINT=experiments/checkpoints/grpo/t2g/qwen05/final sbatch cluster/eval.sh
 ```
 
 ---
@@ -298,7 +298,7 @@ t2g-gpu   # nvidia-smi sul nodo del job attivo
 ### Resume automatico dopo timeout (12h)
 
 ```bash
-CONFIG=config/grpo_t2g_qwen05.yaml EXTRA_ARGS="--resume" sbatch src/cluster/train.sh
+CONFIG=experiments/configs/t2g/grpo_qwen05.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 ```
 
 ### Resume via pipeline (da job fallito)
@@ -412,7 +412,7 @@ t2g-pip-reset
 
 ### "pip WARNING: not on PATH" (centinaia di warning)
 
-Esegui `source ~/neuro_symbolic_t2g/src/cluster/aliases.sh` e poi:
+Esegui `source ~/neuro_symbolic_t2g/cluster/aliases.sh` e poi:
 
 ```bash
 t2g-install-aliases
@@ -441,12 +441,12 @@ rsync -avz neuro_symbolic_t2g/ utente@gcluster:~/neuro_symbolic_t2g/  # Linux
 # 2. Setup
 ssh utente@gcluster.dmi.unict.it
 srun --account <queue> --partition <queue> --qos gpu-medium --gres=gpu:1 --pty bash
-cd ~/neuro_symbolic_t2g && bash src/cluster/setup.sh
+cd ~/neuro_symbolic_t2g && bash cluster/setup.sh
 exit
 
 # === OGNI VOLTA ===
 # 3. Carica alias
-source ~/neuro_symbolic_t2g/src/cluster/aliases.sh
+source ~/neuro_symbolic_t2g/cluster/aliases.sh
 
 # 4. Lancia pipeline
 t2g-run-all

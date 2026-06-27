@@ -26,7 +26,7 @@ fi
 # il retry va in timeout, la pipeline si ferma normalmente.
 #
 # Uso:
-#   nohup bash src/cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
+#   nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
 #
 # Per interrompere: kill $(cat .chain_pid), oppure cancella .job_chain
 # ============================================================================
@@ -277,7 +277,7 @@ while true; do
 
                 echo "[chain] ❌ Ultimo job $LAST_JOB_ID ($LAST_JOB_DESC) FALLITO (state=$STATE exit=$EXIT_CODE) — $(date)"
                 echo "${LAST_JOB_DESC}" > "$FAILED_FILE"
-                echo "[chain] Pipeline interrotta. Usa: bash src/cluster/run_all.sh --resume"
+                echo "[chain] Pipeline interrotta. Usa: bash cluster/run_all.sh --resume"
                 rm -f "$PROJ_DIR/.chain_pid"
                 exit 1
             fi
@@ -405,7 +405,7 @@ while true; do
             echo "${LAST_JOB_DESC}" > "$FAILED_FILE"
             REMAINING=$([ -f "$CHAIN_FILE" ] && wc -l < "$CHAIN_FILE" || echo 0)
             echo "[chain] Pipeline interrotta. Rimanenti: $REMAINING job"
-            echo "[chain] Per riprendere: bash src/cluster/run_all.sh --resume"
+            echo "[chain] Per riprendere: bash cluster/run_all.sh --resume"
             rm -f "$PROJ_DIR/.chain_pid"
             exit 1
         fi
@@ -434,7 +434,7 @@ while true; do
     if [ -z "$CFG" ]; then
         echo "[chain] ❌ Config vuoto per $TYPE $TAG — catena corrotta"
         echo "${NEXT}" > "$FAILED_FILE"
-        echo "[chain] Pipeline interrotta. Per riprendere: bash src/cluster/run_all.sh --resume"
+        echo "[chain] Pipeline interrotta. Per riprendere: bash cluster/run_all.sh --resume"
         rm -f "$PROJ_DIR/.chain_pid"
         exit 1
     fi
@@ -446,14 +446,14 @@ while true; do
 
     case "$TYPE" in
         train)
-            LAST_JOB_ID=$(CONFIG="$CFG" EXTRA_ARGS="$EXTRA" sbatch --job-name="train-${TAG}" --parsable src/cluster/train.sh 2>&1 | grep -oP '^\d+$')
+            LAST_JOB_ID=$(CONFIG="$CFG" EXTRA_ARGS="$EXTRA" sbatch --job-name="train-${TAG}" --parsable cluster/train.sh 2>&1 | grep -oP '^\d+$')
             ;;
         eval)
             SKIP_N=0
             if echo "$EXTRA" | grep -qP '^--skip-stages=\d+$'; then
                 SKIP_N=$(echo "$EXTRA" | grep -oP '\d+')
             fi
-            LAST_JOB_ID=$(CONFIG="$CFG" SKIP_STAGES="$SKIP_N" sbatch --job-name="eval-${TAG}" --parsable src/cluster/eval.sh 2>&1 | grep -oP '^\d+$')
+            LAST_JOB_ID=$(CONFIG="$CFG" SKIP_STAGES="$SKIP_N" sbatch --job-name="eval-${TAG}" --parsable cluster/eval.sh 2>&1 | grep -oP '^\d+$')
             ;;
         *)
             echo "[chain] ❌ Tipo sconosciuto: $TYPE — skip"
@@ -468,7 +468,7 @@ while true; do
         if [ "$SBATCH_RETRIES" -gt "$MAX_SBATCH_RETRIES" ]; then
             echo "[chain] ❌ sbatch fallito $MAX_SBATCH_RETRIES volte consecutive — pipeline interrotta"
             echo "${NEXT}" > "$FAILED_FILE"
-            echo "[chain] Per riprendere: bash src/cluster/run_all.sh --resume"
+            echo "[chain] Per riprendere: bash cluster/run_all.sh --resume"
             rm -f "$PROJ_DIR/.chain_pid"
             exit 1
         fi

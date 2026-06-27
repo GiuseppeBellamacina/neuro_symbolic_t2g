@@ -1,18 +1,16 @@
 #!/bin/bash
 # ============================================================================
-# SLURM batch script — T2G GRPO Training sul cluster
+# SLURM batch script — T2G Evaluation sul cluster
 #
 # Uso:
-#   CONFIG=config/grpo_t2g_qwen05.yaml sbatch src/cluster/train.sh
-#   CONFIG=config/grpo_t2g_qwen05.yaml EXTRA_ARGS="--resume" sbatch src/cluster/train.sh
-#
-# Per il primo avvio eseguire prima:  bash src/cluster/setup.sh
+#   CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/eval.sh
+#   CONFIG=experiments/configs/t2g/grpo_qwen05.yaml CHECKPOINT="path/to/ckpt" sbatch cluster/eval.sh
 # ============================================================================
 
 # ┌────────────────────────────────────────────────────────┐
 # │  CONFIGURA QUI — modifica account/partition/qos/email  │
 # └────────────────────────────────────────────────────────┘
-#SBATCH --job-name=train-t2g
+#SBATCH --job-name=eval-t2g
 #SBATCH --account=thesis-course
 #SBATCH --partition=thesis-course
 #SBATCH --qos=gpu-xlarge
@@ -21,14 +19,15 @@
 #SBATCH --gres=gpu:1 --gres=shard:22528
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=bellamacina50@gmail.com
-#SBATCH --output=logs/slurm-train-%j.log
+#SBATCH --output=logs/slurm-eval-%j.log
 
 # ── Variabili progetto ────────────────────────────────────────────────────────
-EXTRA_ARGS="${EXTRA_ARGS:-}"
+CHECKPOINT="${CHECKPOINT:-}"
+SKIP_STAGES="${SKIP_STAGES:-0}"
 
 if [ -z "$CONFIG" ]; then
     echo "❌ CONFIG non impostato. Uso:"
-    echo "  CONFIG=config/grpo_t2g_qwen05.yaml sbatch src/cluster/train.sh"
+    echo "  CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/eval.sh"
     exit 1
 fi
 
@@ -36,63 +35,56 @@ fi
 set -e
 
 echo "============================================"
-echo "  T2G GRPO Training — Cluster"
+echo "  T2G Evaluation — Cluster"
 echo "  Job ID:    ${SLURM_JOB_ID}"
 echo "  Node:      $(hostname)"
 echo "  Date:      $(date)"
 echo "  Config:    ${CONFIG}"
-echo "  Extra:     ${EXTRA_ARGS}"
+echo "  Checkpoint: ${CHECKPOINT:-auto}"
 echo "============================================"
 
 mkdir -p logs
 
-export WANDB_MODE=offline
-
 cd "$HOME/neuro_symbolic_t2g"
 
-# Prepara dataset se mancante
-if [ ! -d "data/aslg_pc12_train" ]; then
-    echo "Dataset ASLG-PC12 non trovato, download in corso..."
+# Prepara dataset eval se mancante
+if [ ! -d "data/aslg_pc12_test" ]; then
+    echo "Dataset test non trovato, download in corso..."
     python3 -c "
 from src.data.aslg_dataset import download_aslg_dataset, build_t2g_dataset
 dataset = download_aslg_dataset()
-train_ds = build_t2g_dataset(dataset, split='train')
-train_ds.save_to_disk('data/aslg_pc12_train')
+test_ds = build_t2g_dataset(dataset, split='test')
+test_ds.save_to_disk('data/aslg_pc12_test')
 print('Dataset salvato.')
 "
 fi
 
-if [ ! -f "data/bigram_transition.npy" ]; then
-    echo "Matrici di transizione non trovate, calcolo in corso..."
-    python3 -c "
-from src.data.aslg_dataset import download_aslg_dataset, load_vocabulary
-from src.data.transition_matrix import compute_bigram_transitions, save_transition_matrix
-dataset = download_aslg_dataset()
-vocab = load_vocabulary('data/gloss_vocab.txt')
-bigram = compute_bigram_transitions(dataset, vocab, split='train', smoothing=1.0)
-save_transition_matrix(bigram, 'data/bigram_transition.npy')
-print('Matrici salvate.')
-"
+EVAL_ARGS="--config ${CONFIG}"
+if [ -n "$CHECKPOINT" ]; then
+    EVAL_ARGS="${EVAL_ARGS} --checkpoint ${CHECKPOINT}"
+fi
+if [ "$SKIP_STAGES" != "0" ] && [ -n "$SKIP_STAGES" ]; then
+    EVAL_ARGS="${EVAL_ARGS} --skip-stages ${SKIP_STAGES}"
 fi
 
 echo ""
-echo "Avvio training..."
+echo "Avvio evaluation..."
+echo "  Args: ${EVAL_ARGS}"
 echo ""
 
 # ── Esecuzione ────────────────────────────────────────────────────────────────
-# Se Apptainer è disponibile, usalo
 if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
     apptainer run --nv \
         --env WANDB_MODE=offline \
         --env PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8 \
         /shared/sifs/latest.sif \
-        python -m src.training --config "${CONFIG}" ${EXTRA_ARGS}
+        python -m src.training.eval_t2g ${EVAL_ARGS}
 else
-    python -m src.training --config "${CONFIG}" ${EXTRA_ARGS}
+    python -m src.training.eval_t2g ${EVAL_ARGS}
 fi
 
 echo ""
 echo "============================================"
-echo "  Training completato!"
+echo "  Evaluation completata!"
 echo "  $(date)"
 echo "============================================"

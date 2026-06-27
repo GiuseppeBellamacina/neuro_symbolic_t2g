@@ -14,8 +14,8 @@ Architecture:
        to ASL gloss tokens only.
 
 Usage:
-    python -m src.training --config config/grpo_t2g_qwen05.yaml
-    CONFIG=config/grpo_t2g_qwen05.yaml sbatch src/cluster/train.sh
+    python -m src.training --config experiments/configs/t2g/grpo_qwen05.yaml
+    CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/train.sh
 """
 
 from __future__ import annotations
@@ -28,15 +28,13 @@ import os
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import torch
 import wandb
+from datasets import Dataset
 from dotenv import load_dotenv
 from transformers.integrations.integration_utils import WandbCallback
 from transformers.trainer_callback import ProgressCallback
 from trl import GRPOConfig, GRPOTrainer  # type: ignore[import]
-
-from datasets import Dataset
 
 from src.data.aslg_dataset import (
     build_t2g_dataset,
@@ -49,16 +47,18 @@ from src.data.transition_matrix import (
     load_transition_matrix,
     save_transition_matrix,
 )
-from src.rewards.t2g_rewards import (
-    build_t2g_reward_functions,
-    initialize_rewards,
-    register_gold_glosses,
-)
 from src.grammar.gloss_grammar import GlossVocabularyMask, create_grammarllm_pipeline
 from src.grammar.grammar_logits_processor import (
     GlossVocabularyLogitsProcessor,
     GrammarPDALogitsProcessor,
 )
+from src.models.model_loader import load_model_and_tokenizer
+from src.rewards.t2g_rewards import (
+    build_t2g_reward_functions,
+    initialize_rewards,
+    register_gold_glosses,
+)
+from src.utils.config import load_config
 from src.utils.prompting import build_t2g_prompt
 
 load_dotenv()
@@ -99,12 +99,8 @@ def _build_grpo_config(
         output_dir=output_dir,
         run_name=run_name,
         max_steps=training_cfg.get("max_steps", 1500),
-        per_device_train_batch_size=training_cfg.get(
-            "per_device_train_batch_size", 1
-        ),
-        gradient_accumulation_steps=training_cfg.get(
-            "gradient_accumulation_steps", 8
-        ),
+        per_device_train_batch_size=training_cfg.get("per_device_train_batch_size", 1),
+        gradient_accumulation_steps=training_cfg.get("gradient_accumulation_steps", 8),
         learning_rate=training_cfg.get("learning_rate", 5e-6),
         lr_scheduler_type=training_cfg.get("lr_scheduler_type", "cosine"),
         **warmup_kwargs,
@@ -125,171 +121,6 @@ def _build_grpo_config(
         reward_weights=reward_weights,
         report_to="wandb",
     )
-
-
-# ---------------------------------------------------------------------------
-# Model loading
-# ---------------------------------------------------------------------------
-
-
-def _load_model_and_tokenizer(
-    config: dict[str, Any],
-) -> tuple[Any, Any]:
-    """Load model and tokenizer with Unsloth or standard HF."""
-    model_cfg = config["model"]
-    use_unsloth = model_cfg.get("use_unsloth", False)
-
-    if use_unsloth:
-        return _load_with_unsloth(config)
-    return _load_with_transformers(config)
-
-
-def _load_with_unsloth(
-    config: dict[str, Any],
-) -> tuple[Any, Any]:
-    """Load via Unsloth's FastLanguageModel (optimized training + vLLM)."""
-    from unsloth import FastLanguageModel
-
-    model_cfg = config["model"]
-    lora_cfg = config.get("lora", {})
-
-    quantization = model_cfg.get("quantization", "4bit")
-    load_in_4bit = quantization == "4bit"
-
-    logger.info(
-        f"[unsloth] Loading {model_cfg['name']} "
-        f"(4bit={load_in_4bit}, max_seq={model_cfg.get('max_seq_length', 1024)})"
-    )
-
-    # vLLM fast inference
-    fi_kwargs: dict[str, Any] = {}
-    use_fast = model_cfg.get("fast_inference", False)
-    if use_fast:
-        try:
-            import vllm  # noqa: F401
-        except ImportError:
-            logger.warning("vLLM not available; disabling fast_inference")
-            use_fast = False
-
-    if use_fast:
-        fi_kwargs["fast_inference"] = True
-        fi_kwargs["max_lora_rank"] = lora_cfg.get("r", 16)
-        fi_kwargs["gpu_memory_utilization"] = model_cfg.get(
-            "gpu_memory_utilization", 0.9
-        )
-        fi_kwargs["unsloth_vllm_standby"] = model_cfg.get(
-            "vllm_standby", False
-        )
-        logger.info("  fast_inference=ON (vLLM backend)")
-
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=model_cfg["name"],
-        max_seq_length=model_cfg.get("max_seq_length", 1024),
-        load_in_4bit=load_in_4bit,
-        dtype=None,
-        **fi_kwargs,
-    )
-
-    # Apply LoRA
-    if lora_cfg:
-        target_modules = lora_cfg.get(
-            "target_modules",
-            ["q_proj", "k_proj", "v_proj", "o_proj",
-             "gate_proj", "up_proj", "down_proj"],
-        )
-        logger.info(
-            f"[unsloth-lora] r={lora_cfg.get('r', 16)}, "
-            f"alpha={lora_cfg.get('lora_alpha', 32)}, "
-            f"targets={target_modules}"
-        )
-        model = FastLanguageModel.get_peft_model(
-            model,
-            r=lora_cfg.get("r", 16),
-            lora_alpha=lora_cfg.get("lora_alpha", 32),
-            lora_dropout=lora_cfg.get("lora_dropout", 0),
-            target_modules=target_modules,
-            use_gradient_checkpointing="unsloth",
-            random_state=lora_cfg.get("random_state", 3407),
-        )
-
-    # Tokenizer setup
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.padding_side = "left"
-
-    return model, tokenizer
-
-
-def _load_with_transformers(
-    config: dict[str, Any],
-) -> tuple[Any, Any]:
-    """Load via standard HuggingFace transformers + PEFT."""
-    from peft import LoraConfig, get_peft_model
-    from transformers import (
-        AutoModelForCausalLM,
-        AutoTokenizer,
-        BitsAndBytesConfig,
-    )
-
-    model_cfg = config["model"]
-    lora_cfg = config.get("lora", {})
-
-    # Quantization
-    quant_config = None
-    if model_cfg.get("quantization") == "4bit":
-        quant_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_use_double_quant=True,
-        )
-    elif model_cfg.get("quantization") == "8bit":
-        quant_config = BitsAndBytesConfig(load_in_8bit=True)
-
-    logger.info(
-        f"[transformers] Loading {model_cfg['name']} "
-        f"(quantization={model_cfg.get('quantization', 'none')})"
-    )
-
-    model = AutoModelForCausalLM.from_pretrained(
-        model_cfg["name"],
-        quantization_config=quant_config,
-        torch_dtype=torch.bfloat16,
-        device_map="auto",
-        trust_remote_code=True,
-    )
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_cfg["name"], trust_remote_code=True
-    )
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.padding_side = "left"
-
-    # Apply LoRA via PEFT
-    if lora_cfg:
-        from peft import prepare_model_for_kbit_training
-
-        if getattr(model, "is_loaded_in_4bit", False) or getattr(
-            model, "is_loaded_in_8bit", False
-        ):
-            model = prepare_model_for_kbit_training(model)
-
-        peft_config = LoraConfig(
-            r=lora_cfg.get("r", 16),
-            lora_alpha=lora_cfg.get("lora_alpha", 32),
-            lora_dropout=lora_cfg.get("lora_dropout", 0.05),
-            target_modules=lora_cfg.get(
-                "target_modules",
-                ["q_proj", "k_proj", "v_proj", "o_proj"],
-            ),
-            task_type="CAUSAL_LM",
-            bias="none",
-        )
-        model = get_peft_model(model, peft_config)
-        logger.info("[peft] LoRA adapters applied")
-
-    return model, tokenizer
 
 
 # ---------------------------------------------------------------------------
@@ -341,9 +172,7 @@ def _prepare_t2g_dataset(
         )
 
     result = Dataset.from_list(formatted)
-    logger.info(
-        f"[dataset] T2G training set: {len(result)} prompts"
-    )
+    logger.info(f"[dataset] T2G training set: {len(result)} prompts")
     return result
 
 
@@ -387,9 +216,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="GRPO training for Text-to-Gloss (T2G) with constrained decoding"
     )
-    parser.add_argument(
-        "--config", type=str, required=True, help="Path to config YAML"
-    )
+    parser.add_argument("--config", type=str, required=True, help="Path to config YAML")
     parser.add_argument(
         "--resume", action="store_true", help="Resume from latest checkpoint"
     )
@@ -400,10 +227,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    import yaml
-
-    with open(args.config, encoding="utf-8") as f:
-        config = yaml.safe_load(f)
+    config = load_config(args.config)
 
     # ── Setup logging ────────────────────────────────────────────────────
     logging.basicConfig(
@@ -426,6 +250,7 @@ def main() -> None:
     # Extract vocabulary (or load from cache)
     if Path(vocab_path).exists():
         from src.data.aslg_dataset import load_vocabulary
+
         vocab = load_vocabulary(vocab_path)
     else:
         vocab = extract_gloss_vocabulary(dataset, split="train")
@@ -441,8 +266,7 @@ def main() -> None:
         save_transition_matrix(bigram_matrix, bigram_path)
 
     logger.info(
-        f"Data prepared: |V|={len(vocab)}, "
-        f"bigram shape={bigram_matrix.shape}"
+        f"Data prepared: |V|={len(vocab)}, " f"bigram shape={bigram_matrix.shape}"
     )
 
     if args.prepare_data:
@@ -454,7 +278,7 @@ def main() -> None:
     logger.info("STEP 2: Model Loading")
     logger.info("=" * 60)
 
-    model, tokenizer = _load_model_and_tokenizer(config)
+    model, tokenizer = load_model_and_tokenizer(config)
 
     # ── Step 3: Constrained decoding setup ────────────────────────────────
     logger.info("=" * 60)
@@ -470,12 +294,14 @@ def main() -> None:
     if use_pda:
         logger.info("Using FULL grammarllm PDA pipeline for constrained decoding")
         logit_processor, streamer, pda = create_grammarllm_pipeline(
-            vocab, tokenizer,
+            vocab,
+            tokenizer,
             temperature=config["grpo"].get("temperature", 0.7),
         )
         # Wrap in GrammarPDALogitsProcessor for consistent interface
         grammar_lp = GrammarPDALogitsProcessor(
-            tokenizer, pda,
+            tokenizer,
+            pda,
             temperature=config["grpo"].get("temperature", 0.7),
         )
         logits_processor_for_gen = grammar_lp
@@ -531,18 +357,15 @@ def main() -> None:
     logger.info("=" * 60)
 
     initialize_rewards(bigram_matrix, vocab)
-    reward_fns, reward_weights = build_t2g_reward_functions(
-        config.get("reward")
-    )
+    reward_fns, reward_weights = build_t2g_reward_functions(config.get("reward"))
 
     # ── Wire completion sample logging (for live chain_monitor display) ─
     from src.training.callbacks import (
         CompletionSampleCallback,
         CompletionSampleLogger,
     )
-    sample_logger = CompletionSampleLogger(
-        reward_fns, reward_weights, n_samples=3
-    )
+
+    sample_logger = CompletionSampleLogger(reward_fns, reward_weights, n_samples=3)
     sample_logger.set_difficulty_map(t2g_dataset)
     wrapped_reward_fns = sample_logger.wrapped_reward_fns
     sample_callback = CompletionSampleCallback(sample_logger, every_n_steps=5)

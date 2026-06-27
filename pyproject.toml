@@ -7,32 +7,41 @@ authors = [
     { name = "Neuro-Symbolic T2G Team" },
 ]
 dependencies = [
-    "torch>=2.0.0",
-    "transformers>=4.30.0",
-    "trl>=0.12.0",
-    "peft>=0.10.0",
-    "datasets>=2.14.0",
-    "accelerate>=0.26.0",
-    "bitsandbytes>=0.41.0",
+    # Core ML
+    "torch",
+    "transformers",
+    "trl==0.24.0",
+    "peft",
+    "datasets",
+    "accelerate",
+    "bitsandbytes",
+    # Data & Eval
     "rouge-score>=0.1.2",
-    "numpy>=1.24.0",
-    "scipy>=1.10.0",
-    "pyyaml>=6.0",
-    "tqdm>=4.65.0",
-    "wandb>=0.15.0",
-    "safetensors>=0.4.0",
-    "matplotlib>=3.7.0",
-    "seaborn>=0.12.0",
-    "pandas>=2.0.0",
+    "numpy",
+    "scipy",
+    "pandas",
+    "matplotlib",
+    "seaborn",
     "plotnine>=0.14.0",
-    "python-dotenv>=1.0.0",
+    # Infra
+    "pyyaml",
+    "tqdm",
+    "wandb",
+    "safetensors",
+    "python-dotenv",
     "regex",
 ]
 
 [project.optional-dependencies]
 gpu = [
-    "unsloth>=2024.0.0",
-    "vllm>=0.4.0",
+    "unsloth==2026.3.17; sys_platform == 'linux'",
+    "vllm==0.18.0; sys_platform == 'linux'",
+]
+dev = [
+    "isort",
+    "black[jupyter]",
+    "ruff",
+    "pytest",
 ]
 
 [tool.setuptools.packages.find]
@@ -45,3 +54,23 @@ include = ["grammarllm*", "src*", "neuro_symbolic_t2g*"]
 [build-system]
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.isort]
+profile = "black"
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E402", "E501"]
+
+[tool.uv]
+required-environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]

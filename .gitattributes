@@ -1,0 +1,7 @@
+# Normalize line endings: commit as LF, checkout as OS-native
+* text=auto
+
+# Force LF for files that MUST be LF (Docker/Linux)
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

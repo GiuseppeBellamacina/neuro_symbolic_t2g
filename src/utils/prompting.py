@@ -43,12 +43,15 @@ def build_t2g_prompt(text: str, tokenizer: Any) -> str:
         {"role": "user", "content": text},
     ]
 
-    if hasattr(tokenizer, "apply_chat_template") and getattr(
-        tokenizer, "chat_template", None
-    ) is not None:
+    if (
+        hasattr(tokenizer, "apply_chat_template")
+        and getattr(tokenizer, "chat_template", None) is not None
+    ):
         try:
             return tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True,
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
             )
         except Exception:
             pass

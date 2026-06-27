@@ -73,14 +73,12 @@ class PushdownAutomaton:
                 for terminal, tokens in value.items():
                     if isinstance(tokens, list):
                         for token in tokens:
-                            self.map_tokens_terminals.setdefault(
-                                token, []
-                            ).append(terminal)
+                            self.map_tokens_terminals.setdefault(token, []).append(
+                                terminal
+                            )
             elif isinstance(value, list):
                 for token in value:
-                    self.map_tokens_terminals.setdefault(
-                        token, []
-                    ).append(non_terminal)
+                    self.map_tokens_terminals.setdefault(token, []).append(non_terminal)
 
     def reset(self) -> None:
         """Reset the automaton to its initial state."""
@@ -185,9 +183,7 @@ class PushdownAutomaton:
         logger.info("Current terminals: %s", self.current_terminals)
 
         if token_gen not in self.map_tokens_terminals:
-            raise PDAError(
-                f"Token {token_gen} not found in token-to-terminal map."
-            )
+            raise PDAError(f"Token {token_gen} not found in token-to-terminal map.")
 
         check_terminals = set(self.map_tokens_terminals[token_gen]).intersection(
             set(self.current_terminals)

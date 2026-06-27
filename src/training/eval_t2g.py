@@ -16,14 +16,15 @@ Optionally generates plots via ``visualization.py`` (plotnine):
     - Reward component breakdown
 
 Usage:
-    python -m src.training.eval_t2g --config config/grpo_t2g_qwen05.yaml --checkpoint checkpoints/qwen05/final
-    python -m src.training.eval_t2g --config config/grpo_t2g_qwen05.yaml --checkpoint path/to/ckpt --num-samples 5 --plot
-    python -m src.training.eval_t2g --config config/grpo_t2g_qwen05.yaml --checkpoint path/to/ckpt --baseline 0.15 --plot
+    python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --checkpoint experiments/checkpoints/grpo/t2g/qwen05/final
+    python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --checkpoint path/to/ckpt --num-samples 5 --plot
+    python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --checkpoint path/to/ckpt --baseline 0.15 --plot
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 from collections import Counter
@@ -44,12 +45,11 @@ from src.data.transition_matrix import (
 )
 from src.grammar.gloss_grammar import GlossVocabularyMask
 from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
-import hashlib
-
 from src.rewards.t2g_rewards import (
     initialize_rewards,
     register_gold_glosses,
 )
+from src.utils.config import load_config
 from src.utils.prompting import build_t2g_prompt
 
 logger = logging.getLogger("t2g-eval")
@@ -77,7 +77,8 @@ def load_model_for_eval(
     logger.info(f"Loading model from {checkpoint_path} (is_peft={is_peft})...")
 
     tokenizer = AutoTokenizer.from_pretrained(
-        checkpoint_path, trust_remote_code=True,
+        checkpoint_path,
+        trust_remote_code=True,
     )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -92,6 +93,7 @@ def load_model_for_eval(
             trust_remote_code=True,
         )
         from peft import PeftModel
+
         model = PeftModel.from_pretrained(model, str(ckpt_path))
         model = model.merge_and_unload()
         logger.info("  LoRA adapters merged and unloaded")
@@ -133,7 +135,8 @@ def _generate_one(
         )
     prompt_len = inputs["input_ids"].shape[1]
     return tokenizer.decode(
-        output[0][prompt_len:], skip_special_tokens=True,
+        output[0][prompt_len:],
+        skip_special_tokens=True,
     ).strip()
 
 
@@ -161,7 +164,6 @@ def evaluate_checkpoint(
     """
     ds_cfg = config["dataset"]
     grpo_cfg = config["grpo"]
-    reward_cfg = config.get("reward", {})
 
     # ── Load test data ───────────────────────────────────────────────────
     dataset = download_aslg_dataset(cache_dir=ds_cfg.get("dataset_cache"))
@@ -175,13 +177,15 @@ def evaluate_checkpoint(
 
     # ── Load model ───────────────────────────────────────────────────────
     model, tokenizer = load_model_for_eval(
-        checkpoint_path, config["model"]["name"],
+        checkpoint_path,
+        config["model"]["name"],
     )
 
     # ── Constrained decoding ─────────────────────────────────────────────
     gloss_mask = GlossVocabularyMask(vocab, tokenizer)
     logits_processor = GlossVocabularyLogitsProcessor(
-        gloss_mask, device=str(model.device),
+        gloss_mask,
+        device=str(model.device),
     )
 
     # ── Prepare test samples ─────────────────────────────────────────────
@@ -199,13 +203,6 @@ def evaluate_checkpoint(
     all_bigram_scores: list[float] = []
     all_exact_matches: list[float] = []
 
-    system_prompt = (
-        "You are an English-to-ASL-gloss translator. "
-        "Translate the following English sentence into a sequence of "
-        "ASL glosses. Output ONLY the gloss tokens separated by spaces. "
-        "Do not include explanations or extra text."
-    )
-
     for sample in tqdm(test_ds, desc="Evaluating"):
         text = sample["text"]
         gold = sample["gloss"]
@@ -218,9 +215,13 @@ def evaluate_checkpoint(
         for _ in range(num_samples):
             temp = 0.7 if do_sample else 1.0  # greedy ignores temperature
             gen = _generate_one(
-                model, tokenizer, prompt, logits_processor,
+                model,
+                tokenizer,
+                prompt,
+                logits_processor,
                 max_new_tokens=grpo_cfg.get("max_completion_length", 256),
-                do_sample=do_sample, temperature=temp,
+                do_sample=do_sample,
+                temperature=temp,
             )
             logits_processor.reset()
             completions.append(gen)
@@ -230,9 +231,7 @@ def evaluate_checkpoint(
 
         all_references.append(gold)
         all_sample_ids.append(
-            hashlib.sha256(
-                str(text).encode("utf-8", errors="replace")
-            ).hexdigest()
+            hashlib.sha256(str(text).encode("utf-8", errors="replace")).hexdigest()
         )
 
         # Bigram score (on first completion)
@@ -267,12 +266,9 @@ def evaluate_checkpoint(
     # Flatten completions and sample_ids for per-completion metrics.
     # For num_samples=1, there is 1 completion per prompt.
     # For num_samples>1, all completions are scored individually.
-    flat_completions: list[str] = [
-        c for comps in all_completions for c in comps
-    ]
+    flat_completions: list[str] = [c for comps in all_completions for c in comps]
     flat_sample_ids: list[str] = [
-        sid for i, sid in enumerate(all_sample_ids)
-        for _ in all_completions[i]
+        sid for i, sid in enumerate(all_sample_ids) for _ in all_completions[i]
     ]
 
     # Validity stats
@@ -289,7 +285,8 @@ def evaluate_checkpoint(
     passk: dict[str, float] = {}
     if num_samples > 1:
         passk = compute_pass_at_k(
-            all_completions, all_references,
+            all_completions,
+            all_references,
             k_values=tuple(range(1, min(num_samples + 1, 11))),
             threshold=0.3,
         )
@@ -299,11 +296,14 @@ def evaluate_checkpoint(
 
     # Per-component reward breakdown (all completions with sample_ids)
     reward_components = compute_reward_breakdown(
-        flat_completions, sample_ids=flat_sample_ids,
+        flat_completions,
+        sample_ids=flat_sample_ids,
     )
 
     # ROUGE-L mean/std
-    rouge_scores = [rouge_l_score(c, r) for c, r in zip(flat_completions, all_references)]
+    rouge_scores = [
+        rouge_l_score(c, r) for c, r in zip(flat_completions, all_references)
+    ]
 
     # ── Assemble results ─────────────────────────────────────────────────
     results: dict[str, Any] = {
@@ -312,8 +312,12 @@ def evaluate_checkpoint(
         "rouge_l_mean": float(np.mean(rouge_scores)) if rouge_scores else 0.0,
         "rouge_l_std": float(np.std(rouge_scores)) if rouge_scores else 0.0,
         "pass_at_1": pass1,
-        "bigram_log_prob_mean": float(np.mean(all_bigram_scores)) if all_bigram_scores else 0.0,
-        "bigram_log_prob_std": float(np.std(all_bigram_scores)) if all_bigram_scores else 0.0,
+        "bigram_log_prob_mean": (
+            float(np.mean(all_bigram_scores)) if all_bigram_scores else 0.0
+        ),
+        "bigram_log_prob_std": (
+            float(np.std(all_bigram_scores)) if all_bigram_scores else 0.0
+        ),
         "exact_match": float(np.mean(all_exact_matches)) if all_exact_matches else 0.0,
         "validity_rate": valid_count / max(len(flat_completions), 1),
         "valid_count": valid_count,
@@ -339,13 +343,26 @@ def main() -> None:
     parser.add_argument("--config", type=str, required=True, help="Config YAML path")
     parser.add_argument("--checkpoint", type=str, required=True, help="Checkpoint path")
     parser.add_argument("--max-samples", type=int, default=200, help="Max test samples")
-    parser.add_argument("--num-samples", type=int, default=1,
-                        help="Completions per prompt (1=greedy, >1=sampled for Pass@k)")
-    parser.add_argument("--output", type=str, default=None, help="Path to save results JSON")
-    parser.add_argument("--plot", action="store_true",
-                        help="Generate evaluation plots via visualization.py")
-    parser.add_argument("--baseline", type=float, default=None,
-                        help="Baseline Pass@1 for comparison plot")
+    parser.add_argument(
+        "--num-samples",
+        type=int,
+        default=1,
+        help="Completions per prompt (1=greedy, >1=sampled for Pass@k)",
+    )
+    parser.add_argument(
+        "--output", type=str, default=None, help="Path to save results JSON"
+    )
+    parser.add_argument(
+        "--plot",
+        action="store_true",
+        help="Generate evaluation plots via visualization.py",
+    )
+    parser.add_argument(
+        "--baseline",
+        type=float,
+        default=None,
+        help="Baseline Pass@1 for comparison plot",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -353,15 +370,17 @@ def main() -> None:
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
 
-    import yaml
+    config = load_config(args.config)
 
-    with open(args.config, encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-
-    model_tag = Path(args.checkpoint).parent.name if Path(args.checkpoint).name == "final" else Path(args.checkpoint).name
+    model_tag = (
+        Path(args.checkpoint).parent.name
+        if Path(args.checkpoint).name == "final"
+        else Path(args.checkpoint).name
+    )
 
     results, completions, validity = evaluate_checkpoint(
-        config, args.checkpoint,
+        config,
+        args.checkpoint,
         max_samples=args.max_samples,
         num_samples=args.num_samples,
     )
@@ -372,19 +391,23 @@ def main() -> None:
     print("=" * 60)
     print(f"  Samples evaluated:       {results['num_samples_evaluated']}")
     print(f"  Completions per prompt:  {results['num_completions_per_prompt']}")
-    print(f"  ROUGE-L (mean ± std):    {results['rouge_l_mean']:.4f} ± {results['rouge_l_std']:.4f}")
+    print(
+        f"  ROUGE-L (mean ± std):    {results['rouge_l_mean']:.4f} ± {results['rouge_l_std']:.4f}"
+    )
     print(f"  Pass@1:                  {results['pass_at_1']:.4f}")
     if "pass_at_k" in results:
         for k, v in results["pass_at_k"].items():
             print(f"  {k}:{' ' * (25 - len(k))}{v:.4f}")
     print(f"  Exact match:             {results['exact_match']:.4f}")
     print(f"  Bigram log-prob (mean):  {results['bigram_log_prob_mean']:.4f}")
-    print(f"  Validity rate:           {results['validity_rate']:.4f}  "
-          f"({results['valid_count']} valid / {results['invalid_count']} invalid)")
-    print(f"\n  ── Reward Breakdown ──")
+    print(
+        f"  Validity rate:           {results['validity_rate']:.4f}  "
+        f"({results['valid_count']} valid / {results['invalid_count']} invalid)"
+    )
+    print("\n  ── Reward Breakdown ──")
     for k, v in results["reward_breakdown"].items():
         print(f"    {k}: {v:.4f}")
-    print(f"\n  ── Error Distribution ──")
+    print("\n  ── Error Distribution ──")
     for err, count in results["error_distribution"].items():
         print(f"    {err}: {count}")
     print("=" * 60)
@@ -396,7 +419,9 @@ def main() -> None:
         ckpt_name = Path(args.checkpoint).name
         out_path = Path(args.checkpoint).parent / f"eval_{ckpt_name}.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
+    out_path.write_text(
+        json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     logger.info(f"Results saved to {out_path}")
 
     # ── Generate plots ───────────────────────────────────────────────────
@@ -413,7 +438,8 @@ def main() -> None:
 
         # 1. Completion length distribution
         plot_completion_length_distribution(
-            completions, valid_mask=valid_mask,
+            completions,
+            valid_mask=valid_mask,
             title=f"Gloss Length — {model_tag}",
             output_path=str(figures_dir / "completion_lengths.png"),
         )

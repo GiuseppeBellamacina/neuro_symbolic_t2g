@@ -68,7 +68,10 @@ def test_completion_sample_extraction() -> None:
     check("Contains TOTAL", "TOTAL" in text or "total" in text.lower())
 
     # Verify difficulty badge
-    check("Difficulty badge present", "medium" in text.lower() or "difficulty" in text.lower())
+    check(
+        "Difficulty badge present",
+        "medium" in text.lower() or "difficulty" in text.lower(),
+    )
 
     # Empty log should return empty
     empty = _extract_completion_samples(["no samples here"])
@@ -77,8 +80,8 @@ def test_completion_sample_extraction() -> None:
 
 def test_training_log_parsing() -> None:
     print("\n-- 2. Training Log Parsing --")
-    from src.utils.chain_monitor import JobInfo, _KV_STEP, _KV_REWARD, _TQDM_PROGRESS
-    from dataclasses import replace
+
+    from src.utils.chain_monitor import _KV_REWARD, _KV_STEP, _TQDM_PROGRESS, JobInfo
 
     # Test key=value step parsing
     line1 = "  step=420 loss=0.005 reward=0.450 reward_std=0.05 learning_rate=5e-06"
@@ -102,14 +105,25 @@ def test_training_log_parsing() -> None:
 
     # Test dict-style reward
     from src.utils.chain_monitor import _DICT_REWARD
+
     line3 = "{'loss': 0.005, 'grad_norm': 0.1, 'learning_rate': 5e-06, 'reward': 0.5025, 'epoch': 1.0}"
     m4 = _DICT_REWARD.search(line3)
     check("Dict reward matched", m4 is not None)
     if m4:
-        check("Dict reward = 0.5025", abs(float(m4.group(1)) - 0.5025) < 0.01, m4.group(1))
+        check(
+            "Dict reward = 0.5025", abs(float(m4.group(1)) - 0.5025) < 0.01, m4.group(1)
+        )
 
     # Test JobInfo
-    job = JobInfo(job_type="train", config="", tag="qwen05", slurm_id="12345", state="RUNNING", step=100, stage_total=1500)
+    job = JobInfo(
+        job_type="train",
+        config="",
+        tag="qwen05",
+        slurm_id="12345",
+        state="RUNNING",
+        step=100,
+        stage_total=1500,
+    )
     check("JobInfo label", job.label == "train-qwen05")
     check("JobInfo step", job.step == 100)
     check("JobInfo stage_total", job.stage_total == 1500)
@@ -117,8 +131,12 @@ def test_training_log_parsing() -> None:
 
 def test_time_helpers() -> None:
     print("\n-- 3. Time Helpers --")
-    from src.utils.chain_monitor import _parse_elapsed_seconds, _format_duration, _estimate_eta
-    from src.utils.chain_monitor import JobInfo
+    from src.utils.chain_monitor import (
+        JobInfo,
+        _estimate_eta,
+        _format_duration,
+        _parse_elapsed_seconds,
+    )
 
     # Parse elapsed
     s1 = _parse_elapsed_seconds("12:34")
@@ -144,7 +162,14 @@ def test_time_helpers() -> None:
     check("ETA from tqdm", eta1 == "25:49")
 
     # ETA from elapsed
-    job2 = JobInfo(job_type="train", config="", tag="qwen05", step=400, stage_total=1500, elapsed="1:00:00")
+    job2 = JobInfo(
+        job_type="train",
+        config="",
+        tag="qwen05",
+        step=400,
+        stage_total=1500,
+        elapsed="1:00:00",
+    )
     eta2 = _estimate_eta(job2)
     check("ETA from elapsed is not empty", len(eta2) > 0)
     check("ETA from elapsed > 1h", "h" in eta2, eta2)
@@ -152,8 +177,8 @@ def test_time_helpers() -> None:
 
 def test_eval_log_parsing() -> None:
     print("\n-- 4. Eval Log Parsing --")
-    import re
-    from src.utils.chain_monitor import _EVAL_PASS, _EVAL_CHECKPOINT, _EVAL_COMPLETE
+
+    from src.utils.chain_monitor import _EVAL_CHECKPOINT, _EVAL_COMPLETE, _EVAL_PASS
 
     line = "  qwen05                    Pass@1:   0.8523"
     m = _EVAL_PASS.search(line)
@@ -175,15 +200,27 @@ def test_eval_log_parsing() -> None:
 
 def test_estimate_total_eta() -> None:
     print("\n-- 5. Estimate Total ETA --")
-    from src.utils.chain_monitor import _estimate_total_eta, JobInfo
+    from src.utils.chain_monitor import JobInfo, _estimate_total_eta
 
-    job = JobInfo(job_type="train", config="", tag="qwen05",
-                  step=400, stage_total=1500, tqdm_elapsed="20:00")
+    job = JobInfo(
+        job_type="train",
+        config="",
+        tag="qwen05",
+        step=400,
+        stage_total=1500,
+        tqdm_elapsed="20:00",
+    )
     eta = _estimate_total_eta(job)
     check("Total ETA for train is non-empty", len(eta) > 0 if eta else True)
 
-    job2 = JobInfo(job_type="train", config="", tag="qwen05",
-                   step=1500, stage_total=1500, tqdm_elapsed="1:00:00")
+    job2 = JobInfo(
+        job_type="train",
+        config="",
+        tag="qwen05",
+        step=1500,
+        stage_total=1500,
+        tqdm_elapsed="1:00:00",
+    )
     eta2 = _estimate_total_eta(job2)
     check("Total ETA when complete = empty", eta2 == "")
 
@@ -208,6 +245,7 @@ def main() -> None:
     except Exception as e:
         print(f"\n  !! CRASH: {e}")
         import traceback
+
         traceback.print_exc()
         FAIL += 1
 

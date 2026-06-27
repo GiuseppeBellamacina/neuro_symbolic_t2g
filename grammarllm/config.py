@@ -6,7 +6,6 @@ Provides shared paths and constants used across the package.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 #: Root directory of the grammarllm package.

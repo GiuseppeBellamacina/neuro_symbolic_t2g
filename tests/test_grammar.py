@@ -55,12 +55,26 @@ def test_gloss_vocabulary_mask(tokenizer) -> None:
     from src.grammar.gloss_grammar import GlossVocabularyMask
 
     test_vocab = [
-        "<BOS>", "<EOS>", "<UNK>", "IX", "MAN", "WALK",
-        "HOUSE", "BOOK", "fs-JOHN", "fs-MARY", "NOT", "CAN",
+        "<BOS>",
+        "<EOS>",
+        "<UNK>",
+        "IX",
+        "MAN",
+        "WALK",
+        "HOUSE",
+        "BOOK",
+        "fs-JOHN",
+        "fs-MARY",
+        "NOT",
+        "CAN",
     ]
     mask = GlossVocabularyMask(test_vocab, tokenizer)
 
-    check("Mask has token IDs", len(mask.token_ids) > 0, f"{len(mask.token_ids)} token IDs")
+    check(
+        "Mask has token IDs",
+        len(mask.token_ids) > 0,
+        f"{len(mask.token_ids)} token IDs",
+    )
     check("EOS is in token IDs", mask.eos_token_id in mask.token_ids)
     check("EOS is allowed", mask.is_allowed(mask.eos_token_id))
     check("Random high ID is NOT allowed", not mask.is_allowed(999999))
@@ -68,7 +82,10 @@ def test_gloss_vocabulary_mask(tokenizer) -> None:
     # Tokenizer-specific: the subword tokenization might produce
     # different numbers of token IDs than number of glosses.
     # This is expected ? just verify at least EOS is included.
-    check("get_allowed_token_ids returns list", isinstance(mask.get_allowed_token_ids(), list))
+    check(
+        "get_allowed_token_ids returns list",
+        isinstance(mask.get_allowed_token_ids(), list),
+    )
     check("Allowed IDs non-empty", len(mask.get_allowed_token_ids()) > 0)
 
     allowed = mask.get_allowed_token_ids()
@@ -83,8 +100,18 @@ def test_logits_processor(tokenizer) -> None:
     from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
 
     test_vocab = [
-        "<BOS>", "<EOS>", "<UNK>", "IX", "MAN", "WALK",
-        "HOUSE", "BOOK", "fs-JOHN", "NOT", "CAN", "WANT",
+        "<BOS>",
+        "<EOS>",
+        "<UNK>",
+        "IX",
+        "MAN",
+        "WALK",
+        "HOUSE",
+        "BOOK",
+        "fs-JOHN",
+        "NOT",
+        "CAN",
+        "WANT",
     ]
     mask = GlossVocabularyMask(test_vocab, tokenizer)
     processor = GlossVocabularyLogitsProcessor(mask, device="cpu")
@@ -101,7 +128,9 @@ def test_logits_processor(tokenizer) -> None:
     check("Step counter incremented", processor.step_count == 1)
 
     # Count allowed tokens
-    num_allowed = sum(1 for i in range(vocab_size) if filtered[0, i].item() != float("-inf"))
+    num_allowed = sum(
+        1 for i in range(vocab_size) if filtered[0, i].item() != float("-inf")
+    )
     num_disallowed = vocab_size - num_allowed
     check("Disallowed tokens are -inf", num_disallowed > 0, f"{num_disallowed} masked")
     check("Allowed tokens are finite", num_allowed > 0, f"{num_allowed} allowed")
@@ -115,9 +144,11 @@ def test_logits_processor(tokenizer) -> None:
     else:
         # EOS ID outside vocab range ? can't be in the logit tensor.
         # Verify it IS in the mask's allowed set (pre-generation check).
-        check(f"EOS token {eos_id} >= vocab_size {vocab_size} (added token)",
-              eos_id in mask.token_ids,
-              f"EOS is allowed by mask but outside logit range")
+        check(
+            f"EOS token {eos_id} >= vocab_size {vocab_size} (added token)",
+            eos_id in mask.token_ids,
+            "EOS is allowed by mask but outside logit range",
+        )
 
     # Test reset
     processor.reset()
@@ -129,7 +160,12 @@ def test_decode_to_glosses(tokenizer) -> None:
     from src.grammar.gloss_grammar import GlossVocabularyMask
 
     test_vocab = [
-        "<BOS>", "<EOS>", "<UNK>", "IX", "MAN", "WALK",
+        "<BOS>",
+        "<EOS>",
+        "<UNK>",
+        "IX",
+        "MAN",
+        "WALK",
     ]
     mask = GlossVocabularyMask(test_vocab, tokenizer)
 
@@ -143,9 +179,16 @@ def test_decode_to_glosses(tokenizer) -> None:
         check("decode_to_glosses has content", len(decoded) > 0)
 
     # Test with EOS stops decoding
-    fake_ids = man_tokens + [tokenizer.eos_token_id] + house_tokens if man_tokens else [tokenizer.eos_token_id]
+    fake_ids = (
+        man_tokens + [tokenizer.eos_token_id] + house_tokens
+        if man_tokens
+        else [tokenizer.eos_token_id]
+    )
     decoded = mask.decode_to_glosses(fake_ids)
-    check("decode_to_glosses stops at EOS", len(decoded) <= len(man_tokens) if man_tokens else True)
+    check(
+        "decode_to_glosses stops at EOS",
+        len(decoded) <= len(man_tokens) if man_tokens else True,
+    )
 
 
 def test_grammar_build(tokenizer) -> None:
@@ -153,20 +196,38 @@ def test_grammar_build(tokenizer) -> None:
     from src.grammar.gloss_grammar import build_gloss_grammar
 
     test_vocab = [
-        "<BOS>", "<EOS>", "<UNK>", "IX", "MAN", "WALK",
+        "<BOS>",
+        "<EOS>",
+        "<UNK>",
+        "IX",
+        "MAN",
+        "WALK",
     ]
     grammar = build_gloss_grammar(test_vocab, tokenizer)
 
     check("Grammar has S* start symbol", "S*" in grammar)
-    check("S* has productions", len(grammar["S*"]) > 0, f"{len(grammar['S*'])} productions")
-    check("Productions contain gloss tokens", any("MAN" in p or "WALK" in p for p in grammar["S*"]))
+    check(
+        "S* has productions",
+        len(grammar["S*"]) > 0,
+        f"{len(grammar['S*'])} productions",
+    )
+    check(
+        "Productions contain gloss tokens",
+        any("MAN" in p or "WALK" in p for p in grammar["S*"]),
+    )
     check("Productions contain EOS", any("EOS" in p for p in grammar["S*"]))
-    check("Productions contain S* recursion", any("S*" in p for p in grammar["S*"] if "EOS" not in p))
+    check(
+        "Productions contain S* recursion",
+        any("S*" in p for p in grammar["S*"] if "EOS" not in p),
+    )
 
     # BOS and UNK should NOT appear in productions
     for p in grammar["S*"]:
-        check(f"  Production '{p[:40]}' excludes BOS/UNK",
-              "BOS" not in p and "UNK" not in p, "")
+        check(
+            f"  Production '{p[:40]}' excludes BOS/UNK",
+            "BOS" not in p and "UNK" not in p,
+            "",
+        )
 
 
 def main() -> None:
@@ -184,6 +245,7 @@ def main() -> None:
     except Exception as e:
         print(f"\n  !! CRASH: {e}")
         import traceback
+
         traceback.print_exc()
         FAIL += 1
 

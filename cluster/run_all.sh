@@ -6,12 +6,12 @@
 # controlla ogni 60s se la coda è vuota e sottomette il prossimo job.
 #
 # Uso:
-#   bash src/cluster/run_all.sh                       # train + eval
-#   bash src/cluster/run_all.sh --eval-only            # solo evaluation
-#   bash src/cluster/run_all.sh --train-only           # solo training
-#   bash src/cluster/run_all.sh --resume               # riprendi pipeline fallita
-#   bash src/cluster/run_all.sh --append               # aggiungi job a pipeline attiva
-#   bash src/cluster/run_all.sh --remove               # rimuovi job dalla pipeline
+#   bash cluster/run_all.sh                       # train + eval
+#   bash cluster/run_all.sh --eval-only            # solo evaluation
+#   bash cluster/run_all.sh --train-only           # solo training
+#   bash cluster/run_all.sh --resume               # riprendi pipeline fallita
+#   bash cluster/run_all.sh --append               # aggiungi job a pipeline attiva
+#   bash cluster/run_all.sh --remove               # rimuovi job dalla pipeline
 #
 # Monitorare:
 #   tail -f logs/chain_watcher.log           # log del watcher
@@ -39,7 +39,7 @@ for arg in "$@"; do
         --remove)      REMOVE=1 ;;
         --resume)      RESUME=1 ;;
         --help|-h)
-            echo "Uso: bash src/cluster/run_all.sh [opzioni]"
+            echo "Uso: bash cluster/run_all.sh [opzioni]"
             echo ""
             echo "Opzioni:"
             echo "  --eval-only      Solo evaluation (skip training)"
@@ -53,7 +53,7 @@ for arg in "$@"; do
 done
 
 # ── Modello T2G ───────────────────────────────────────────────────────────────
-MODELS=("qwen05:config/grpo_t2g_qwen05.yaml")
+MODELS=("qwen05:experiments/configs/t2g/grpo_qwen05.yaml")
 
 PROJ_DIR="$HOME/neuro_symbolic_t2g"
 CHAIN_FILE="$PROJ_DIR/.job_chain"
@@ -63,7 +63,7 @@ FAILED_FILE="$PROJ_DIR/.chain_failed"
 if [ "$RESUME" -eq 1 ]; then
     if [ ! -f "$FAILED_FILE" ]; then
         echo "❌ Nessun .chain_failed trovato. Non c'è nulla da riprendere."
-        echo "   Usa: bash src/cluster/run_all.sh (senza --resume) per una nuova pipeline."
+        echo "   Usa: bash cluster/run_all.sh (senza --resume) per una nuova pipeline."
         exit 1
     fi
 
@@ -108,7 +108,7 @@ if [ "$RESUME" -eq 1 ]; then
         rm -f .chain_pid
     fi
 
-    nohup bash src/cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
+    nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
     WATCHER_PID=$!
     echo "$WATCHER_PID" > .chain_pid
 
@@ -270,7 +270,7 @@ if [ -f .chain_pid ]; then
     rm -f .chain_pid
 fi
 
-nohup bash src/cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
+nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
 WATCHER_PID=$!
 echo "$WATCHER_PID" > .chain_pid
 

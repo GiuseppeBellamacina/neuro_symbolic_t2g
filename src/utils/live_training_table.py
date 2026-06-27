@@ -72,8 +72,15 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Live training metrics table for T2G")
-    parser.add_argument("--cols", type=str, default=None, help="Comma-separated column names")
-    parser.add_argument("--rows", type=int, default=20, help="Number of metric rows to keep visible (default: 20)")
+    parser.add_argument(
+        "--cols", type=str, default=None, help="Comma-separated column names"
+    )
+    parser.add_argument(
+        "--rows",
+        type=int,
+        default=20,
+        help="Number of metric rows to keep visible (default: 20)",
+    )
     args = parser.parse_args()
 
     cols = args.cols.split(",") if args.cols else _DEFAULT_COLS

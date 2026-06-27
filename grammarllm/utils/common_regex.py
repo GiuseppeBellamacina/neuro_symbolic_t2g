@@ -8,12 +8,11 @@ regex_decimal = re.compile(r"\d+([.,]\d+)?")  # es. "3.14"
 regex_var = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")  # es. "_varName"
 
 
-
 # Common regex_dict
 regex_dict = {
-    'regex_alfanum': regex_alfanum,
-    'regex_letters': regex_letters,
-    'regex_number': regex_number,
-    'regex_decimal': regex_decimal,
-    'regex_var': regex_var,
+    "regex_alfanum": regex_alfanum,
+    "regex_letters": regex_letters,
+    "regex_number": regex_number,
+    "regex_decimal": regex_decimal,
+    "regex_var": regex_var,
 }

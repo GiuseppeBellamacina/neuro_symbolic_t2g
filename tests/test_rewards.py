@@ -34,15 +34,30 @@ def check(name: str, condition: bool, detail: str = "") -> None:
 
 def setup_rewards():
     """Setup mini vocabulary and bigram matrix for testing."""
-    from src.data.transition_matrix import save_transition_matrix
-    from src.rewards.t2g_rewards import initialize_rewards
-    import numpy as np
     import tempfile
 
+    import numpy as np
+
+    from src.data.transition_matrix import save_transition_matrix
+    from src.rewards.t2g_rewards import initialize_rewards
+
     vocab = [
-        "<BOS>", "<EOS>", "<UNK>",
-        "IX", "MAN", "WALK", "HOUSE", "BOOK", "DOG", "CAT",
-        "NOT", "CAN", "WANT", "GO", "COME", "fs-JOHN",
+        "<BOS>",
+        "<EOS>",
+        "<UNK>",
+        "IX",
+        "MAN",
+        "WALK",
+        "HOUSE",
+        "BOOK",
+        "DOG",
+        "CAT",
+        "NOT",
+        "CAN",
+        "WANT",
+        "GO",
+        "COME",
+        "fs-JOHN",
     ]
     V = len(vocab)
     # Create a plausible bigram matrix with Laplace smoothing
@@ -51,8 +66,11 @@ def setup_rewards():
     token_to_idx = {t: i for i, t in enumerate(vocab)}
     # Set some plausible transitions
     pairs = [
-        ("<BOS>", "IX"), ("IX", "MAN"), ("MAN", "WALK"),
-        ("WALK", "HOUSE"), ("HOUSE", "<EOS>"),
+        ("<BOS>", "IX"),
+        ("IX", "MAN"),
+        ("MAN", "WALK"),
+        ("WALK", "HOUSE"),
+        ("HOUSE", "<EOS>"),
     ]
     for a, b in pairs:
         if a in token_to_idx and b in token_to_idx:
@@ -78,11 +96,17 @@ def test_translation_quality() -> None:
     perfect = "IX MAN WALK HOUSE"
     score_perfect = translation_quality_reward(perfect, gold)
     check("Perfect match > 0.8", score_perfect > 0.8, f"{score_perfect:.4f}")
-    check("Perfect match == 1.0", abs(score_perfect - 1.0) < 0.01, f"{score_perfect:.4f}")
+    check(
+        "Perfect match == 1.0", abs(score_perfect - 1.0) < 0.01, f"{score_perfect:.4f}"
+    )
 
     partial = "IX MAN GO HOUSE"
     score_partial = translation_quality_reward(partial, gold)
-    check("Partial match < perfect", score_partial < score_perfect, f"{score_partial:.4f} vs {score_perfect:.4f}")
+    check(
+        "Partial match < perfect",
+        score_partial < score_perfect,
+        f"{score_partial:.4f} vs {score_perfect:.4f}",
+    )
     check("Partial match > 0", score_partial > 0.0)
 
     bad = "DOG CAT BIRD FISH"
@@ -108,9 +132,16 @@ def test_structural_dense() -> None:
 
     implausible = "DOG fs-JOHN BOOK CAN"
     score_implausible = structural_dense_reward(implausible, normalize=True)
-    check("Implausible in [0,1]", 0.0 <= score_implausible <= 1.0, f"{score_implausible:.4f}")
-    check("Plausible > implausible", score_plausible > score_implausible,
-          f"{score_plausible:.4f} vs {score_implausible:.4f}")
+    check(
+        "Implausible in [0,1]",
+        0.0 <= score_implausible <= 1.0,
+        f"{score_implausible:.4f}",
+    )
+    check(
+        "Plausible > implausible",
+        score_plausible > score_implausible,
+        f"{score_plausible:.4f} vs {score_implausible:.4f}",
+    )
 
     single = "IX"
     score_single = structural_dense_reward(single, normalize=True)
@@ -182,24 +213,34 @@ def test_build_reward_functions() -> None:
     check("4 weights", len(weights) == 4, f"got {len(weights)}")
     check("Funcs and weights same length", len(funcs) == len(weights))
     check("All weights > 0", all(w > 0 for w in weights), f"{weights}")
-    check("Weights sum ? 1.0", abs(sum(weights) - 1.0) < 0.01, f"sum={sum(weights):.4f}")
+    check(
+        "Weights sum ? 1.0", abs(sum(weights) - 1.0) < 0.01, f"sum={sum(weights):.4f}"
+    )
 
     # Check that each function is callable with completions
     completions = ["IX MAN WALK", "DOG CAT", "NOT CAN WANT"]
     for fn in funcs:
         try:
             result = fn(completions)
-            check(f"  {fn.__name__} returns list of floats",
-                  isinstance(result, list) and len(result) == len(completions),
-                  f"{result}")
-            check(f"  {fn.__name__} values are floats",
-                  all(isinstance(v, float) for v in result))
+            check(
+                f"  {fn.__name__} returns list of floats",
+                isinstance(result, list) and len(result) == len(completions),
+                f"{result}",
+            )
+            check(
+                f"  {fn.__name__} values are floats",
+                all(isinstance(v, float) for v in result),
+            )
         except Exception as e:
             check(f"  {fn.__name__} callable", False, f"Exception: {e}")
 
     # Check with custom weights
-    custom = {"weight_translation": 0.5, "weight_structure": 0.5,
-              "weight_format": 0.0, "weight_repetition": 0.0}
+    custom = {
+        "weight_translation": 0.5,
+        "weight_structure": 0.5,
+        "weight_format": 0.0,
+        "weight_repetition": 0.0,
+    }
     funcs2, weights2 = build_t2g_reward_functions(custom)
     check("Custom: 2 functions when zeros", len(funcs2) == 2, f"got {len(funcs2)}")
     check("Custom: weights sum to 1.0", abs(sum(weights2) - 1.0) < 0.01)
@@ -221,6 +262,7 @@ def main() -> None:
     except Exception as e:
         print(f"\n  !! CRASH: {e}")
         import traceback
+
         traceback.print_exc()
         FAIL += 1
 

@@ -3,10 +3,10 @@
 # Alias utili per il cluster DMI — progetto neuro_symbolic_t2g
 #
 # Uso:
-#   source src/cluster/aliases.sh
+#   source cluster/aliases.sh
 #
 # Per caricarli automaticamente, aggiungi al tuo ~/.bashrc:
-#   source ~/neuro_symbolic_t2g/src/cluster/aliases.sh
+#   source ~/neuro_symbolic_t2g/cluster/aliases.sh
 # ============================================================================
 
 PROJ_DIR="$HOME/neuro_symbolic_t2g"
@@ -109,22 +109,26 @@ alias t2g-proj='cd "$PROJ_DIR"'
 
 # Mostra i checkpoint disponibili
 t2g-ckpts() {
-    local base="$PROJ_DIR/checkpoints"
+    local base="$PROJ_DIR/experiments/checkpoints"
     if [ ! -d "$base" ]; then
         echo "Nessun checkpoint trovato."
         return 0
     fi
     echo "──── Checkpoints ────"
-    for d in "$base"/*/; do
+    for d in "$base"/grpo/t2g/*/; do
         [ -d "$d" ] || continue
         echo "  $(basename "$d"):"
-        ls -d "$d"checkpoint-* 2>/dev/null | while read -r c2; do echo "    $(basename "$c2")"; done
+        for run_dir in "$d"*/; do
+            [ -d "$run_dir" ] || continue
+            echo "    $(basename "$run_dir"):"
+            ls -d "$run_dir"checkpoint-* 2>/dev/null | while read -r c2; do echo "      $(basename "$c2")"; done
+        done
     done
 }
 
 # Lancia training (uso: t2g-train [--config PATH] [extra args...])
 t2g-train() {
-    local config="config/grpo_t2g_qwen05.yaml"
+    local config="experiments/configs/t2g/grpo_qwen05.yaml"
     local extra_args=""
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -132,12 +136,12 @@ t2g-train() {
             *) extra_args="$extra_args $1"; shift ;;
         esac
     done
-    cd "$PROJ_DIR" && CONFIG="$config" EXTRA_ARGS="$extra_args" sbatch src/cluster/train.sh
+    cd "$PROJ_DIR" && CONFIG="$config" EXTRA_ARGS="$extra_args" sbatch cluster/train.sh
 }
 
 # Lancia eval (uso: t2g-eval [--config PATH] [--checkpoint PATH])
 t2g-eval() {
-    local config="config/grpo_t2g_qwen05.yaml"
+    local config="experiments/configs/t2g/grpo_qwen05.yaml"
     local checkpoint=""
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -146,12 +150,12 @@ t2g-eval() {
             *) echo "❌ Argomento sconosciuto: $1"; return 1 ;;
         esac
     done
-    cd "$PROJ_DIR" && CONFIG="$config" CHECKPOINT="$checkpoint" sbatch src/cluster/eval.sh
+    cd "$PROJ_DIR" && CONFIG="$config" CHECKPOINT="$checkpoint" sbatch cluster/eval.sh
 }
 
 # Lancia train + eval (uso: t2g-run-all)
 t2g-run-all() {
-    cd "$PROJ_DIR" && bash src/cluster/run_all.sh "$@"
+    cd "$PROJ_DIR" && bash cluster/run_all.sh "$@"
 }
 
 # Controlla se il watcher è attivo
@@ -207,17 +211,17 @@ t2g-watcher-kill() {
 
 # Pulizia workspace (uso: t2g-clean [--force])
 t2g-clean() {
-    cd "$PROJ_DIR" && bash src/cluster/clean.sh "$@"
+    cd "$PROJ_DIR" && bash cluster/clean.sh "$@"
 }
 
 # Aggiungi job alla pipeline attiva (uso: t2g-chain-add)
 t2g-chain-add() {
-    cd "$PROJ_DIR" && bash src/cluster/run_all.sh --append "$@"
+    cd "$PROJ_DIR" && bash cluster/run_all.sh --append "$@"
 }
 
 # Rimuovi job dalla pipeline attiva (uso: t2g-chain-remove --models=1)
 t2g-chain-remove() {
-    cd "$PROJ_DIR" && bash src/cluster/run_all.sh --remove "$@"
+    cd "$PROJ_DIR" && bash cluster/run_all.sh --remove "$@"
 }
 
 # Ferma la pipeline senza perdere lo stato (uso: t2g-chain-stop [--force])
@@ -262,7 +266,7 @@ t2g-chain-stop() {
     else
         local stopped_type=$(echo "$active_name" | cut -d- -f1)
         local stopped_tag=$(echo "$active_name" | cut -d- -f2-)
-        echo "${stopped_type}:config/grpo_t2g_qwen05.yaml:${stopped_tag}:0:${active_job}" > .chain_stopped
+        echo "${stopped_type}:experiments/configs/t2g/grpo_qwen05.yaml:${stopped_tag}:0:${active_job}" > .chain_stopped
         rm -f .chain_failed
         echo "Pipeline fermata. Per riprendere: t2g-chain-start"
     fi
@@ -329,7 +333,7 @@ t2g-chain-start() {
     fi
 
     mkdir -p logs
-    nohup bash src/cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
+    nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
     local WATCHER_PID=$!
     echo "$WATCHER_PID" > .chain_pid
     echo "Pipeline ripresa! Watcher PID: $WATCHER_PID"
@@ -374,7 +378,7 @@ t2g-pip-clean() {
 # (Re)installa dipendenze
 t2g-pip-setup() {
     echo "📦 Installazione dipendenze..."
-    cd "$PROJ_DIR" && bash src/cluster/setup.sh
+    cd "$PROJ_DIR" && bash cluster/setup.sh
 }
 
 # Pulisci e reinstalla da zero
@@ -404,7 +408,7 @@ t2g-help() {
     echo ""
     echo "── Training & eval ──"
     echo "   t2g-train [--config PATH] [extra args...]"
-    echo "                     — lancia training (default: config/grpo_t2g_qwen05.yaml)"
+    echo "                     — lancia training (default: experiments/configs/t2g/grpo_qwen05.yaml)"
     echo "   t2g-eval [--config PATH] [--checkpoint PATH]"
     echo "                     — lancia evaluation"
     echo "   t2g-run-all [--resume]"
@@ -453,7 +457,7 @@ t2g-unload-aliases() {
     echo "✅ Alias T2G rimossi (sessione corrente)."
 }
 
-_ALIASES_SOURCE_LINE="source ~/neuro_symbolic_t2g/src/cluster/aliases.sh"
+_ALIASES_SOURCE_LINE="source ~/neuro_symbolic_t2g/cluster/aliases.sh"
 
 # Aggiungi alias al .bashrc
 t2g-install-aliases() {

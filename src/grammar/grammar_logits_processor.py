@@ -23,8 +23,9 @@ from transformers import LogitsProcessor
 
 # Import grammarllm for full PDA-based constrained decoding
 from grammarllm.modules.PushdownAutomaton import PushdownAutomaton
-from grammarllm.modules.SimpleLogitProcessor_ import MaskLogitsProcessor as GrammarLLMMaskProcessor
-from grammarllm.modules.BaseStreamer import BaseStreamer
+from grammarllm.modules.SimpleLogitProcessor_ import (
+    MaskLogitsProcessor as GrammarLLMMaskProcessor,
+)
 
 logger = logging.getLogger(__name__)
 

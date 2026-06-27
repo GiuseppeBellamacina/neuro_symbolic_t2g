@@ -4,7 +4,7 @@
 #
 # Uso (dal login node):
 #   cd ~/neuro_symbolic_t2g
-#   bash src/cluster/setup.sh
+#   bash cluster/setup.sh
 #
 # Lo script rilancia se stesso dentro srun + Apptainer automaticamente.
 # ============================================================================
@@ -106,22 +106,16 @@ else:
     fi
 }
 
-# ── 2. Installa dipendenze ────────────────────────────────────────────────────
+# ── 2. Installa dipendenze dal pyproject.toml ─────────────────────────────────
 echo ""
-echo "📦 Installazione dipendenze..."
-
-# Installa torch dall'index CUDA 12.1 (cu121) PRIMA del resto.
-# Questo evita che vllm forzi torch cu130, incompatibile col driver CUDA 12.0 del cluster.
-# Se torch cu121 NON funziona col tuo driver, contatta l'admin per aggiornare il driver NVIDIA.
-echo "   [1/2] torch da index cu121..."
-pip install --user torch --index-url https://download.pytorch.org/whl/cu121
-
-echo "   [2/2] Progetto + dipendenze GPU (Unsloth + vLLM) da index cu121..."
-# Use --extra-index-url (not --index-url) so pip can fetch
-# build dependencies (setuptools, wheel) from the default PyPI
-# while still resolving torch-related packages from the cu121 index.
-# The [gpu] extra installs unsloth and vllm (optional deps).
-pip install --user -e ".[gpu]" --extra-index-url https://download.pytorch.org/whl/cu121
+if [ "$CC_MAJOR" -ge 7 ] 2>/dev/null; then
+    echo "📦 GPU CC >= 7.0 → installazione completa (base + gpu)..."
+    pip install --user -e ".[gpu]" --retries 10 --timeout 60
+else
+    echo "📦 GPU CC < 7.0 → installazione base (senza Unsloth/vLLM)..."
+    echo "   Usa config con: use_unsloth: false, fast_inference: false"
+    pip install --user -e . --retries 10 --timeout 60
+fi
 
 # ── 3. Scarica e processa il dataset ASLG-PC12 ────────────────────────────────
 echo ""
@@ -194,9 +188,9 @@ echo ""
 echo "=== ✅ Setup completato! ==="
 echo ""
 echo "💡 Per aggiungere ~/.local/bin al PATH in modo persistente:"
-echo "   source src/cluster/aliases.sh && t2g-install-aliases"
+echo "   source cluster/aliases.sh && t2g-install-aliases"
 echo ""
 echo "Prossimi passi:"
-echo "  1. Modifica src/cluster/train.sh con la tua queue, email e QoS"
-echo "  2. Lancia: sbatch src/cluster/train.sh"
-echo "  3. Oppure lancia pipeline completa: bash src/cluster/run_all.sh"
+echo "  1. Modifica cluster/train.sh con la tua queue, email e QoS"
+echo "  2. Lancia: sbatch cluster/train.sh"
+echo "  3. Oppure lancia pipeline completa: bash cluster/run_all.sh"

@@ -3,8 +3,8 @@
 # Pulizia workspace sul cluster
 #
 # Uso:
-#   bash src/cluster/clean.sh          # dry-run (mostra cosa cancellerebbe)
-#   bash src/cluster/clean.sh --force  # cancella davvero
+#   bash cluster/clean.sh          # dry-run (mostra cosa cancellerebbe)
+#   bash cluster/clean.sh --force  # cancella davvero
 # ============================================================================
 
 set -e
@@ -32,16 +32,19 @@ if [ -d "data" ]; then
     $CMD data/*
 fi
 
-# ── Checkpoints ──────────────────────────────────────────────────────────
-echo "[2/7] checkpoints/"
-if [ -d "checkpoints" ]; then
-    $CMD checkpoints/*
+# ── Checkpoints ───────────────────────────────────────────────────
+echo "[2/7] experiments/checkpoints/"
+if [ -d "experiments/checkpoints" ]; then
+    $CMD experiments/checkpoints/*
 fi
 
-# ── Logs ─────────────────────────────────────────────────────────────────
-echo "[3/7] logs/ (SLURM output)"
+# ── Logs ───────────────────────────────────────────────────────────
+echo "[3/7] logs/ (SLURM output) + experiments/logs/"
 if [ -d "logs" ]; then
     $CMD logs/*
+fi
+if [ -d "experiments/logs" ]; then
+    $CMD experiments/logs/*
 fi
 
 # ── Cache Python ─────────────────────────────────────────────────────────
@@ -70,7 +73,7 @@ echo "[7/7] .job_chain, .chain_pid, .chain_failed, .chain_stopped, .monitor_cach
 
 echo ""
 if [ "$FORCE" = "0" ]; then
-    echo "=== Nessun file cancellato (dry-run). Usa: bash src/cluster/clean.sh --force ==="
+    echo "=== Nessun file cancellato (dry-run). Usa: bash cluster/clean.sh --force ==="
 else
     echo "Pulizia completata."
 fi

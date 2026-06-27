@@ -12,7 +12,6 @@ Usage:
 from __future__ import annotations
 
 import sys
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -48,6 +47,7 @@ def test_data_to_grammar_chain() -> None:
     # Try loading a tokenizer (gpt2 as universal fallback)
     try:
         from transformers import AutoTokenizer
+
         tokenizer = AutoTokenizer.from_pretrained("gpt2")
         tokenizer.pad_token = tokenizer.eos_token
     except Exception:
@@ -56,8 +56,11 @@ def test_data_to_grammar_chain() -> None:
 
     if tokenizer:
         mask = GlossVocabularyMask(vocab, tokenizer)
-        check("Mask built from real vocab", len(mask.token_ids) > 0,
-              f"{len(mask.token_ids)} token IDs for {len(vocab)} glosses")
+        check(
+            "Mask built from real vocab",
+            len(mask.token_ids) > 0,
+            f"{len(mask.token_ids)} token IDs for {len(vocab)} glosses",
+        )
         check("EOS allowed in mask", mask.is_allowed(mask.eos_token_id))
 
         # Verify vocab tokens decode correctly
@@ -78,7 +81,6 @@ def test_grammar_to_rewards_chain() -> None:
         build_t2g_reward_functions,
         initialize_rewards,
         structural_dense_reward,
-        translation_quality_reward,
     )
 
     dataset = download_aslg_dataset(cache_dir="data/test_integration_cache")
@@ -99,9 +101,11 @@ def test_grammar_to_rewards_chain() -> None:
     ]
     for fn in funcs:
         results = fn(completions)
-        check(f"  {fn.__name__} returns {len(completions)} scores",
-              len(results) == len(completions),
-              f"got {len(results)}")
+        check(
+            f"  {fn.__name__} returns {len(completions)} scores",
+            len(results) == len(completions),
+            f"got {len(results)}",
+        )
         for r in results:
             check(f"  {fn.__name__} score is float", isinstance(r, float), f"{r:.4f}")
 
@@ -144,7 +148,9 @@ def test_rewards_to_metrics_chain() -> None:
     # Reward breakdown should produce valid numbers
     breakdown = compute_reward_breakdown(completions)
     check("Breakdown has 4 keys", len(breakdown) >= 4)
-    check("All breakdown values finite", all(np.isfinite(v) for v in breakdown.values()))
+    check(
+        "All breakdown values finite", all(np.isfinite(v) for v in breakdown.values())
+    )
 
     # Detailed metrics
     detailed = compute_detailed_metrics(completions, references)
@@ -197,7 +203,10 @@ def test_callbacks_interface() -> None:
     formatted = logger.format_samples()
     check("format_samples returns string", isinstance(formatted, str))
     check("format_samples is non-empty", len(formatted) > 0)
-    check("format_samples contains 'COMPLETION SAMPLES'", "COMPLETION SAMPLES" in formatted)
+    check(
+        "format_samples contains 'COMPLETION SAMPLES'",
+        "COMPLETION SAMPLES" in formatted,
+    )
 
     # Test callback creation
     cb = CompletionSampleCallback(logger, every_n_steps=5)
@@ -208,12 +217,24 @@ def test_callbacks_interface() -> None:
 def test_module_imports() -> None:
     print("\n-- 5. Module Import Chain --")
     modules = [
-        ("src.data.aslg_dataset", ["download_aslg_dataset", "extract_gloss_vocabulary", "build_t2g_dataset"]),
-        ("src.data.transition_matrix", ["compute_bigram_transitions", "load_transition_matrix"]),
+        (
+            "src.data.aslg_dataset",
+            ["download_aslg_dataset", "extract_gloss_vocabulary", "build_t2g_dataset"],
+        ),
+        (
+            "src.data.transition_matrix",
+            ["compute_bigram_transitions", "load_transition_matrix"],
+        ),
         ("src.grammar.gloss_grammar", ["GlossVocabularyMask"]),
         ("src.grammar.grammar_logits_processor", ["GlossVocabularyLogitsProcessor"]),
-        ("src.rewards.t2g_rewards", ["build_t2g_reward_functions", "initialize_rewards"]),
-        ("src.training.callbacks", ["CompletionSampleLogger", "CompletionSampleCallback"]),
+        (
+            "src.rewards.t2g_rewards",
+            ["build_t2g_reward_functions", "initialize_rewards"],
+        ),
+        (
+            "src.training.callbacks",
+            ["CompletionSampleLogger", "CompletionSampleCallback"],
+        ),
         ("src.utils.metrics", ["compute_pass_at_1", "compute_reward_breakdown"]),
         ("src.utils.visualization", ["plot_training_curves", "plot_reward_breakdown"]),
         ("src.utils.chain_monitor", []),
@@ -244,6 +265,7 @@ def main() -> None:
     except Exception as e:
         print(f"\n  !! CRASH: {e}")
         import traceback
+
         traceback.print_exc()
         FAIL += 1
 

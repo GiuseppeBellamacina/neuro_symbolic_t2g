@@ -117,9 +117,7 @@ def _extract_sample_id(prompt: Any) -> str:
         return ""
 
     # Try Qwen/ChatML format: <|im_start|>user\nTEXT<|im_end|>
-    m = re.search(
-        r"<\|im_start\|>user\s*\n(.*?)<\|im_end\|>", text, re.DOTALL
-    )
+    m = re.search(r"<\|im_start\|>user\s*\n(.*?)<\|im_end\|>", text, re.DOTALL)
     if m:
         return hashlib.sha256(
             m.group(1).strip().encode("utf-8", errors="replace")
@@ -133,9 +131,7 @@ def _extract_sample_id(prompt: Any) -> str:
         ).hexdigest()
 
     # Fallback: hash the entire prompt string
-    return hashlib.sha256(
-        text.encode("utf-8", errors="replace")
-    ).hexdigest()
+    return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
 
 
 def register_gold_glosses(
@@ -157,9 +153,7 @@ def register_gold_glosses(
     """
     global _gold_gloss_registry
     _gold_gloss_registry = dict(zip(sample_ids, gold_glosses))
-    logger.info(
-        f"Gold gloss registry: {len(_gold_gloss_registry)} entries registered"
-    )
+    logger.info(f"Gold gloss registry: {len(_gold_gloss_registry)} entries registered")
 
 
 def _lookup_gold_gloss(prompt: Any) -> str:

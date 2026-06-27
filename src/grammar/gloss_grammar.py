@@ -20,7 +20,6 @@ from grammarllm import (
     get_parsing_table_and_map_tt,
     setup_logging,
 )
-
 from grammarllm.modules.PushdownAutomaton import PushdownAutomaton
 
 logger = logging.getLogger(__name__)

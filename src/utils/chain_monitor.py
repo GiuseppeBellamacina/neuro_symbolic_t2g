@@ -46,9 +46,7 @@ _DICT_REWARD = re.compile(r"'reward':\s*([+-]?\d+\.\d+)")
 _STAGE_START = re.compile(r"\[stage (\d+)\] steps=(\d+)")
 _STAGE_DONE = re.compile(r"\[stage (\d+)\] (\S+) completed")
 # tqdm progress bar: " 47%|████▋     | 420/900 [29:23<25:49"
-_TQDM_PROGRESS = re.compile(
-    r"^\s*\d+%\|.*\|\s*(\d+)/(\d+)\s*\[", re.MULTILINE
-)
+_TQDM_PROGRESS = re.compile(r"^\s*\d+%\|.*\|\s*(\d+)/(\d+)\s*\[", re.MULTILINE)
 # Eval generation bar: "Generating:  45%|████▍| 17/38 ["
 _TQDM_GENERATING = re.compile(r"Generating.*\|\s*(\d+)/(\d+)\s*\[")
 # tqdm time info: "[04:25<37:02, 33.17s/it]" or "[1:23:45<2:03:04"
@@ -106,7 +104,11 @@ def _run(cmd: str) -> str:
     """Run a shell command and return stdout."""
     try:
         r = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=10,
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         return r.stdout.strip()
     except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -132,7 +134,10 @@ def _save_cache(cache: dict) -> None:
 
     try:
         with tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", delete=False, dir=str(CACHE_FILE.parent),
+            "w",
+            encoding="utf-8",
+            delete=False,
+            dir=str(CACHE_FILE.parent),
         ) as f:
             f.write(json.dumps(cache, indent=2, ensure_ascii=False))
             tempname = f.name
@@ -319,7 +324,8 @@ def _grep_lines(log_path: Path, pattern: str, max_count: int = 20) -> list[str]:
 
 
 def _extract_completion_samples(
-    lines: list[str], max_lines: int = 0,
+    lines: list[str],
+    max_lines: int = 0,
 ) -> list[str]:
     """Extract a compact view of the last sample from the log."""
     block: list[str] = []
@@ -356,7 +362,7 @@ def _extract_completion_samples(
                 difficulty = dm.group(1)
             continue
         if line.startswith("PROMPT:"):
-            prompt_text = line[len("PROMPT:"):].strip()
+            prompt_text = line[len("PROMPT:") :].strip()
             section = "prompt"
             continue
         if line == "THINK:":
@@ -508,16 +514,11 @@ def _parse_training_log(log_path: Path, job: JobInfo) -> None:
 def _parse_eval_log(log_path: Path, job: JobInfo) -> None:
     """Parse an eval log file and update job state."""
     tail = _tail_lines(log_path, n=500)
-    is_baseline = False
 
     for line in tail:
         m = _EVAL_CHECKPOINT.search(line)
         if m:
             job.eval_label = m.group(1)
-            if "baseline" in job.eval_label.lower():
-                is_baseline = True
-        if "baseline evaluation" in line.lower():
-            is_baseline = True
         m = _EVAL_PASS.search(line)
         if m:
             job.eval_label = m.group(1)
@@ -591,7 +592,13 @@ def _build_pipeline() -> list[JobInfo]:
                 job.state = "PENDING"
             elif state == "COMPLETED":
                 job.state = "COMPLETED" if exit_code == "0:0" else "FAILED"
-            elif state in ("FAILED", "NODE_FAIL", "OUT_OF_MEMORY", "TIMEOUT", "CANCELLED"):
+            elif state in (
+                "FAILED",
+                "NODE_FAIL",
+                "OUT_OF_MEMORY",
+                "TIMEOUT",
+                "CANCELLED",
+            ):
                 job.state = "FAILED"
             else:
                 job.state = state
@@ -654,7 +661,13 @@ def _build_pipeline() -> list[JobInfo]:
                 job.state = "COMPLETED" if exit_code == "0:0" else "FAILED"
             elif state == "RUNNING":
                 job.state = "RUNNING"
-            elif state in ("FAILED", "NODE_FAIL", "OUT_OF_MEMORY", "TIMEOUT", "CANCELLED"):
+            elif state in (
+                "FAILED",
+                "NODE_FAIL",
+                "OUT_OF_MEMORY",
+                "TIMEOUT",
+                "CANCELLED",
+            ):
                 job.state = "FAILED"
 
             log_file = _find_log_file(job_type, sid)
@@ -678,6 +691,7 @@ def _build_pipeline() -> list[JobInfo]:
 
     # 3. Standalone mode — discover jobs from squeue/sacct
     if not jobs:
+
         def _parse_job_name(name: str) -> tuple[str, str] | None:
             parts = name.split("-", 1)
             if parts[0] in ("train", "eval"):
@@ -701,7 +715,13 @@ def _build_pipeline() -> list[JobInfo]:
                 job.state = "PENDING"
             elif state == "COMPLETED":
                 job.state = "COMPLETED" if exit_code == "0:0" else "FAILED"
-            elif state in ("FAILED", "NODE_FAIL", "OUT_OF_MEMORY", "TIMEOUT", "CANCELLED"):
+            elif state in (
+                "FAILED",
+                "NODE_FAIL",
+                "OUT_OF_MEMORY",
+                "TIMEOUT",
+                "CANCELLED",
+            ):
                 job.state = "FAILED"
             else:
                 job.state = state
@@ -724,8 +744,12 @@ def _build_pipeline() -> list[JobInfo]:
                 if parsed:
                     job_type, tag = parsed
                     job = JobInfo(
-                        job_type=job_type, config="", tag=tag,
-                        state="RUNNING", slurm_id=active[0], elapsed=active[2],
+                        job_type=job_type,
+                        config="",
+                        tag=tag,
+                        state="RUNNING",
+                        slurm_id=active[0],
+                        elapsed=active[2],
                     )
                     log_file = _find_log_file(job.job_type, active[0])
                     if log_file:
@@ -759,7 +783,9 @@ def _build_pipeline() -> list[JobInfo]:
             continue
         job_type, tag = parts[0], parts[1]
         job = JobInfo(
-            job_type=job_type, config="", tag=tag,
+            job_type=job_type,
+            config="",
+            tag=tag,
             state=entry.get("state", "COMPLETED"),
             eval_pass=entry.get("eval_pass", ""),
             slurm_id=entry.get("slurm_id"),
@@ -777,7 +803,9 @@ def _build_pipeline() -> list[JobInfo]:
     pipeline_order = cache.get("pipeline_jobs", [])
     if pipeline_order:
         order_map = {k: i for i, k in enumerate(pipeline_order)}
-        jobs.sort(key=lambda j: order_map.get(f"{j.job_type}-{j.tag}", len(pipeline_order)))
+        jobs.sort(
+            key=lambda j: order_map.get(f"{j.job_type}-{j.tag}", len(pipeline_order))
+        )
 
     # ── Attach error info from .chain_errors ──────────────────────────
     all_errors = _load_errors()
@@ -933,10 +961,16 @@ def _format_status(job: JobInfo) -> str:
         visible = len(re.sub(r"\033\[[0-9;]*m", "", s))
         return s + " " * max(0, width - visible)
 
-    label = f"{tc}{job.job_type}{_RST}-{_BOLD}{job.tag}{_RST}" if job.tag else f"{tc}{job.job_type}{_RST}"
+    label = (
+        f"{tc}{job.job_type}{_RST}-{_BOLD}{job.tag}{_RST}"
+        if job.tag
+        else f"{tc}{job.job_type}{_RST}"
+    )
     state_str = f"{sc}{job.state}{_RST}"
 
-    return f" {icon}  {_vpad(label, 30)} {_vpad(slurm, 12)} {_vpad(state_str, 12)}{detail}"
+    return (
+        f" {icon}  {_vpad(label, 30)} {_vpad(slurm, 12)} {_vpad(state_str, 12)}{detail}"
+    )
 
 
 def _watcher_status() -> str:
@@ -975,7 +1009,9 @@ def _display(
     os.system("clear")
     print(f"{_CYAN}{'═' * 65}{_RST}")
     if is_pipeline:
-        print(f"  {_BOLD}{_CYAN}Neuro-Symbolic T2G Monitor{_RST} — {done_badge}{fail_badge}")
+        print(
+            f"  {_BOLD}{_CYAN}Neuro-Symbolic T2G Monitor{_RST} — {done_badge}{fail_badge}"
+        )
         print(f"  {_watcher_status()}")
     elif total > 0:
         print(f"  {_BOLD}{_CYAN}T2G Job Monitor{_RST} — {done_badge}{fail_badge}")
@@ -1018,7 +1054,11 @@ def _display(
         else:
             desc = ""
 
-        job_label = f"{tc}{j.job_type}{_RST}-{_BOLD}{j.tag}{_RST}" if j.tag else f"{tc}{j.job_type}{_RST}"
+        job_label = (
+            f"{tc}{j.job_type}{_RST}-{_BOLD}{j.tag}{_RST}"
+            if j.tag
+            else f"{tc}{j.job_type}{_RST}"
+        )
         print(
             f"  {_CYAN}▶ Active:{_RST} {job_label}"
             + (f" {_DIM}[{j.slurm_id}]{_RST}" if j.slurm_id else "")
@@ -1052,10 +1092,16 @@ def _display(
             except Exception:
                 pass
         if watcher_alive:
-            print(f"  {_YELLOW}⏳ Waiting for next job... ({remaining} remaining){_RST}")
+            print(
+                f"  {_YELLOW}⏳ Waiting for next job... ({remaining} remaining){_RST}"
+            )
         else:
-            print(f"  {_RED}⚠ Pipeline stalled{_RST} — {remaining} jobs pending but watcher is dead")
-            print(f"  {_DIM}Restart: bash src/cluster/run_all.sh   |   Clean: rm .job_chain{_RST}")
+            print(
+                f"  {_RED}⚠ Pipeline stalled{_RST} — {remaining} jobs pending but watcher is dead"
+            )
+            print(
+                f"  {_DIM}Restart: bash cluster/run_all.sh   |   Clean: rm .job_chain{_RST}"
+            )
     elif not jobs:
         print(f"  {_DIM}No jobs found.{_RST}")
     else:
@@ -1086,9 +1132,17 @@ def _display(
                 metrics_data[tag] = {"train_rw": "", "eval_stages": {}}
                 tag_order.append(tag)
             entry = cache["jobs"].get(key, {})
-            if parts[0] == "train" and entry.get("last_reward") and not metrics_data[tag]["train_rw"]:
+            if (
+                parts[0] == "train"
+                and entry.get("last_reward")
+                and not metrics_data[tag]["train_rw"]
+            ):
                 metrics_data[tag]["train_rw"] = entry["last_reward"]
-            if parts[0] == "eval" and entry.get("eval_stages") and not metrics_data[tag]["eval_stages"]:
+            if (
+                parts[0] == "eval"
+                and entry.get("eval_stages")
+                and not metrics_data[tag]["eval_stages"]
+            ):
                 metrics_data[tag]["eval_stages"] = entry["eval_stages"]
 
         all_stage_keys: list[str] = []
@@ -1098,9 +1152,15 @@ def _display(
                 if sk not in stage_set:
                     stage_set.add(sk)
                     all_stage_keys.append(sk)
-        all_stage_keys.sort(key=lambda k: (
-            -1 if k == "baseline" else (int(k.split("_")[1]) if k.startswith("stage_") and "_" in k else 99)
-        ))
+        all_stage_keys.sort(
+            key=lambda k: (
+                -1
+                if k == "baseline"
+                else (
+                    int(k.split("_")[1]) if k.startswith("stage_") and "_" in k else 99
+                )
+            )
+        )
 
         def _col_label(k: str) -> str:
             if k == "baseline":
@@ -1159,7 +1219,9 @@ def _display(
         for j in failed_with_errors:
             job_label = f"{j.job_type}-{_BOLD}{j.tag}{_RST}" if j.tag else j.job_type
             slurm_id = f" {_DIM}[{j.slurm_id}]{_RST}" if j.slurm_id else ""
-            print(f"  {_RED}✗{_RST} {job_label}{slurm_id}  {_RED}{_BOLD}{j.error_type}{_RST}")
+            print(
+                f"  {_RED}✗{_RST} {job_label}{slurm_id}  {_RED}{_BOLD}{j.error_type}{_RST}"
+            )
             if j.error_snippet:
                 parts = j.error_snippet.split(" | ")
                 shown = 0
@@ -1180,13 +1242,28 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Live monitor for the T2G job chain")
-    parser.add_argument("--poll", type=int, default=15, help="Seconds between refresh (default: 15)")
+    parser.add_argument(
+        "--poll", type=int, default=15, help="Seconds between refresh (default: 15)"
+    )
     parser.add_argument("--tab", action="store_true", help="Show the full job table")
-    parser.add_argument("--samples", nargs="?", const=0, type=int, default=None,
-                        help="Show completion samples. Optional: max output lines")
+    parser.add_argument(
+        "--samples",
+        nargs="?",
+        const=0,
+        type=int,
+        default=None,
+        help="Show completion samples. Optional: max output lines",
+    )
     parser.add_argument("--metrics", action="store_true", help="Show metrics table")
-    parser.add_argument("--all", nargs="?", const=0, type=int, default=None, dest="all_mode",
-                        help="Show everything: table + metrics + samples")
+    parser.add_argument(
+        "--all",
+        nargs="?",
+        const=0,
+        type=int,
+        default=None,
+        dest="all_mode",
+        help="Show everything: table + metrics + samples",
+    )
     args = parser.parse_args()
 
     if args.all_mode is not None:
@@ -1208,7 +1285,12 @@ def main() -> None:
     try:
         while True:
             jobs = _build_pipeline()
-            _display(jobs, show_table=args.tab, show_samples=show_samples, show_metrics=args.metrics)
+            _display(
+                jobs,
+                show_table=args.tab,
+                show_samples=show_samples,
+                show_metrics=args.metrics,
+            )
 
             is_pipeline = CHAIN_PID_FILE.exists() or (
                 CHAIN_FILE.exists() and CHAIN_FILE.stat().st_size > 0

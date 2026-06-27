@@ -4,8 +4,8 @@
 # Neuro-symbolic pipeline: Constrained Decoding + GRPO for ASL gloss generation.
 #
 # Usato da:
-#   CONFIG=config/grpo_t2g_qwen05.yaml sbatch src/cluster/train.sh
-#   python -m src.training --config config/grpo_t2g_qwen05.yaml
+#   CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/train.sh
+#   python -m src.training --config experiments/configs/t2g/grpo_qwen05.yaml
 # ============================================================================
 
 # --- Modello ---

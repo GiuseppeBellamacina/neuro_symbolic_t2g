@@ -4,7 +4,7 @@ param(
     [string]$Action,
 
     [Parameter(Mandatory = $false)]
-    [string]$Path  # relative path for push/pull (e.g. "src/training/grpo_t2g_train.py" or "src/cluster/")
+    [string]$Path  # relative path for push/pull (e.g. "src/training/grpo_t2g_train.py" or "cluster/")
 )
 
 # ── Cluster connection ────────────────────────────────────────────────────────

@@ -17,7 +17,6 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from pathlib import Path
 
 import numpy as np
 
@@ -40,15 +39,15 @@ def test_data_ingestion() -> None:
         build_t2g_dataset,
         download_aslg_dataset,
         extract_gloss_vocabulary,
-        save_vocabulary,
         load_vocabulary,
+        save_vocabulary,
     )
     from src.data.transition_matrix import (
         compute_bigram_transitions,
-        save_transition_matrix,
         load_transition_matrix,
-        transition_score,
+        save_transition_matrix,
         sequence_score_bigram,
+        transition_score,
     )
 
     # Download dataset (first ~500 samples for quick testing)
@@ -114,26 +113,47 @@ def test_grammar_processor() -> None:
     logger.info("Loading tokenizer...")
     try:
         from transformers import AutoTokenizer
+
         tokenizer = AutoTokenizer.from_pretrained(
             "Qwen/Qwen2.5-0.5B-Instruct", trust_remote_code=True
         )
     except Exception:
         logger.warning("Cannot load Qwen tokenizer; using gpt2 for testing")
         from transformers import AutoTokenizer
+
         tokenizer = AutoTokenizer.from_pretrained("gpt2")
 
     # Build a small test vocabulary
-    test_vocab = ["<BOS>", "<EOS>", "<UNK>", "IX", "MAN", "WALK", "HOUSE", "BOOK",
-                  "fs-JOHN", "fs-MARY", "NOT", "CAN", "WANT", "GO", "COME"]
+    test_vocab = [
+        "<BOS>",
+        "<EOS>",
+        "<UNK>",
+        "IX",
+        "MAN",
+        "WALK",
+        "HOUSE",
+        "BOOK",
+        "fs-JOHN",
+        "fs-MARY",
+        "NOT",
+        "CAN",
+        "WANT",
+        "GO",
+        "COME",
+    ]
 
     # Test GlossVocabularyMask
     mask = GlossVocabularyMask(test_vocab, tokenizer)
     assert len(mask.token_ids) > 0, "No token IDs found"
-    logger.info(f"✓ Vocabulary mask: {len(test_vocab)} glosses → {len(mask.token_ids)} token IDs")
+    logger.info(
+        f"✓ Vocabulary mask: {len(test_vocab)} glosses → {len(mask.token_ids)} token IDs"
+    )
 
-    allowed = mask.get_allowed_token_ids()
+    _ = mask.get_allowed_token_ids()  # warm-up: populate cache
     assert mask.eos_token_id in mask.token_ids, "EOS must be allowed"
-    logger.info(f"  EOS token ID: {mask.eos_token_id} (allowed={mask.is_allowed(mask.eos_token_id)})")
+    logger.info(
+        f"  EOS token ID: {mask.eos_token_id} (allowed={mask.is_allowed(mask.eos_token_id)})"
+    )
 
     # Test LogitsProcessor
     processor = GlossVocabularyLogitsProcessor(mask, device="cpu")
@@ -151,7 +171,9 @@ def test_grammar_processor() -> None:
         if tid not in mask.token_ids:
             assert filtered[0, tid] == -float("inf"), f"Token {tid} should be masked"
 
-    num_allowed = sum(1 for tid in range(vocab_size) if filtered[0, tid] != -float("inf"))
+    num_allowed = sum(
+        1 for tid in range(vocab_size) if filtered[0, tid] != -float("inf")
+    )
     logger.info(f"✓ After masking: {num_allowed} / {vocab_size} tokens allowed")
 
     # Test grammar building
@@ -175,12 +197,12 @@ def test_reward_functions() -> None:
     )
     from src.data.transition_matrix import compute_bigram_transitions
     from src.rewards.t2g_rewards import (
-        initialize_rewards,
-        translation_quality_reward,
-        structural_dense_reward,
+        build_t2g_reward_functions,
         gloss_format_reward,
         gloss_repetition_reward,
-        build_t2g_reward_functions,
+        initialize_rewards,
+        structural_dense_reward,
+        translation_quality_reward,
     )
 
     # Load data
@@ -230,7 +252,9 @@ def test_reward_functions() -> None:
     funcs, weights = build_t2g_reward_functions()
     assert len(funcs) == len(weights), "Funcs and weights must match"
     assert len(funcs) == 4, f"Expected 4 reward funcs, got {len(funcs)}"
-    logger.info(f"✓ Built {len(funcs)} reward functions with weights {[f'{w:.2f}' for w in weights]}")
+    logger.info(
+        f"✓ Built {len(funcs)} reward functions with weights {[f'{w:.2f}' for w in weights]}"
+    )
 
     logger.info("\n✅ Task 3: ALL TESTS PASSED\n")
 
@@ -288,7 +312,7 @@ def test_single_generation() -> None:
     inputs = tokenizer(formatted_prompt, return_tensors="pt").to(model.device)
     logger.info(f"  Formatted prompt starts with: {formatted_prompt[:80]}...")
 
-    logger.info(f"Source prompt: {prompt}")
+    logger.info(f"Source prompt: {prompt_text}")
     logger.info("Generating with gloss constraint...")
 
     with torch.no_grad():
@@ -350,6 +374,7 @@ def main() -> None:
             except Exception as e:
                 logger.error(f"❌ Task '{name}' FAILED: {e}")
                 import traceback
+
                 traceback.print_exc()
     else:
         tasks[args.task]()

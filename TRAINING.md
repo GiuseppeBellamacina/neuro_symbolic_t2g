@@ -31,7 +31,7 @@ Il progetto addestra **Qwen2.5-0.5B-Instruct** a tradurre frasi inglesi in **glo
 5. **4 Reward Functions**: guidano l'apprendimento senza supervisione umana
 6. **GRPO Training**: il modello genera G=4 completions per prompt, riceve reward,
    e aggiorna i pesi LoRA per massimizzare la reward attesa
-7. **Salvataggio**: checkpoint ogni 100 step, modello finale in `checkpoints/qwen05/final/`
+7. **Salvataggio**: checkpoint ogni 100 step, modello finale in `experiments/checkpoints/grpo/t2g/qwen05/final/`
 
 ### Le 4 funzioni di reward
 
@@ -90,7 +90,7 @@ t2g-gpu
 ### Output attesi
 
 ```
-checkpoints/qwen05/
+experiments/checkpoints/grpo/t2g/qwen05/
 ├── checkpoint-100/      # Dopo 100 step
 ├── checkpoint-200/      # Dopo 200 step
 ├── ...                  # Ogni 100 step
@@ -109,12 +109,12 @@ logs/
 t2g-run-all --resume
 
 # Oppure manualmente
-CONFIG=config/grpo_t2g_qwen05.yaml EXTRA_ARGS="--resume" sbatch src/cluster/train.sh
+CONFIG=experiments/configs/t2g/grpo_qwen05.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 ```
 
 ### Configurazione
 
-Modifica `config/grpo_t2g_qwen05.yaml` per:
+Modifica `experiments/configs/t2g/grpo_qwen05.yaml` per:
 - **Durata**: `training.max_steps` (default 1500)
 - **Velocità**: `grpo.num_generations` (default 4, riduci a 2 per GPU piccole)
 - **GPU piccole (K80)**: `model.quantization: null`, `model.use_unsloth: false`

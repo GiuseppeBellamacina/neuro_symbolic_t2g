@@ -35,15 +35,29 @@ def check(name: str, condition: bool, detail: str = "") -> None:
 
 def setup_rewards():
     """Minimal setup required for reward-based metrics."""
-    from src.data.transition_matrix import save_transition_matrix
-    from src.rewards.t2g_rewards import initialize_rewards
-    import numpy as np
     import tempfile
 
+    import numpy as np
+
+    from src.data.transition_matrix import save_transition_matrix
+    from src.rewards.t2g_rewards import initialize_rewards
+
     vocab = [
-        "<BOS>", "<EOS>", "<UNK>",
-        "IX", "MAN", "WALK", "HOUSE", "BOOK", "DOG",
-        "NOT", "CAN", "WANT", "GO", "COME", "fs-JOHN",
+        "<BOS>",
+        "<EOS>",
+        "<UNK>",
+        "IX",
+        "MAN",
+        "WALK",
+        "HOUSE",
+        "BOOK",
+        "DOG",
+        "NOT",
+        "CAN",
+        "WANT",
+        "GO",
+        "COME",
+        "fs-JOHN",
     ]
     V = len(vocab)
     bigram = np.ones((V, V), dtype=np.float32) / V
@@ -142,8 +156,11 @@ def test_pass_at_k() -> None:
     check("Returns dict with pass@1", "pass@1" in result, f"{result}")
     check("Returns dict with pass@3", "pass@3" in result)
     check("Returns dict with pass@5", "pass@5" in result)
-    check("pass@5 >= pass@1", result["pass@5"] >= result["pass@1"],
-          f"pass@5={result['pass@5']:.4f}, pass@1={result['pass@1']:.4f}")
+    check(
+        "pass@5 >= pass@1",
+        result["pass@5"] >= result["pass@1"],
+        f"pass@5={result['pass@5']:.4f}, pass@1={result['pass@1']:.4f}",
+    )
     check("pass@1 in [0,1]", 0.0 <= result["pass@1"] <= 1.0)
     check("pass@5 in [0,1]", 0.0 <= result["pass@5"] <= 1.0)
 
@@ -153,11 +170,11 @@ def test_detailed_metrics() -> None:
     from src.utils.metrics import compute_detailed_metrics
 
     completions = [
-        "IX MAN WALK HOUSE",       # good match
-        "DOG CAT BIRD FISH",       # bad match
-        "NOT CAN WANT GO COME",    # some overlap
-        "IX IX IX IX IX IX",       # repetitive (invalid)
-        "The man walks home",      # free text (invalid)
+        "IX MAN WALK HOUSE",  # good match
+        "DOG CAT BIRD FISH",  # bad match
+        "NOT CAN WANT GO COME",  # some overlap
+        "IX IX IX IX IX IX",  # repetitive (invalid)
+        "The man walks home",  # free text (invalid)
     ]
     references = [
         "IX MAN WALK HOUSE",
@@ -174,8 +191,11 @@ def test_detailed_metrics() -> None:
     check("Has 'rouge_l_percentiles'", "rouge_l_percentiles" in result)
     check("Has 'error_distribution'", "error_distribution" in result)
     check("Total samples = 5", result["total_samples"] == 5)
-    check("Overall ROUGE-L in [0,1]", 0.0 <= result["overall_rouge_l"] <= 1.0,
-          f"{result['overall_rouge_l']:.4f}")
+    check(
+        "Overall ROUGE-L in [0,1]",
+        0.0 <= result["overall_rouge_l"] <= 1.0,
+        f"{result['overall_rouge_l']:.4f}",
+    )
     check("Pass rate in [0,1]", 0.0 <= result["overall_pass_rate"] <= 1.0)
     p = result["rouge_l_percentiles"]
     check("Percentiles sorted", p["25%"] <= p["50%"] <= p["75%"] <= p["90%"])
@@ -189,10 +209,21 @@ def test_reward_breakdown() -> None:
     completions = ["IX MAN WALK HOUSE", "DOG CAT", "NOT CAN WANT"]
     result2 = compute_reward_breakdown(completions)
     check("Completion-based: has 4 keys", len(result2) >= 4, f"{result2.keys()}")
-    check("Completion-based: translation_quality_reward exists", "translation_quality_reward" in result2)
-    check("Completion-based: structural_dense_reward exists", "structural_dense_reward" in result2)
-    check("Completion-based: gloss_format_reward exists", "gloss_format_reward" in result2)
-    check("Completion-based: gloss_repetition_reward exists", "gloss_repetition_reward" in result2)
+    check(
+        "Completion-based: translation_quality_reward exists",
+        "translation_quality_reward" in result2,
+    )
+    check(
+        "Completion-based: structural_dense_reward exists",
+        "structural_dense_reward" in result2,
+    )
+    check(
+        "Completion-based: gloss_format_reward exists", "gloss_format_reward" in result2
+    )
+    check(
+        "Completion-based: gloss_repetition_reward exists",
+        "gloss_repetition_reward" in result2,
+    )
     for k, v in result2.items():
         check(f"  {k} is float", isinstance(v, float), f"{v:.4f}")
 
@@ -214,6 +245,7 @@ def main() -> None:
     except Exception as e:
         print(f"\n  !! CRASH: {e}")
         import traceback
+
         traceback.print_exc()
         FAIL += 1
 

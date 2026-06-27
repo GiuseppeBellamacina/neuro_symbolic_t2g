@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json as _json
 import logging
 import re
 from collections import deque
@@ -32,7 +31,7 @@ def _split_think(text: str) -> tuple[str, str]:
     m = _THINK_RE.search(text)
     if m:
         think = m.group(1).strip()
-        output = text[m.end():].strip()
+        output = text[m.end() :].strip()
         return think, output
     return "", text.strip()
 
@@ -92,7 +91,11 @@ class CompletionSampleLogger:
         )
 
         self._component_fns: list[tuple[str, Callable[..., float], dict[str, Any]]] = [
-            ("translation_quality_reward", translation_quality_reward, {"gold_gloss": ""}),
+            (
+                "translation_quality_reward",
+                translation_quality_reward,
+                {"gold_gloss": ""},
+            ),
             ("structural_dense_reward", structural_dense_reward, {"normalize": True}),
             ("gloss_format_reward", gloss_format_reward, {}),
             ("gloss_repetition_reward", gloss_repetition_reward, {}),
@@ -163,18 +166,21 @@ class CompletionSampleLogger:
                     if name == "translation_quality_reward":
                         kwargs_call["gold_gloss"] = (
                             self._lookup_gold_gloss(prompt)
-                            if prompt is not None else ""
+                            if prompt is not None
+                            else ""
                         )
                     breakdown[name] = fn(text, **kwargs_call)
                 except Exception:
                     breakdown[name] = 0.0
 
-            self._buffer.append({
-                "instruction": instruction,
-                "completion": text,
-                "difficulty": difficulty,
-                "breakdown": breakdown,
-            })
+            self._buffer.append(
+                {
+                    "instruction": instruction,
+                    "completion": text,
+                    "difficulty": difficulty,
+                    "breakdown": breakdown,
+                }
+            )
 
     @property
     def wrapped_reward_fns(self) -> list[Callable[..., list[float]]]:
@@ -210,9 +216,7 @@ class CompletionSampleLogger:
             for cl in output.splitlines():
                 lines.append(f"    {cl}")
             lines.append(f"  REWARDS: {row1}")
-            total = sum(
-                self._weight_map.get(k, 0.0) * v for k, v in bd.items()
-            )
+            total = sum(self._weight_map.get(k, 0.0) * v for k, v in bd.items())
             lines.append(f"  TOTAL:   {total:+.4f}")
         lines.append(f"{'═' * 70}\n")
         return "\n".join(lines)
@@ -240,7 +244,11 @@ class CompletionSampleCallback(TrainerCallback):
         if not state.is_local_process_zero:
             return
         step = state.global_step
-        if step > 0 and step % self._every_n_steps == 0 and step != self._last_printed_step:
+        if (
+            step > 0
+            and step % self._every_n_steps == 0
+            and step != self._last_printed_step
+        ):
             output = self._logger.format_samples()
             if output:
                 print(output)

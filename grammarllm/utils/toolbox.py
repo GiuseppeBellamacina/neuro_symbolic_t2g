@@ -8,6 +8,7 @@ chat_template = """
 {%- endif %}
 """
 
+
 def create_prompt(prompt_input, system_prompt, examples):
     """Create a tokenized prompt for the model."""
 
@@ -17,7 +18,7 @@ def create_prompt(prompt_input, system_prompt, examples):
             "content": f"{system_prompt}\n\n",
         }
     ]
-    
+
     if examples:
         for item in examples:
             messages.append(item)

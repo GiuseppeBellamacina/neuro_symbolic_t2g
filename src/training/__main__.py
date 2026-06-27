@@ -2,7 +2,7 @@
 Bootstrap entry point for T2G training scripts.
 
 Usage:
-    python -m src.training --config config/grpo_t2g_qwen05.yaml [--resume] [--prepare-data]
+    python -m src.training --config experiments/configs/t2g/grpo_qwen05.yaml [--resume] [--prepare-data]
 
 This module reads the config YAML before importing heavy libraries so that
 Unsloth can patch torch/transformers/trl internals before they are loaded.
@@ -11,7 +11,6 @@ Unsloth can patch torch/transformers/trl internals before they are loaded.
 from __future__ import annotations
 
 import argparse
-import sys
 
 import yaml
 
@@ -45,14 +44,13 @@ if _num_gpus > 1:
 
 # Unsloth early import
 if _cfg.get("model", {}).get("use_unsloth", False):
-    print(
-        "[bootstrap] use_unsloth=True → importing Unsloth before torch/trl"
-    )
+    print("[bootstrap] use_unsloth=True → importing Unsloth before torch/trl")
     import unsloth as _unsloth  # noqa: F401
 
 # Add project root to path for imports
 import sys as _sys
 from pathlib import Path as _Path
+
 _project_root = _Path(__file__).resolve().parent.parent.parent
 if str(_project_root) not in _sys.path:
     _sys.path.insert(0, str(_project_root))

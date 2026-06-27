@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import matplotlib
+
 # Use non-interactive backend on headless systems (cluster).
 # Interactive users can override this before importing visualization.
 if matplotlib.get_backend().lower() == "module://matplotlib_inline.backend_inline":
@@ -33,24 +34,21 @@ def _get_theme():
     """Return a plotnine theme with clean styling."""
     global _THEME
     if _THEME is None:
-        from plotnine import theme, element_text, element_blank, element_rect
+        from plotnine import element_blank, element_rect, element_text, theme
 
-        _THEME = (
-            theme(figure_size=(8, 5))
-            + theme(
-                plot_title=element_text(size=14, weight="bold", ha="center"),
-                plot_subtitle=element_text(size=10, ha="center", color="#555555"),
-                axis_title=element_text(size=11),
-                axis_text=element_text(size=9),
-                legend_title=element_text(size=10),
-                legend_text=element_text(size=9),
-                legend_background=element_rect(fill="white", alpha=0.85),
-                legend_position="bottom",
-                panel_grid_major=element_blank(),
-                panel_grid_minor=element_blank(),
-                panel_background=element_rect(fill="#FAFAFA"),
-                plot_background=element_rect(fill="white"),
-            )
+        _THEME = theme(figure_size=(8, 5)) + theme(
+            plot_title=element_text(size=14, weight="bold", ha="center"),
+            plot_subtitle=element_text(size=10, ha="center", color="#555555"),
+            axis_title=element_text(size=11),
+            axis_text=element_text(size=9),
+            legend_title=element_text(size=10),
+            legend_text=element_text(size=9),
+            legend_background=element_rect(fill="white", alpha=0.85),
+            legend_position="bottom",
+            panel_grid_major=element_blank(),
+            panel_grid_minor=element_blank(),
+            panel_background=element_rect(fill="#FAFAFA"),
+            plot_background=element_rect(fill="white"),
         )
     return _THEME
 
@@ -107,11 +105,13 @@ def plot_training_curves(
     for key, label in available_metrics:
         for entry in train_logs:
             if key in entry:
-                rows.append({
-                    "step": entry["step"],
-                    "value": entry[key],
-                    "metric": label,
-                })
+                rows.append(
+                    {
+                        "step": entry["step"],
+                        "value": entry[key],
+                        "metric": label,
+                    }
+                )
 
     df = pd.DataFrame(rows)
     if df.empty:
@@ -176,9 +176,14 @@ def plot_training_curves(
     p += ggtitle(title, subtitle=f"Polynomial regression degree={degree}")
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    p.save(output_path, dpi=150, width=5.5 * n_cols,
-           height=4.2 * ((n_metrics + n_cols - 1) // n_cols),
-           limitsize=False, verbose=False)
+    p.save(
+        output_path,
+        dpi=150,
+        width=5.5 * n_cols,
+        height=4.2 * ((n_metrics + n_cols - 1) // n_cols),
+        limitsize=False,
+        verbose=False,
+    )
     print(f"Saved: {output_path}")
 
 
@@ -246,12 +251,14 @@ def plot_reward_breakdown(
         for c in components:
             w = reward_weights.get(c, 0.0)
             val = sb["scores"].get(c, 0.0) * w
-            rows.append({
-                "stage": stage_label,
-                "component": _COMPONENT_LABELS.get(c, c),
-                "value": val,
-                "cumulative": cumulative,
-            })
+            rows.append(
+                {
+                    "stage": stage_label,
+                    "component": _COMPONENT_LABELS.get(c, c),
+                    "value": val,
+                    "cumulative": cumulative,
+                }
+            )
             cumulative += val
 
     df = pd.DataFrame(rows)
@@ -277,11 +284,13 @@ def plot_reward_breakdown(
         labs,
         scale_fill_manual,
         scale_y_continuous,
-        theme as pn_theme,
     )
+    from plotnine import theme as pn_theme
 
-    color_map = {_COMPONENT_LABELS.get(c, c): _COMPONENT_COLORS.get(c, "#999999")
-                 for c in components}
+    color_map = {
+        _COMPONENT_LABELS.get(c, c): _COMPONENT_COLORS.get(c, "#999999")
+        for c in components
+    }
 
     p = (
         ggplot(df, aes(x="stage", y="value", fill="component"))
@@ -289,7 +298,9 @@ def plot_reward_breakdown(
         + geom_text(
             aes(y="cumulative + value + 0.02", label="round(value, 3)"),
             data=df[df["value"].abs() > 0.001],
-            ha="center", size=8, na_rm=True,
+            ha="center",
+            size=8,
+            na_rm=True,
         )
         + scale_fill_manual(values=color_map, name="")
         + scale_y_continuous(expand=(0, 0.15))
@@ -306,11 +317,15 @@ def plot_reward_breakdown(
         title += f" — {model_name}"
     p += ggtitle(title)
 
-    n = len(components)
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    p.save(output_path, dpi=150,
-           width=max(7, len(stage_breakdowns) * 2.5), height=5.5,
-           limitsize=False, verbose=False)
+    p.save(
+        output_path,
+        dpi=150,
+        width=max(7, len(stage_breakdowns) * 2.5),
+        height=5.5,
+        limitsize=False,
+        verbose=False,
+    )
     print(f"Saved: {output_path}")
 
 
@@ -329,11 +344,15 @@ def plot_baseline_vs_grpo(
 
     Uses plotnine with direct value labels and delta annotation.
     """
-    df = pd.DataFrame({
-        "Model": ["Baseline", "Post-GRPO"],
-        "Pass@1": [baseline_pass1, grpo_pass1],
-    })
-    df["Model"] = pd.Categorical(df["Model"], categories=["Baseline", "Post-GRPO"], ordered=True)
+    df = pd.DataFrame(
+        {
+            "Model": ["Baseline", "Post-GRPO"],
+            "Pass@1": [baseline_pass1, grpo_pass1],
+        }
+    )
+    df["Model"] = pd.Categorical(
+        df["Model"], categories=["Baseline", "Post-GRPO"], ordered=True
+    )
 
     from plotnine import (
         aes,
@@ -353,16 +372,25 @@ def plot_baseline_vs_grpo(
         + geom_col(width=0.35, alpha=0.88, na_rm=True)
         + geom_text(
             aes(label="round(Pass@1, 4)"),
-            va="bottom", nudge_y=0.008, size=12, weight="bold", na_rm=True,
+            va="bottom",
+            nudge_y=0.008,
+            size=12,
+            weight="bold",
+            na_rm=True,
         )
         + scale_fill_manual(values=color_map, guide=False)
-        + scale_y_continuous(expand=(0, 0.12), limits=(0, max(baseline_pass1, grpo_pass1) * 1.25 or 1.0))
+        + scale_y_continuous(
+            expand=(0, 0.12), limits=(0, max(baseline_pass1, grpo_pass1) * 1.25 or 1.0)
+        )
         + labs(x="", y="Pass@1 (ROUGE-L >= 0.3)")
         + _get_theme()
         + ggtitle(
-            f"Baseline vs Post-GRPO — {model_name}" if model_name
-            else "Baseline vs Post-GRPO",
-            subtitle=f"Delta = {grpo_pass1 - baseline_pass1:+.4f}"
+            (
+                f"Baseline vs Post-GRPO — {model_name}"
+                if model_name
+                else "Baseline vs Post-GRPO"
+            ),
+            subtitle=f"Delta = {grpo_pass1 - baseline_pass1:+.4f}",
         )
     )
 
@@ -391,8 +419,8 @@ def plot_completion_length_distribution(
         valid_mask = [True] * len(completions)
 
     rows: list[dict[str, Any]] = []
-    for l, v in zip(lengths, valid_mask):
-        rows.append({"length": l, "status": "Valid" if v else "Invalid"})
+    for length, v in zip(lengths, valid_mask):
+        rows.append({"length": length, "status": "Valid" if v else "Invalid"})
 
     df = pd.DataFrame(rows)
 
@@ -411,12 +439,17 @@ def plot_completion_length_distribution(
     p = (
         ggplot(df, aes(x="length", fill="status"))
         + geom_histogram(
-            binwidth=binwidth, alpha=0.78, position="dodge",
-            na_rm=True, color="white", size=0.15,
+            binwidth=binwidth,
+            alpha=0.78,
+            position="dodge",
+            na_rm=True,
+            color="white",
+            size=0.15,
         )
         + scale_fill_manual(values=color_map, name="")
         + labs(x="Gloss Sequence Length (tokens)", y="Count")
-        + ggtitle(title) + _get_theme()
+        + ggtitle(title)
+        + _get_theme()
     )
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)

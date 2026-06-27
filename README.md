@@ -117,7 +117,7 @@ neuro_symbolic_t2g/
 | 4 | **Dataset**: Format prompt-completion pairs with chat template | `src/data/aslg_dataset.py` |
 | 5 | **Reward Functions**: 4 deterministic rewards — translation quality, bigram structure, format, repetition | `src/rewards/t2g_rewards.py` |
 | 6 | **GRPO Training**: `trl.GRPOTrainer` generates G=4 completions per prompt, computes rewards, updates LoRA weights | `src/training/grpo_t2g_train.py` |
-| 7 | **Save**: Checkpoint every 100 steps + final model in `checkpoints/qwen05/final/` | Auto |
+| 7 | **Save**: Checkpoint every 100 steps + final model in `experiments/checkpoints/grpo/t2g/qwen05/final/` | Auto |
 
 ---
 
@@ -183,10 +183,10 @@ ssh <user>@gcluster.dmi.unict.it
 
 # 3. Setup (downloads dataset, installs deps, computes transitions)
 srun --account <queue> --partition <queue> --qos gpu-medium --gres=gpu:1 --pty bash
-cd ~/neuro_symbolic_t2g && bash src/cluster/setup.sh
+cd ~/neuro_symbolic_t2g && bash cluster/setup.sh
 
 # 4. Load aliases and launch pipeline
-source ~/neuro_symbolic_t2g/src/cluster/aliases.sh
+source ~/neuro_symbolic_t2g/cluster/aliases.sh
 t2g-run-all
 t2g-monitor
 ```
@@ -199,16 +199,16 @@ t2g-monitor
 
 ```bash
 # Single-model training
-CONFIG=config/grpo_t2g_qwen05.yaml sbatch src/cluster/train.sh
+CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/train.sh
 
 # Resume from checkpoint
-CONFIG=config/grpo_t2g_qwen05.yaml EXTRA_ARGS="--resume" sbatch src/cluster/train.sh
+CONFIG=experiments/configs/t2g/grpo_qwen05.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 ```
 
 ### Pipeline (train → eval, automatic)
 
 ```bash
-source ~/neuro_symbolic_t2g/src/cluster/aliases.sh
+source ~/neuro_symbolic_t2g/cluster/aliases.sh
 
 t2g-run-all          # Full pipeline with watcher
 t2g-monitor          # Live dashboard
@@ -236,8 +236,8 @@ t2g-monitor --all    # Full: table + metrics + completion samples
 ```bash
 # Evaluate a specific checkpoint
 python -m src.training.eval_t2g \
-    --config config/grpo_t2g_qwen05.yaml \
-    --checkpoint checkpoints/qwen05/final \
+    --config experiments/configs/t2g/grpo_qwen05.yaml \
+    --checkpoint experiments/checkpoints/grpo/t2g/qwen05/final \
     --max_samples 500
 ```
 
@@ -248,10 +248,10 @@ python -m src.training.eval_t2g \
 tail -f logs/slurm-train-<ID>.log | python -u -m src.utils.live_training_table
 
 # Post-hoc: training log table
-python -m src.utils.show_training_log checkpoints/qwen05/ --last
+python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/ --last
 
 # Training curve plots (PNG with polynomial regression)
-python -m src.utils.show_training_log checkpoints/qwen05/ --plot
+python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/ --plot
 
 # Weights & Biases (offline mode on cluster)
 wandb sync logs/wandb/offline-run-*
@@ -297,7 +297,7 @@ For K80 or CPU-only, set `use_unsloth: false` and `quantization: null` in the co
 
 ## Configuration
 
-Key parameters in `config/grpo_t2g_qwen05.yaml`:
+Key parameters in `experiments/configs/t2g/grpo_qwen05.yaml`:
 
 ```yaml
 model:
@@ -328,7 +328,7 @@ reward:
 ## Output
 
 ```text
-checkpoints/qwen05/
+experiments/checkpoints/grpo/t2g/qwen05/
 ├── checkpoint-100/              # After 100 steps
 ├── checkpoint-200/              # …
 └── final/                       # Final model

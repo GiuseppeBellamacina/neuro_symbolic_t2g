@@ -1,0 +1,86 @@
+#!/bin/sh
+# ============================================================================
+# pre-push hook — sincronizza src/, config/, grammarllm/, e file chiave
+# sul cluster DMI solo se i commit in push contengono file modificati
+# in quelle cartelle.
+#
+# Installazione (una tantum):
+#   git config core.hooksPath .githooks
+# ============================================================================
+
+REPO_DIR="$(git rev-parse --show-toplevel)"
+CLUSTER="bllgpp02h24c351g@gcluster.dmi.unict.it"
+REMOTE_BASE="~/neuro_symbolic_t2g"
+
+# Read the ref range being pushed (stdin: local_ref local_sha remote_ref remote_sha)
+while read local_ref local_sha remote_ref remote_sha; do
+    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+        continue  # branch deletion
+    fi
+    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+        # New branch — diff against merge base with main
+        RANGE="$(git merge-base HEAD main 2>/dev/null || echo HEAD~10)..${local_sha}"
+    else
+        RANGE="${remote_sha}..${local_sha}"
+    fi
+
+    # Get list of changed files in the push range
+    CHANGED=$(git diff --name-only "$RANGE" 2>/dev/null)
+
+    SYNC_DIRS=""
+    SYNC_FILES=""
+echo "$CHANGED" | grep -q '^src/' && SYNC_DIRS="$SYNC_DIRS src/"
+echo "$CHANGED" | grep -q '^cluster/' && SYNC_DIRS="$SYNC_DIRS cluster/"
+echo "$CHANGED" | grep -q '^experiments/configs/' && SYNC_DIRS="$SYNC_DIRS experiments/configs/"
+echo "$CHANGED" | grep -q '^grammarllm/' && SYNC_DIRS="$SYNC_DIRS grammarllm/"
+echo "$CHANGED" | grep -q '^docs/' && SYNC_DIRS="$SYNC_DIRS docs/"
+    echo "$CHANGED" | grep -q '^pyproject\.toml$' && SYNC_FILES="$SYNC_FILES pyproject.toml"
+    echo "$CHANGED" | grep -q '^README\.md$' && SYNC_FILES="$SYNC_FILES README.md"
+    echo "$CHANGED" | grep -q '^CLUSTER\.md$' && SYNC_FILES="$SYNC_FILES CLUSTER.md"
+    echo "$CHANGED" | grep -q '^TRAINING\.md$' && SYNC_FILES="$SYNC_FILES TRAINING.md"
+    echo "$CHANGED" | grep -q '^main\.py$' && SYNC_FILES="$SYNC_FILES main.py"
+    echo "$CHANGED" | grep -q '^sync_cluster\.ps1$' && SYNC_FILES="$SYNC_FILES sync_cluster.ps1"
+
+    if [ -z "$SYNC_DIRS" ] && [ -z "$SYNC_FILES" ]; then
+        echo "[pre-push] No changes in tracked paths — skip sync"
+        exit 0
+    fi
+
+    echo "[pre-push] Syncing to cluster:${SYNC_DIRS}${SYNC_FILES}"
+
+    FAILED=0
+    for DIR in $SYNC_DIRS; do
+        LOCAL_DIR="$REPO_DIR/$DIR"
+        if [ ! -d "$LOCAL_DIR" ]; then
+            continue
+        fi
+        echo "[pre-push]   syncing $DIR ..."
+        ssh "$CLUSTER" "mkdir -p ${REMOTE_BASE}/${DIR}" 2>/dev/null
+        scp -rq "$LOCAL_DIR." "${CLUSTER}:${REMOTE_BASE}/${DIR}" 2>&1
+        if [ $? -ne 0 ]; then
+            echo "[pre-push] ❌ Failed to sync $DIR"
+            FAILED=1
+        fi
+    done
+
+    for FILE in $SYNC_FILES; do
+        LOCAL_FILE="$REPO_DIR/$FILE"
+        if [ ! -f "$LOCAL_FILE" ]; then
+            continue
+        fi
+        echo "[pre-push]   syncing $FILE ..."
+        scp -q "$LOCAL_FILE" "${CLUSTER}:${REMOTE_BASE}/${FILE}" 2>&1
+        if [ $? -ne 0 ]; then
+            echo "[pre-push] ❌ Failed to sync $FILE"
+            FAILED=1
+        fi
+    done
+
+    if [ $FAILED -ne 0 ]; then
+        echo "[pre-push] ⚠️  Some syncs failed — push continues anyway"
+    else
+        echo "[pre-push] ✅ Cluster sync done"
+    fi
+done
+
+exit 0  # non bloccare mai il push su GitHub

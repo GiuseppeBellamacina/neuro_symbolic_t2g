@@ -1,0 +1,51 @@
+#!/bin/sh
+# ============================================================================
+# pre-commit hook — auto-formats code before every commit.
+#
+# Activates the .venv virtual environment (if present), then runs format.sh.
+# Works on Windows (Git Bash), Linux, and macOS.
+#
+# If the formatter modifies files, only the originally staged files are
+# re-added.  If the formatter fails, the commit is aborted.
+#
+# Installazione (una tantum):
+#   git config core.hooksPath .githooks
+# ============================================================================
+
+cd "$(git rev-parse --show-toplevel)" || exit 0
+
+# ── Activate virtual environment if present ─────────────────────────────
+if [ -d .venv ]; then
+    # On Windows (Git Bash / MSYS), the venv tools are .exe files in Scripts/.
+    # On Linux/macOS, they're in bin/.  We export the right one to PATH.
+    if [ -d .venv/Scripts ]; then
+        VENV_BIN="$(pwd)/.venv/Scripts"
+    else
+        VENV_BIN="$(pwd)/.venv/bin"
+    fi
+    export PATH="$VENV_BIN:$PATH"
+    echo "[pre-commit] venv activated: $VENV_BIN"
+fi
+
+RUN_OK=0
+
+echo "[pre-commit] Running format.sh …"
+if [ -x format.sh ]; then
+    if bash format.sh; then
+        RUN_OK=1
+    else
+        echo "[pre-commit] ❌ format.sh failed — commit aborted"
+        exit 1
+    fi
+else
+    echo "[pre-commit] ⚠️  format.sh not found/executable — skipping format"
+    exit 0
+fi
+
+# Re-add only files that were already staged (not all tracked modifications)
+if [ "$RUN_OK" -eq 1 ]; then
+    git diff --cached --name-only --diff-filter=ACM | xargs -r git add
+    echo "[pre-commit] ✅ Formatting passed"
+fi
+
+exit 0

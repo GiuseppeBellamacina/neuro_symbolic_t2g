@@ -47,7 +47,9 @@ def test_dataset_download() -> None:
     check("Has 'test' split", "test" in dataset)
     check("Train split not empty", len(dataset["train"]) > 0)
     check("Test split not empty", len(dataset["test"]) > 0)
-    print(f"     Train: {len(dataset['train'])} samples, Test: {len(dataset['test'])} samples")
+    print(
+        f"     Train: {len(dataset['train'])} samples, Test: {len(dataset['test'])} samples"
+    )
     return dataset
 
 
@@ -68,7 +70,10 @@ def test_vocabulary(dataset) -> list[str]:
     check(f"Starts with {BOS_GLOSS}", vocab[0] == BOS_GLOSS)
     check(f"Contains {EOS_GLOSS}", EOS_GLOSS in vocab)
     check(f"Contains {UNK_GLOSS}", UNK_GLOSS in vocab)
-    check("Vocab is sorted (after special tokens)", all(vocab[i] <= vocab[i + 1] for i in range(3, len(vocab) - 1)))
+    check(
+        "Vocab is sorted (after special tokens)",
+        all(vocab[i] <= vocab[i + 1] for i in range(3, len(vocab) - 1)),
+    )
 
     # Save/load round-trip
     with tempfile.TemporaryDirectory() as tmp:
@@ -130,9 +135,17 @@ def test_t2g_dataset(dataset) -> None:
     check("Has 'difficulty' column", "difficulty" in t2g.column_names)
 
     sample = t2g[0]
-    check("Prompt is non-empty string", isinstance(sample["prompt"], str) and len(sample["prompt"]) > 0)
-    check("Completion is non-empty string", isinstance(sample["completion"], str) and len(sample["completion"]) > 0)
-    check("Difficulty is non-empty", sample["difficulty"] in ("simple", "medium", "hard"))
+    check(
+        "Prompt is non-empty string",
+        isinstance(sample["prompt"], str) and len(sample["prompt"]) > 0,
+    )
+    check(
+        "Completion is non-empty string",
+        isinstance(sample["completion"], str) and len(sample["completion"]) > 0,
+    )
+    check(
+        "Difficulty is non-empty", sample["difficulty"] in ("simple", "medium", "hard")
+    )
 
     print(f"     Sample prompt: {sample['prompt'][:60]}...")
     print(f"     Sample completion: {sample['completion'][:60]}...")
@@ -152,6 +165,7 @@ def main() -> None:
     except Exception as e:
         print(f"\n  !! CRASH: {e}")
         import traceback
+
         traceback.print_exc()
         FAIL += 1
 

@@ -3,8 +3,8 @@
 # Pulizia selettiva — rimuove checkpoints e logs di un modello specifico.
 #
 # Uso:
-#   bash src/cluster/clean_model.sh qwen05    # dry-run
-#   bash src/cluster/clean_model.sh qwen05 --all  # cancella tutto
+#   bash cluster/clean_model.sh qwen05    # dry-run
+#   bash cluster/clean_model.sh qwen05 --all  # cancella tutto
 # ============================================================================
 
 set -e
@@ -18,7 +18,7 @@ for arg in "$@"; do
     case "$arg" in
         --all) FORCE=1 ;;
         --help|-h)
-            echo "Uso: bash src/cluster/clean_model.sh <MODEL_TAG> [--all]"
+            echo "Uso: bash cluster/clean_model.sh <MODEL_TAG> [--all]"
             echo ""
             echo "Modelli disponibili:"
             for m in "${VALID_MODELS[@]}"; do echo "  $m"; done
@@ -40,7 +40,7 @@ if [ -z "$MODEL" ]; then
     echo ""
     for m in "${VALID_MODELS[@]}"; do
         DIRS_FOUND=()
-        [ -d "checkpoints/$m" ] && DIRS_FOUND+=("checkpoints/$m")
+        [ -d "experiments/checkpoints/grpo/t2g/$m" ] && DIRS_FOUND+=("experiments/checkpoints/grpo/t2g/$m")
         [ -d "logs" ] && ls logs/slurm-*-${m}*.log 2>/dev/null | while read f; do echo "  $f ($(du -sh "$f" | cut -f1))"; done
 
         if [ ${#DIRS_FOUND[@]} -gt 0 ]; then
@@ -54,7 +54,7 @@ if [ -z "$MODEL" ]; then
         fi
     done
     echo ""
-    echo "Per cancellare: bash src/cluster/clean_model.sh <MODEL_TAG> --all"
+    echo "Per cancellare: bash cluster/clean_model.sh <MODEL_TAG> --all"
     exit 0
 fi
 
@@ -69,7 +69,7 @@ fi
 if [ "$FORCE" -eq 0 ]; then
     echo "=== DRY RUN per $MODEL — aggiungi --all per cancellare ==="
     echo ""
-    [ -d "checkpoints/$MODEL" ] && echo "  checkpoints/$MODEL ($(du -sh checkpoints/$MODEL 2>/dev/null | cut -f1))"
+    [ -d "experiments/checkpoints/grpo/t2g/$MODEL" ] && echo "  experiments/checkpoints/grpo/t2g/$MODEL ($(du -sh experiments/checkpoints/grpo/t2g/$MODEL 2>/dev/null | cut -f1))"
     echo "  logs/slurm-*-${MODEL}*:"
     ls logs/slurm-*-${MODEL}*.log 2>/dev/null | while read f; do echo "    $f"; done
     exit 0
@@ -79,7 +79,7 @@ echo "Pulizia modello: $MODEL"
 CLEANED=0
 
 # Checkpoints
-DIR="checkpoints/$MODEL"
+DIR="experiments/checkpoints/grpo/t2g/$MODEL"
 if [ -d "$DIR" ]; then
     echo "[CHECKPOINTS] $DIR"
     rm -rf "$DIR"

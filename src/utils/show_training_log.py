@@ -1,10 +1,10 @@
 """Display training log from trainer_state.json as a formatted table or plot.
 
 Usage:
-    python -m src.utils.show_training_log checkpoints/qwen05/checkpoint-500
-    python -m src.utils.show_training_log checkpoints/qwen05/ --last
-    python -m src.utils.show_training_log checkpoints/qwen05/ --plot
-    python -m src.utils.show_training_log checkpoints/qwen05/ --plot --deg 5
+    python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/checkpoint-500
+    python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/ --last
+    python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/ --plot
+    python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/ --plot --deg 5
 """
 
 from __future__ import annotations
@@ -118,8 +118,7 @@ def show_log(
     # Compute column widths
     rows = [[_format_value(entry.get(c)) for c in cols] for entry in train_logs]
     widths = [
-        max(len(h), max(len(r[i]) for r in rows))
-        for i, h in enumerate(short_names)
+        max(len(h), max(len(r[i]) for r in rows)) for i, h in enumerate(short_names)
     ]
 
     # Print header
@@ -153,19 +152,43 @@ def plot_from_checkpoint(
         output_dir = str(ts_path.parent.parent / "figures")
 
     from .visualization import plot_training_curves
-    model_name = ts_path.parent.parent.name if ts_path.parent.name.startswith("checkpoint") else ts_path.parent.name
-    plot_training_curves(data, model_name=model_name, output_path=f"{output_dir}/training_curves.png", degree=degree)
+
+    model_name = (
+        ts_path.parent.parent.name
+        if ts_path.parent.name.startswith("checkpoint")
+        else ts_path.parent.name
+    )
+    plot_training_curves(
+        data,
+        model_name=model_name,
+        output_path=f"{output_dir}/training_curves.png",
+        degree=degree,
+    )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Show T2G training log as table or plot")
+    parser = argparse.ArgumentParser(
+        description="Show T2G training log as table or plot"
+    )
     parser.add_argument("path", help="Path to checkpoint dir or output dir")
-    parser.add_argument("--cols", type=str, default=None, help="Comma-separated column names")
-    parser.add_argument("--tail", type=int, default=None, help="Show only last N entries")
-    parser.add_argument("--all-cols", action="store_true", help="List all available columns")
-    parser.add_argument("--plot", action="store_true", help="Generate training curve plots")
-    parser.add_argument("--deg", type=int, default=4, help="Polynomial regression degree (default: 4)")
-    parser.add_argument("--output-dir", type=str, default=None, help="Output directory for plots")
+    parser.add_argument(
+        "--cols", type=str, default=None, help="Comma-separated column names"
+    )
+    parser.add_argument(
+        "--tail", type=int, default=None, help="Show only last N entries"
+    )
+    parser.add_argument(
+        "--all-cols", action="store_true", help="List all available columns"
+    )
+    parser.add_argument(
+        "--plot", action="store_true", help="Generate training curve plots"
+    )
+    parser.add_argument(
+        "--deg", type=int, default=4, help="Polynomial regression degree (default: 4)"
+    )
+    parser.add_argument(
+        "--output-dir", type=str, default=None, help="Output directory for plots"
+    )
     args = parser.parse_args()
 
     if args.all_cols:
