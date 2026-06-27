@@ -343,7 +343,6 @@ def _extract_completion_samples(
     output_lines: list[str] = []
     rewards_line = ""
     total_line = ""
-    schema_line = ""
     difficulty = ""
     section = ""
     found_first = False
@@ -372,10 +371,6 @@ def _extract_completion_samples(
             continue
         if line.startswith("TOTAL:"):
             total_line = line
-            section = ""
-            continue
-        if line.startswith("SCHEMA:"):
-            schema_line = line
             section = ""
             continue
         if section == "rewards":
@@ -447,26 +442,6 @@ def _extract_completion_samples(
             tv = float(tm.group(1))
             tc = _GREEN if tv > 0 else (_RED if tv < 0 else _GRAY)
             result.append(f"  {tc}{total_line.strip()}{_RST}")
-
-    if schema_line:
-        raw_json = schema_line.replace("SCHEMA:", "", 1).strip()
-        try:
-            schema_obj = json.loads(raw_json)
-            result.append(f"  {_YELLOW}SCHEMA:{_RST}")
-            for sk, sv in schema_obj.items():
-                if isinstance(sv, list):
-                    sv_str = ", ".join(f"{_CYAN}{x}{_RST}" for x in sv)
-                    result.append(f"    {_DIM}{sk}:{_RST} [{sv_str}]")
-                elif isinstance(sv, dict):
-                    result.append(f"    {_DIM}{sk}:{_RST}")
-                    for dk, dv in sv.items():
-                        result.append(f"      {_DIM}{dk}:{_RST} {_CYAN}{dv}{_RST}")
-                elif isinstance(sv, (int, float)):
-                    result.append(f"    {_DIM}{sk}:{_RST} {_GREEN}{sv}{_RST}")
-                else:
-                    result.append(f"    {_DIM}{sk}:{_RST} {_CYAN}{sv}{_RST}")
-        except Exception:
-            result.append(f"  {_YELLOW}{schema_line}{_RST}")
 
     return result
 
@@ -879,6 +854,42 @@ def _estimate_eta(job: JobInfo) -> str:
     return ""
 
 
+def _estimate_total_eta(job: JobInfo) -> str:
+    """Estimate total remaining time including future stages.
+
+    For standard (non-curriculum) T2G training this gives the same
+    result as ``_estimate_eta`` — the ``(job ~...h)`` suffix only
+    appears when curriculum multi-stage training is active.
+
+    For train: uses step speed × remaining steps.
+    For eval: uses batch speed × remaining batches.
+    """
+    speed_elapsed_s = _parse_elapsed_seconds(job.tqdm_elapsed)
+    speed_steps = job.step
+    if not speed_elapsed_s or speed_elapsed_s < 10:
+        speed_elapsed_s = _parse_elapsed_seconds(job.elapsed)
+        if not speed_elapsed_s or speed_elapsed_s < 30:
+            return ""
+
+    if job.job_type == "train" and speed_steps > 0:
+        secs_per_step = speed_elapsed_s / speed_steps
+        remaining_current = max(0, job.stage_total - job.step)
+        if remaining_current <= 0:
+            return ""
+        eta = int(secs_per_step * remaining_current)
+        return _format_duration(eta)
+
+    elif job.job_type == "eval" and speed_steps > 0 and job.eval_step_total > 0:
+        secs_per_batch = speed_elapsed_s / speed_steps
+        remaining_current = max(0, job.eval_step_total - job.step)
+        if remaining_current <= 0:
+            return ""
+        eta = int(secs_per_batch * remaining_current)
+        return _format_duration(eta)
+
+    return ""
+
+
 # ── Display ───────────────────────────────────────────────────────────────────
 _STATE_ICONS = {
     "COMPLETED": f"{_GREEN}✓{_RST}",
@@ -1022,11 +1033,14 @@ def _display(
             filled = int(bar_w * pct / 100)
             bar = f"{bar_color}{'█' * filled}{_GRAY}{'░' * (bar_w - filled)}{_RST}"
             eta = _estimate_eta(j)
+            total_eta = _estimate_total_eta(j)
             time_parts = ""
             if j.elapsed:
                 time_parts += f" ⏰ {_DIM}{j.elapsed}{_RST}"
             if eta:
                 time_parts += f" ⏳ {_DIM}~{eta}{_RST}"
+            if total_eta and total_eta != eta:
+                time_parts += f" {_DIM}(job ~{total_eta}){_RST}"
             print(f"  {bar} {_WHITE}{pct}%{_RST}{time_parts}")
     elif remaining > 0:
         watcher_alive = False

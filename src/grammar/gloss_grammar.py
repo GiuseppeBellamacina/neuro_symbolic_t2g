@@ -6,8 +6,8 @@ using the vendored ``grammarllm`` library.
 
 Provides:
     - ``build_gloss_grammar()`` — raw grammar dict for grammarllm
-    - ``create_grammarllm_pipeline()`` — full pipeline: grammar → PDA → LogitsProcessor + Streamer
-    - ``GlossVocabularyMask`` — lightweight vocabulary mask (no full PDA)
+    - ``create_grammarllm_pipeline()`` — *EXPERIMENTAL* full pipeline: grammar → PDA → LogitsProcessor + Streamer
+    - ``GlossVocabularyMask`` — lightweight vocabulary mask (no full PDA, default path)
 """
 
 from __future__ import annotations
@@ -88,10 +88,15 @@ def create_grammarllm_pipeline(
     temperature: float = 1.0,
     enable_logging: bool = False,
 ) -> tuple[Any, Any, PushdownAutomaton]:
-    """Build a complete grammarllm pipeline for gloss-constrained generation.
+    """*EXPERIMENTAL* — Build a complete grammarllm pipeline.
 
     This is the **full neuro-symbolic path**: grammar → LL(1) parsing table
     → Pushdown Automaton → LogitsProcessor + Streamer.
+
+    .. warning::
+       This path is experimental and untested in production.
+       The default training path uses ``GlossVocabularyMask`` instead
+       (lightweight vocabulary restriction, no full PDA overhead).
 
     Args:
         vocab: Sorted gloss vocabulary.

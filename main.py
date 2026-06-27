@@ -280,40 +280,13 @@ def test_single_generation() -> None:
     mask = GlossVocabularyMask(vocab, tokenizer)
     processor = GlossVocabularyLogitsProcessor(mask, device=str(model.device))
 
-    # Test prompt — use same format as training for consistency
-    prompt = "The man walks into the house."
-    system_prompt = (
-        "You are an English-to-ASL-gloss translator. "
-        "Translate the following English sentence into a sequence of "
-        "ASL glosses. Output ONLY the gloss tokens separated by spaces. "
-        "Do not include explanations or extra text."
-    )
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": prompt},
-    ]
+    # Test prompt — use centralized template (same as training/eval)
+    from src.utils.prompting import build_t2g_prompt
 
-    # Use the tokenizer's built-in chat template (Qwen already has one set).
-    # Do NOT manually override tokenizer.chat_template.
-    if hasattr(tokenizer, "chat_template") and tokenizer.chat_template:
-        logger.info("  Using tokenizer's built-in chat template")
-        formatted_prompt = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-        inputs = tokenizer(
-            formatted_prompt, return_tensors="pt"
-        ).to(model.device)
-        logger.info(f"  Formatted prompt starts with: {formatted_prompt[:80]}...")
-    else:
-        # Fallback: manual format
-        formatted_prompt = (
-            "<|im_start|>system\n" + system_prompt +
-            "<|im_end|>\n<|im_start|>user\n" + prompt +
-            "<|im_end|>\n<|im_start|>assistant\n"
-        )
-        inputs = tokenizer(
-            formatted_prompt, return_tensors="pt"
-        ).to(model.device)
+    prompt_text = "The man walks into the house."
+    formatted_prompt = build_t2g_prompt(prompt_text, tokenizer)
+    inputs = tokenizer(formatted_prompt, return_tensors="pt").to(model.device)
+    logger.info(f"  Formatted prompt starts with: {formatted_prompt[:80]}...")
 
     logger.info(f"Source prompt: {prompt}")
     logger.info("Generating with gloss constraint...")

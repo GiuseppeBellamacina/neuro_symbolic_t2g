@@ -20,6 +20,7 @@ the signature expected by TRL's ``GRPOTrainer``:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from typing import Any, Callable
@@ -45,7 +46,7 @@ _token_to_idx: dict[str, int] = {}
 #: ROUGE scorer (lazy-initialized).
 _rouge_scorer: rouge_scorer.RougeScorer | None = None
 
-#: Gold gloss registry: maps formatted prompt → gold gloss string.
+#: Gold gloss registry: maps sample_id (SHA256 of user instruction) → gold gloss.
 #  Populated at dataset load time via ``register_gold_glosses()``.
 _gold_gloss_registry: dict[str, str] = {}
 
@@ -82,42 +83,118 @@ def initialize_rewards(
     )
 
 
+def _extract_sample_id(prompt: Any) -> str:
+    """Extract a stable sample ID from a prompt in any format.
+
+    TRL's GRPOTrainer may pass prompts as formatted chat strings,
+    stringified lists, or raw strings depending on the backend.
+    This function extracts the user instruction (the English sentence
+    to translate) regardless of format, then returns its SHA256 hash
+    as a deterministic lookup key.
+
+    Args:
+        prompt: The prompt in whatever format GRPOTrainer provides.
+
+    Returns:
+        SHA256 hex digest of the user instruction, or ``""`` if no
+        user content could be extracted.
+    """
+    if prompt is None:
+        return ""
+
+    # Format 1: list of chat messages (most common from TRL)
+    if isinstance(prompt, list):
+        for msg in reversed(prompt):
+            if isinstance(msg, dict) and msg.get("role") == "user":
+                return hashlib.sha256(
+                    str(msg.get("content", "")).encode("utf-8", errors="replace")
+                ).hexdigest()
+
+    # Format 2: plain string — try to extract user instruction from
+    # common chat formats before falling back to hashing the whole string.
+    text = str(prompt)
+    if not text:
+        return ""
+
+    # Try Qwen/ChatML format: <|im_start|>user\nTEXT<|im_end|>
+    m = re.search(
+        r"<\|im_start\|>user\s*\n(.*?)<\|im_end\|>", text, re.DOTALL
+    )
+    if m:
+        return hashlib.sha256(
+            m.group(1).strip().encode("utf-8", errors="replace")
+        ).hexdigest()
+
+    # Try "user: TEXT" or "user\nTEXT" pattern
+    m = re.search(r"(?:^|\n)user[:\s]\n?(.*?)(?:\n|$)", text, re.IGNORECASE)
+    if m:
+        return hashlib.sha256(
+            m.group(1).strip().encode("utf-8", errors="replace")
+        ).hexdigest()
+
+    # Fallback: hash the entire prompt string
+    return hashlib.sha256(
+        text.encode("utf-8", errors="replace")
+    ).hexdigest()
+
+
 def register_gold_glosses(
-    formatted_prompts: list[str],
+    sample_ids: list[str],
     gold_glosses: list[str],
 ) -> None:
     """Populate the gold gloss registry from the training dataset.
 
     Called once after dataset preparation, before training starts.
-    Maps each formatted prompt to its corresponding gold gloss sequence.
+    Maps each sample ID (SHA256 of user instruction) to its
+    corresponding gold gloss sequence.
 
     This registry is used by ``translation_quality_reward`` to look up
     the gold reference for each rollout prompt during GRPO.
 
     Args:
-        formatted_prompts: The formatted prompt strings from the dataset.
+        sample_ids: Stable sample IDs (hashes of user instructions).
         gold_glosses: The gold gloss completion strings (same order).
     """
     global _gold_gloss_registry
-    _gold_gloss_registry = dict(zip(formatted_prompts, gold_glosses))
+    _gold_gloss_registry = dict(zip(sample_ids, gold_glosses))
     logger.info(
         f"Gold gloss registry: {len(_gold_gloss_registry)} entries registered"
     )
 
 
-def _lookup_gold_gloss(prompt: str) -> str:
+def _lookup_gold_gloss(prompt: Any) -> str:
     """Look up the gold gloss for a prompt in the registry.
 
-    Uses exact prompt string matching.  Falls back to empty string
-    if the prompt is not found.
+    Extracts a stable sample ID from the prompt (handling any format
+    that GRPOTrainer may provide), then looks up the gold gloss.
+    Falls back to empty string if not found.
 
     Args:
-        prompt: The formatted prompt string from GRPOTrainer.
+        prompt: The prompt from GRPOTrainer (any format).
 
     Returns:
         The gold gloss string, or ``""`` if not found.
     """
-    return _gold_gloss_registry.get(prompt, "")
+    sample_id = _extract_sample_id(prompt)
+    if not sample_id:
+        return ""
+    return _gold_gloss_registry.get(sample_id, "")
+
+
+def _lookup_gold_gloss_by_id(sample_id: str) -> str:
+    """Look up the gold gloss directly by its stable sample ID.
+
+    Unlike ``_lookup_gold_gloss``, this does NOT re-hash the input —
+    it performs a direct dictionary lookup.  Use this when you already
+    have a pre-computed sample ID (SHA256 hex string).
+
+    Args:
+        sample_id: The stable sample ID (SHA256 hex digest).
+
+    Returns:
+        The gold gloss string, or ``""`` if not found.
+    """
+    return _gold_gloss_registry.get(sample_id, "")
 
 
 # ---------------------------------------------------------------------------
@@ -366,7 +443,8 @@ def _make_gloss_reward_fn(
         ``fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]``
 
     For ``needs_gold_gloss=True``, the gold gloss is retrieved from the
-    global ``_gold_gloss_registry`` using the prompt as key.
+    global ``_gold_gloss_registry`` by extracting a stable sample ID
+    (SHA256 of user instruction) from the prompt, regardless of format.
 
     Args:
         component_fn: A function taking a single completion (and optionally
@@ -394,12 +472,9 @@ def _make_gloss_reward_fn(
             )
 
             if needs_gold_gloss:
-                # Look up gold gloss from registry using the prompt
-                prompt_str = ""
-                if prompts and idx < len(prompts):
-                    p = prompts[idx]
-                    prompt_str = str(p) if p is not None else ""
-                gold = _lookup_gold_gloss(prompt_str)
+                # Look up gold gloss via stable sample ID (format-agnostic)
+                prompt = prompts[idx] if prompts and idx < len(prompts) else None
+                gold = _lookup_gold_gloss(prompt)
                 results.append(component_fn(text, gold))
             else:
                 results.append(component_fn(text))

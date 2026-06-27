@@ -22,8 +22,15 @@ dependencies = [
     "wandb>=0.15.0",
     "safetensors>=0.4.0",
     "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+    "pandas>=2.0.0",
+    "plotnine>=0.14.0",
     "python-dotenv>=1.0.0",
     "regex",
+]
+
+[project.optional-dependencies]
+gpu = [
     "unsloth>=2024.0.0",
     "vllm>=0.4.0",
 ]

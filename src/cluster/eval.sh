@@ -51,10 +51,9 @@ cd "$HOME/neuro_symbolic_t2g"
 if [ ! -d "data/aslg_pc12_test" ]; then
     echo "Dataset test non trovato, download in corso..."
     python3 -c "
-from src.data.aslg_dataset import ASLGDataPipeline
-pipeline = ASLGDataPipeline()
-pipeline.download()
-test_ds = pipeline.build_hf_dataset('test')
+from src.data.aslg_dataset import download_aslg_dataset, build_t2g_dataset
+dataset = download_aslg_dataset()
+test_ds = build_t2g_dataset(dataset, split='test')
 test_ds.save_to_disk('data/aslg_pc12_test')
 print('Dataset salvato.')
 "

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import gc
+import hashlib
 import logging
 import os
 from pathlib import Path
@@ -58,6 +59,7 @@ from src.grammar.grammar_logits_processor import (
     GlossVocabularyLogitsProcessor,
     GrammarPDALogitsProcessor,
 )
+from src.utils.prompting import build_t2g_prompt
 
 load_dotenv()
 
@@ -313,39 +315,28 @@ def _prepare_t2g_dataset(
         max_samples=ds_cfg.get("max_samples"),
     )
 
-    # Format prompts with a system message for T2G
-    system_prompt = (
-        "You are an English-to-ASL-gloss translator. "
-        "Translate the following English sentence into a sequence of "
-        "ASL glosses. Output ONLY the gloss tokens separated by spaces. "
-        "Do not include explanations or extra text."
-    )
-
+    # Format prompts with the centralized T2G prompt builder.
+    # This guarantees train/eval/test use identical formatting.
     formatted: list[dict[str, str]] = []
     for i in range(len(t2g_ds)):
         sample = t2g_ds[i]
         text = sample["prompt"]
 
-        # Build prompt in chat format
-        if hasattr(tokenizer, "apply_chat_template"):
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": text},
-            ]
-            try:
-                prompt = tokenizer.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True
-                )
-            except Exception:
-                prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{text}<|im_end|>\n<|im_start|>assistant\n"
-        else:
-            prompt = f"Translate to ASL glosses: {text}\nGlosses:"
+        prompt = build_t2g_prompt(text, tokenizer)
+
+        # Stable sample ID: SHA256 of the user instruction (English sentence).
+        # This survives any prompt format changes by TRL, enabling reliable
+        # gold gloss lookup in reward functions.
+        sample_id = hashlib.sha256(
+            str(text).encode("utf-8", errors="replace")
+        ).hexdigest()
 
         formatted.append(
             {
                 "prompt": prompt,
                 "completion": sample["completion"],
                 "difficulty": sample.get("difficulty", "medium"),
+                "sample_id": sample_id,
             }
         )
 
@@ -527,10 +518,10 @@ def main() -> None:
     t2g_dataset = _prepare_t2g_dataset(config, tokenizer, vocab)
 
     # Register gold glosses for the translation quality reward function.
-    # Maps formatted_prompt → gold_gloss so the reward can look up
-    # ground-truth targets without embedding them in the prompt.
+    # Uses stable sample IDs (SHA256 of user instruction) for format-agnostic
+    # matching, so TRL prompt reformatting doesn'’t break the lookup.
     register_gold_glosses(
-        formatted_prompts=list(t2g_dataset["prompt"]),
+        sample_ids=list(t2g_dataset["sample_id"]),
         gold_glosses=list(t2g_dataset["completion"]),
     )
 
@@ -543,6 +534,18 @@ def main() -> None:
     reward_fns, reward_weights = build_t2g_reward_functions(
         config.get("reward")
     )
+
+    # ── Wire completion sample logging (for live chain_monitor display) ─
+    from src.training.callbacks import (
+        CompletionSampleCallback,
+        CompletionSampleLogger,
+    )
+    sample_logger = CompletionSampleLogger(
+        reward_fns, reward_weights, n_samples=3
+    )
+    sample_logger.set_difficulty_map(t2g_dataset)
+    wrapped_reward_fns = sample_logger.wrapped_reward_fns
+    sample_callback = CompletionSampleCallback(sample_logger, every_n_steps=5)
 
     # ── Step 6: GRPO configuration ───────────────────────────────────────
     logger.info("=" * 60)
@@ -606,10 +609,10 @@ def main() -> None:
         model=model,
         args=grpo_config,
         train_dataset=t2g_dataset,
-        reward_funcs=reward_fns,
+        reward_funcs=wrapped_reward_fns,
         processing_class=tokenizer,
         generation_kwargs=gen_kwargs,
-        callbacks=[],
+        callbacks=[sample_callback],
     )
 
     # Remove default callbacks that conflict

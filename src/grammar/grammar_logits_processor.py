@@ -138,12 +138,17 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor):
 
 
 class GrammarPDALogitsProcessor(LogitsProcessor):
-    """Full grammar-constrained logits processor using grammarllm's PDA.
+    """*EXPERIMENTAL* — Full grammar-constrained logits processor.
 
     Wraps ``grammarllm.modules.PushdownAutomaton`` and
     ``grammarllm.modules.MaskLogitsProcessor`` to provide true LL(1)-style
-    constrained decoding. Use this when the grammar has non-trivial
+    constrained decoding.  Use this when the grammar has non-trivial
     sequential constraints beyond simple vocabulary restriction.
+
+    .. warning::
+       This processor is experimental and not used by the default training
+       path.  Enable it via ``use_grammarllm_pda: true`` in the config.
+       The ``GlossVocabularyLogitsProcessor`` is the recommended default.
 
     Inherits from ``transformers.LogitsProcessor`` for HF compatibility.
 
