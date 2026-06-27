@@ -116,8 +116,12 @@ echo "📦 Installazione dipendenze..."
 echo "   [1/2] torch da index cu121..."
 pip install --user torch --index-url https://download.pytorch.org/whl/cu121
 
-echo "   [2/2] Progetto + dipendenze (Unsloth + vLLM) da index cu121..."
-pip install --user -e . --index-url https://download.pytorch.org/whl/cu121
+echo "   [2/2] Progetto + dipendenze GPU (Unsloth + vLLM) da index cu121..."
+# Use --extra-index-url (not --index-url) so pip can fetch
+# build dependencies (setuptools, wheel) from the default PyPI
+# while still resolving torch-related packages from the cu121 index.
+# The [gpu] extra installs unsloth and vllm (optional deps).
+pip install --user -e ".[gpu]" --extra-index-url https://download.pytorch.org/whl/cu121
 
 # ── 3. Scarica e processa il dataset ASLG-PC12 ────────────────────────────────
 echo ""
