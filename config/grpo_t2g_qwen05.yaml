@@ -1,0 +1,100 @@
+# ============================================================================
+# GRPO Training Config — Qwen2.5-0.5B-Instruct — Text-to-Gloss (T2G)
+#
+# Neuro-symbolic pipeline: Constrained Decoding + GRPO for ASL gloss generation.
+#
+# Usato da:
+#   CONFIG=config/grpo_t2g_qwen05.yaml sbatch src/cluster/train.sh
+#   python -m src.training --config config/grpo_t2g_qwen05.yaml
+# ============================================================================
+
+# --- Modello ---
+model:
+  name: "Qwen/Qwen2.5-0.5B-Instruct"
+  num_gpus: 1
+  quantization: "4bit"
+  dtype: "bfloat16"
+  use_unsloth: true
+  fast_inference: true
+  max_seq_length: 1024
+  gpu_memory_utilization: 0.42
+  vllm_standby: false
+
+# --- LoRA adapters ---
+lora:
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  task_type: "CAUSAL_LM"
+  random_state: 3407
+
+# --- Dataset ---
+dataset:
+  # Path to the preprocessed ASLG-PC12 dataset (Hugging Face cache)
+  dataset_name: "achrafothman/aslg_pc12"
+  dataset_cache: "data/aslg_pc12"
+  vocab_path: "data/gloss_vocab.txt"
+  bigram_matrix_path: "data/bigram_transition.npy"
+  split: "train"
+  max_samples: null
+  # T2G does not use <think> blocks
+  thinking: false
+
+# --- Iperparametri di training ---
+training:
+  max_steps: 1500
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 5.0e-6
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.1
+  optim: "paged_adamw_8bit"
+  weight_decay: 0.1
+  max_grad_norm: 0.1
+  bf16: true
+  logging_steps: 5
+  save_steps: 100
+  save_total_limit: 3
+  output_dir: "experiments/checkpoints/grpo/t2g/qwen25-05b"
+  log_dir: "experiments/logs/grpo/t2g/qwen25-05b"
+
+# --- Parametri GRPO ---
+grpo:
+  num_generations: 4         # G = number of completions per prompt
+  max_completion_length: 256  # Gloss sequences are short
+  max_prompt_length: 256
+  beta: 0.04                  # KL penalty coefficient
+  temperature: 0.7            # Exploration temperature during rollouts
+
+# --- Pesi della reward function ---
+reward:
+  # Translation quality (ROUGE-L similarity with gold gloss)
+  weight_translation: 0.40
+  # Structural dense reward (Viterbi proxy from bigram transitions)
+  weight_structure: 0.40
+  # Format reward: ensure gloss tokens only (no free text)
+  weight_format: 0.10
+  # Repetition penalty
+  weight_repetition: 0.10
+
+# --- Curriculum Learning (disabled for Phase 1) ---
+curriculum:
+  enabled: false
+
+# --- Evaluation ---
+evaluation:
+  batch_size: 8
+
+# --- Weights & Biases ---
+wandb:
+  project: "neuro-symbolic-t2g"
+  run_name: "grpo-t2g-qwen25-05b"
+  tags: ["grpo", "T2G", "constrained-decoding", "Qwen2.5-0.5B", "ASL"]

@@ -1,0 +1,40 @@
+[project]
+name = "neuro_symbolic_t2g"
+version = "0.1.0"
+description = "Neuro-symbolic pipeline: Constrained Decoding + GRPO for Text-to-Gloss translation"
+requires-python = ">=3.10"
+authors = [
+    { name = "Neuro-Symbolic T2G Team" },
+]
+dependencies = [
+    "torch>=2.0.0",
+    "transformers>=4.30.0",
+    "trl>=0.12.0",
+    "peft>=0.10.0",
+    "datasets>=2.14.0",
+    "accelerate>=0.26.0",
+    "bitsandbytes>=0.41.0",
+    "rouge-score>=0.1.2",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.65.0",
+    "wandb>=0.15.0",
+    "safetensors>=0.4.0",
+    "matplotlib>=3.7.0",
+    "python-dotenv>=1.0.0",
+    "regex",
+    "unsloth>=2024.0.0",
+    "vllm>=0.4.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["grammarllm*", "src*", "neuro_symbolic_t2g*"]
+
+[tool.setuptools.package-dir]
+"" = "."
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
