@@ -46,7 +46,6 @@ function Upload {
         "grammarllm",
         "main.py",
         "pyproject.toml",
-        "README.md",
         ".env"
     )
 

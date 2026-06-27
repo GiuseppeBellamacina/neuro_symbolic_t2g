@@ -22,15 +22,11 @@ uv.lock
 
 # IDE
 .vscode/
+!.vscode/settings.json
 .idea/
 
-# Cluster runtime state (generated on the remote node)
-.chain_pid
-.chain_failed
-.chain_stopped
-.job_chain
-.monitor_cache
-.chain_errors
+# Cluster / pipeline state directory (generated on the remote node)
+.chain_state/
 
 # Data & experiments (runtime artifacts — NOT configs which are tracked)
 data/

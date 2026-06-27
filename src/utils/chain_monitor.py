@@ -28,12 +28,13 @@ from typing import Any
 
 # ── Config ────────────────────────────────────────────────────────────────────
 PROJ_DIR = Path(os.environ.get("HOME", "~")) / "neuro_symbolic_t2g"
-CHAIN_FILE = PROJ_DIR / ".job_chain"
-CHAIN_PID_FILE = PROJ_DIR / ".chain_pid"
-CACHE_FILE = PROJ_DIR / ".monitor_cache"
+STATE_DIR = PROJ_DIR / ".chain_state"
+CHAIN_FILE = STATE_DIR / "job_chain"
+CHAIN_PID_FILE = STATE_DIR / "chain_pid"
+CACHE_FILE = STATE_DIR / "monitor_cache"
 LOGS_DIR = PROJ_DIR / "logs"
 CHAIN_LOG = LOGS_DIR / "chain_watcher.log"
-ERRORS_FILE = PROJ_DIR / ".chain_errors"
+ERRORS_FILE = STATE_DIR / "chain_errors"
 
 # Module-level setting for sample display (set by main() from --samples arg)
 _SAMPLE_MAX_LINES: int = 0  # 0 = no limit
@@ -1100,7 +1101,7 @@ def _display(
                 f"  {_RED}⚠ Pipeline stalled{_RST} — {remaining} jobs pending but watcher is dead"
             )
             print(
-                f"  {_DIM}Restart: bash cluster/run_all.sh   |   Clean: rm .job_chain{_RST}"
+                f"  {_DIM}Restart: bash cluster/run_all.sh   |   Clean: rm -rf .chain_state{_RST}"
             )
     elif not jobs:
         print(f"  {_DIM}No jobs found.{_RST}")

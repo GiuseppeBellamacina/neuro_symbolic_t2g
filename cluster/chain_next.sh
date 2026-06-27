@@ -7,13 +7,18 @@
 #
 # PID guard: esci se esiste già un watcher attivo
 PROJ_DIR="$HOME/neuro_symbolic_t2g"
-CHAIN_PID_FILE="$PROJ_DIR/.chain_pid"
+STATE_DIR="$PROJ_DIR/.chain_state"
+mkdir -p "$STATE_DIR"
+
+CHAIN_PID_FILE="$STATE_DIR/chain_pid"
 if [ -f "$CHAIN_PID_FILE" ]; then
     OLD_PID=$(cat "$CHAIN_PID_FILE")
     if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
         echo "[chain] ❌ Watcher già attivo con PID $OLD_PID — esco."
         exit 1
     fi
+    # PID file exists but process is dead — remove stale file
+    rm -f "$CHAIN_PID_FILE"
 fi
 
 #
@@ -32,9 +37,12 @@ fi
 # ============================================================================
 
 PROJ_DIR="$HOME/neuro_symbolic_t2g"
-CHAIN_FILE="$PROJ_DIR/.job_chain"
-FAILED_FILE="$PROJ_DIR/.chain_failed"
-ERRORS_FILE="$PROJ_DIR/.chain_errors"
+STATE_DIR="$PROJ_DIR/.chain_state"
+mkdir -p "$STATE_DIR"
+
+CHAIN_FILE="$STATE_DIR/job_chain"
+FAILED_FILE="$STATE_DIR/chain_failed"
+ERRORS_FILE="$STATE_DIR/chain_errors"
 POLL_INTERVAL=60  # secondi tra un check e l'altro
 MAX_TIMEOUT_RETRIES=2  # max auto-resume per TIMEOUT sullo stesso job
 MAX_OOM_RETRIES=2      # max auto-resume per OOM sullo stesso job
@@ -71,7 +79,7 @@ is_cuda_transient_failure() {
     return 1
 }
 
-# Logga un errore nel file persistente .chain_errors (formato JSONL)
+# Logga un errore nel file persistente chain_errors (formato JSONL)
 log_job_error() {
     local job_id="$1" job_type="$2" config="$3" tag="$4"
     local state="$5" exit_code="$6" error_type="$7"
@@ -109,7 +117,7 @@ entry = {
 with open('${ERRORS_FILE}', 'a') as f:
     f.write(json.dumps(entry, ensure_ascii=False) + '\n')
 " 2>/dev/null
-    echo "[chain] 📝 Errore registrato in .chain_errors (${error_type}, ${tag}, job ${job_id})"
+    echo "[chain] 📝 Errore registrato in .chain_state/chain_errors (${error_type}, ${tag}, job ${job_id})"
 }
 
 # Query sacct con retry
@@ -180,7 +188,7 @@ else:
     return 0
 }
 
-echo $$ > "$PROJ_DIR/.chain_pid"
+echo $$ > "$STATE_DIR/chain_pid"
 
 echo "[chain] Watcher avviato (PID $$) — $(date)"
 echo "[chain] File catena: $CHAIN_FILE"
@@ -278,12 +286,12 @@ while true; do
                 echo "[chain] ❌ Ultimo job $LAST_JOB_ID ($LAST_JOB_DESC) FALLITO (state=$STATE exit=$EXIT_CODE) — $(date)"
                 echo "${LAST_JOB_DESC}" > "$FAILED_FILE"
                 echo "[chain] Pipeline interrotta. Usa: bash cluster/run_all.sh --resume"
-                rm -f "$PROJ_DIR/.chain_pid"
+                rm -f "$CHAIN_PID_FILE"
                 exit 1
             fi
         fi
         echo "[chain] ✅ Pipeline completata! — $(date)"
-        rm -f "$CHAIN_FILE" "$PROJ_DIR/.chain_pid" "$FAILED_FILE"
+        rm -f "$CHAIN_FILE" "$CHAIN_PID_FILE" "$FAILED_FILE"
         exit 0
     fi
 
@@ -406,7 +414,7 @@ while true; do
             REMAINING=$([ -f "$CHAIN_FILE" ] && wc -l < "$CHAIN_FILE" || echo 0)
             echo "[chain] Pipeline interrotta. Rimanenti: $REMAINING job"
             echo "[chain] Per riprendere: bash cluster/run_all.sh --resume"
-            rm -f "$PROJ_DIR/.chain_pid"
+            rm -f "$CHAIN_PID_FILE"
             exit 1
         fi
         echo "[chain] ✓ Job $LAST_JOB_ID ($LAST_JOB_DESC) completato — state=$STATE — $(date)"
@@ -435,7 +443,7 @@ while true; do
         echo "[chain] ❌ Config vuoto per $TYPE $TAG — catena corrotta"
         echo "${NEXT}" > "$FAILED_FILE"
         echo "[chain] Pipeline interrotta. Per riprendere: bash cluster/run_all.sh --resume"
-        rm -f "$PROJ_DIR/.chain_pid"
+        rm -f "$CHAIN_PID_FILE"
         exit 1
     fi
 
@@ -469,7 +477,7 @@ while true; do
             echo "[chain] ❌ sbatch fallito $MAX_SBATCH_RETRIES volte consecutive — pipeline interrotta"
             echo "${NEXT}" > "$FAILED_FILE"
             echo "[chain] Per riprendere: bash cluster/run_all.sh --resume"
-            rm -f "$PROJ_DIR/.chain_pid"
+            rm -f "$CHAIN_PID_FILE"
             exit 1
         fi
         REINSERTION=$(mktemp)

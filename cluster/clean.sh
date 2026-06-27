@@ -9,6 +9,7 @@
 
 set -e
 cd "$HOME/neuro_symbolic_t2g"
+STATE_DIR="$HOME/neuro_symbolic_t2g/.chain_state"
 
 FORCE=0
 if [ "$1" = "--force" ]; then
@@ -63,13 +64,9 @@ if [ -d "unsloth_compiled_cache" ]; then
     $CMD unsloth_compiled_cache
 fi
 
-# ── File watcher / pipeline ──────────────────────────────────────────────
-echo "[7/7] .job_chain, .chain_pid, .chain_failed, .chain_stopped, .monitor_cache"
-[ -f ".job_chain" ] && $CMD .job_chain
-[ -f ".chain_pid" ] && $CMD .chain_pid
-[ -f ".chain_failed" ] && $CMD .chain_failed
-[ -f ".chain_stopped" ] && $CMD .chain_stopped
-[ -f ".monitor_cache" ] && $CMD .monitor_cache
+# ── Stato pipeline ─────────────────────────────────────────────────────
+echo "[7/7] .chain_state/ (stato pipeline)"
+[ -d ".chain_state" ] && $CMD .chain_state
 
 echo ""
 if [ "$FORCE" = "0" ]; then

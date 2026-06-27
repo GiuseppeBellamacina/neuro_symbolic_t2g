@@ -10,6 +10,7 @@
 # ============================================================================
 
 PROJ_DIR="$HOME/neuro_symbolic_t2g"
+STATE_DIR="$PROJ_DIR/.chain_state"
 
 # ── Job management ───────────────────────────────────────────────────────────
 
@@ -160,19 +161,19 @@ t2g-run-all() {
 
 # Controlla se il watcher è attivo
 t2g-watcher-status() {
-    if [ -f "$PROJ_DIR/.chain_failed" ]; then
-        local failed=$(cat "$PROJ_DIR/.chain_failed")
+    if [ -f "$STATE_DIR/chain_failed" ]; then
+        local failed=$(cat "$STATE_DIR/chain_failed")
         echo "❌ Pipeline FALLITA — job: $failed"
         echo "   Per riprendere: t2g-run-all --resume"
         return 1
     fi
-    if [ -f "$PROJ_DIR/.chain_pid" ]; then
-        local pid=$(cat "$PROJ_DIR/.chain_pid")
+    if [ -f "$STATE_DIR/chain_pid" ]; then
+        local pid=$(cat "$STATE_DIR/chain_pid")
         if ps -p "$pid" > /dev/null 2>&1; then
             echo "✅ Watcher attivo (PID $pid)"
         else
             echo "❌ Watcher morto (PID $pid non trovato)"
-            rm -f "$PROJ_DIR/.chain_pid"
+            rm -f "$STATE_DIR/chain_pid"
             return 1
         fi
     else
@@ -183,11 +184,11 @@ t2g-watcher-status() {
 
 # Uccidi il watcher
 t2g-watcher-kill() {
-    if [ -f "$PROJ_DIR/.chain_pid" ]; then
-        local pid=$(cat "$PROJ_DIR/.chain_pid")
+    if [ -f "$STATE_DIR/chain_pid" ]; then
+        local pid=$(cat "$STATE_DIR/chain_pid")
         if ! ps -p "$pid" > /dev/null 2>&1; then
             echo "⚠️  Watcher (PID $pid) già morto"
-            rm -f "$PROJ_DIR/.chain_pid"
+            rm -f "$STATE_DIR/chain_pid"
             return 0
         fi
         read -p "Uccidere il watcher (PID $pid)? [y/N] " confirm
@@ -198,7 +199,7 @@ t2g-watcher-kill() {
                 else
                     echo "⚠️  Watcher (PID $pid) già morto"
                 fi
-                rm -f "$PROJ_DIR/.chain_pid"
+                rm -f "$STATE_DIR/chain_pid"
                 ;;
             *)
                 echo "Annullato."
@@ -253,21 +254,22 @@ t2g-chain-stop() {
         echo "⚠️  Nessun job SLURM attivo"
     fi
 
-    if [ -f .chain_pid ]; then
-        local pid=$(cat .chain_pid)
+    if [ -f "$STATE_DIR/chain_pid" ]; then
+        local pid=$(cat "$STATE_DIR/chain_pid")
         kill "$pid" 2>/dev/null && echo "✅ Watcher (PID $pid) terminato"
-        rm -f .chain_pid
+        rm -f "$STATE_DIR/chain_pid"
     fi
 
     if [ "$force" -eq 1 ]; then
-        rm -f .job_chain .chain_pid .chain_failed .chain_stopped .monitor_cache
-        echo "🗑️  File di stato cancellati"
+        rm -rf "$STATE_DIR"
+        mkdir -p "$STATE_DIR"
+        echo "🗑️  Stato pipeline cancellato (.chain_state/)"
         echo "Pipeline terminata definitivamente. Per ricominciare: t2g-run-all"
     else
         local stopped_type=$(echo "$active_name" | cut -d- -f1)
         local stopped_tag=$(echo "$active_name" | cut -d- -f2-)
-        echo "${stopped_type}:experiments/configs/t2g/grpo_qwen05.yaml:${stopped_tag}:0:${active_job}" > .chain_stopped
-        rm -f .chain_failed
+        echo "${stopped_type}:experiments/configs/t2g/grpo_qwen05.yaml:${stopped_tag}:0:${active_job}" > "$STATE_DIR/chain_stopped"
+        rm -f "$STATE_DIR/chain_failed"
         echo "Pipeline fermata. Per riprendere: t2g-chain-start"
     fi
 }
@@ -276,13 +278,13 @@ t2g-chain-stop() {
 t2g-chain-start() {
     cd "$PROJ_DIR"
 
-    if [ ! -f .chain_stopped ]; then
-        echo "❌ Nessun .chain_stopped trovato."
+    if [ ! -f "$STATE_DIR/chain_stopped" ]; then
+        echo "❌ Nessun chain_stopped trovato."
         echo "   t2g-chain-start funziona solo dopo t2g-chain-stop (senza --force)."
         return 1
     fi
 
-    local stopped_info=$(cat .chain_stopped)
+    local stopped_info=$(cat "$STATE_DIR/chain_stopped")
     local stopped_type=$(echo "$stopped_info" | cut -d: -f1)
     local stopped_cfg=$(echo "$stopped_info" | cut -d: -f2)
     local stopped_tag=$(echo "$stopped_info" | cut -d: -f3)
@@ -294,14 +296,14 @@ t2g-chain-start() {
         local RESUME_CHAIN=$(mktemp)
         echo "train:${stopped_cfg}:${stopped_tag}:--resume" > "$RESUME_CHAIN"
         local next_in_chain=""
-        [ -f .job_chain ] && [ -s .job_chain ] && next_in_chain=$(head -1 .job_chain)
+        [ -f "$STATE_DIR/job_chain" ] && [ -s "$STATE_DIR/job_chain" ] && next_in_chain=$(head -1 "$STATE_DIR/job_chain")
         local next_type=$(echo "$next_in_chain" | cut -d: -f1)
         local next_tag=$(echo "$next_in_chain" | cut -d: -f3)
         if [ "$next_type" != "eval" ] || [ "$next_tag" != "$stopped_tag" ]; then
             echo "eval:${stopped_cfg}:${stopped_tag}" >> "$RESUME_CHAIN"
         fi
-        [ -f .job_chain ] && [ -s .job_chain ] && cat .job_chain >> "$RESUME_CHAIN"
-        mv "$RESUME_CHAIN" .job_chain
+        [ -f "$STATE_DIR/job_chain" ] && [ -s "$STATE_DIR/job_chain" ] && cat "$STATE_DIR/job_chain" >> "$RESUME_CHAIN"
+        mv "$RESUME_CHAIN" "$STATE_DIR/job_chain"
         echo "→ Training $stopped_tag verrà ripreso dall'ultimo checkpoint"
     elif [ "$stopped_type" = "eval" ]; then
         local RESUME_CHAIN=$(mktemp)
@@ -310,54 +312,59 @@ t2g-chain-start() {
         else
             echo "eval:${stopped_cfg}:${stopped_tag}" > "$RESUME_CHAIN"
         fi
-        [ -f .job_chain ] && [ -s .job_chain ] && cat .job_chain >> "$RESUME_CHAIN"
-        mv "$RESUME_CHAIN" .job_chain
+        [ -f "$STATE_DIR/job_chain" ] && [ -s "$STATE_DIR/job_chain" ] && cat "$STATE_DIR/job_chain" >> "$RESUME_CHAIN"
+        mv "$RESUME_CHAIN" "$STATE_DIR/job_chain"
         echo "→ Eval $stopped_tag verrà rieseguito"
     fi
 
-    rm -f .chain_stopped .chain_failed
+    rm -f "$STATE_DIR/chain_stopped" "$STATE_DIR/chain_failed"
 
-    if [ ! -f .job_chain ] || [ ! -s .job_chain ]; then
+    if [ ! -f "$STATE_DIR/job_chain" ] || [ ! -s "$STATE_DIR/job_chain" ]; then
         echo "⚠️  Nessun job rimanente nella catena."
         return 0
     fi
 
-    local TOTAL=$(wc -l < .job_chain)
+    local TOTAL=$(wc -l < "$STATE_DIR/job_chain")
     echo "Catena ($TOTAL job):"
-    cat -n .job_chain
+    cat -n "$STATE_DIR/job_chain"
 
-    if [ -f .chain_pid ]; then
-        local OLD_PID=$(cat .chain_pid)
+    if [ -f "$STATE_DIR/chain_pid" ]; then
+        local OLD_PID=$(cat "$STATE_DIR/chain_pid")
         kill "$OLD_PID" 2>/dev/null
-        rm -f .chain_pid
+        rm -f "$STATE_DIR/chain_pid"
     fi
 
     mkdir -p logs
     nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
-    local WATCHER_PID=$!
-    echo "$WATCHER_PID" > .chain_pid
-    echo "Pipeline ripresa! Watcher PID: $WATCHER_PID"
+
+    # Attendi che il watcher scriva il suo PID
+    sleep 2
+    local WATCHER_PID=""
+    if [ -f "$STATE_DIR/chain_pid" ]; then
+        WATCHER_PID=$(cat "$STATE_DIR/chain_pid")
+    fi
+    echo "Pipeline ripresa! Watcher PID: ${WATCHER_PID:-sconosciuto}"
 }
 
 # Mostra la catena di job attuale (uso: t2g-chain-show)
 t2g-chain-show() {
     t2g-watcher-status
     echo ""
-    if [ -f "$PROJ_DIR/.chain_stopped" ]; then
-        local info=$(cat "$PROJ_DIR/.chain_stopped")
+    if [ -f "$STATE_DIR/chain_stopped" ]; then
+        local info=$(cat "$STATE_DIR/chain_stopped")
         local st_type=$(echo "$info" | cut -d: -f1)
         local st_tag=$(echo "$info" | cut -d: -f3)
         [ "$st_type" != "none" ] && echo "⏸️  Pipeline fermata su: $st_type $st_tag"
         echo "   Per riprendere: t2g-chain-start"
         echo ""
     fi
-    if [ ! -f "$PROJ_DIR/.job_chain" ] || [ ! -s "$PROJ_DIR/.job_chain" ]; then
+    if [ ! -f "$STATE_DIR/job_chain" ] || [ ! -s "$STATE_DIR/job_chain" ]; then
         echo "Nessun job in coda."
         return 0
     fi
-    local total=$(wc -l < "$PROJ_DIR/.job_chain")
+    local total=$(wc -l < "$STATE_DIR/job_chain")
     echo "Job in coda ($total):"
-    cat -n "$PROJ_DIR/.job_chain"
+    cat -n "$STATE_DIR/job_chain"
 }
 
 # Monitor live della pipeline (uso: t2g-monitor [--poll N])

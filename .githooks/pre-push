@@ -33,13 +33,8 @@ echo "$CHANGED" | grep -q '^src/' && SYNC_DIRS="$SYNC_DIRS src/"
 echo "$CHANGED" | grep -q '^cluster/' && SYNC_DIRS="$SYNC_DIRS cluster/"
 echo "$CHANGED" | grep -q '^experiments/configs/' && SYNC_DIRS="$SYNC_DIRS experiments/configs/"
 echo "$CHANGED" | grep -q '^grammarllm/' && SYNC_DIRS="$SYNC_DIRS grammarllm/"
-echo "$CHANGED" | grep -q '^docs/' && SYNC_DIRS="$SYNC_DIRS docs/"
     echo "$CHANGED" | grep -q '^pyproject\.toml$' && SYNC_FILES="$SYNC_FILES pyproject.toml"
-    echo "$CHANGED" | grep -q '^README\.md$' && SYNC_FILES="$SYNC_FILES README.md"
-    echo "$CHANGED" | grep -q '^CLUSTER\.md$' && SYNC_FILES="$SYNC_FILES CLUSTER.md"
-    echo "$CHANGED" | grep -q '^TRAINING\.md$' && SYNC_FILES="$SYNC_FILES TRAINING.md"
     echo "$CHANGED" | grep -q '^main\.py$' && SYNC_FILES="$SYNC_FILES main.py"
-    echo "$CHANGED" | grep -q '^sync_cluster\.ps1$' && SYNC_FILES="$SYNC_FILES sync_cluster.ps1"
 
     if [ -z "$SYNC_DIRS" ] && [ -z "$SYNC_FILES" ]; then
         echo "[pre-push] No changes in tracked paths — skip sync"

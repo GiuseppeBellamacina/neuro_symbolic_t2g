@@ -56,8 +56,10 @@ done
 MODELS=("qwen05:experiments/configs/t2g/grpo_qwen05.yaml")
 
 PROJ_DIR="$HOME/neuro_symbolic_t2g"
-CHAIN_FILE="$PROJ_DIR/.job_chain"
-FAILED_FILE="$PROJ_DIR/.chain_failed"
+STATE_DIR="$PROJ_DIR/.chain_state"
+mkdir -p "$STATE_DIR"
+CHAIN_FILE="$STATE_DIR/job_chain"
+FAILED_FILE="$STATE_DIR/chain_failed"
 
 # ── Resume mode ───────────────────────────────────────────────────────────────
 if [ "$RESUME" -eq 1 ]; then
@@ -102,19 +104,24 @@ if [ "$RESUME" -eq 1 ]; then
     cat -n "$CHAIN_FILE"
     echo ""
 
-    if [ -f .chain_pid ]; then
-        OLD_PID=$(cat .chain_pid)
+    if [ -f "$STATE_DIR/chain_pid" ]; then
+        OLD_PID=$(cat "$STATE_DIR/chain_pid")
         kill "$OLD_PID" 2>/dev/null && echo "Watcher precedente (PID $OLD_PID) terminato."
-        rm -f .chain_pid
+        rm -f "$STATE_DIR/chain_pid"
     fi
 
     nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
-    WATCHER_PID=$!
-    echo "$WATCHER_PID" > .chain_pid
+
+    # Attendi che il watcher scriva il suo PID, poi leggilo
+    sleep 2
+    WATCHER_PID=""
+    if [ -f "$STATE_DIR/chain_pid" ]; then
+        WATCHER_PID=$(cat "$STATE_DIR/chain_pid")
+    fi
 
     echo "============================================"
     echo "  Pipeline ripresa!"
-    echo "  Watcher PID: $WATCHER_PID"
+    echo "  Watcher PID: ${WATCHER_PID:-sconosciuto}"
     echo "  Log: logs/chain_watcher.log"
     echo "============================================"
     exit 0
@@ -122,8 +129,8 @@ fi
 
 # ── Funzione helper: controlla se il watcher è attivo ─────────────────────────
 _watcher_is_alive() {
-    if [ -f "$PROJ_DIR/.chain_pid" ]; then
-        local pid=$(cat "$PROJ_DIR/.chain_pid")
+    if [ -f "$STATE_DIR/chain_pid" ]; then
+        local pid=$(cat "$STATE_DIR/chain_pid")
         if ps -p "$pid" > /dev/null 2>&1; then
             return 0
         fi
@@ -133,7 +140,7 @@ _watcher_is_alive() {
 
 # ── Auto-detect: se watcher attivo e non --append/--remove esplicito ──────────
 if [ "$APPEND" -eq 0 ] && [ "$REMOVE" -eq 0 ] && _watcher_is_alive; then
-    echo "⚠️  Pipeline già attiva (watcher PID $(cat "$PROJ_DIR/.chain_pid"))."
+    echo "⚠️  Pipeline già attiva (watcher PID $(cat "$STATE_DIR/chain_pid"))."
     echo "   I nuovi job verranno AGGIUNTI alla coda esistente."
     echo "   (Usa Ctrl-C per annullare, oppure uccidi il watcher prima: t2g-watcher-kill)"
     echo ""
@@ -143,7 +150,7 @@ fi
 # ── Remove mode ───────────────────────────────────────────────────────────────
 if [ "$REMOVE" -eq 1 ]; then
     if [ ! -f "$CHAIN_FILE" ] || [ ! -s "$CHAIN_FILE" ]; then
-        echo "❌ Nessuna catena attiva (.job_chain vuoto o non trovato)."
+        echo "❌ Nessuna catena attiva (job_chain vuoto o non trovato)."
         exit 1
     fi
 
@@ -158,7 +165,7 @@ if [ "$REMOVE" -eq 1 ]; then
     # Update monitor cache
     python3 -c "
 import json, pathlib
-cache_path = pathlib.Path('$PROJ_DIR/.monitor_cache')
+cache_path = pathlib.Path('$STATE_DIR/monitor_cache')
 if cache_path.exists():
     cache_path.unlink()
 " 2>/dev/null
@@ -167,6 +174,12 @@ if cache_path.exists():
 fi
 
 # ── Costruisci la catena ──────────────────────────────────────────────────────
+# Pulisci .chain_state/ se partenza fresca (non --resume, --append, --remove)
+if [ "$RESUME" -eq 0 ] && [ "$APPEND" -eq 0 ] && [ "$REMOVE" -eq 0 ]; then
+    rm -rf "$STATE_DIR"
+    mkdir -p "$STATE_DIR"
+fi
+
 if [ "$APPEND" -eq 0 ]; then
     > "$CHAIN_FILE"  # svuota/crea il file
 fi
@@ -213,7 +226,7 @@ if [ ${#NEW_KEYS[@]} -gt 0 ]; then
     [ "$APPEND" -eq 0 ] && CLEAR_OLD=1
     python3 -c "
 import json, pathlib
-cache_path = pathlib.Path('$PROJ_DIR/.monitor_cache')
+cache_path = pathlib.Path('$STATE_DIR/monitor_cache')
 cache = json.loads(cache_path.read_text()) if cache_path.exists() else {'jobs': {}, 'pipeline_jobs': []}
 cache.setdefault('pipeline_jobs', [])
 if $CLEAR_OLD:
@@ -247,7 +260,7 @@ if [ "$APPEND" -eq 1 ]; then
     echo "Catena completa:"
     cat -n "$CHAIN_FILE"
     echo ""
-    echo "✅ Il watcher (PID $(cat "$PROJ_DIR/.chain_pid")) li eseguirà automaticamente."
+    echo "✅ Il watcher (PID $(cat "$STATE_DIR/chain_pid")) li eseguirà automaticamente."
     exit 0
 fi
 
@@ -264,22 +277,27 @@ echo ""
 # ── Avvia il watcher in background (nohup) ────────────────────────────────────
 mkdir -p logs
 
-if [ -f .chain_pid ]; then
-    OLD_PID=$(cat .chain_pid)
+if [ -f "$STATE_DIR/chain_pid" ]; then
+    OLD_PID=$(cat "$STATE_DIR/chain_pid")
     kill "$OLD_PID" 2>/dev/null && echo "Watcher precedente (PID $OLD_PID) terminato."
-    rm -f .chain_pid
+    rm -f "$STATE_DIR/chain_pid"
 fi
 
 nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
-WATCHER_PID=$!
-echo "$WATCHER_PID" > .chain_pid
+
+# Attendi che il watcher scriva il suo PID, poi leggilo
+sleep 2
+WATCHER_PID=""
+if [ -f "$STATE_DIR/chain_pid" ]; then
+    WATCHER_PID=$(cat "$STATE_DIR/chain_pid")
+fi
 
 echo ""
 echo "============================================"
 echo "  Pipeline avviata!"
-echo "  Watcher PID: $WATCHER_PID"
+echo "  Watcher PID: ${WATCHER_PID:-sconosciuto}"
 echo "  Log: logs/chain_watcher.log"
-echo "  Catena: .job_chain"
+echo "  Catena: .chain_state/job_chain"
 echo ""
 echo "  Per monitorare:"
 echo "    tail -f logs/chain_watcher.log"
@@ -287,6 +305,6 @@ echo "    t2g-monitor"
 echo "    myjobs"
 echo ""
 echo "  Per interrompere:"
-echo "    kill \$(cat .chain_pid)"
+echo "    kill \$(cat .chain_state/chain_pid)"
 echo "    killalljobs"
 echo "============================================"
