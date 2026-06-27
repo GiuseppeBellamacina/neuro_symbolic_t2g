@@ -27,6 +27,7 @@ import argparse
 import hashlib
 import json
 import logging
+import random
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -166,7 +167,9 @@ def evaluate_checkpoint(
     grpo_cfg = config["grpo"]
 
     # ── Load test data ───────────────────────────────────────────────────
-    dataset = download_aslg_dataset(cache_dir=ds_cfg.get("dataset_cache"))
+    dataset = download_aslg_dataset(
+        cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
+    )
     vocab = load_vocabulary(ds_cfg.get("vocab_path", "data/gloss_vocab.txt"))
     bigram = load_transition_matrix(
         ds_cfg.get("bigram_matrix_path", "data/bigram_transition.npy"),
@@ -371,6 +374,15 @@ def main() -> None:
     )
 
     config = load_config(args.config)
+
+    # ── Set random seeds for reproducibility ─────────────────────────────
+    seed = config["dataset"].get("seed", 42)
+    random.seed(seed)
+    np.random.seed(seed)  # noqa: NPY002
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    logger.info(f"Reproducibility: seed={seed} (random, numpy, torch, cuda)")
 
     model_tag = (
         Path(args.checkpoint).parent.name

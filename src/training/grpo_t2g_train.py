@@ -25,9 +25,11 @@ import gc
 import hashlib
 import logging
 import os
+import random
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import torch
 import wandb
 from datasets import Dataset
@@ -132,13 +134,23 @@ def _prepare_t2g_dataset(
     config: dict[str, Any],
     tokenizer: Any,
     vocab: list[str],
+    dataset: Any = None,
 ) -> Dataset:
     """Load ASLG-PC12 and build prompt-completion pairs for GRPO.
 
     The dataset has columns: ``prompt``, ``completion`` (gold gloss), ``difficulty``.
+
+    Args:
+        config: Full config dict.
+        tokenizer: Hugging Face tokenizer.
+        vocab: Gloss vocabulary (unused here, kept for API compatibility).
+        dataset: Optional pre-loaded ``DatasetDict``. If ``None``, downloads it.
     """
     ds_cfg = config["dataset"]
-    dataset = download_aslg_dataset(cache_dir=ds_cfg.get("dataset_cache"))
+    if dataset is None:
+        dataset = download_aslg_dataset(
+            cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
+        )
 
     t2g_ds = build_t2g_dataset(
         dataset,
@@ -235,6 +247,15 @@ def main() -> None:
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
 
+    # ── Set random seeds for reproducibility ─────────────────────────────
+    seed = config["dataset"].get("seed", 42)
+    random.seed(seed)
+    np.random.seed(seed)  # noqa: NPY002
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    logger.info(f"Reproducibility: seed={seed} (random, numpy, torch, cuda)")
+
     # ── Step 1: Data preparation ─────────────────────────────────────────
     ds_cfg = config["dataset"]
     vocab_path = ds_cfg.get("vocab_path", "data/gloss_vocab.txt")
@@ -245,7 +266,9 @@ def main() -> None:
     logger.info("=" * 60)
 
     # Download dataset
-    dataset = download_aslg_dataset(cache_dir=ds_cfg.get("dataset_cache"))
+    dataset = download_aslg_dataset(
+        cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
+    )
 
     # Extract vocabulary (or load from cache)
     if Path(vocab_path).exists():
@@ -272,6 +295,29 @@ def main() -> None:
     if args.prepare_data:
         logger.info("Data preparation complete. Exiting.")
         return
+
+    # ── vLLM compatibility note ─────────────────────────────────────────
+    # When fast_inference is enabled, Unsloth uses vLLM for rollouts.
+    # vLLM's sampling engine does NOT use HuggingFace LogitsProcessor —
+    # it uses SamplingParams.logit_bias.  Since our constrained decoding
+    # relies on LogitsProcessor, we MUST disable fast_inference BEFORE
+    # loading the model, otherwise vLLM is initialized and silently
+    # bypasses the vocabulary constraints.
+    #
+    # For production vLLM support, implement logit_bias injection via
+    # Unsloth's vLLM integration (see FastLanguageModel docs).
+    if config.get("model", {}).get("fast_inference", False):
+        logger.warning(
+            "⚠️  fast_inference=True is INCOMPATIBLE with constrained decoding "
+            "via HF LogitsProcessor.  vLLM does not respect the logits_processor "
+            "parameter.  Auto-disabling fast_inference BEFORE model load to "
+            "enforce ASL gloss vocabulary constraints."
+        )
+        config["model"]["fast_inference"] = False
+        logger.info(
+            "    → fast_inference=False (constrained decoding will use "
+            "standard HF generation with logits_processor)"
+        )
 
     # ── Step 2: Model loading ────────────────────────────────────────────
     logger.info("=" * 60)
@@ -314,34 +360,15 @@ def main() -> None:
         )
         logger.info("  Vocabulary mask ready")
 
-    # ── vLLM compatibility note ─────────────────────────────────────────
-    # When fast_inference is enabled, Unsloth uses vLLM for rollouts.
-    # vLLM's sampling engine does NOT use HuggingFace LogitsProcessor —
-    # it uses SamplingParams.logit_bias.  Since our constrained decoding
-    # relies on LogitsProcessor, we auto-disable fast_inference to
-    # guarantee vocabulary constraints are enforced.
-    #
-    # For production vLLM support, implement logit_bias injection via
-    # Unsloth's vLLM integration (see FastLanguageModel docs).
-    if config.get("model", {}).get("fast_inference", False):
-        logger.warning(
-            "⚠️  fast_inference=True is INCOMPATIBLE with constrained decoding "
-            "via HF LogitsProcessor.  vLLM does not respect the logits_processor "
-            "parameter.  Auto-disabling fast_inference to enforce ASL gloss "
-            "vocabulary constraints."
-        )
-        config["model"]["fast_inference"] = False
-        logger.info(
-            "    → fast_inference=False (constrained decoding will use "
-            "standard HF generation with logits_processor)"
-        )
+    # ── Constrained decoding setup (vocabulary mask, no vLLM check here) ──
+    # NOTE: fast_inference was already disabled BEFORE model loading (see above).
 
     # ── Step 4: Dataset preparation ──────────────────────────────────────
     logger.info("=" * 60)
     logger.info("STEP 4: Dataset Preparation")
     logger.info("=" * 60)
 
-    t2g_dataset = _prepare_t2g_dataset(config, tokenizer, vocab)
+    t2g_dataset = _prepare_t2g_dataset(config, tokenizer, vocab, dataset=dataset)
 
     # Register gold glosses for the translation quality reward function.
     # Uses stable sample IDs (SHA256 of user instruction) for format-agnostic

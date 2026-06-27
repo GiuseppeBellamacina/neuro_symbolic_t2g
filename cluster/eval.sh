@@ -23,7 +23,7 @@
 
 # ── Variabili progetto ────────────────────────────────────────────────────────
 CHECKPOINT="${CHECKPOINT:-}"
-SKIP_STAGES="${SKIP_STAGES:-0}"
+
 
 if [ -z "$CONFIG" ]; then
     echo "❌ CONFIG non impostato. Uso:"
@@ -63,9 +63,7 @@ EVAL_ARGS="--config ${CONFIG}"
 if [ -n "$CHECKPOINT" ]; then
     EVAL_ARGS="${EVAL_ARGS} --checkpoint ${CHECKPOINT}"
 fi
-if [ "$SKIP_STAGES" != "0" ] && [ -n "$SKIP_STAGES" ]; then
-    EVAL_ARGS="${EVAL_ARGS} --skip-stages ${SKIP_STAGES}"
-fi
+
 
 echo ""
 echo "Avvio evaluation..."

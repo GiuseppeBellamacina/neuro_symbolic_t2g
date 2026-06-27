@@ -15,7 +15,7 @@
 #
 # Monitorare:
 #   tail -f logs/chain_watcher.log           # log del watcher
-#   t2g-monitor                              # monitor live
+#   monitor                              # monitor live
 #   myjobs                                   # job attivo su SLURM
 #
 # Interrompere:
@@ -142,7 +142,7 @@ _watcher_is_alive() {
 if [ "$APPEND" -eq 0 ] && [ "$REMOVE" -eq 0 ] && _watcher_is_alive; then
     echo "⚠️  Pipeline già attiva (watcher PID $(cat "$STATE_DIR/chain_pid"))."
     echo "   I nuovi job verranno AGGIUNTI alla coda esistente."
-    echo "   (Usa Ctrl-C per annullare, oppure uccidi il watcher prima: t2g-watcher-kill)"
+    echo "   (Usa Ctrl-C per annullare, oppure uccidi il watcher prima: watcher-kill)"
     echo ""
     APPEND=1
 fi
@@ -301,7 +301,7 @@ echo "  Catena: .chain_state/job_chain"
 echo ""
 echo "  Per monitorare:"
 echo "    tail -f logs/chain_watcher.log"
-echo "    t2g-monitor"
+echo "    monitor"
 echo "    myjobs"
 echo ""
 echo "  Per interrompere:"
