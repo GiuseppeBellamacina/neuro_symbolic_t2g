@@ -110,11 +110,11 @@ else:
 echo ""
 if [ "$CC_MAJOR" -ge 7 ] 2>/dev/null; then
     echo "📦 GPU CC >= 7.0 → installazione completa (base + gpu)..."
-    pip install --user -e ".[gpu]" --retries 10 --timeout 60
+    $PY -m pip install --user -e ".[gpu]" --retries 10 --timeout 60
 else
     echo "📦 GPU CC < 7.0 → installazione base (senza Unsloth/vLLM)..."
     echo "   Usa config con: use_unsloth: false, fast_inference: false"
-    pip install --user -e . --retries 10 --timeout 60
+    $PY -m pip install --user -e . --retries 10 --timeout 60
 fi
 
 # ── 3. Scarica e processa il dataset ASLG-PC12 ────────────────────────────────
@@ -165,6 +165,13 @@ print(f'  Salvato in data/bigram_transition.npy')
 echo ""
 echo "🔍 Verifica installazione..."
 $PY -c "
+# Unsloth MUST be imported before trl/transformers/peft for optimizations
+try:
+    import unsloth
+    print(f'  Unsloth:       {unsloth.__version__}')
+except (ImportError, NotImplementedError, RuntimeError):
+    print(f'  Unsloth:       NON disponibile (GPU/CUDA non compatibile)')
+
 import torch, transformers, trl, peft, datasets
 print(f'  PyTorch:       {torch.__version__}')
 print(f'  CUDA:          {torch.cuda.is_available()}')
@@ -172,11 +179,7 @@ print(f'  Transformers:  {transformers.__version__}')
 print(f'  TRL:           {trl.__version__}')
 print(f'  PEFT:          {peft.__version__}')
 print(f'  Datasets:      {datasets.__version__}')
-try:
-    import unsloth
-    print(f'  Unsloth:       {unsloth.__version__}')
-except (ImportError, NotImplementedError, RuntimeError):
-    print(f'  Unsloth:       NON disponibile (GPU/CUDA non compatibile)')
+
 try:
     import vllm
     print(f'  vLLM:          {vllm.__version__}')

@@ -527,4 +527,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    raise RuntimeError(
+        "Do not run this script directly. "
+        "Use 'python -m src.training --config ...' to ensure "
+        "Unsloth is imported before trl/transformers/peft for optimizations."
+    )

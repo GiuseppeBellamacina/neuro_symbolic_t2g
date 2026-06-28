@@ -6,7 +6,7 @@ using ``trl.SFTTrainer``.  No reward shaping, no constrained decoding —
 the model simply learns to replicate the gold gloss given the English input.
 
 Usage:
-    python -m src.training.sft_train --config experiments/configs/t2g/sft.yaml
+    python -m src.training --config experiments/configs/t2g/sft.yaml
     CONFIG=experiments/configs/t2g/sft.yaml sbatch cluster/train.sh
 """
 
@@ -318,4 +318,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    raise RuntimeError(
+        "Do not run this script directly. "
+        "Use 'python -m src.training --config ...' to ensure "
+        "Unsloth is imported before trl/transformers/peft for optimizations."
+    )
