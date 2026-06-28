@@ -33,14 +33,16 @@ Il progetto addestra **Qwen2.5-0.5B-Instruct** a tradurre frasi inglesi in **glo
    e aggiorna i pesi LoRA per massimizzare la reward attesa
 7. **Salvataggio**: checkpoint ogni 100 step, modello finale in `experiments/checkpoints/grpo/t2g/qwen05/final/`
 
-### Le 4 funzioni di reward
+### Le 6 funzioni di reward
 
 | Reward | Peso | Cosa misura |
 |--------|------|-------------|
 | **Translation quality** (ROUGE-L) | 0.40 | Similarità con le glosse gold |
-| **Structural dense** (Viterbi bigram) | 0.40 | Probabilità della sequenza gloss nel "linguaggio ASL" |
+| **Gold-structure** (Gold Baseline) ⭐ | 0.40 | Confronto bigram vs gold reference |
 | **Format** | 0.10 | Assicura output di sole glosse (no free text) |
 | **Repetition** | 0.10 | Penalizza sequenze ripetitive |
+
+Disponibili anche: **Viterbi Distance** (🧪 upper bound teorico) e **Structural Dense** (legacy senza baseline). Vedi `docs/REWARDS.md`.
 
 ### Cosa aspettarsi
 
@@ -119,3 +121,6 @@ Modifica `experiments/configs/t2g/grpo_qwen05.yaml` per:
 - **Velocità**: `grpo.num_generations` (default 4, riduci a 2 per GPU piccole)
 - **GPU piccole (K80)**: `model.quantization: null`, `model.use_unsloth: false`
 - **Quality/speed tradeoff**: `grpo.temperature` (default 0.7, più alto = più esplorazione)
+- **Reward struttura**: `grammar.viterbi_diversity.*` per iperparametri Viterbi
+- **Ablation**: `grammar.enabled: false` per GRPO senza constrained decoding
+- **PDA**: `grammar.use_grammarllm_pda: true` per LL(1) completo

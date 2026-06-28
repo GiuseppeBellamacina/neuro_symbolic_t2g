@@ -6,12 +6,21 @@
 # controlla ogni 60s se la coda è vuota e sottomette il prossimo job.
 #
 # Uso:
-#   bash cluster/run_all.sh                       # train + eval
+#   bash cluster/run_all.sh                       # train + eval (default: GRPO+grammar)
+#   bash cluster/run_all.sh --ablation             # ablation study completo
 #   bash cluster/run_all.sh --eval-only            # solo evaluation
 #   bash cluster/run_all.sh --train-only           # solo training
 #   bash cluster/run_all.sh --resume               # riprendi pipeline fallita
 #   bash cluster/run_all.sh --append               # aggiungi job a pipeline attiva
 #   bash cluster/run_all.sh --remove               # rimuovi job dalla pipeline
+#
+# Ablation Study (--ablation):
+#   1. Base Model Zero-shot (senza grammar)
+#   2. Base Model + GRAMMAR-LLM (con grammar, no training)
+#   3. GRPO senza grammar (train + eval)
+#   4. GRPO + GRAMMAR-LLM (train + eval — metodo completo)
+#   5. SFT (train + eval — baseline supervisionata)
+#   6. GRPO + GrammarLLM PDA (train + eval — LL(1) constrained)
 #
 # Monitorare:
 #   tail -f logs/chain_watcher.log           # log del watcher
@@ -28,11 +37,13 @@ set -e
 # ── Parsing argomenti ─────────────────────────────────────────────────────────
 GLOBAL_TRAIN=1
 GLOBAL_EVAL=1
+ABLATION=0
 RESUME=0
 APPEND=0
 REMOVE=0
 for arg in "$@"; do
     case "$arg" in
+        --ablation)    ABLATION=1 ;;
         --eval-only)   GLOBAL_TRAIN=0 ;;
         --train-only)  GLOBAL_EVAL=0 ;;
         --append)      APPEND=1 ;;
@@ -42,18 +53,41 @@ for arg in "$@"; do
             echo "Uso: bash cluster/run_all.sh [opzioni]"
             echo ""
             echo "Opzioni:"
+            echo "  --ablation       Ablation study completo (6 varianti)"
             echo "  --eval-only      Solo evaluation (skip training)"
             echo "  --train-only     Solo training (skip eval)"
             echo "  --resume         Riprendi pipeline da dove si era fermata"
             echo "  --append         Aggiungi job alla pipeline attiva"
             echo "  --remove         Rimuovi job dalla pipeline attiva"
+            echo ""
+            echo "Ablation Study (--ablation):"
+            echo "  1. zero-shot       Base model, no grammar         [eval only]"
+            echo "  2. zero-shot-gram  Base model + Grammar-LLM       [eval only]"
+            echo "  3. grpo-no-grammar GRPO senza grammar              [train+eval]"
+            echo "  4. grpo-grammar    GRPO + GRAMMAR-LLM (completo)  [train+eval]"
+            echo "  5. sft             SFT supervised baseline        [train+eval]"
+            echo "  6. grpo-pda        GRPO + GrammarLLM PDA            [train+eval]"
             exit 0
             ;;
     esac
 done
 
-# ── Modello T2G ───────────────────────────────────────────────────────────────
-MODELS=("qwen05:experiments/configs/t2g/grpo_qwen05.yaml")
+# ── Modelli T2G ───────────────────────────────────────────────────────────────
+if [ "$ABLATION" -eq 1 ]; then
+    # Ablation study: 6 varianti in ordine
+    # Formato: TAG:CONFIG[:MODE]
+    # MODE: te=train+eval (default), e=eval-only, t=train-only
+    MODELS=(
+        "zero-shot:experiments/configs/t2g/ablation/zero_shot.yaml:e"
+        "zero-shot-gram:experiments/configs/t2g/ablation/zero_shot_grammar.yaml:e"
+        "grpo-no-grammar:experiments/configs/t2g/ablation/grpo_no_grammar.yaml:te"
+        "grpo-grammar:experiments/configs/t2g/grpo_qwen05.yaml:te"
+        "sft:experiments/configs/t2g/sft.yaml:te"
+        "grpo-pda:experiments/configs/t2g/ablation/grpo_pda.yaml:te"
+    )
+else
+    MODELS=("qwen05:experiments/configs/t2g/grpo_qwen05.yaml")
+fi
 
 PROJ_DIR="$HOME/neuro_symbolic_t2g"
 STATE_DIR="$PROJ_DIR/.chain_state"
@@ -195,8 +229,18 @@ SKIPPED=0
 for entry in "${MODELS[@]}"; do
     TAG=$(echo "$entry" | cut -d: -f1)
     CFG=$(echo "$entry" | cut -d: -f2)
+    MODE=$(echo "$entry" | cut -d: -f3)
 
-    if [ "$GLOBAL_TRAIN" -eq 1 ]; then
+    # Default: train+eval if no MODE specified
+    DO_TRAIN=$GLOBAL_TRAIN
+    DO_EVAL=$GLOBAL_EVAL
+    case "$MODE" in
+        e)   DO_TRAIN=0; DO_EVAL=1 ;;
+        t)   DO_TRAIN=1; DO_EVAL=0 ;;
+        te|"") DO_TRAIN=$GLOBAL_TRAIN; DO_EVAL=$GLOBAL_EVAL ;;
+    esac
+
+    if [ "$DO_TRAIN" -eq 1 ]; then
         E="train:${CFG}:${TAG}"
         if [ "$APPEND" -eq 1 ] && echo "$EXISTING_ENTRIES" | grep -qF "$E"; then
             SKIPPED=$((SKIPPED + 1))
@@ -206,7 +250,7 @@ for entry in "${MODELS[@]}"; do
             NEW_KEYS+=("train-${TAG}")
         fi
     fi
-    if [ "$GLOBAL_EVAL" -eq 1 ]; then
+    if [ "$DO_EVAL" -eq 1 ]; then
         E="eval:${CFG}:${TAG}"
         if [ "$APPEND" -eq 1 ] && echo "$EXISTING_ENTRIES" | grep -qF "$E"; then
             SKIPPED=$((SKIPPED + 1))

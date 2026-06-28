@@ -215,6 +215,11 @@ clean() {
     cd "$PROJ_DIR" && bash cluster/clean.sh "$@"
 }
 
+# Pulizia selettiva di un modello (uso: clean-model <TAG> [--all])
+clean-model() {
+    cd "$PROJ_DIR" && bash cluster/clean_model.sh "$@"
+}
+
 # Aggiungi job alla pipeline attiva (uso: chain-add)
 chain-add() {
     cd "$PROJ_DIR" && bash cluster/run_all.sh --append "$@"
@@ -396,7 +401,7 @@ pip-reset() {
 
 # ── Meta ─────────────────────────────────────────────────────────────────────
 
-_DIEGO_ALIASES="myjobs jobinfo killjob killalljobs trainlog evallog lastlog tree gpu quota proj ckpts train run-eval run-all watcher-status watcher-kill clean chain-add chain-remove chain-stop chain-start chain-show monitor pip-clean pip-setup pip-reset unload-aliases install-aliases uninstall-aliases"
+_DIEGO_ALIASES="myjobs jobinfo killjob killalljobs trainlog evallog lastlog tree gpu quota proj ckpts train run-eval run-all watcher-status watcher-kill clean clean-model chain-add chain-remove chain-stop chain-start chain-show monitor pip-clean pip-setup pip-reset unload-aliases install-aliases uninstall-aliases"
 
 # Mostra i comandi disponibili
 diego() {
@@ -441,6 +446,8 @@ diego() {
     echo "   gpu          — stato GPU"
     echo "   quota            — uso disco progetto"
     echo "   clean        — pulizia workspace"
+    echo "   clean-model <TAG> [--all]"
+    echo "                    — pulisci checkpoints/logs di un modello"
     echo ""
     echo "── Pip / Environment ──"
     echo "   pip-clean    — rimuovi pacchetti pip --user"

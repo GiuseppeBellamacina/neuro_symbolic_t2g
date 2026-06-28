@@ -55,9 +55,15 @@ _project_root = _Path(__file__).resolve().parent.parent.parent
 if str(_project_root) not in _sys.path:
     _sys.path.insert(0, str(_project_root))
 
-# Import and run the main training function
+# ── Route to correct trainer based on config ─────────────────────────
 print(f"[bootstrap] config={_early_args.config}")
-from src.training.grpo_t2g_train import main  # noqa: E402
 
-# Patch sys.argv so argparse in main() gets the same flags
+_trainer = _cfg.get("training", {}).get("trainer", "grpo")
+if _trainer == "sft":
+    print("[bootstrap] trainer=sft → importing sft_train.main")
+    from src.training.sft_train import main  # noqa: E402
+else:
+    print("[bootstrap] trainer=grpo → importing grpo_t2g_train.main")
+    from src.training.grpo_t2g_train import main  # noqa: E402
+
 main()

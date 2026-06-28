@@ -10,6 +10,9 @@ Two implementations are provided:
     2. ``GlossVocabularyLogitsProcessor`` — lightweight, masks all tokens
        not in the ASL gloss vocabulary (simpler but less strict).
 
+Both share the ``MaskedMassTracker`` mixin for probability mass / entropy
+diagnostics, tracked on W&B during training.
+
 Both are compatible with Hugging Face ``model.generate()``.
 """
 
@@ -27,6 +30,9 @@ from grammarllm.modules.SimpleLogitProcessor_ import (
     MaskLogitsProcessor as GrammarLLMMaskProcessor,
 )
 
+# Import shared diagnostics mixin
+from src.grammar.masked_mass_tracker import MaskedMassTracker
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,7 +41,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-class GlossVocabularyLogitsProcessor(LogitsProcessor):
+class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
     """Logits processor that masks non-gloss tokens at each generation step.
 
     Inherits from ``transformers.LogitsProcessor`` for full compatibility
@@ -57,6 +63,9 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor):
         gloss_vocab_mask: Any,
         device: str | torch.device = "cpu",
     ) -> None:
+        LogitsProcessor.__init__(self)
+        MaskedMassTracker._init_masked_stats(self)
+
         self.mask = gloss_vocab_mask
         self.device = device
         self.allowed_ids: set[int] = gloss_vocab_mask.token_ids
@@ -69,8 +78,6 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor):
         else:
             self.vocab_size = 0
 
-        self.step_count: int = 0
-
         logger.info(
             "GlossVocabularyLogitsProcessor initialized "
             "(allowed=%d tokens, vocab_size=%d, device=%s)",
@@ -80,29 +87,27 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor):
         )
 
     def reset(self) -> None:
-        """Reset step counter for a new generation."""
+        """Reset step counter and masked mass/entropy stats for a new generation."""
         self.step_count = 0
+        self._reset_masked_stats()
 
     def __call__(
         self,
         input_ids: torch.LongTensor,
         scores: torch.FloatTensor,
     ) -> torch.FloatTensor:
-        """Apply vocabulary mask to logits.
+        """Apply vocabulary mask to logits and track diagnostic metrics.
 
         Hugging Face ``LogitsProcessor`` interface.
         """
-        self.step_count += 1
+        probs = self._pre_process(scores)
 
-        if self.vocab_size == 0:
-            self.vocab_size = scores.shape[-1]
-
-        allowed_mask = torch.zeros(
-            scores.shape[-1], dtype=torch.bool, device=scores.device
+        allowed_mask = self._build_allowed_mask(
+            self.allowed_ids, scores.shape[-1], scores.device
         )
-        for tid in self.allowed_ids:
-            if 0 <= tid < scores.shape[-1]:
-                allowed_mask[tid] = True
+
+        # Track masked probability mass + entropy (shared mixin)
+        self._track_masked_stats(probs, allowed_mask)
 
         scores = scores.clone()
         scores[:, ~allowed_mask] = -float("inf")
@@ -138,7 +143,7 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor):
 # ---------------------------------------------------------------------------
 
 
-class GrammarPDALogitsProcessor(LogitsProcessor):
+class GrammarPDALogitsProcessor(LogitsProcessor, MaskedMassTracker):
     """*EXPERIMENTAL* — Full grammar-constrained logits processor.
 
     Wraps ``grammarllm.modules.PushdownAutomaton`` and
@@ -165,19 +170,25 @@ class GrammarPDALogitsProcessor(LogitsProcessor):
         pda: PushdownAutomaton,
         temperature: float = 1.0,
     ) -> None:
-        super().__init__()
+        LogitsProcessor.__init__(self)
+        MaskedMassTracker._init_masked_stats(self)
+
         self.tokenizer = tokenizer
         self.pda = pda
         self._grammar_processor = GrammarLLMMaskProcessor(
             tokenizer, pda, temperature=temperature
         )
-        self.step_count: int = 0
 
-        logger.info("GrammarPDALogitsProcessor initialized with full grammarllm PDA")
+        logger.info(
+            "GrammarPDALogitsProcessor initialized with full grammarllm PDA "
+            "(temperature=%.2f)",
+            temperature,
+        )
 
     def reset(self) -> None:
-        """Reset PDA, grammar processor, and step counter."""
+        """Reset PDA, grammar processor, step counter, and masked mass/entropy stats."""
         self.step_count = 0
+        self._reset_masked_stats()
         self.pda.reset()
         self._grammar_processor.reset()
 
@@ -186,8 +197,19 @@ class GrammarPDALogitsProcessor(LogitsProcessor):
         input_ids: torch.LongTensor,
         scores: torch.FloatTensor,
     ) -> torch.FloatTensor:
-        """Apply grammar-constrained mask via grammarllm's MaskLogitsProcessor."""
-        self.step_count += 1
+        """Apply grammar-constrained mask via grammarllm's MaskLogitsProcessor.
+
+        Tracks masked mass and entropy diagnostics before delegating.
+        """
+        probs = self._pre_process(scores)
+
+        allowed_mask = self._build_allowed_mask(
+            set(self.get_valid_tokens()), scores.shape[-1], scores.device
+        )
+
+        # Track masked probability mass + entropy (shared mixin)
+        self._track_masked_stats(probs, allowed_mask)
+
         return self._grammar_processor(input_ids, scores)
 
     def update_state(self, token_id: int) -> None:

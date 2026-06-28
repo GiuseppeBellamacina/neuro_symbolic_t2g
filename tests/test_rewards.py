@@ -204,12 +204,96 @@ def test_repetition_reward() -> None:
     check("Empty = 1.0", empty == 1.0)
 
 
+def test_gold_structure_reward() -> None:
+    print("\n-- 5. Gold-Structure Reward (Gold Baseline) --")
+    from src.rewards.t2g_rewards import gold_structure_reward
+
+    gold = "IX MAN WALK HOUSE"
+
+    # Perfect match with gold (same sequence)
+    perfect = "IX MAN WALK HOUSE"
+    score_perfect = gold_structure_reward(perfect, gold, normalize=True)
+    check(
+        "Perfect match = 1.0", abs(score_perfect - 1.0) < 0.05, f"{score_perfect:.4f}"
+    )
+
+    # Slightly different from gold
+    partial = "IX MAN GO HOUSE"
+    score_partial = gold_structure_reward(partial, gold, normalize=True)
+    check("Partial in [0, 1]", 0.0 <= score_partial <= 1.0, f"{score_partial:.4f}")
+    check(
+        "Partial < perfect",
+        score_partial < score_perfect,
+        f"{score_partial:.4f} < {score_perfect:.4f}",
+    )
+
+    # Implausible (bad bigram transitions)
+    implausible = "DOG fs-JOHN BOOK CAN NOT"
+    score_implausible = gold_structure_reward(implausible, gold, normalize=True)
+    check(
+        "Implausible in [0, 1]",
+        0.0 <= score_implausible <= 1.0,
+        f"{score_implausible:.4f}",
+    )
+    check(
+        "Implausible < partial",
+        score_implausible < score_partial,
+        f"{score_implausible:.4f} < {score_partial:.4f}",
+    )
+
+    # Empty
+    empty = gold_structure_reward("", gold, normalize=True)
+    check("Empty = 0.0", empty == 0.0)
+
+    empty_gold = gold_structure_reward(perfect, "", normalize=True)
+    check("Empty gold = 0.0", empty_gold == 0.0)
+
+    # Raw
+    raw = gold_structure_reward(perfect, gold, normalize=False)
+    check("Raw perfect ~= 0.0", abs(raw) < 0.5, f"{raw:.4f}")
+
+
+def test_viterbi_distance_reward() -> None:
+    print("\n-- 6. Viterbi Distance Reward --")
+    from src.rewards.t2g_rewards import viterbi_distance_reward
+
+    plausible = "IX MAN WALK HOUSE"
+    score = viterbi_distance_reward(plausible, normalize=True)
+    check("Viterbi distance in [0, 1]", 0.0 <= score <= 1.0, f"{score:.4f}")
+    check("Viterbi distance > 0", score > 0.0)
+
+    short = "IX"
+    score_short = viterbi_distance_reward(short, normalize=True)
+    check("Short (<2 tokens) = 0.0", score_short == 0.0)
+
+    empty = viterbi_distance_reward("", normalize=True)
+    check("Empty = 0.0", empty == 0.0)
+
+    # Bad sequence — should get lower Viterbi distance score
+    bad = "DOG fs-JOHN BOOK CAN NOT WANT"
+    score_bad = viterbi_distance_reward(bad, normalize=True)
+    check("Bad < plausible", score_bad < score, f"{score_bad:.4f} < {score:.4f}")
+    check("Bad in [0, 1]", 0.0 <= score_bad <= 1.0, f"{score_bad:.4f}")
+
+    # Bonus check: the Viterbi distance should NOT be extreme (not ~0.0)
+    # because the diverse Viterbi uses a realistic baseline
+    check(
+        "Plausible Viterbi distance > 0.05 (diverse baseline)",
+        score > 0.05,
+        f"{score:.4f}",
+    )
+
+    # Raw (should be negative)
+    raw = viterbi_distance_reward(plausible, normalize=False)
+    check("Raw < 0.0", raw < 0.0, f"{raw:.4f}")
+
+
 def test_build_reward_functions() -> None:
-    print("\n-- 5. build_t2g_reward_functions --")
+    print("\n-- 7. build_t2g_reward_functions --")
     from src.rewards.t2g_rewards import build_t2g_reward_functions
 
     funcs, weights = build_t2g_reward_functions()
-    check("4 reward functions", len(funcs) == 4, f"got {len(funcs)}")
+    check("4 reward functions (default)", len(funcs) == 4, f"got {len(funcs)}")
     check("4 weights", len(weights) == 4, f"got {len(weights)}")
     check("Funcs and weights same length", len(funcs) == len(weights))
     check("All weights > 0", all(w > 0 for w in weights), f"{weights}")
@@ -234,16 +318,39 @@ def test_build_reward_functions() -> None:
         except Exception as e:
             check(f"  {fn.__name__} callable", False, f"Exception: {e}")
 
-    # Check with custom weights
+    # Check with custom weights including gold_structure
     custom = {
-        "weight_translation": 0.5,
-        "weight_structure": 0.5,
-        "weight_format": 0.0,
-        "weight_repetition": 0.0,
+        "weight_translation": 0.4,
+        "weight_gold_structure": 0.4,
+        "weight_format": 0.1,
+        "weight_repetition": 0.1,
     }
     funcs2, weights2 = build_t2g_reward_functions(custom)
-    check("Custom: 2 functions when zeros", len(funcs2) == 2, f"got {len(funcs2)}")
+    check(
+        "Custom (gold-structure): 4 functions", len(funcs2) == 4, f"got {len(funcs2)}"
+    )
     check("Custom: weights sum to 1.0", abs(sum(weights2) - 1.0) < 0.01)
+
+    # Check with viterbi weight
+    custom_vit = {
+        "weight_translation": 0.3,
+        "weight_viterbi": 0.3,
+        "weight_gold_structure": 0.3,
+        "weight_format": 0.05,
+        "weight_repetition": 0.05,
+    }
+    funcs3, weights3 = build_t2g_reward_functions(custom_vit)
+    check("Custom (viterbi): 5 functions", len(funcs3) == 5, f"got {len(funcs3)}")
+    check("Custom (viterbi): weights sum to 1.0", abs(sum(weights3) - 1.0) < 0.01)
+
+    # Check old-style structural_dense still works
+    custom_old = {
+        "weight_translation": 0.5,
+        "weight_structure": 0.5,
+    }
+    funcs4, weights4 = build_t2g_reward_functions(custom_old)
+    check("Old-style (structure): 2 functions", len(funcs4) == 2, f"got {len(funcs4)}")
+    check("Old-style: weights sum to 1.0", abs(sum(weights4) - 1.0) < 0.01)
 
 
 def main() -> None:
@@ -258,6 +365,8 @@ def main() -> None:
         test_structural_dense()
         test_format_reward()
         test_repetition_reward()
+        test_gold_structure_reward()
+        test_viterbi_distance_reward()
         test_build_reward_functions()
     except Exception as e:
         print(f"\n  !! CRASH: {e}")

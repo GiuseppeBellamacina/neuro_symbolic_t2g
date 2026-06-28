@@ -7,7 +7,6 @@ param(
     [string]$Path  # relative path for push/pull (e.g. "src/training/grpo_t2g_train.py" or "cluster/")
 )
 
-# ── Cluster connection ────────────────────────────────────────────────────────
 $CLUSTER_USER = "bllgpp02h24c351g"
 $CLUSTER_HOST = "gcluster.dmi.unict.it"
 $REMOTE  = "${CLUSTER_USER}@${CLUSTER_HOST}:~/neuro_symbolic_t2g"
@@ -17,8 +16,6 @@ $LOCAL   = $PSScriptRoot
 # Dirs to exclude from download (symlinks on cluster that scp copies as full duplicates)
 $TAR_EXCLUDES = @("--exclude=latest", "--exclude=latest-run")
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
 function Download-RemoteDir($remoteSubpath, $localDest) {
     New-Item -ItemType Directory -Force -Path $localDest | Out-Null
     $excludeArgs = $TAR_EXCLUDES -join " "
@@ -26,7 +23,7 @@ function Download-RemoteDir($remoteSubpath, $localDest) {
 }
 
 function Upload {
-    Write-Host "Uploading neuro_symbolic_t2g to cluster..." -ForegroundColor Cyan
+    Write-Host "Uploading project to cluster..." -ForegroundColor Cyan
 
     # Clean __pycache__ before upload
     Write-Progress -Activity "Upload" -Status "Cleaning __pycache__..." -PercentComplete 0
@@ -35,17 +32,19 @@ function Upload {
 
     # Ensure remote directory structure exists
     Write-Progress -Activity "Upload" -Status "Creating remote directories..." -PercentComplete 2
-    ssh $SSH_TARGET "mkdir -p ~/neuro_symbolic_t2g/{src,config,logs,checkpoints,data}"
+    ssh $SSH_TARGET "mkdir -p ~/neuro_symbolic_t2g/experiments/{configs,logs,checkpoints}"
 
     # Collect all individual files to upload (flatten directories)
-    # NOTE: "data" is excluded — ASLG-PC12 is downloaded on the cluster by setup.sh/train.sh
-    # NOTE: "logs" and "checkpoints" are excluded — generated on cluster
+    # NOTE: "data" is excluded — the dataset is generated on the cluster by setup.sh/train.sh
     $items = @(
         "src",
-        "config",
+        "cluster",
+        "experiments/configs",
+        "tests",
         "grammarllm",
         "main.py",
         "pyproject.toml",
+        "README.md",
         ".env"
     )
 
@@ -75,7 +74,7 @@ function Upload {
         }
     }
 
-    # Clean remote top-level dirs before uploading (full replace)
+    # Clean remote top-level dirs before uploading
     if ($dirsToClean.Count -gt 0) {
         $rmCmd = ($dirsToClean | ForEach-Object { "rm -rf ~/neuro_symbolic_t2g/$_" }) -join "; "
         ssh $SSH_TARGET $rmCmd
@@ -114,10 +113,10 @@ function Upload {
 function DownloadAll {
     Write-Host "Downloading all outputs from cluster..." -ForegroundColor Cyan
 
-    Write-Progress -Activity "Download" -Status "[1/2] logs..." -PercentComplete 0
+    Write-Progress -Activity "Download" -Status "[1/2] experiments/logs..." -PercentComplete 0
     DownloadLogs
 
-    Write-Progress -Activity "Download" -Status "[2/2] checkpoints..." -PercentComplete 50
+    Write-Progress -Activity "Download" -Status "[2/2] experiments/checkpoints..." -PercentComplete 50
     DownloadCheckpoints
 
     Write-Progress -Activity "Download" -Completed
@@ -125,31 +124,33 @@ function DownloadAll {
 }
 
 function DownloadLogs {
-    Write-Progress -Activity "Download" -Status "Downloading logs/..." -PercentComplete 0
-    $dest = Join-Path $LOCAL "logs"
-    Download-RemoteDir "logs" $dest
+    # Includes figures/ subfolders inside each experiment dir (e.g. experiments/logs/baseline/figures/)
+    Write-Progress -Activity "Download" -Status "Downloading experiments/logs (includes figures)..." -PercentComplete 0
+    $dest = Join-Path $LOCAL "experiments\logs"
+    Download-RemoteDir "experiments/logs" $dest
     Write-Progress -Activity "Download" -Completed
-    Write-Host "  -> saved to logs\" -ForegroundColor Gray
+    Write-Host "  -> saved to experiments\logs" -ForegroundColor Gray
 }
 
 function DownloadCheckpoints {
-    Write-Progress -Activity "Download" -Status "Downloading checkpoints/..." -PercentComplete 0
-    $dest = Join-Path $LOCAL "checkpoints"
-    Download-RemoteDir "checkpoints" $dest
+    Write-Progress -Activity "Download" -Status "Downloading experiments/checkpoints..." -PercentComplete 0
+    $dest = Join-Path $LOCAL "experiments\checkpoints"
+    Download-RemoteDir "experiments/checkpoints" $dest
     Write-Progress -Activity "Download" -Completed
-    Write-Host "  -> saved to checkpoints\" -ForegroundColor Gray
+    Write-Host "  -> saved to experiments\checkpoints" -ForegroundColor Gray
 }
 
 function DownloadWandb {
-    # wandb offline runs are saved inside logs/ (e.g. logs/wandb/)
+    # wandb offline runs are saved inside experiments/logs/ (e.g. experiments/logs/grpo/wandb/)
     Write-Progress -Activity "Download" -Status "Downloading wandb offline runs..." -PercentComplete 0
 
-    $dest = Join-Path $LOCAL "logs"
+    # Download from experiments/logs
+    $dest = Join-Path $LOCAL "experiments\logs"
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
-    Download-RemoteDir "logs" $dest
+    Download-RemoteDir "experiments/logs" $dest
 
     Write-Progress -Activity "Download" -Completed
-    Write-Host "  -> saved wandb runs to logs\" -ForegroundColor Gray
+    Write-Host "  -> saved wandb runs to experiments\logs\" -ForegroundColor Gray
     Write-Host ""
     Write-Host "To sync offline runs to wandb.ai:" -ForegroundColor Yellow
     Write-Host "  .\sync_cluster.ps1 -Action sync-wandb" -ForegroundColor Yellow
@@ -171,22 +172,26 @@ function SyncWandb {
         }
     }
 
-    $logsDir = Join-Path $LOCAL "logs"
+    $logsDir = Join-Path $LOCAL "experiments\logs"
     if (-not (Test-Path $logsDir)) {
-        Write-Host "No logs/ found. Run download-wandb first." -ForegroundColor Red
+        Write-Host "No experiments/logs/ found. Run download-wandb first." -ForegroundColor Red
         return
     }
 
-    # Find all wandb/ directories with offline run subdirs
+    # Find all wandb/ directories that actually contain offline run subdirs.
+    # Using --sync-all on each wandb parent dir lets wandb handle multiple
+    # segments of the same resumed run (same run ID) correctly — syncing them
+    # one-by-one with plain `wandb sync` marks each as done separately and
+    # may leave resumed segments unmerged on the server.
     $wandbDirs = Get-ChildItem -Path $logsDir -Recurse -Directory -Filter "wandb" |
         Where-Object { (Get-ChildItem -Path $_.FullName -Directory -Filter "offline-run-*").Count -gt 0 }
 
     if ($wandbDirs.Count -eq 0) {
-        Write-Host "No offline runs found in logs\" -ForegroundColor Yellow
+        Write-Host "No offline runs found in experiments\logs\" -ForegroundColor Yellow
         return
     }
 
-    # Count total offline runs
+    # Count total offline runs across all wandb dirs
     $totalRuns = 0
     foreach ($wdir in $wandbDirs) {
         $totalRuns += (Get-ChildItem -Path $wdir.FullName -Directory -Filter "offline-run-*").Count
@@ -195,8 +200,12 @@ function SyncWandb {
     $synced = 0
     $failed = 0
     foreach ($wdir in $wandbDirs) {
+        $relPath = $wdir.FullName.Substring($LOCAL.Length + 1)
+        # Sync each offline-run-* directory individually — --sync-all on the
+        # parent does not re-sync runs already marked as done locally.
         $offlineRuns = Get-ChildItem -Path $wdir.FullName -Directory -Filter "offline-run-*"
         foreach ($run in $offlineRuns) {
+            $runRel = $run.FullName.Substring($LOCAL.Length + 1)
             Write-Host "  [$($synced + $failed + 1)/$totalRuns] Syncing $($run.Name) ..." -ForegroundColor Gray -NoNewline
             $result = & wandb sync --include-synced $run.FullName 2>&1
             if ($LASTEXITCODE -eq 0) {
@@ -231,6 +240,8 @@ function Push {
         ssh $SSH_TARGET "mkdir -p ~/neuro_symbolic_t2g/$remoteDir"
     }
     if (Test-Path $localPath -PathType Container) {
+        # Directory: overwrite files in-place (no rm -rf to avoid NFS locks)
+        # Ensure remote dir exists, then scp contents over existing files
         ssh $SSH_TARGET "mkdir -p ~/neuro_symbolic_t2g/$remotePath"
         scp -rq "$localPath/." "${REMOTE}/$remotePath/"
     } else {
@@ -254,7 +265,6 @@ function Pull {
     Write-Host "Pulled $Path <- cluster" -ForegroundColor Green
 }
 
-# ── Dispatch ──────────────────────────────────────────────────────────────────
 switch ($Action) {
     "upload"                { Upload }
     "download"              { DownloadAll }

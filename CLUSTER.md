@@ -25,27 +25,28 @@ Guida passo-passo per eseguire la pipeline neuro-simbolica T2G
 ### Cosa fa il progetto
 
 Traduzione English → ASL Glosses (T2G) con:
+
 - **Modello**: Qwen2.5-0.5B-Instruct (~1 GB)
 - **Constrained Decoding**: LogitsProcessor che forza l'output a sole glosse ASL
-- **GRPO Training**: RLHF con 4 reward (translation quality, bigram proxy, format, repetition)
+- **GRPO Training**: RLHF con 6 reward (translation quality, gold-structure, viterbi, format, repetition, structural dense)
 - **LoRA/QLoRA**: Training iper-efficiente via Unsloth (o PEFT standard)
 
 ### Cosa serve
 
-| Risorsa | Minimo | Consigliato |
-|---------|--------|-------------|
+| Risorsa  | Minimo                     | Consigliato                  |
+| -------- | -------------------------- | ---------------------------- |
 | GPU VRAM | 4 GB (fp16, senza Unsloth) | 11 GB (4bit QLoRA + Unsloth) |
-| RAM | 8 GB | 48 GB |
-| Disco | ~3 GB (modello + dataset) | 5 GB |
-| Tempo | ~2h (500 step) | ~6h (1500 step) |
+| RAM      | 8 GB                       | 48 GB                        |
+| Disco    | ~3 GB (modello + dataset)  | 5 GB                         |
+| Tempo    | ~2h (500 step)             | ~6h (1500 step)              |
 
 ### GPU supportate
 
-| GPU | CC | Unsloth | 4-bit | Note |
-|-----|----|---------|-------|------|
-| L40S | 8.9 | ✅ | ✅ | Ideale, tutto attivo |
-| V100 | 7.0 | ✅ | ✅ | Ottimo, no bf16 |
-| K80 | 3.7 | ❌ | ❌ | Solo fp16, no quantizzazione |
+| GPU  | CC  | Unsloth | 4-bit | Note                         |
+| ---- | --- | ------- | ----- | ---------------------------- |
+| L40S | 8.9 | ✅      | ✅    | Ideale, tutto attivo         |
+| V100 | 7.0 | ✅      | ✅    | Ottimo, no bf16              |
+| K80  | 3.7 | ❌      | ❌    | Solo fp16, no quantizzazione |
 
 ---
 
@@ -79,7 +80,7 @@ rsync -avz --exclude '__pycache__' --exclude 'data/' --exclude 'logs/' \
 ```bash
 ssh <utente>@gcluster.dmi.unict.it
 ls ~/neuro_symbolic_t2g/
-# Dovresti vedere: src/  config/  grammarllm/  main.py  pyproject.toml  ...
+# Dovresti vedere: src/  experiments/  grammarllm/  main.py  pyproject.toml  ...
 ```
 
 ---
@@ -102,6 +103,7 @@ bash cluster/setup.sh
 ```
 
 Lo script:
+
 - Rileva la GPU e installa le dipendenze appropriate (Unsloth solo se CC >= 7.0)
 - Scarica il dataset ASLG-PC12 (~50 MB)
 - Estrae il vocabolario gloss (15K token unici)
@@ -210,19 +212,19 @@ t2g-monitor
 
 ### Comandi rapidi (con alias caricati)
 
-| Comando | Cosa fa |
-|---------|---------|
-| `t2g-train` | Lancia solo training |
-| `t2g-eval` | Lancia solo evaluation |
-| `t2g-run-all` | Train + eval in pipeline |
-| `t2g-monitor` | Monitor live della pipeline |
-| `t2g-chain-show` | Mostra stato pipeline |
-| `t2g-chain-stop` | Ferma pipeline (preserva stato) |
-| `t2g-chain-start` | Riprendi pipeline dopo stop |
+| Comando              | Cosa fa                          |
+| -------------------- | -------------------------------- |
+| `t2g-train`          | Lancia solo training             |
+| `t2g-eval`           | Lancia solo evaluation           |
+| `t2g-run-all`        | Train + eval in pipeline         |
+| `t2g-monitor`        | Monitor live della pipeline      |
+| `t2g-chain-show`     | Mostra stato pipeline            |
+| `t2g-chain-stop`     | Ferma pipeline (preserva stato)  |
+| `t2g-chain-start`    | Riprendi pipeline dopo stop      |
 | `t2g-watcher-status` | Controlla se il watcher è attivo |
-| `t2g-watcher-kill` | Uccidi il watcher |
-| `t2g-clean` | Pulizia workspace |
-| `t2g-help` | Lista completa comandi |
+| `t2g-watcher-kill`   | Uccidi il watcher                |
+| `t2g-clean`          | Pulizia workspace                |
+| `t2g-help`           | Lista completa comandi           |
 
 ### Pipeline manuale (senza watcher)
 
@@ -285,11 +287,10 @@ t2g-gpu   # nvidia-smi sul nodo del job attivo
 
 ```
 ~/neuro_symbolic_t2g/
-├── checkpoints/
-│   └── qwen05/
-│       ├── checkpoint-100/
-│       ├── checkpoint-200/
-│       └── final/
+├── experiments/checkpoints/grpo/t2g/qwen05/
+│   ├── checkpoint-100/
+│   ├── checkpoint-200/
+│   └── final/
 └── logs/
     ├── slurm-train-<JOB_ID>.log
     └── slurm-eval-<JOB_ID>.log
@@ -348,6 +349,7 @@ wandb sync logs/wandb/offline-run-*
 ### "ModuleNotFoundError: No module named 'unsloth'"
 
 La GPU non supporta Unsloth (CC < 7.0). Modifica il config:
+
 ```yaml
 model:
   use_unsloth: false
@@ -357,6 +359,7 @@ model:
 ### "CUDA out of memory"
 
 Riduci le risorse:
+
 ```yaml
 grpo:
   num_generations: 2
@@ -365,6 +368,7 @@ training:
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 4
 ```
+
 Oppure riduci `gpu_memory_utilization` nel config.
 
 ### Job non parte (PENDING)
@@ -381,7 +385,7 @@ srun --account dl-course-q2 --partition dl-course-q2 --qos gpu-medium \
      --gres=gpu:1 --gres=shard:5000 --mem=8G --pty bash
 cd ~/neuro_symbolic_t2g
 python -c "
-from src.data.aslg_dataset import download_aslg_dataset, extract_gloss_vocabulary, build_t2g_dataset
+from src.datasetsaslg_dataset import download_aslg_dataset, extract_gloss_vocabulary, build_t2g_dataset
 
 dataset = download_aslg_dataset()
 vocab = extract_gloss_vocabulary(dataset, split='train')
@@ -417,6 +421,7 @@ Esegui `source ~/neuro_symbolic_t2g/cluster/aliases.sh` e poi:
 ```bash
 t2g-install-aliases
 ```
+
 Questo aggiunge `~/.local/bin` al PATH in modo persistente.
 
 ### "Rows must sum to 1" — errore matrice bigram

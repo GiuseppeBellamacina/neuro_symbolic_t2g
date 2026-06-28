@@ -1,20 +1,26 @@
 """
 Reward Functions for T2G GRPO Training.
 
-Two reward components:
+Six reward components:
 
 1. **Translation Quality Reward** (ROUGE-L):
-   Measures lexical similarity between the generated gloss sequence
-   and the ground-truth gloss target.  Returns a score in ``[0, 1]``.
+   Lexical similarity between generated gloss and gold reference.
 
-2. **Structural Dense Reward** (Viterbi Proxy):
-   Uses the precomputed bigram transition matrix to score the
-   generated gloss sequence.  Sequences with high-probability
-   gloss transitions (as observed in the training data) receive
-   higher rewards.  This acts as a "procedural knowledge" signal.
+2. **Structural Dense Reward** (Bigram Log-Probability):
+   Average log-probability of bigram transitions (absolute score).
 
-Both rewards are combined via weighted sum and wrapped to match
-the signature expected by TRL's ``GRPOTrainer``:
+3. **Gold-Structure Reward** (Gold-Baseline Structural) ⭐:
+   Compares LLM bigram score against the gold reference gloss.
+
+4. **Viterbi Distance Reward** (Viterbi-Upper-Bound) 🧪:
+   Compares LLM path against the diverse Viterbi optimum.
+
+5. **Format Reward**: Penalizes free text / non-gloss outputs.
+
+6. **Repetition Reward**: Penalizes degenerate token repetition.
+
+Rewards are combined via weighted sum and wrapped to match the signature
+expected by TRL's ``GRPOTrainer``:
 ``fn(completions, prompts, **kwargs) -> list[float]``.
 """
 
@@ -27,6 +33,8 @@ from typing import Any, Callable
 
 import numpy as np
 from rouge_score import rouge_scorer
+
+from src.utils.text_utils import extract_gloss_text, extract_user_text
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +51,14 @@ _gloss_vocab: list[str] = []
 #: Token→index mapping for fast lookups.
 _token_to_idx: dict[str, int] = {}
 
-#: ROUGE scorer (lazy-initialized).
-_rouge_scorer: rouge_scorer.RougeScorer | None = None
+#: Viterbi diversity parameters loaded from config YAML.
+#  Configured via ``grammar.viterbi_diversity`` section.
+_viterbi_diversity_params: dict[str, float | int] = {
+    "self_loop_penalty": 0.5,
+    "max_occurrences": 2,
+    "diversity_threshold": 0.3,
+    "max_iters": 3,
+}
 
 #: Gold gloss registry: maps sample_id (SHA256 of user instruction) → gold gloss.
 #  Populated at dataset load time via ``register_gold_glosses()``.
@@ -59,6 +73,7 @@ _gold_gloss_registry: dict[str, str] = {}
 def initialize_rewards(
     bigram_matrix: np.ndarray,
     vocab: list[str],
+    viterbi_diversity: dict[str, float | int] | None = None,
 ) -> None:
     """Initialize global state for reward functions.
 
@@ -68,29 +83,32 @@ def initialize_rewards(
         bigram_matrix: The ``(V, V)`` bigram transition probability matrix.
         vocab: The sorted gloss vocabulary.
     """
-    global _bigram_matrix, _gloss_vocab, _token_to_idx, _rouge_scorer
+    global _bigram_matrix, _gloss_vocab, _token_to_idx, _ROUGE_SCORER
+    global _viterbi_diversity_params
     _bigram_matrix = bigram_matrix
     _gloss_vocab = vocab
     _token_to_idx = {t: i for i, t in enumerate(vocab)}
 
     # Use ROUGE-L F1 as the primary quality metric
-    _rouge_scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=False)
+    _ROUGE_SCORER = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=False)
 
-    logger.info(
-        f"Rewards initialized: |V|={len(vocab)}, "
-        f"bigram_matrix shape={bigram_matrix.shape}, "
-        f"ROUGE-L scorer ready"
-    )
+    # Set Viterbi diversity params from config
+    diversity_cfg = viterbi_diversity or {}
+
+    _viterbi_diversity_params = {
+        "self_loop_penalty": diversity_cfg.get("self_loop_penalty", 0.5),
+        "max_occurrences": diversity_cfg.get("max_occurrences", 2),
+        "diversity_threshold": diversity_cfg.get("diversity_threshold", 0.3),
+        "max_iters": diversity_cfg.get("max_iters", 3),
+    }
+    logger.info("Viterbi diversity params: %s", _viterbi_diversity_params)
 
 
 def _extract_sample_id(prompt: Any) -> str:
     """Extract a stable sample ID from a prompt in any format.
 
-    TRL's GRPOTrainer may pass prompts as formatted chat strings,
-    stringified lists, or raw strings depending on the backend.
-    This function extracts the user instruction (the English sentence
-    to translate) regardless of format, then returns its SHA256 hash
-    as a deterministic lookup key.
+    Uses the shared ``extract_user_text`` to get the user instruction,
+    then returns its SHA256 hash as a deterministic lookup key.
 
     Args:
         prompt: The prompt in whatever format GRPOTrainer provides.
@@ -99,39 +117,10 @@ def _extract_sample_id(prompt: Any) -> str:
         SHA256 hex digest of the user instruction, or ``""`` if no
         user content could be extracted.
     """
-    if prompt is None:
+    user_text = extract_user_text(prompt)
+    if not user_text:
         return ""
-
-    # Format 1: list of chat messages (most common from TRL)
-    if isinstance(prompt, list):
-        for msg in reversed(prompt):
-            if isinstance(msg, dict) and msg.get("role") == "user":
-                return hashlib.sha256(
-                    str(msg.get("content", "")).encode("utf-8", errors="replace")
-                ).hexdigest()
-
-    # Format 2: plain string — try to extract user instruction from
-    # common chat formats before falling back to hashing the whole string.
-    text = str(prompt)
-    if not text:
-        return ""
-
-    # Try Qwen/ChatML format: <|im_start|>user\nTEXT<|im_end|>
-    m = re.search(r"<\|im_start\|>user\s*\n(.*?)<\|im_end\|>", text, re.DOTALL)
-    if m:
-        return hashlib.sha256(
-            m.group(1).strip().encode("utf-8", errors="replace")
-        ).hexdigest()
-
-    # Try "user: TEXT" or "user\nTEXT" pattern
-    m = re.search(r"(?:^|\n)user[:\s]\n?(.*?)(?:\n|$)", text, re.IGNORECASE)
-    if m:
-        return hashlib.sha256(
-            m.group(1).strip().encode("utf-8", errors="replace")
-        ).hexdigest()
-
-    # Fallback: hash the entire prompt string
-    return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+    return hashlib.sha256(user_text.encode("utf-8", errors="replace")).hexdigest()
 
 
 def register_gold_glosses(
@@ -192,33 +181,6 @@ def _lookup_gold_gloss_by_id(sample_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Helper: extract gloss text from completion
-# ---------------------------------------------------------------------------
-
-
-def _extract_gloss_text(completion: str) -> str:
-    """Extract clean gloss text from a model completion.
-
-    Strips thinking tags, code fences, and extra whitespace.
-
-    Args:
-        completion: Raw model completion string.
-
-    Returns:
-        Cleaned gloss token string.
-    """
-    # Strip <think>...</think> blocks (if thinking mode was on)
-    text = re.sub(r"<think>.*?</think>", "", completion, flags=re.DOTALL).strip()
-
-    # Strip fenced code blocks
-    m = re.search(r"```(?:gloss)?\s*(.*?)```", text, re.DOTALL)
-    if m:
-        text = m.group(1).strip()
-
-    return text
-
-
-# ---------------------------------------------------------------------------
 # Reward Component 1: Translation Quality (ROUGE-L)
 # ---------------------------------------------------------------------------
 
@@ -239,11 +201,11 @@ def translation_quality_reward(
     Returns:
         ROUGE-L F1 score in ``[0, 1]``.
     """
-    if _rouge_scorer is None:
+    if _ROUGE_SCORER is None:
         logger.warning("ROUGE scorer not initialized; returning 0.0")
         return 0.0
 
-    generated = _extract_gloss_text(completion)
+    generated = extract_gloss_text(completion)
     gold = gold_gloss.strip()
 
     if not generated:
@@ -251,7 +213,7 @@ def translation_quality_reward(
     if not gold:
         return 0.0
 
-    scores = _rouge_scorer.score(gold, generated)
+    scores = _ROUGE_SCORER.score(gold, generated)
     return scores["rougeL"].fmeasure  # type: ignore[no-any-return]
 
 
@@ -296,7 +258,7 @@ def structural_dense_reward(
         logger.warning("Transition matrix not initialized; returning 0.0")
         return 0.0
 
-    text = _extract_gloss_text(completion)
+    text = extract_gloss_text(completion)
     tokens = text.strip().split()
 
     if len(tokens) < 2:
@@ -340,6 +302,209 @@ def structural_dense_reward(
 
 
 # ---------------------------------------------------------------------------
+# Reward Component 3: Gold-Structure Reward (Gold-Baseline)
+# ---------------------------------------------------------------------------
+
+
+def gold_structure_reward(
+    completion: str,
+    gold_gloss: str,
+    normalize: bool = True,
+) -> float:
+    """Structural reward using the gold reference gloss as baseline.
+
+    Compares the generated gloss sequence's bigram log-probability against
+    the gold reference's bigram log-probability.  This rewards the LLM for
+    producing sequences whose structural plausibility (under the bigram
+    model) is at least as good as the human-authored gold gloss.
+
+    .. math::
+
+        \\text{reward} = \\exp\\left(
+            \\frac{\\text{llm_log_prob} - \\text{gold_log_prob}}{L}
+        \\right)
+
+    where :math:`L` is the number of bigram transitions.
+
+    - ``≈ 1.0`` → LLM sequence is structurally as good as (or better than)
+      the gold reference.
+    - ``≪ 1.0`` → LLM sequence has much worse bigram transitions than the
+      gold reference.
+
+    .. note::
+       This is the **recommended** structural reward for T2G GRPO.  It
+       uses a semantically meaningful baseline (the gold gloss) rather
+       than the degenerate Viterbi optimum or an absolute score.
+
+    Args:
+        completion: Generated gloss sequence.
+        gold_gloss: Ground-truth gold gloss sequence.
+        normalize: If ``True``, exponentiate to ``(0, ∞)`` range capped
+            at ``1.0``.  If ``False``, return raw log-prob difference.
+
+    Returns:
+        Structural proximity reward.
+    """
+    if _bigram_matrix is None or not _gloss_vocab:
+        logger.warning("Transition matrix not initialized; returning 0.0")
+        return 0.0
+
+    llm_text = extract_gloss_text(completion)
+    gold_text = gold_gloss.strip()
+
+    if not llm_text or not gold_text:
+        return 0.0
+
+    # Map tokens to indices for both sequences
+    bos_idx = _token_to_idx.get("<BOS>", -1)
+    eos_idx = _token_to_idx.get("<EOS>", -1)
+    unk_idx = _token_to_idx.get("<UNK>", 0)
+
+    def _indices(tokens: list[str]) -> list[int]:
+        indices: list[int] = []
+        if bos_idx >= 0:
+            indices.append(bos_idx)
+        for t in tokens:
+            indices.append(_token_to_idx.get(t, unk_idx))
+        if eos_idx >= 0:
+            indices.append(eos_idx)
+        return indices
+
+    llm_indices = _indices(llm_text.split())
+    gold_indices = _indices(gold_text.split())
+
+    # Compute log-probabilities
+    from src.datasets.transition_matrix import sequence_score_bigram
+
+    llm_log_prob = sequence_score_bigram(_bigram_matrix, llm_indices)
+    gold_log_prob = sequence_score_bigram(_bigram_matrix, gold_indices)
+
+    # Number of transitions in the LLM path
+    n_trans = len(llm_indices) - 1
+    if n_trans <= 0:
+        return 0.0
+    n_gold_trans = len(gold_indices) - 1
+    if n_gold_trans <= 0:
+        return 0.0
+
+    if normalize:
+        # Compare average log-probs
+        llm_avg = llm_log_prob / n_trans
+        gold_avg = gold_log_prob / n_gold_trans
+        reward = float(np.exp(llm_avg - gold_avg))
+        # Cap at 1.0 (at or above gold structural quality)
+        return min(reward, 1.0)
+
+    return llm_log_prob - gold_log_prob
+
+
+# ---------------------------------------------------------------------------
+# Reward Component 4: Viterbi Distance Reward
+# ---------------------------------------------------------------------------
+
+
+def viterbi_distance_reward(
+    completion: str,
+    normalize: bool = True,
+) -> float:
+    """Reward based on distance from the Viterbi-optimal path.
+
+    Computes the globally most-probable (Viterbi) path of the **same length**
+    as the LLM-generated sequence through the bigram transition matrix,
+    constrained to start at ``<BOS>`` and end at ``<EOS>``.  Returns a
+    normalized score indicating how close the LLM's path is to this
+    theoretical upper bound.
+
+    .. math::
+
+        \\text{reward} = \\exp\\left(
+            \\frac{\\text{llm_log_prob} - \\text{viterbi_log_prob}}{L}
+        \\right)
+
+    where :math:`L` is the number of bigram transitions.
+
+    - ``1.0`` → LLM path matches the Viterbi optimum exactly.
+    - ``≈ 0.0`` → LLM path is far from the Viterbi optimum.
+
+    .. warning::
+       **Path diversity**: This function now uses ``viterbi_optimal_score_diverse``
+       (with self-loop penalty and iterative token banning) to compute
+       the Viterbi baseline.  The pure Markov-chain Viterbi would
+       degenerate into repetitive loops (e.g., ``IX → IX → …``).
+       The diversity-constrained path provides a more realistic upper
+       bound for ASL gloss sequences.
+
+    Args:
+        completion: Generated gloss sequence.
+        normalize: If ``True``, exponentiate to ``(0, 1]`` range.
+            If ``False``, return raw average-log-prob difference.
+
+    Returns:
+        Viterbi proximity reward.
+    """
+    if _bigram_matrix is None or not _gloss_vocab:
+        logger.warning("Transition matrix not initialized; returning 0.0")
+        return 0.0
+
+    text = extract_gloss_text(completion)
+    tokens = text.strip().split()
+
+    if len(tokens) < 2:
+        return 0.0
+
+    bos_idx = _token_to_idx.get("<BOS>", -1)
+    eos_idx = _token_to_idx.get("<EOS>", -1)
+
+    if bos_idx < 0 or eos_idx < 0:
+        logger.warning("BOS/EOS not in vocabulary; returning 0.0")
+        return 0.0
+
+    # Build LLM path indices (BOS + tokens + EOS)
+    llm_indices: list[int] = [bos_idx]
+    for token in tokens:
+        idx = _token_to_idx.get(token, _token_to_idx.get("<UNK>", 0))
+        llm_indices.append(idx)
+    llm_indices.append(eos_idx)
+
+    path_length = len(llm_indices)  # includes BOS and EOS
+
+    # Compute Viterbi optimal log-probability for the same length
+    # with diversity constraints (self-loop penalty + iterative token ban)
+    from src.datasets.transition_matrix import (
+        sequence_score_bigram,
+        viterbi_optimal_score_diverse,
+    )
+
+    llm_log_prob = sequence_score_bigram(_bigram_matrix, llm_indices)
+
+    viterbi_log_prob = viterbi_optimal_score_diverse(
+        _bigram_matrix,
+        bos_idx,
+        eos_idx,
+        path_length,
+        self_loop_penalty=float(
+            _viterbi_diversity_params.get("self_loop_penalty", 0.5)
+        ),
+        max_occurrences=int(_viterbi_diversity_params.get("max_occurrences", 2)),
+        diversity_threshold=float(
+            _viterbi_diversity_params.get("diversity_threshold", 0.3)
+        ),
+        max_iters=int(_viterbi_diversity_params.get("max_iters", 3)),
+    )
+
+    n_trans = path_length - 1  # number of transitions
+    if n_trans <= 0:
+        return 0.0
+
+    if normalize:
+        llm_avg = llm_log_prob / n_trans
+        viterbi_avg = viterbi_log_prob / n_trans
+        return float(np.exp(llm_avg - viterbi_avg))
+
+    return (llm_log_prob - viterbi_log_prob) / n_trans
+
+
+# ---------------------------------------------------------------------------
 # Format reward: ensure gloss-only output
 # ---------------------------------------------------------------------------
 
@@ -357,7 +522,7 @@ def gloss_format_reward(completion: str) -> float:
         ``1.0`` if output looks like clean glosses, ``0.5`` if mixed,
         ``0.0`` if clearly non-gloss text.
     """
-    text = _extract_gloss_text(completion)
+    text = extract_gloss_text(completion)
     if not text:
         return 0.0
 
@@ -398,7 +563,7 @@ def gloss_repetition_reward(completion: str) -> float:
         ``1.0`` for normal output, ``0.0`` for moderate repetition,
         ``-1.0`` for severe loops.
     """
-    text = _extract_gloss_text(completion)
+    text = extract_gloss_text(completion)
     if not text:
         return 1.0
 
@@ -484,10 +649,21 @@ def build_t2g_reward_functions(
 ) -> tuple[list[Callable[..., list[float]]], list[float]]:
     """Build the list of reward functions and weights for T2G GRPO.
 
+    Supported weight keys:
+
+    - ``weight_translation``: ROUGE-L similarity with gold gloss.
+    - ``weight_structure``: Absolute bigram log-prob reward (no baseline).
+    - ``weight_gold_structure``: Bigram score vs gold reference baseline
+      **(recommended over weight_structure)**.
+    - ``weight_viterbi``: Bigram score vs Viterbi theoretical optimum
+      **(experimental — see caveat in ``viterbi_distance_reward``)**.
+    - ``weight_format``: Clean gloss-only format reward.
+    - ``weight_repetition``: Repetition penalty.
+
     Args:
-        reward_config: Dictionary with keys like ``weight_translation``,
-            ``weight_structure``, ``weight_format``, ``weight_repetition``.
-            If ``None``, uses default weights.
+        reward_config: Dictionary with weight keys.  If ``None``, uses
+            default weights (translation 0.40, gold-structure 0.40,
+            format 0.10, repetition 0.10).
 
     Returns:
         Tuple of ``(reward_funcs, reward_weights)`` compatible with
@@ -496,7 +672,7 @@ def build_t2g_reward_functions(
     if reward_config is None:
         reward_config = {
             "weight_translation": 0.40,
-            "weight_structure": 0.40,
+            "weight_gold_structure": 0.40,
             "weight_format": 0.10,
             "weight_repetition": 0.10,
         }
@@ -512,10 +688,26 @@ def build_t2g_reward_functions(
         )
         weights.append(w)
 
-    # Structural dense reward (Viterbi proxy)
+    # Structural dense reward (absolute bigram score — no baseline)
     w = reward_config.get("weight_structure", 0.0)
     if w > 0:
         funcs.append(_make_gloss_reward_fn(structural_dense_reward))
+        weights.append(w)
+
+    # Gold-structure reward (bigram score vs gold reference baseline)
+    # *** Recommended over weight_structure for production ***
+    w = reward_config.get("weight_gold_structure", 0.0)
+    if w > 0:
+        funcs.append(
+            _make_gloss_reward_fn(gold_structure_reward, needs_gold_gloss=True)
+        )
+        weights.append(w)
+
+    # Viterbi distance reward (bigram score vs Viterbi theoretical optimum)
+    # *** Experimental — see caveat in viterbi_distance_reward docstring ***
+    w = reward_config.get("weight_viterbi", 0.0)
+    if w > 0:
+        funcs.append(_make_gloss_reward_fn(viterbi_distance_reward))
         weights.append(w)
 
     # Format reward

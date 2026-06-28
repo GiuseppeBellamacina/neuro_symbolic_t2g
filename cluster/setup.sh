@@ -122,7 +122,7 @@ echo ""
 echo "📊 Download e processing dataset ASLG-PC12..."
 
 $PY -c "
-from src.data.aslg_dataset import (
+from src.datasetsaslg_dataset import (
     download_aslg_dataset,
     extract_gloss_vocabulary,
     save_vocabulary,
@@ -149,8 +149,8 @@ echo ""
 echo "📊 Calcolo matrici di transizione bigram..."
 
 $PY -c "
-from src.data.aslg_dataset import download_aslg_dataset, load_vocabulary
-from src.data.transition_matrix import compute_bigram_transitions, save_transition_matrix
+from src.datasetsaslg_dataset import download_aslg_dataset, load_vocabulary
+from src.datasetstransition_matrix import compute_bigram_transitions, save_transition_matrix
 
 vocab = load_vocabulary('data/gloss_vocab.txt')
 dataset = download_aslg_dataset()

@@ -13,18 +13,7 @@ from typing import Any
 import numpy as np
 from rouge_score import rouge_scorer
 
-# ---------------------------------------------------------------------------
-# Gloss validity check
-# ---------------------------------------------------------------------------
-
-
-def _extract_gloss_text(completion: str) -> str:
-    """Extract clean gloss tokens from a model completion."""
-    text = re.sub(r"<think>.*?</think>", "", completion, flags=re.DOTALL).strip()
-    m = re.search(r"```(?:gloss)?\s*(.*?)```", text, re.DOTALL)
-    if m:
-        text = m.group(1).strip()
-    return text
+from src.utils.text_utils import extract_gloss_text
 
 
 def check_gloss_validity(completion: str) -> tuple[bool, str]:
@@ -33,7 +22,7 @@ def check_gloss_validity(completion: str) -> tuple[bool, str]:
     Returns:
         (is_valid, error_message) — error_message is "" if valid.
     """
-    text = _extract_gloss_text(completion)
+    text = extract_gloss_text(completion)
     if not text:
         return False, "empty_output"
 
@@ -77,7 +66,7 @@ def rouge_l_score(generated: str, reference: str) -> float:
     Returns:
         ROUGE-L F1 score in [0, 1].
     """
-    gen = _extract_gloss_text(generated)
+    gen = extract_gloss_text(generated)
     ref = reference.strip()
     if not gen or not ref:
         return 0.0
@@ -218,14 +207,18 @@ def compute_reward_breakdown(
         _lookup_gold_gloss_by_id,
         gloss_format_reward,
         gloss_repetition_reward,
+        gold_structure_reward,
         structural_dense_reward,
         translation_quality_reward,
+        viterbi_distance_reward,
     )
 
     n = len(completions)
     sums = {
         "translation_quality_reward": 0.0,
         "structural_dense_reward": 0.0,
+        "gold_structure_reward": 0.0,
+        "viterbi_distance_reward": 0.0,
         "gloss_format_reward": 0.0,
         "gloss_repetition_reward": 0.0,
     }
@@ -238,6 +231,10 @@ def compute_reward_breakdown(
             gold = _lookup_gold_gloss(prompts[i])
         sums["translation_quality_reward"] += translation_quality_reward(comp, gold)
         sums["structural_dense_reward"] += structural_dense_reward(comp, normalize=True)
+        sums["gold_structure_reward"] += gold_structure_reward(
+            comp, gold, normalize=True
+        )
+        sums["viterbi_distance_reward"] += viterbi_distance_reward(comp, normalize=True)
         sums["gloss_format_reward"] += gloss_format_reward(comp)
         sums["gloss_repetition_reward"] += gloss_repetition_reward(comp)
 

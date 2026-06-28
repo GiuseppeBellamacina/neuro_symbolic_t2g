@@ -1,11 +1,12 @@
 # ============================================================================
-# GRPO Training Config — Qwen2.5-0.5B-Instruct — Text-to-Gloss (T2G)
+# Ablation Study — GRPO + GrammarLLM PDA (Full LL(1) Constrained Decoding)
 #
-# Neuro-symbolic pipeline: Constrained Decoding + GRPO for ASL gloss generation.
+# Esegue training GRPO CON constrained decoding via Pushdown Automaton.
+# A differenza del default (vocabulary mask), questo usa il PDA completo
+# di grammarllm per vincoli grammaticali LL(1).
 #
 # Usato da:
-#   CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/train.sh
-#   python -m src.training --config experiments/configs/t2g/grpo_qwen05.yaml
+#   CONFIG=experiments/configs/t2g/ablation/grpo_pda.yaml sbatch cluster/train.sh
 # ============================================================================
 
 # --- Modello ---
@@ -15,7 +16,7 @@ model:
   quantization: "4bit"
   dtype: "bfloat16"
   use_unsloth: true
-  fast_inference: false  # incompatible with constrained decoding (HF LogitsProcessor)
+  fast_inference: false
   max_seq_length: 1024
   gpu_memory_utilization: 0.42
   vllm_standby: false
@@ -38,7 +39,6 @@ lora:
 
 # --- Dataset ---
 dataset:
-  # Path to the preprocessed ASLG-PC12 dataset (Hugging Face cache)
   dataset_name: "achrafothman/aslg_pc12"
   dataset_cache: "data/aslg_pc12"
   vocab_path: "data/gloss_vocab.txt"
@@ -46,8 +46,21 @@ dataset:
   split: "train"
   max_samples: null
   seed: 42
-  # T2G does not use <think> blocks
   thinking: false
+
+# --- Constrained Decoding (PDA mode) ---
+grammar:
+  enabled: true
+  # Ablation: full LL(1) grammar via Pushdown Automaton
+  use_grammarllm_pda: true
+  # Temperature for PDA logit scaling
+  pda_temperature: 1.0
+  # Viterbi diversity penalty params (for viterbi_distance_reward)
+  viterbi_diversity:
+    self_loop_penalty: 0.5
+    max_occurrences: 2
+    diversity_threshold: 0.3
+    max_iters: 3
 
 # --- Iperparametri di training ---
 training:
@@ -64,41 +77,25 @@ training:
   logging_steps: 5
   save_steps: 100
   save_total_limit: 3
-  output_dir: "experiments/checkpoints/grpo/t2g/qwen25-05b"
-  log_dir: "experiments/logs/grpo/t2g/qwen25-05b"
+  output_dir: "experiments/checkpoints/grpo/t2g/qwen25-05b-pda"
+  log_dir: "experiments/logs/grpo/t2g/qwen25-05b-pda"
 
 # --- Parametri GRPO ---
 grpo:
-  num_generations: 4         # G = number of completions per prompt
-  max_completion_length: 256  # Gloss sequences are short
+  num_generations: 4
+  max_completion_length: 256
   max_prompt_length: 256
-  beta: 0.04                  # KL penalty coefficient
-  temperature: 0.7            # Exploration temperature during rollouts
+  beta: 0.04
+  temperature: 0.7
 
 # --- Pesi della reward function ---
 reward:
-  # Translation quality (ROUGE-L similarity with gold gloss)
   weight_translation: 0.40
-  # Gold-structure reward: bigram score vs gold reference baseline
-  # (Recommended over the older weight_structure / structural_dense_reward)
   weight_gold_structure: 0.40
-  # Format reward: ensure gloss tokens only (no free text)
   weight_format: 0.10
-  # Repetition penalty
   weight_repetition: 0.10
 
-# --- Constrained Decoding ---
-grammar:
-  enabled: true
-  use_grammarllm_pda: false
-  # Viterbi diversity penalty params (for viterbi_distance_reward)
-  viterbi_diversity:
-    self_loop_penalty: 0.5
-    max_occurrences: 2
-    diversity_threshold: 0.3
-    max_iters: 3
-
-# --- Curriculum Learning (disabled for Phase 1) ---
+# --- Curriculum Learning (disabled) ---
 curriculum:
   enabled: false
 
@@ -109,5 +106,5 @@ evaluation:
 # --- Weights & Biases ---
 wandb:
   project: "neuro-symbolic-t2g"
-  run_name: "grpo-t2g-qwen25-05b"
-  tags: ["grpo", "T2G", "constrained-decoding", "Qwen2.5-0.5B", "ASL"]
+  run_name: "ablation-grpo-pda"
+  tags: ["ablation", "GRPO", "grammarllm", "PDA", "LL1", "T2G", "Qwen2.5-0.5B", "ASL"]

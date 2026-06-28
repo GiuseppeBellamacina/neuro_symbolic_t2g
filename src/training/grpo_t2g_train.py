@@ -195,27 +195,32 @@ def _prepare_t2g_dataset(
 
 def _build_generation_kwargs(
     config: dict[str, Any],
-    logits_processor: GlossVocabularyLogitsProcessor,
+    logits_processor: GlossVocabularyLogitsProcessor | None,
 ) -> dict[str, Any]:
     """Build generation kwargs for GRPO rollouts.
 
     Passed to GRPOTrainer via ``generation_kwargs`` parameter.
     Includes the logits processor for vocabulary-constrained generation.
+    When ``logits_processor`` is ``None`` (grammar disabled), no processor
+    is included.
 
     Args:
         config: Full config dict.
-        logits_processor: The ``GlossVocabularyLogitsProcessor`` instance.
+        logits_processor: The ``GlossVocabularyLogitsProcessor`` instance,
+            or ``None`` to disable constrained decoding.
 
     Returns:
         Dict of generation kwargs compatible with ``model.generate()``.
     """
-    grpo_cfg = config["grpo"]
-    return {
+    grpo_cfg = config.get("generation", config.get("grpo", {}))
+    kwargs: dict[str, Any] = {
         "max_new_tokens": grpo_cfg.get("max_completion_length", 256),
         # NOTE: do_sample and temperature are controlled by GRPOConfig,
         # not duplicated here to avoid conflicts.
-        "logits_processor": [logits_processor],
     }
+    if logits_processor is not None:
+        kwargs["logits_processor"] = [logits_processor]
+    return kwargs
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +245,9 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(args.config)
+
+    # Safe config access: support both 'grpo' (GRPO) and 'generation' (SFT) keys
+    grpo_cfg = config.get("generation", config.get("grpo", {}))
 
     # ── Setup logging ────────────────────────────────────────────────────
     logging.basicConfig(
@@ -304,9 +312,9 @@ def main() -> None:
     # loading the model, otherwise vLLM is initialized and silently
     # bypasses the vocabulary constraints.
     #
-    # For production vLLM support, implement logit_bias injection via
-    # Unsloth's vLLM integration (see FastLanguageModel docs).
-    if config.get("model", {}).get("fast_inference", False):
+    # Exception: when grammar.enabled=false, vLLM is safe to use.
+    _grammar_enabled = config.get("grammar", {}).get("enabled", True)
+    if _grammar_enabled and config.get("model", {}).get("fast_inference", False):
         logger.warning(
             "⚠️  fast_inference=True is INCOMPATIBLE with constrained decoding "
             "via HF LogitsProcessor.  vLLM does not respect the logits_processor "
@@ -331,34 +339,47 @@ def main() -> None:
     logger.info("STEP 3: Constrained Decoding Setup")
     logger.info("=" * 60)
 
-    # Determine which constrained decoding strategy to use.
-    # Set ``use_grammarllm_pda: true`` in the config to enable the full
-    # grammarllm PDA pipeline (LL(1) parsing).  Default is the lightweight
-    # vocabulary mask (faster, sufficient for most gloss constraints).
-    use_pda = config.get("grammar", {}).get("use_grammarllm_pda", False)
-
-    if use_pda:
-        logger.info("Using FULL grammarllm PDA pipeline for constrained decoding")
-        logit_processor, streamer, pda = create_grammarllm_pipeline(
-            vocab,
-            tokenizer,
-            temperature=config["grpo"].get("temperature", 0.7),
+    # Grammar toggle: set ``grammar.enabled: false`` to disable constrained
+    # decoding (for ablation study — GRPO without grammar).
+    grammar_enabled = _grammar_enabled
+    if not grammar_enabled:
+        logger.info(
+            "⚠️  grammar.enabled=false — GRPO rollouts will use UNCONSTRAINED "
+            "generation (no vocabulary mask).  This is intended for ablation "
+            "studies only."
         )
-        # Wrap in GrammarPDALogitsProcessor for consistent interface
-        grammar_lp = GrammarPDALogitsProcessor(
-            tokenizer,
-            pda,
-            temperature=config["grpo"].get("temperature", 0.7),
-        )
-        logits_processor_for_gen = grammar_lp
-        logger.info("  GrammarLLM PDA pipeline ready")
+        logits_processor_for_gen = None
     else:
-        logger.info("Using lightweight GlossVocabularyMask for constrained decoding")
-        gloss_mask = GlossVocabularyMask(vocab, tokenizer)
-        logits_processor_for_gen = GlossVocabularyLogitsProcessor(
-            gloss_mask, device="cuda" if torch.cuda.is_available() else "cpu"
-        )
-        logger.info("  Vocabulary mask ready")
+        # Determine which constrained decoding strategy to use.
+        # Set ``use_grammarllm_pda: true`` in the config to enable the full
+        # grammarllm PDA pipeline (LL(1) parsing).  Default is lightweight
+        # vocabulary mask (faster, sufficient for most gloss constraints).
+        use_pda = config.get("grammar", {}).get("use_grammarllm_pda", False)
+
+        if use_pda:
+            logger.info("Using FULL grammarllm PDA pipeline for constrained decoding")
+            logit_processor, streamer, pda = create_grammarllm_pipeline(
+                vocab,
+                tokenizer,
+                temperature=grpo_cfg.get("temperature", 0.7),
+            )
+            # Wrap in GrammarPDALogitsProcessor for consistent interface
+            grammar_lp = GrammarPDALogitsProcessor(
+                tokenizer,
+                pda,
+                temperature=grpo_cfg.get("temperature", 0.7),
+            )
+            logits_processor_for_gen = grammar_lp
+            logger.info("  GrammarLLM PDA pipeline ready")
+        else:
+            logger.info(
+                "Using lightweight GlossVocabularyMask for constrained decoding"
+            )
+            gloss_mask = GlossVocabularyMask(vocab, tokenizer)
+            logits_processor_for_gen = GlossVocabularyLogitsProcessor(
+                gloss_mask, device="cuda" if torch.cuda.is_available() else "cpu"
+            )
+            logger.info("  Vocabulary mask ready")
 
     # ── Constrained decoding setup (vocabulary mask, no vLLM check here) ──
     # NOTE: fast_inference was already disabled BEFORE model loading (see above).
@@ -383,7 +404,11 @@ def main() -> None:
     logger.info("STEP 5: Reward Functions")
     logger.info("=" * 60)
 
-    initialize_rewards(bigram_matrix, vocab)
+    initialize_rewards(
+        bigram_matrix,
+        vocab,
+        viterbi_diversity=config.get("grammar", {}).get("viterbi_diversity"),
+    )
     reward_fns, reward_weights = build_t2g_reward_functions(config.get("reward"))
 
     # ── Wire completion sample logging (for live chain_monitor display) ─
@@ -395,7 +420,11 @@ def main() -> None:
     sample_logger = CompletionSampleLogger(reward_fns, reward_weights, n_samples=3)
     sample_logger.set_difficulty_map(t2g_dataset)
     wrapped_reward_fns = sample_logger.wrapped_reward_fns
-    sample_callback = CompletionSampleCallback(sample_logger, every_n_steps=5)
+    sample_callback = CompletionSampleCallback(
+        sample_logger,
+        every_n_steps=5,
+        logits_processor=logits_processor_for_gen,
+    )
 
     # ── Step 6: GRPO configuration ───────────────────────────────────────
     logger.info("=" * 60)
@@ -404,7 +433,7 @@ def main() -> None:
 
     grpo_config = _build_grpo_config(
         config["training"],
-        config["grpo"],
+        grpo_cfg,
         config,
         reward_weights=reward_weights,
     )
@@ -453,6 +482,7 @@ def main() -> None:
     # These are passed to GRPOTrainer which forwards them to model.generate()
     # during rollout exploration.  This ensures EVERY generated token is
     # constrained to the ASL gloss vocabulary.
+    # When grammar is disabled (ablation), no logits_processor is included.
     gen_kwargs = _build_generation_kwargs(config, logits_processor_for_gen)
 
     trainer = GRPOTrainer(

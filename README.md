@@ -3,7 +3,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![TRL](https://img.shields.io/badge/TRL-GRPO-red.svg)](https://huggingface.co/docs/trl/)
-[![Tests](https://img.shields.io/badge/Tests-254%2F254-green.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-260%2B%2F260%2B-green.svg)](tests/)
+[![Docs](https://img.shields.io/badge/Docs-REWARDS%20%7C%20METRICS-purple.svg)](docs/)
+[![Ablation](https://img.shields.io/badge/Ablation-6%20variants-orange.svg)](experiments/configs/t2g/ablation/)
 
 ## Overview
 
@@ -36,8 +38,11 @@ optimizes the model through reinforcement learning with 4 rule-based reward func
 - **Constrained Decoding**: `LogitsProcessor` masks all non-gloss tokens at each generation
   step — the model can only produce valid ASL glosses. Supports both a lightweight
   vocabulary mask and a full grammarllm LL(1) PDA pipeline (*experimental*).
-- **4 Deterministic Rewards**: Translation quality (ROUGE-L), bigram structural proxy,
-  gloss format, and repetition penalty — no neural reward model overhead.
+  W&B-tracked diagnostics (`MaskedMassTracker` mixin) monitor masked probability mass,
+  full-distribution entropy, and allowed-token entropy.
+- **6 Deterministic Rewards**: Translation quality (ROUGE-L), gold-structure baseline (⭐
+  recommended), Viterbi distance (🧪 experimental), structural dense (legacy), gloss format,
+  and repetition penalty — no neural reward model overhead.
 - **Robust Gold Gloss Lookup**: Uses deterministic SHA256 hashing of user instructions
   to reliably match gold glosses regardless of prompt formatting — eliminates silent
   ROUGE-L=0 failures during training.
@@ -47,8 +52,12 @@ optimizes the model through reinforcement learning with 4 rule-based reward func
   LoRA (r=16), and 4-bit QLoRA quantization — fits in ~11 GB VRAM.
 - **Full Cluster Pipeline**: SLURM scripts, watcher daemon, live monitoring dashboard
   (`t2g-monitor`), wandb logging, checkpoint management, and evaluation suite.
+- **Ablation Study Ready**: 6 config variants (zero-shot, grammar-only, GRPO variants,
+  SFT, PDA) launchable via `--ablation` flag in `cluster/run_all.sh`.
+- **All params configurable via YAML**: Viterbi diversity penalties, PDA temperature,
+  reward weights, grammar toggle — no hardcoded values.
 - **Efficient**: ~2-3 hours for 1500 steps on a single NVIDIA L40S.
-- **Comprehensive Test Suite**: 254/254 tests passing (data, grammar, rewards, metrics,
+- **Comprehensive Test Suite**: 260+/260+ tests passing (data, grammar, rewards, metrics,
   monitor, integration).
 
 ---
@@ -57,8 +66,14 @@ optimizes the model through reinforcement learning with 4 rule-based reward func
 
 ```text
 neuro_symbolic_t2g/
-├── config/
-│   └── grpo_t2g_qwen05.yaml           # Training config (model, GRPO, reward weights)
+├── experiments/configs/t2g/
+│   ├── grpo_qwen05.yaml               # Main training config
+│   ├── sft.yaml                       # SFT baseline config
+│   └── ablation/                      # Ablation study variants
+│       ├── zero_shot.yaml
+│       ├── zero_shot_grammar.yaml
+│       ├── grpo_no_grammar.yaml
+│       └── grpo_pda.yaml
 ├── src/
 │   ├── cluster/                       # SLURM scripts and cluster orchestration
 │   │   ├── setup.sh                   # One-shot environment setup
@@ -100,7 +115,9 @@ neuro_symbolic_t2g/
 ├── TRAINING.md                        # Detailed training guide (what to expect, monitor, resume)
 ├── CLUSTER.md                         # Complete cluster setup and operations guide
 ├── docs/
-│   ├── DOCUMENTAZIONE.md              # Project documentation (Italian)
+│   ├── REWARDS.md                     # Detailed reward function documentation (6 rewards)
+│   ├── METRICS.md                     # W&B grammar metric documentation (masked mass, entropy)
+│   ├── DOCUMENTAZIONE.md              # grammarllm library documentation (Italian)
 │   └── ERRORI_E_MIGLIORIE.md          # Known issues and improvements (Italian)
 └── README.md                          # This file
 ```
@@ -115,7 +132,7 @@ neuro_symbolic_t2g/
 | 2 | **Model**: Load Qwen2.5-0.5B-Instruct with LoRA (r=16) + 4-bit QLoRA via Unsloth | `src/training/grpo_t2g_train.py` |
 | 3 | **Constrained Decoding**: Build `GlossVocabularyMask` (or full grammarllm PDA) — model can only output ASL gloss tokens | `src/grammar/gloss_grammar.py` |
 | 4 | **Dataset**: Format prompt-completion pairs with chat template | `src/data/aslg_dataset.py` |
-| 5 | **Reward Functions**: 4 deterministic rewards — translation quality, bigram structure, format, repetition | `src/rewards/t2g_rewards.py` |
+| 5 | **Reward Functions**: 6 deterministic rewards — translation quality, gold-structure (⭐), Viterbi distance, structural dense, format, repetition | `src/rewards/t2g_rewards.py` |
 | 6 | **GRPO Training**: `trl.GRPOTrainer` generates G=4 completions per prompt, computes rewards, updates LoRA weights | `src/training/grpo_t2g_train.py` |
 | 7 | **Save**: Checkpoint every 100 steps + final model in `experiments/checkpoints/grpo/t2g/qwen05/final/` | Auto |
 
@@ -126,12 +143,15 @@ neuro_symbolic_t2g/
 | Component | Weight | What it measures |
 |-----------|--------|-----------------|
 | **Translation Quality** (ROUGE-L) | 0.40 | Lexical similarity between generated and gold gloss sequence |
-| **Structural Dense** (Viterbi bigram) | 0.40 | Probability of the gloss sequence under the training data's bigram model — a "procedural knowledge" proxy |
+| **Gold-Structure** (Gold Baseline) ⭐ | 0.40 | Bigram score vs the gold reference gloss — "as good as the human?" |
 | **Format** | 0.10 | Ensures output is only gloss tokens (penalizes free text, punctuation, JSON) |
 | **Repetition** | 0.10 | Penalizes degenerate loops (token/trigram repetition > 50%) |
 
+Also available: **Viterbi Distance** (🧪 experimental, diverse Viterbi upper bound)
+and **Structural Dense** (legacy absolute bigram, no baseline).
+
 All rewards are **deterministic and rule-based** — no neural reward model, no
-human feedback required.
+human feedback required. See [docs/REWARDS.md](docs/REWARDS.md) for full details.
 
 ---
 
@@ -318,9 +338,18 @@ grpo:
 
 reward:
   weight_translation: 0.40      # ROUGE-L similarity
-  weight_structure: 0.40        # Bigram proxy
+  weight_gold_structure: 0.40   # Gold baseline (⭐ recommended)
   weight_format: 0.10           # Gloss-only check
   weight_repetition: 0.10       # Repetition penalty
+
+grammar:
+  enabled: true
+  use_grammarllm_pda: false     # Set true for LL(1) PDA path
+  viterbi_diversity:            # Configurable Viterbi penalties
+    self_loop_penalty: 0.5
+    max_occurrences: 2
+    diversity_threshold: 0.3
+    max_iters: 3
 ```
 
 ---

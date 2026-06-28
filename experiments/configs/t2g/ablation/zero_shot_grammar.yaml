@@ -1,0 +1,45 @@
+# ============================================================================
+# Ablation Study — Base Model + GRAMMAR-LLM (Zero-Shot with Grammar)
+#
+# Esegue solo evaluation sul modello base Qwen2.5-0.5B-Instruct
+# CON constrained decoding (vocabulary mask) ma SENZA training.
+#
+# Usato da:
+#   python -m src.training.eval_t2g --config experiments/configs/t2g/ablation/zero_shot_grammar.yaml
+# ============================================================================
+
+model:
+  name: "Qwen/Qwen2.5-0.5B-Instruct"
+  num_gpus: 1
+
+dataset:
+  dataset_name: "achrafothman/aslg_pc12"
+  dataset_cache: "data/aslg_pc12"
+  vocab_path: "data/gloss_vocab.txt"
+  bigram_matrix_path: "data/bigram_transition.npy"
+  split: "train"
+  seed: 42
+  thinking: false
+
+grpo:
+  max_completion_length: 256
+  max_prompt_length: 256
+  temperature: 0.7
+
+grammar:
+  enabled: true
+  use_grammarllm_pda: false
+  # Viterbi diversity params (eval-only, for viterbi_distance_reward)
+  viterbi_diversity:
+    self_loop_penalty: 0.5
+    max_occurrences: 2
+    diversity_threshold: 0.3
+    max_iters: 3
+
+reward:
+  weight_translation: 1.0
+
+wandb:
+  project: "neuro-symbolic-t2g"
+  run_name: "ablation-zero-shot-grammar"
+  tags: ["ablation", "zero-shot", "grammar", "constrained-decoding", "T2G", "ASL"]

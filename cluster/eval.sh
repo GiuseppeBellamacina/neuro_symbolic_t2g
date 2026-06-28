@@ -47,21 +47,52 @@ mkdir -p logs
 
 cd "$HOME/neuro_symbolic_t2g"
 
+# ── Auto-detect trained checkpoint from config YAML ──────────────────────────
+# Se CHECKPOINT non è stato passato, cerca automaticamente il modello addestrato
+# nel training.output_dir/final (dove il trainer salva il modello finale).
+# Per config eval-only (senza training.output_dir) rimane in zero-shot.
+if [ -z "$CHECKPOINT" ]; then
+    DETECTED=$(python3 -c "
+import yaml, os, sys
+try:
+    cfg = yaml.safe_load(open('${CONFIG}'))
+    out_dir = cfg.get('training', {}).get('output_dir', '')
+    if out_dir:
+        final_path = os.path.join(out_dir, 'final')
+        if os.path.isdir(final_path):
+            print(final_path)
+            sys.exit(0)
+    # Fallback: cerca checkpoint-* più recente
+    if out_dir:
+        import glob
+        ckpts = sorted(glob.glob(os.path.join(out_dir, 'checkpoint-*')))
+        if ckpts:
+            print(ckpts[-1])
+            sys.exit(0)
+except Exception:
+    pass
+sys.exit(1)
+" 2>/dev/null) && CHECKPOINT="$DETECTED"
+    if [ -n "$CHECKPOINT" ]; then
+        echo "Auto-detected trained checkpoint: $CHECKPOINT"
+    fi
+fi
+
 # Prepara dataset eval se mancante
 if [ ! -d "data/aslg_pc12_test" ]; then
     echo "Dataset test non trovato, download in corso..."
     python3 -c "
-from src.data.aslg_dataset import download_aslg_dataset, build_t2g_dataset
+from src.datasetsaslg_dataset import download_aslg_dataset, build_t2g_dataset
 dataset = download_aslg_dataset()
 test_ds = build_t2g_dataset(dataset, split='test')
 test_ds.save_to_disk('data/aslg_pc12_test')
 print('Dataset salvato.')
 "
-fi
-
-EVAL_ARGS="--config ${CONFIG}"
+fi    EVAL_ARGS="--config ${CONFIG}"
 if [ -n "$CHECKPOINT" ]; then
     EVAL_ARGS="${EVAL_ARGS} --checkpoint ${CHECKPOINT}"
+else
+    echo "Zero-shot mode: nessun checkpoint (base model pulito)"
 fi
 
 

@@ -15,6 +15,7 @@ Matrices are saved as NumPy ``.npy`` files for fast loading during GRPO training
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -318,3 +319,356 @@ def sequence_score_trigram(
         log_prob += np.log(p)
 
     return log_prob
+
+
+# ---------------------------------------------------------------------------
+# Viterbi Optimal Path
+# ---------------------------------------------------------------------------
+
+
+def compute_viterbi_path(
+    transition_matrix: np.ndarray,
+    start_idx: int,
+    end_idx: int,
+    length: int,
+) -> tuple[list[int], float]:
+    """Compute the globally most probable path of a given length through
+    the bigram transition matrix using the Viterbi algorithm.
+
+    The path is constrained to start at ``start_idx`` and end at ``end_idx``.
+    This finds the sequence of ``length`` token indices that maximizes the
+    cumulative bigram log-probability under the Markov model.
+
+    .. note::
+
+       Without emission probabilities (i.e., without conditioning on the
+       source English text), the Viterbi optimum for a pure Markov chain
+       tends to degenerate into repetitive loops of the single
+       highest-probability transition (e.g., ``IX → IX → IX → …``).
+
+       Use this as a *theoretical upper bound* for the structural score,
+       not as a linguistically meaningful gloss sequence.  For a
+       semantically grounded baseline, consider comparing against the
+       gold reference gloss instead (see ``gold_structure_reward`` in
+       ``src/rewards/t2g_rewards.py``).
+
+    Args:
+        transition_matrix: The ``(V, V)`` bigram transition matrix.
+        start_idx: Index of the start token (typically ``<BOS>``).
+        end_idx: Index of the end token (typically ``<EOS>``).
+        length: Desired path length (number of tokens, **including** BOS
+            and EOS).  Must be ``>= 2``.
+
+    Returns:
+        A tuple ``(path, viterbi_log_prob)`` where:
+            - ``path`` is a list of token indices of length ``length``.
+            - ``viterbi_log_prob`` is the (maximized) cumulative
+              log-probability of the optimal path.
+
+    Raises:
+        ValueError: If ``length < 2``.
+
+    Example:
+        >>> import numpy as np
+        >>> # 3x3 matrix: BOS=0, A=1, EOS=2
+        >>> T = np.array([[0, 1, 0], [0, 0.2, 0.8], [0, 0, 0]], dtype=np.float32)
+        >>> path, score = compute_viterbi_path(T, 0, 2, 4)
+        >>> len(path)
+        4
+        >>> path[0], path[-1]
+        (0, 2)
+    """
+    if length < 2:
+        raise ValueError(f"Path length must be >= 2, got {length}")
+
+    V = transition_matrix.shape[0]
+    small_eps = 1e-10
+
+    # dp[t][s] = maximum log-prob of being in state s at step t
+    dp = np.full((length, V), -np.inf, dtype=np.float64)
+    backtrack = np.zeros((length, V), dtype=np.int32)
+
+    # Step 0: start from start_idx
+    dp[0, start_idx] = 0.0
+
+    # Steps 1 to length-2: free transitions among all states
+    for t in range(1, length - 1):
+        for s in range(V):
+            # Score for transitioning from any prev state to s
+            trans_log_probs = np.log(np.maximum(transition_matrix[:, s], small_eps))
+            scores = dp[t - 1, :] + trans_log_probs
+            best_prev = int(np.argmax(scores))
+            dp[t, s] = scores[best_prev]
+            backtrack[t, s] = best_prev
+
+    # Final step (length-1): must transition into end_idx
+    t_final = length - 1
+    trans_log_probs = np.log(np.maximum(transition_matrix[:, end_idx], small_eps))
+    scores = dp[t_final - 1, :] + trans_log_probs
+    best_prev = int(np.argmax(scores))
+    dp[t_final, end_idx] = scores[best_prev]
+    backtrack[t_final, end_idx] = best_prev
+
+    viterbi_log_prob = float(dp[t_final, end_idx])
+
+    # Backtrack to recover the optimal path
+    path: list[int] = [end_idx]
+    for t in range(t_final, 0, -1):
+        prev = backtrack[t, path[-1]]
+        path.append(int(prev))
+    path.reverse()
+
+    return path, viterbi_log_prob
+
+
+def viterbi_optimal_score(
+    transition_matrix: np.ndarray,
+    start_idx: int,
+    end_idx: int,
+    length: int,
+) -> float:
+    """Compute only the Viterbi optimal log-probability (no path backtracking).
+
+    Faster than ``compute_viterbi_path`` when you only need the score,
+    not the actual path.
+
+    Args:
+        transition_matrix: The ``(V, V)`` bigram transition matrix.
+        start_idx: Index of the start token.
+        end_idx: Index of the end token.
+        length: Desired path length.
+
+    Returns:
+        The Viterbi optimal cumulative log-probability.
+    """
+    if length < 2:
+        raise ValueError(f"Path length must be >= 2, got {length}")
+
+    V = transition_matrix.shape[0]
+    small_eps = 1e-10
+
+    dp = np.full((length, V), -np.inf, dtype=np.float64)
+    dp[0, start_idx] = 0.0
+
+    for t in range(1, length - 1):
+        for s in range(V):
+            trans_log_probs = np.log(np.maximum(transition_matrix[:, s], small_eps))
+            dp[t, s] = np.max(dp[t - 1, :] + trans_log_probs)
+
+    t_final = length - 1
+    trans_log_probs = np.log(np.maximum(transition_matrix[:, end_idx], small_eps))
+    dp[t_final, end_idx] = np.max(dp[t_final - 1, :] + trans_log_probs)
+
+    return float(dp[t_final, end_idx])
+
+
+# ---------------------------------------------------------------------------
+# Diverse Viterbi (with diversity constraint to prevent degeneracy)
+# ---------------------------------------------------------------------------
+
+
+def _path_diversity(path: list[int], exclude_tokens: set[int] | None = None) -> float:
+    """Compute the unique-token ratio of a path (excluding special tokens).
+
+    Returns:
+        Float in ``[0, 1]`` where 1.0 = all tokens unique, 0.0 = all same.
+    """
+    if len(path) < 2:
+        return 0.0
+    excluded = exclude_tokens or set()
+    tokens = [t for t in path[1:-1] if t not in excluded]  # skip BOS/EOS
+    if not tokens:
+        return 0.0
+    return len(set(tokens)) / len(tokens)
+
+
+def _find_overrepresented(path: list[int], max_occurrences: int) -> set[int]:
+    """Find token indices that appear more than ``max_occurrences`` times."""
+    counts = Counter(path[1:-1])  # skip BOS/EOS
+    return {t for t, c in counts.items() if c > max_occurrences}
+
+
+def compute_diverse_viterbi_path(
+    transition_matrix: np.ndarray,
+    start_idx: int,
+    end_idx: int,
+    length: int,
+    self_loop_penalty: float = 0.5,
+    max_occurrences: int = 2,
+    diversity_threshold: float = 0.3,
+    max_iters: int = 3,
+) -> tuple[list[int], float]:
+    """Compute the Viterbi-optimal path with diversity constraints.
+
+    Extends the standard Viterbi algorithm with two anti-degeneracy mechanisms:
+
+    1. **Self-loop penalty**: A log-probability penalty ``self_loop_penalty``
+       is subtracted whenever the path stays in the same state (``s → s``).
+       This discourages paths like ``IX → IX → IX → …``.
+
+    2. **Iterative token ban**: After computing a candidate path, tokens that
+       appear more than ``max_occurrences`` times are partially banned
+       (their self-transition probabilities are lowered) and the Viterbi
+       DP is re-run, up to ``max_iters`` times, until the path passes the
+       ``diversity_threshold`` (unique-token ratio).
+
+    .. note::
+
+       This is designed to produce a **linguistically meaningful** Viterbi
+       baseline for the ``viterbi_distance_reward``.  Without these
+       constraints, the pure Markov-chain Viterbi degenerates into
+       repetitive loops (e.g., ``IX → IX → IX``).
+
+    Args:
+        transition_matrix: The ``(V, V)`` bigram transition matrix.
+        start_idx: Index of the start token (typically ``<BOS>``).
+        end_idx: Index of the end token (typically ``<EOS>``).
+        length: Desired path length (including BOS and EOS).
+        self_loop_penalty: Log-prob penalty for self-transitions.
+        max_occurrences: Maximum allowed occurrences per token before
+            iterative re-optimization.
+        diversity_threshold: Minimum unique-token ratio to accept a path.
+        max_iters: Maximum number of iterative re-optimizations.
+
+    Returns:
+        A tuple ``(path, viterbi_log_prob)`` where ``path`` is a reasonably
+        diverse token-index list of length ``length``.
+
+    Raises:
+        ValueError: If ``length < 2``.
+    """
+    if length < 2:
+        raise ValueError(f"Path length must be >= 2, got {length}")
+
+    V = transition_matrix.shape[0]
+    small_eps = 1e-10
+    penalty_matrix = transition_matrix.copy()
+
+    # Exclude special tokens (BOS, EOS) from diversity checks
+    special_tokens = {start_idx, end_idx}
+
+    for iteration in range(max_iters + 1):
+        # ── DP with self-loop penalty ──────────────────────────────────
+        dp = np.full((length, V), -np.inf, dtype=np.float64)
+        backtrack = np.zeros((length, V), dtype=np.int32)
+        dp[0, start_idx] = 0.0
+
+        for t in range(1, length - 1):
+            for s in range(V):
+                trans_log = np.log(np.maximum(penalty_matrix[:, s], small_eps))
+                # Apply self-loop penalty
+                trans_log[s] -= self_loop_penalty
+                scores = dp[t - 1, :] + trans_log
+                best_prev = int(np.argmax(scores))
+                dp[t, s] = scores[best_prev]
+                backtrack[t, s] = best_prev
+
+        # Final step: into end_idx
+        t_final = length - 1
+        trans_log = np.log(np.maximum(penalty_matrix[:, end_idx], small_eps))
+        scores = dp[t_final - 1, :] + trans_log
+        best_prev = int(np.argmax(scores))
+        dp[t_final, end_idx] = scores[best_prev]
+        backtrack[t_final, end_idx] = best_prev
+
+        viterbi_log_prob = float(dp[t_final, end_idx])
+
+        # ── Backtrack ─────────────────────────────────────────────────
+        path: list[int] = [end_idx]
+        for t in range(t_final, 0, -1):
+            prev = backtrack[t, path[-1]]
+            path.append(int(prev))
+        path.reverse()
+
+        # ── Diversity check ───────────────────────────────────────────
+        diversity = _path_diversity(path, exclude_tokens=special_tokens)
+        if diversity >= diversity_threshold:
+            logger.debug(
+                "Diverse Viterbi: diversity=%.3f ≥ threshold=%.3f " "(iteration %d)",
+                diversity,
+                diversity_threshold,
+                iteration,
+            )
+            return path, viterbi_log_prob
+
+        # Only try to improve if we have iterations left
+        if iteration >= max_iters:
+            logger.debug(
+                "Diverse Viterbi: diversity=%.3f < threshold=%.3f "
+                "after %d iterations — returning best effort",
+                diversity,
+                diversity_threshold,
+                iteration,
+            )
+            return path, viterbi_log_prob
+
+        # ── Apply stronger penalty for over-represented tokens ────────
+        overrep = _find_overrepresented(path, max_occurrences)
+        if not overrep:
+            # No token exceeds max_occurrences but diversity is still
+            # low — this only happens for very short paths (L ≤ 5)
+            # where the Viterbi reward already returns 0.0.
+            # Just return best effort.
+            logger.debug(
+                "Diverse Viterbi: no over-represented tokens but diversity "
+                "=%.3f < %.3f — returning best effort (iteration %d)",
+                diversity,
+                diversity_threshold,
+                iteration,
+            )
+            return path, viterbi_log_prob
+
+        # Reduce self-transition probabilities for over-represented
+        # tokens to discourage them from being chosen again.
+        for token_idx in overrep:
+            penalty_matrix[token_idx, token_idx] *= 0.3
+        logger.debug(
+            "Diverse Viterbi iteration %d: penalizing %d over-represented "
+            "tokens (diversity=%.3f)",
+            iteration + 1,
+            len(overrep),
+            diversity,
+        )
+
+    return path, viterbi_log_prob
+
+
+def viterbi_optimal_score_diverse(
+    transition_matrix: np.ndarray,
+    start_idx: int,
+    end_idx: int,
+    length: int,
+    self_loop_penalty: float = 0.5,
+    max_occurrences: int = 2,
+    diversity_threshold: float = 0.3,
+    max_iters: int = 3,
+) -> float:
+    """Compute the diverse Viterbi optimal log-probability (score only).
+
+    Equivalent to ``compute_diverse_viterbi_path(…)[1]``.  Uses the
+    full path for diversity checking but only returns the score.
+
+    Args:
+        transition_matrix: The ``(V, V)`` bigram transition matrix.
+        start_idx: Index of the start token.
+        end_idx: Index of the end token.
+        length: Desired path length.
+        self_loop_penalty: Log-prob penalty for self-transitions.
+        max_occurrences: Maximum allowed occurrences per token.
+        diversity_threshold: Minimum unique-token ratio.
+        max_iters: Maximum iterative re-optimizations.
+
+    Returns:
+        The diverse Viterbi optimal cumulative log-probability.
+    """
+    _path, score = compute_diverse_viterbi_path(
+        transition_matrix,
+        start_idx,
+        end_idx,
+        length,
+        self_loop_penalty=self_loop_penalty,
+        max_occurrences=max_occurrences,
+        diversity_threshold=diversity_threshold,
+        max_iters=max_iters,
+    )
+    return score

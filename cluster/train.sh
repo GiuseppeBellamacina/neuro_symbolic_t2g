@@ -1,9 +1,12 @@
 #!/bin/bash
 # ============================================================================
-# SLURM batch script — T2G GRPO Training sul cluster
+# SLURM batch script — T2G Training sul cluster (GRPO o SFT)
+#
+# Rileva automaticamente il tipo di training dal YAML (training.trainer: sft|grpo).
 #
 # Uso:
 #   CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/train.sh
+#   CONFIG=experiments/configs/t2g/sft.yaml sbatch cluster/train.sh
 #   CONFIG=experiments/configs/t2g/grpo_qwen05.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 #
 # Per il primo avvio eseguire prima:  bash cluster/setup.sh
@@ -36,7 +39,7 @@ fi
 set -e
 
 echo "============================================"
-echo "  T2G GRPO Training — Cluster"
+echo "  T2G Training — Cluster"
 echo "  Job ID:    ${SLURM_JOB_ID}"
 echo "  Node:      $(hostname)"
 echo "  Date:      $(date)"
@@ -54,7 +57,7 @@ cd "$HOME/neuro_symbolic_t2g"
 if [ ! -d "data/aslg_pc12_train" ]; then
     echo "Dataset ASLG-PC12 non trovato, download in corso..."
     python3 -c "
-from src.data.aslg_dataset import download_aslg_dataset, build_t2g_dataset
+from src.datasets.aslg_dataset import download_aslg_dataset, build_t2g_dataset
 dataset = download_aslg_dataset()
 train_ds = build_t2g_dataset(dataset, split='train')
 train_ds.save_to_disk('data/aslg_pc12_train')
@@ -65,8 +68,8 @@ fi
 if [ ! -f "data/bigram_transition.npy" ]; then
     echo "Matrici di transizione non trovate, calcolo in corso..."
     python3 -c "
-from src.data.aslg_dataset import download_aslg_dataset, load_vocabulary
-from src.data.transition_matrix import compute_bigram_transitions, save_transition_matrix
+from src.datasetsaslg_dataset import download_aslg_dataset, load_vocabulary
+from src.datasetstransition_matrix import compute_bigram_transitions, save_transition_matrix
 dataset = download_aslg_dataset()
 vocab = load_vocabulary('data/gloss_vocab.txt')
 bigram = compute_bigram_transitions(dataset, vocab, split='train', smoothing=1.0)

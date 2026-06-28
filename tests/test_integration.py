@@ -218,11 +218,11 @@ def test_module_imports() -> None:
     print("\n-- 5. Module Import Chain --")
     modules = [
         (
-            "src.data.aslg_dataset",
+            "src.datasetsaslg_dataset",
             ["download_aslg_dataset", "extract_gloss_vocabulary", "build_t2g_dataset"],
         ),
         (
-            "src.data.transition_matrix",
+            "src.datasetstransition_matrix",
             ["compute_bigram_transitions", "load_transition_matrix"],
         ),
         ("src.grammar.gloss_grammar", ["GlossVocabularyMask"]),

@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import sys
+import tempfile
 from pathlib import Path
 
 import torch
@@ -230,6 +231,242 @@ def test_grammar_build(tokenizer) -> None:
         )
 
 
+def test_masked_mass_tracking(tokenizer) -> None:
+    print("\n-- 5. Masked Probability Mass Tracking --")
+    from src.grammar.gloss_grammar import GlossVocabularyMask
+    from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
+
+    test_vocab = [
+        "<BOS>",
+        "<EOS>",
+        "<UNK>",
+        "IX",
+        "MAN",
+        "WALK",
+        "HOUSE",
+        "BOOK",
+        "NOT",
+        "CAN",
+    ]
+    mask = GlossVocabularyMask(test_vocab, tokenizer)
+    processor = GlossVocabularyLogitsProcessor(mask, device="cpu")
+
+    vocab_size = tokenizer.vocab_size
+
+    # Simulate 5 generation steps with random-ish logits
+    for _step in range(5):
+        scores = torch.randn(1, vocab_size) * 0.5
+        dummy_input_ids = torch.zeros(1, 5, dtype=torch.long)
+        _ = processor(dummy_input_ids, scores)
+
+    stats = processor.get_masked_mass_stats()
+    check("Total steps = 5", stats["total_steps"] == 5, f"{stats['total_steps']}")
+    check(
+        "Average masked mass in [0, 1]",
+        0.0 <= stats["avg_masked_mass"] <= 1.0,
+        f"{stats['avg_masked_mass']:.4f}",
+    )
+    check("Masked mass > 0 (some tokens disallowed)", stats["avg_masked_mass"] > 0.0)
+    check(
+        "Average masked entropy in [0, log(V)]",
+        0.0 <= stats["avg_masked_entropy"] <= 12.0,
+        f"{stats['avg_masked_entropy']:.4f}",
+    )
+    check(
+        "Masked entropy > 0 (non-degenerate distribution)",
+        stats["avg_masked_entropy"] > 0.0,
+    )
+
+    # Reset should clear stats (including entropy)
+    processor.reset()
+    stats_reset = processor.get_masked_mass_stats()
+    check("Reset clears total_steps", stats_reset["total_steps"] == 0)
+    check("Reset clears avg_masked_mass", stats_reset["avg_masked_mass"] == 0.0)
+    check("Reset clears avg_masked_entropy", stats_reset["avg_masked_entropy"] == 0.0)
+
+    # After reset, new steps accumulate again
+    for _step in range(3):
+        scores = torch.randn(1, vocab_size) * 0.5
+        dummy_input_ids = torch.zeros(1, 5, dtype=torch.long)
+        _ = processor(dummy_input_ids, scores)
+
+    stats2 = processor.get_masked_mass_stats()
+    check("After reset + 3 steps", stats2["total_steps"] == 3)
+    check(
+        "Masked mass in [0, 1] after reset",
+        0.0 <= stats2["avg_masked_mass"] <= 1.0,
+        f"{stats2['avg_masked_mass']:.4f}",
+    )
+    check(
+        "Masked entropy > 0 after reset",
+        stats2["avg_masked_entropy"] > 0.0,
+        f"{stats2['avg_masked_entropy']:.4f}",
+    )
+
+    # Test reset_after=True (per-interval logging path)
+    stats3 = processor.get_masked_mass_stats(reset_after=True)
+    check("reset_after returns correct total_steps", stats3["total_steps"] == 3)
+    stats_after = processor.get_masked_mass_stats()
+    check("reset_after clears counters", stats_after["total_steps"] == 0)
+    check("reset_after clears entropy", stats_after["avg_masked_entropy"] == 0.0)
+    check(
+        "reset_after clears entropy_allowed",
+        stats_after.get("avg_masked_entropy_allowed", -1.0) == 0.0,
+    )
+
+
+def test_pda_logits_processor_mass_tracking(tokenizer) -> None:
+    print("\n-- 6. GrammarPDALogitsProcessor Masked Mass & Entropy Tracking --")
+    from grammarllm.modules.PushdownAutomaton import PushdownAutomaton
+    from grammarllm.scripts.generate_LL1_parsing_table import generate_ll1_table
+    from src.grammar.gloss_grammar import build_gloss_grammar
+    from src.grammar.grammar_logits_processor import GrammarPDALogitsProcessor
+
+    test_vocab = [
+        "<BOS>",
+        "<EOS>",
+        "<UNK>",
+        "IX",
+        "MAN",
+        "WALK",
+        "HOUSE",
+        "BOOK",
+        "NOT",
+        "CAN",
+    ]
+
+    # Build grammar and parsing table for PDA
+    grammar = build_gloss_grammar(test_vocab, tokenizer)
+    with tempfile.TemporaryDirectory() as tmp:
+        table = generate_ll1_table(grammar, str(Path(tmp)))
+    pda = PushdownAutomaton(grammar, table, tokenizer)
+    processor = GrammarPDALogitsProcessor(tokenizer, pda)
+
+    vocab_size = tokenizer.vocab_size
+
+    # Sanity check: PDA has valid tokens in initial state
+    valid_init = processor.get_valid_tokens()
+    check(
+        "PDA initial valid tokens non-empty",
+        len(valid_init) > 0,
+        f"{len(valid_init)} valid tokens",
+    )
+
+    # Simulate 5 generation steps with random-ish logits
+    for _step in range(5):
+        scores = torch.randn(1, vocab_size) * 0.5
+        dummy_input_ids = torch.zeros(1, 5, dtype=torch.long)
+        _ = processor(dummy_input_ids, scores)
+
+    stats = processor.get_masked_mass_stats()
+    check("PDA: total steps = 5", stats["total_steps"] == 5, f"{stats['total_steps']}")
+    check(
+        "PDA: masked mass in [0, 1]",
+        0.0 <= stats["avg_masked_mass"] <= 1.0,
+        f"{stats['avg_masked_mass']:.4f}",
+    )
+    check("PDA: masked mass > 0", stats["avg_masked_mass"] > 0.0)
+    check(
+        "PDA: entropy in [0, log(V)]",
+        0.0 <= stats["avg_masked_entropy"] <= 12.0,
+        f"{stats['avg_masked_entropy']:.4f}",
+    )
+    check("PDA: entropy > 0", stats["avg_masked_entropy"] > 0.0)
+    check(
+        "PDA: entropy_allowed in [0, log(|allowed|)]",
+        0.0 <= stats["avg_masked_entropy_allowed"] <= 8.0,
+        f"{stats['avg_masked_entropy_allowed']:.4f}",
+    )
+    check(
+        "PDA: entropy_allowed >= 0",
+        stats["avg_masked_entropy_allowed"] >= 0.0,
+        f"{stats['avg_masked_entropy_allowed']:.4f}",
+    )
+
+    # Reset should clear all stats
+    processor.reset()
+    stats_reset = processor.get_masked_mass_stats()
+    check("PDA: reset clears total_steps", stats_reset["total_steps"] == 0)
+    check("PDA: reset clears avg_masked_mass", stats_reset["avg_masked_mass"] == 0.0)
+    check(
+        "PDA: reset clears avg_masked_entropy", stats_reset["avg_masked_entropy"] == 0.0
+    )
+    check(
+        "PDA: reset clears entropy_allowed",
+        stats_reset.get("avg_masked_entropy_allowed", -1.0) == 0.0,
+    )
+
+    # Accumulate again
+    for _step in range(3):
+        scores = torch.randn(1, vocab_size) * 0.5
+        dummy_input_ids = torch.zeros(1, 5, dtype=torch.long)
+        _ = processor(dummy_input_ids, scores)
+
+    stats2 = processor.get_masked_mass_stats()
+    check("PDA: after reset + 3 steps", stats2["total_steps"] == 3)
+
+    # reset_after=True path
+    stats3 = processor.get_masked_mass_stats(reset_after=True)
+    check("PDA: reset_after returns correct total_steps", stats3["total_steps"] == 3)
+    stats_after = processor.get_masked_mass_stats()
+    check("PDA: reset_after clears counters", stats_after["total_steps"] == 0)
+    check(
+        "PDA: reset_after clears entropy",
+        stats_after.get("avg_masked_entropy", -1.0) == 0.0,
+    )
+    check(
+        "PDA: reset_after clears entropy_allowed",
+        stats_after.get("avg_masked_entropy_allowed", -1.0) == 0.0,
+    )
+
+
+def test_build_allowed_mask() -> None:
+    print("\n-- 7. _build_allowed_mask Edge Cases --")
+    from src.grammar.masked_mass_tracker import MaskedMassTracker
+
+    tracker = MaskedMassTracker()
+    tracker._init_masked_stats()
+
+    # Edge case 1: empty set → all-False mask
+    mask = tracker._build_allowed_mask(set(), vocab_size=10, device="cpu")
+    check("empty set: shape correct", mask.shape == (10,))
+    check("empty set: all False", mask.sum().item() == 0)
+    check("empty set: dtype bool", mask.dtype == torch.bool)
+
+    # Edge case 2: normal usage
+    mask = tracker._build_allowed_mask({0, 5, 9}, vocab_size=10, device="cpu")
+    check(
+        "normal: positions 0,5,9 True",
+        mask[0].item() and mask[5].item() and mask[9].item(),
+    )
+    check("normal: position 1 False", not mask[1].item())
+    check("normal: sum=3", mask.sum().item() == 3)
+
+    # Edge case 3: all IDs out of range → all-False
+    mask = tracker._build_allowed_mask({-5, -1, 100, 200}, vocab_size=10, device="cpu")
+    check("out-of-range: all False", mask.sum().item() == 0)
+    check("out-of-range: no crash", mask.shape == (10,))
+
+    # Edge case 4: mix of valid and out-of-range
+    mask = tracker._build_allowed_mask({-1, 0, 5, 100}, vocab_size=10, device="cpu")
+    check("mixed: only 0,5 True", mask[0].item() and mask[5].item())
+    check("mixed: sum=2", mask.sum().item() == 2)
+
+    # Edge case 5: vocab_size=0 → empty tensor, no crash
+    mask = tracker._build_allowed_mask({0, 1, 2}, vocab_size=0, device="cpu")
+    check("vocab_size=0: shape (0,)", mask.shape == (0,))
+    check("vocab_size=0: sum=0", mask.sum().item() == 0)
+    check("vocab_size=0: no crash", True)
+
+    # Edge case 6: all valid IDs within range
+    mask = tracker._build_allowed_mask({0, 1, 2, 3, 4}, vocab_size=5, device="cpu")
+    check("all valid: sum=5", mask.sum().item() == 5)
+    check("all valid: first True", mask[0].item())
+    check("all valid: last True", mask[4].item())
+
+    print("  All _build_allowed_mask edge cases passed")
+
+
 def main() -> None:
     global PASS, FAIL
     print("=" * 60)
@@ -242,6 +479,9 @@ def main() -> None:
         test_logits_processor(tokenizer)
         test_decode_to_glosses(tokenizer)
         test_grammar_build(tokenizer)
+        test_masked_mass_tracking(tokenizer)
+        test_pda_logits_processor_mass_tracking(tokenizer)
+        test_build_allowed_mask()
     except Exception as e:
         print(f"\n  !! CRASH: {e}")
         import traceback

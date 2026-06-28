@@ -15,6 +15,8 @@ from transformers import (
     TrainingArguments,
 )
 
+from src.utils.text_utils import extract_user_text
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,15 +36,6 @@ def _split_think(text: str) -> tuple[str, str]:
         output = text[m.end() :].strip()
         return think, output
     return "", text.strip()
-
-
-def _extract_user_instruction(prompt: Any) -> str:
-    """Extract the user message from a prompt (chat messages or string)."""
-    if isinstance(prompt, list):
-        for msg in reversed(prompt):
-            if isinstance(msg, dict) and msg.get("role") == "user":
-                return msg.get("content", "")
-    return str(prompt) if prompt is not None else ""
 
 
 class CompletionSampleLogger:
@@ -86,8 +79,10 @@ class CompletionSampleLogger:
             _lookup_gold_gloss,
             gloss_format_reward,
             gloss_repetition_reward,
+            gold_structure_reward,
             structural_dense_reward,
             translation_quality_reward,
+            viterbi_distance_reward,
         )
 
         self._component_fns: list[tuple[str, Callable[..., float], dict[str, Any]]] = [
@@ -96,7 +91,13 @@ class CompletionSampleLogger:
                 translation_quality_reward,
                 {"gold_gloss": ""},
             ),
+            (
+                "gold_structure_reward",
+                gold_structure_reward,
+                {"gold_gloss": "", "normalize": True},
+            ),
             ("structural_dense_reward", structural_dense_reward, {"normalize": True}),
+            ("viterbi_distance_reward", viterbi_distance_reward, {"normalize": True}),
             ("gloss_format_reward", gloss_format_reward, {}),
             ("gloss_repetition_reward", gloss_repetition_reward, {}),
         ]
@@ -152,7 +153,7 @@ class CompletionSampleLogger:
             comp = completions[i]
             text: str = comp[0]["content"] if isinstance(comp, list) else comp
             prompt = prompts[i] if prompts else None
-            instruction = _extract_user_instruction(prompt)
+            instruction = extract_user_text(prompt)
 
             # Use stable sample ID for format-agnostic lookup
             sample_id = self._extract_sample_id(prompt) if prompt is not None else ""
@@ -163,7 +164,10 @@ class CompletionSampleLogger:
                 try:
                     kwargs_call = dict(kwargs)
                     # Dynamically look up the actual gold gloss
-                    if name == "translation_quality_reward":
+                    if name in (
+                        "translation_quality_reward",
+                        "gold_structure_reward",
+                    ):
                         kwargs_call["gold_gloss"] = (
                             self._lookup_gold_gloss(prompt)
                             if prompt is not None
@@ -223,15 +227,45 @@ class CompletionSampleLogger:
 
 
 class CompletionSampleCallback(TrainerCallback):
-    """Print completion samples every ``every_n_steps`` steps.
+    """Print completion samples and log grammar + reward metrics every ``every_n_steps``.
 
     These samples are parsed by ``chain_monitor.py`` for live display.
+    Grammar metrics (masked probability mass) are logged to wandb
+    to track how the model internalizes the ASL vocabulary constraints.
+
+    Custom W&B chart panels:
+    * ``grammar/convergence_diagnostics`` — masked_mass, full_entropy, allowed_entropy
+    * ``rewards/breakdown_diagnostics`` — all 6 reward components together
     """
 
-    def __init__(self, logger: CompletionSampleLogger, every_n_steps: int = 5) -> None:
+    # Reward component names (order determines legend order in W&B plot)
+    _REWARD_COMPONENTS: tuple[str, ...] = (
+        "translation_quality_reward",
+        "gold_structure_reward",
+        "structural_dense_reward",
+        "viterbi_distance_reward",
+        "gloss_format_reward",
+        "gloss_repetition_reward",
+    )
+
+    def __init__(
+        self,
+        logger: CompletionSampleLogger,
+        every_n_steps: int = 5,
+        logits_processor: Any = None,
+        plot_every_n: int = 25,
+    ) -> None:
         self._logger = logger
         self._every_n_steps = every_n_steps
         self._last_printed_step = -1
+        self._logits_processor = logits_processor
+        self._plot_every_n = plot_every_n
+        # Buffer per il pannello diagnostico convergenza
+        self._diag_buffer: deque[dict[str, float]] = deque(maxlen=500)
+        self._diag_defined = False
+        # Buffer per il pannello reward breakdown
+        self._reward_buffer: deque[dict[str, float]] = deque(maxlen=500)
+        self._reward_defined = False
 
     def on_log(
         self,
@@ -253,3 +287,162 @@ class CompletionSampleCallback(TrainerCallback):
             if output:
                 print(output)
             self._last_printed_step = step
+
+            # ── W&B import once for both panels ─────────────────────────
+            try:
+                import wandb
+            except ImportError:
+                return  # wandb not installed, skip both panels
+
+            # Log masked probability mass / entropy to wandb
+            if self._logits_processor is not None and hasattr(
+                self._logits_processor, "get_masked_mass_stats"
+            ):
+                try:
+
+                    # ── Define W&B metric layout once ───────────────────
+                    if not self._diag_defined and wandb.run:
+                        wandb.define_metric(
+                            "grammar/masked_mass_avg",
+                            summary="last",
+                        )
+                        wandb.define_metric(
+                            "grammar/masked_entropy_avg",
+                            summary="last",
+                        )
+                        wandb.define_metric(
+                            "grammar/masked_entropy_allowed_avg",
+                            summary="last",
+                        )
+                        self._diag_defined = True
+
+                    # Use reset_after=True for per-interval metrics
+                    stats = self._logits_processor.get_masked_mass_stats(
+                        reset_after=True
+                    )
+                    if stats["total_steps"] > 0 and wandb.run:
+                        mass = stats["avg_masked_mass"]
+                        ent = stats.get("avg_masked_entropy", 0.0)
+                        ent_allowed = stats.get("avg_masked_entropy_allowed", 0.0)
+
+                        wandb.log(
+                            {
+                                "grammar/masked_mass_avg": mass,
+                                "grammar/masked_entropy_avg": ent,
+                                "grammar/masked_entropy_allowed_avg": ent_allowed,
+                                "grammar/masked_mass_steps": stats["total_steps"],
+                            },
+                            step=step,
+                        )
+
+                        # ── Buffer & plot convergence diagnostics ────────
+                        self._diag_buffer.append(
+                            {
+                                "Step": step,
+                                "masked_mass": mass,
+                                "full_entropy": ent,
+                                "allowed_entropy": ent_allowed,
+                            }
+                        )
+
+                        if (
+                            step % self._plot_every_n == 0
+                            and len(self._diag_buffer) >= 2
+                        ):
+                            xs = [d["Step"] for d in self._diag_buffer]
+                            ys_mass = [d["masked_mass"] for d in self._diag_buffer]
+                            ys_ent = [d["full_entropy"] for d in self._diag_buffer]
+                            ys_ent_a = [d["allowed_entropy"] for d in self._diag_buffer]
+
+                            wandb.log(
+                                {
+                                    "grammar/convergence_diagnostics": wandb.plot.line_series(
+                                        xs=xs,
+                                        ys=[ys_mass, ys_ent, ys_ent_a],
+                                        keys=[
+                                            "masked_mass",
+                                            "full_entropy",
+                                            "allowed_entropy",
+                                        ],
+                                        title="Grammar Convergence Diagnostics",
+                                        xname="Step",
+                                    )
+                                },
+                                step=step,
+                            )
+                except Exception:
+                    logger.debug("Failed to log masked mass to wandb", exc_info=True)
+
+            # ── Reward breakdown logging ───────────────────────────────
+            if self._logger._buffer:
+                try:
+
+                    # Define reward metrics once
+                    if not self._reward_defined and wandb.run:
+                        for comp in self._REWARD_COMPONENTS:
+                            wandb.define_metric(
+                                f"rewards/{comp}",
+                                summary="last",
+                            )
+                        self._reward_defined = True
+
+                    # Compute per-interval averages from buffered samples
+                    reward_sums: dict[str, float] = {
+                        c: 0.0 for c in self._REWARD_COMPONENTS
+                    }
+                    n_samples = 0
+                    for sample in self._logger._buffer:
+                        bd = sample.get("breakdown", {})
+                        for comp in self._REWARD_COMPONENTS:
+                            reward_sums[comp] += bd.get(comp, 0.0)
+                        n_samples += 1
+
+                    if n_samples > 0 and wandb.run:
+                        reward_avgs = {
+                            c: reward_sums[c] / n_samples
+                            for c in self._REWARD_COMPONENTS
+                        }
+
+                        # Log individual scalars
+                        wandb.log(
+                            {
+                                f"rewards/{comp}": reward_avgs[comp]
+                                for comp in self._REWARD_COMPONENTS
+                            },
+                            step=step,
+                        )
+
+                        # Buffer & plot reward breakdown panel
+                        self._reward_buffer.append({"Step": step, **reward_avgs})
+
+                        if (
+                            step % self._plot_every_n == 0
+                            and len(self._reward_buffer) >= 2
+                        ):
+                            xs = [d["Step"] for d in self._reward_buffer]
+                            ys_list = [
+                                [d[comp] for d in self._reward_buffer]
+                                for comp in self._REWARD_COMPONENTS
+                            ]
+                            # Derive short labels from component names
+                            labels = [
+                                c.replace("_reward", "")
+                                for c in self._REWARD_COMPONENTS
+                            ]
+
+                            wandb.log(
+                                {
+                                    "rewards/breakdown_diagnostics": wandb.plot.line_series(
+                                        xs=xs,
+                                        ys=ys_list,
+                                        keys=labels,
+                                        title="Reward Component Convergence",
+                                        xname="Step",
+                                    )
+                                },
+                                step=step,
+                            )
+                except Exception:
+                    logger.debug(
+                        "Failed to log reward breakdown to wandb", exc_info=True
+                    )

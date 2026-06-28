@@ -45,7 +45,10 @@ from src.datasets.transition_matrix import (
     sequence_score_bigram,
 )
 from src.grammar.gloss_grammar import GlossVocabularyMask
-from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
+from src.grammar.grammar_logits_processor import (
+    GlossVocabularyLogitsProcessor,
+    GrammarPDALogitsProcessor,
+)
 from src.rewards.t2g_rewards import (
     initialize_rewards,
     register_gold_glosses,
@@ -123,17 +126,22 @@ def _generate_one(
     do_sample: bool = False,
     temperature: float = 0.7,
 ) -> str:
-    """Generate one completion with constrained decoding."""
+    """Generate one completion, optionally with constrained decoding.
+
+    When ``logits_processor`` is ``None``, generation is unconstrained
+    (used for ablation studies — base model zero-shot or GRPO without grammar).
+    """
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    gen_kwargs: dict[str, Any] = {
+        "max_new_tokens": max_new_tokens,
+        "do_sample": do_sample,
+        "temperature": temperature,
+        "pad_token_id": tokenizer.eos_token_id,
+    }
+    if logits_processor is not None:
+        gen_kwargs["logits_processor"] = [logits_processor]
     with torch.no_grad():
-        output = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            do_sample=do_sample,
-            temperature=temperature,
-            logits_processor=[logits_processor],
-            pad_token_id=tokenizer.eos_token_id,
-        )
+        output = model.generate(**inputs, **gen_kwargs)
     prompt_len = inputs["input_ids"].shape[1]
     return tokenizer.decode(
         output[0][prompt_len:],
@@ -148,7 +156,7 @@ def _generate_one(
 
 def evaluate_checkpoint(
     config: dict[str, Any],
-    checkpoint_path: str,
+    checkpoint_path: str | None,
     max_samples: int = 200,
     num_samples: int = 1,
 ) -> dict[str, Any]:
@@ -156,7 +164,8 @@ def evaluate_checkpoint(
 
     Args:
         config: Parsed YAML config.
-        checkpoint_path: Path to the checkpoint directory.
+        checkpoint_path: Path to the checkpoint directory, or ``None`` for
+            zero-shot evaluation (loads the base model without LoRA).
         max_samples: Max test samples to evaluate.
         num_samples: Number of completions per prompt (1 = greedy, >1 = sampled).
 
@@ -164,7 +173,8 @@ def evaluate_checkpoint(
         Dict with all computed metrics.
     """
     ds_cfg = config["dataset"]
-    grpo_cfg = config["grpo"]
+    # Support both generation (SFT) and grpo (GRPO) — generation preferred
+    gen_cfg = config.get("generation", config.get("grpo", {}))
 
     # ── Load test data ───────────────────────────────────────────────────
     dataset = download_aslg_dataset(
@@ -175,21 +185,67 @@ def evaluate_checkpoint(
         ds_cfg.get("bigram_matrix_path", "data/bigram_transition.npy"),
     )
 
-    initialize_rewards(bigram, vocab)
+    initialize_rewards(
+        bigram,
+        vocab,
+        viterbi_diversity=config.get("grammar", {}).get("viterbi_diversity"),
+    )
     token_to_idx = {t: i for i, t in enumerate(vocab)}
 
     # ── Load model ───────────────────────────────────────────────────────
-    model, tokenizer = load_model_for_eval(
-        checkpoint_path,
-        config["model"]["name"],
-    )
+    if checkpoint_path is None:
+        logger.info(f"Zero-shot mode: loading base model {config['model']['name']}")
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(
+            config["model"]["name"],
+            trust_remote_code=True,
+        )
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.padding_side = "left"
+        model = AutoModelForCausalLM.from_pretrained(
+            config["model"]["name"],
+            torch_dtype=torch.float16,
+            device_map="auto",
+            trust_remote_code=True,
+        )
+    else:
+        model, tokenizer = load_model_for_eval(
+            checkpoint_path,
+            config["model"]["name"],
+        )
 
     # ── Constrained decoding ─────────────────────────────────────────────
-    gloss_mask = GlossVocabularyMask(vocab, tokenizer)
-    logits_processor = GlossVocabularyLogitsProcessor(
-        gloss_mask,
-        device=str(model.device),
-    )
+    grammar_enabled = config.get("grammar", {}).get("enabled", True)
+    if grammar_enabled:
+        use_pda = config.get("grammar", {}).get("use_grammarllm_pda", False)
+        if use_pda:
+            # Lazy import to avoid hard dependency on grammarllm at module level
+            from src.grammar.gloss_grammar import create_grammarllm_pipeline
+
+            logger.info("Using GrammarLLM PDA for constrained decoding (eval)")
+            _, _, pda = create_grammarllm_pipeline(
+                vocab,
+                tokenizer,
+                temperature=gen_cfg.get("temperature", 0.7),
+            )
+            logits_processor = GrammarPDALogitsProcessor(
+                tokenizer,
+                pda,
+                temperature=float(
+                    config.get("grammar", {}).get("pda_temperature", 1.0)
+                ),
+            )
+        else:
+            gloss_mask = GlossVocabularyMask(vocab, tokenizer)
+            logits_processor = GlossVocabularyLogitsProcessor(
+                gloss_mask,
+                device=str(model.device),
+            )
+    else:
+        logger.info("⚠️  grammar.enabled=false — unconstrained generation (ablation)")
+        logits_processor = None
 
     # ── Prepare test samples ─────────────────────────────────────────────
     test_ds = dataset["test"]
@@ -222,11 +278,12 @@ def evaluate_checkpoint(
                 tokenizer,
                 prompt,
                 logits_processor,
-                max_new_tokens=grpo_cfg.get("max_completion_length", 256),
+                max_new_tokens=gen_cfg.get("max_completion_length", 256),
                 do_sample=do_sample,
                 temperature=temp,
             )
-            logits_processor.reset()
+            if logits_processor is not None:
+                logits_processor.reset()
             completions.append(gen)
 
         # Store
@@ -344,7 +401,12 @@ def evaluate_checkpoint(
 def main() -> None:
     parser = argparse.ArgumentParser(description="T2G checkpoint evaluation")
     parser.add_argument("--config", type=str, required=True, help="Config YAML path")
-    parser.add_argument("--checkpoint", type=str, required=True, help="Checkpoint path")
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Checkpoint path (omit for zero-shot base model evaluation)",
+    )
     parser.add_argument("--max-samples", type=int, default=200, help="Max test samples")
     parser.add_argument(
         "--num-samples",
@@ -384,11 +446,14 @@ def main() -> None:
         torch.cuda.manual_seed_all(seed)
     logger.info(f"Reproducibility: seed={seed} (random, numpy, torch, cuda)")
 
-    model_tag = (
-        Path(args.checkpoint).parent.name
-        if Path(args.checkpoint).name == "final"
-        else Path(args.checkpoint).name
-    )
+    if args.checkpoint is not None:
+        model_tag = (
+            Path(args.checkpoint).parent.name
+            if Path(args.checkpoint).name == "final"
+            else Path(args.checkpoint).name
+        )
+    else:
+        model_tag = config.get("wandb", {}).get("run_name", "zero-shot")
 
     results, completions, validity = evaluate_checkpoint(
         config,
@@ -428,8 +493,14 @@ def main() -> None:
     if args.output:
         out_path = Path(args.output)
     else:
-        ckpt_name = Path(args.checkpoint).name
-        out_path = Path(args.checkpoint).parent / f"eval_{ckpt_name}.json"
+        ckpt_dir = (
+            Path(args.checkpoint).parent
+            if args.checkpoint
+            else Path("experiments/eval")
+        )
+        ckpt_name = Path(args.checkpoint).name if args.checkpoint else "zero_shot"
+        out_path = ckpt_dir / f"eval_{ckpt_name}.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
         json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -467,9 +538,16 @@ def main() -> None:
 
         # 3. Reward breakdown
         rewards_cfg = config.get("reward", {})
+        # Use weight_gold_structure (recommended), fallback to weight_structure
+        structure_weight = rewards_cfg.get(
+            "weight_gold_structure",
+            rewards_cfg.get("weight_structure", 0.4),
+        )
         weights = {
             "translation_quality_reward": rewards_cfg.get("weight_translation", 0.4),
-            "structural_dense_reward": rewards_cfg.get("weight_structure", 0.4),
+            "structural_dense_reward": structure_weight,
+            "gold_structure_reward": structure_weight,
+            "viterbi_distance_reward": rewards_cfg.get("weight_viterbi", 0.0),
             "gloss_format_reward": rewards_cfg.get("weight_format", 0.1),
             "gloss_repetition_reward": rewards_cfg.get("weight_repetition", 0.1),
         }
