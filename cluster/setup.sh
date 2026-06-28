@@ -111,6 +111,9 @@ echo ""
 if [ "$CC_MAJOR" -ge 7 ] 2>/dev/null; then
     echo "📦 GPU CC >= 7.0 → installazione completa (base + gpu)..."
     $PY -m pip install --user -e ".[gpu]" --retries 10 --timeout 60
+    # Clear stale Unsloth compiled cache (prevents NameError on align_completion_tool_mask)
+    echo "🗑️  Pulizia cache Unsloth..."
+    rm -rf unsloth_compiled_cache
 else
     echo "📦 GPU CC < 7.0 → installazione base (senza Unsloth/vLLM)..."
     echo "   Usa config con: use_unsloth: false, fast_inference: false"

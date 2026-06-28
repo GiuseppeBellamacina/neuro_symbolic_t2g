@@ -32,3 +32,6 @@ uv.lock
 data/
 experiments/checkpoints/
 experiments/logs/
+
+# Unsloth compiled cache (auto-generated, must be cleared after version changes)
+unsloth_compiled_cache/
