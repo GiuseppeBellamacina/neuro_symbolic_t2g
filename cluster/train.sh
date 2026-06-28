@@ -68,8 +68,8 @@ fi
 if [ ! -f "data/bigram_transition.npy" ]; then
     echo "Matrici di transizione non trovate, calcolo in corso..."
     python3 -c "
-from src.datasetsaslg_dataset import download_aslg_dataset, load_vocabulary
-from src.datasetstransition_matrix import compute_bigram_transitions, save_transition_matrix
+from src.datasets.aslg_dataset import download_aslg_dataset, load_vocabulary
+from src.datasets.transition_matrix import compute_bigram_transitions, save_transition_matrix
 dataset = download_aslg_dataset()
 vocab = load_vocabulary('data/gloss_vocab.txt')
 bigram = compute_bigram_transitions(dataset, vocab, split='train', smoothing=1.0)
