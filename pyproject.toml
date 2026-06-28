@@ -35,7 +35,6 @@ dependencies = [
 [project.optional-dependencies]
 gpu = [
     "unsloth==2026.3.17; sys_platform == 'linux'",
-    "unsloth_zoo==2026.3.17; sys_platform == 'linux'",
     "vllm==0.18.0; sys_platform == 'linux'",
 ]
 dev = [
