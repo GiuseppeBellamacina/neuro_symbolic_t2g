@@ -6,6 +6,7 @@ requires-python = ">=3.10,<3.13"
 authors = [
     { name = "Neuro-Symbolic T2G Team" },
 ]
+
 dependencies = [
     # Core ML
     "torch",
@@ -15,6 +16,7 @@ dependencies = [
     "datasets",
     "accelerate",
     "bitsandbytes",
+
     # Data & Eval
     "rouge-score>=0.1.2",
     "numpy",
@@ -23,6 +25,7 @@ dependencies = [
     "matplotlib",
     "seaborn",
     "plotnine>=0.14.0",
+
     # Infra
     "pyyaml",
     "tqdm",
@@ -35,9 +38,10 @@ dependencies = [
 [project.optional-dependencies]
 gpu = [
     "unsloth==2026.3.17; sys_platform == 'linux'",
-    "unsloth_zoo; sys_platform == 'linux'",
-    "vllm==0.18.0; sys_platform == 'linux'",
+    "unsloth_zoo==2026.3.1; sys_platform == 'linux'",
+    "vllm==0.10.2; sys_platform == 'linux'",
 ]
+
 dev = [
     "isort",
     "black[jupyter]",
@@ -48,6 +52,7 @@ dev = [
 [build-system]
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
+
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -70,6 +75,3 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
 ignore = ["E402", "E501"]
-
-[tool.uv]
-# No platform restrictions — this project runs on both Linux (cluster) and Windows (dev)
