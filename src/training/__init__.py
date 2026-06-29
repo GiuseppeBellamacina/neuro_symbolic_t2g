@@ -1,1 +1,1 @@
-"""GRPO training loop with Unsloth, vLLM, and grammar-constrained decoding."""
+"""GRPO training loop with Unsloth and grammar-constrained decoding."""

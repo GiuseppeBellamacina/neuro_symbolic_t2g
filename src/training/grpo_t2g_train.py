@@ -2,10 +2,10 @@
 GRPO T2G Training Loop — Phase 1.
 
 Integrates Constrained Decoding with Group Relative Policy Optimization (GRPO)
-for Text-to-Gloss (T2G) translation using Unsloth, vLLM, and TRL.
+for Text-to-Gloss (T2G) translation using Unsloth and TRL.
 
 Architecture:
-    1. Load model + tokenizer via Unsloth (with optional vLLM fast inference).
+    1. Load model + tokenizer via Unsloth (LoRA + 4-bit quantization).
     2. Load ASLG-PC12 dataset and build prompt-completion pairs.
     3. Compute/load bigram transition matrix (Viterbi proxy).
     4. Build gloss vocabulary mask for constrained decoding.
@@ -304,29 +304,6 @@ def main() -> None:
         logger.info("Data preparation complete. Exiting.")
         return
 
-    # ── vLLM compatibility note ─────────────────────────────────────────
-    # When fast_inference is enabled, Unsloth uses vLLM for rollouts.
-    # vLLM's sampling engine does NOT use HuggingFace LogitsProcessor —
-    # it uses SamplingParams.logit_bias.  Since our constrained decoding
-    # relies on LogitsProcessor, we MUST disable fast_inference BEFORE
-    # loading the model, otherwise vLLM is initialized and silently
-    # bypasses the vocabulary constraints.
-    #
-    # Exception: when grammar.enabled=false, vLLM is safe to use.
-    _grammar_enabled = config.get("grammar", {}).get("enabled", True)
-    if _grammar_enabled and config.get("model", {}).get("fast_inference", False):
-        logger.warning(
-            "⚠️  fast_inference=True is INCOMPATIBLE with constrained decoding "
-            "via HF LogitsProcessor.  vLLM does not respect the logits_processor "
-            "parameter.  Auto-disabling fast_inference BEFORE model load to "
-            "enforce ASL gloss vocabulary constraints."
-        )
-        config["model"]["fast_inference"] = False
-        logger.info(
-            "    → fast_inference=False (constrained decoding will use "
-            "standard HF generation with logits_processor)"
-        )
-
     # ── Step 2: Model loading ────────────────────────────────────────────
     logger.info("=" * 60)
     logger.info("STEP 2: Model Loading")
@@ -341,7 +318,7 @@ def main() -> None:
 
     # Grammar toggle: set ``grammar.enabled: false`` to disable constrained
     # decoding (for ablation study — GRPO without grammar).
-    grammar_enabled = _grammar_enabled
+    grammar_enabled = config.get("grammar", {}).get("enabled", True)
     if not grammar_enabled:
         logger.info(
             "⚠️  grammar.enabled=false — GRPO rollouts will use UNCONSTRAINED "
@@ -380,9 +357,6 @@ def main() -> None:
                 gloss_mask, device="cuda" if torch.cuda.is_available() else "cpu"
             )
             logger.info("  Vocabulary mask ready")
-
-    # ── Constrained decoding setup (vocabulary mask, no vLLM check here) ──
-    # NOTE: fast_inference was already disabled BEFORE model loading (see above).
 
     # ── Step 4: Dataset preparation ──────────────────────────────────────
     logger.info("=" * 60)

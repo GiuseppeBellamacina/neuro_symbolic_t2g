@@ -115,8 +115,8 @@ if [ "$CC_MAJOR" -ge 7 ] 2>/dev/null; then
     echo "🗑️  Pulizia cache Unsloth..."
     rm -rf unsloth_compiled_cache
 else
-    echo "📦 GPU CC < 7.0 → installazione base (senza Unsloth/vLLM)..."
-    echo "   Usa config con: use_unsloth: false, fast_inference: false"
+    echo "📦 GPU CC < 7.0 → installazione base (senza Unsloth)..."
+    echo "   Usa config con: use_unsloth: false"
     $PY -m pip install --user -e . --retries 10 --timeout 60
 fi
 
@@ -182,12 +182,6 @@ print(f'  Transformers:  {transformers.__version__}')
 print(f'  TRL:           {trl.__version__}')
 print(f'  PEFT:          {peft.__version__}')
 print(f'  Datasets:      {datasets.__version__}')
-
-try:
-    import vllm
-    print(f'  vLLM:          {vllm.__version__}')
-except (ImportError, NotImplementedError, RuntimeError):
-    print(f'  vLLM:          NON disponibile')
 "
 
 echo ""

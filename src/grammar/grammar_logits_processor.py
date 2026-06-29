@@ -50,9 +50,6 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
     At each step, sets the logit of every token NOT in the ASL gloss vocabulary
     to ``-inf``.  EOS is always allowed so the model can terminate.
 
-    Also provides a ``get_logit_bias_for_vllm()`` method for integrating
-    with vLLM's sampling engine.
-
     Args:
         gloss_vocab_mask: A ``GlossVocabularyMask`` instance.
         device: Torch device for tensor operations.
@@ -121,15 +118,6 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
             )
 
         return scores
-
-    def get_logit_bias_for_vllm(self) -> dict[int, float]:
-        """Build a vLLM-compatible logit bias dictionary."""
-        if self.vocab_size == 0:
-            raise RuntimeError("vocab_size unknown; call __call__ first.")
-        bias: dict[int, float] = {}
-        for tid in range(self.vocab_size):
-            bias[tid] = 0.0 if tid in self.allowed_ids else -100.0
-        return bias
 
     def __repr__(self) -> str:
         return (

@@ -17,10 +17,7 @@ model:
   quantization: "4bit"
   dtype: "bfloat16"
   use_unsloth: true
-  fast_inference: false
   max_seq_length: 1024
-  gpu_memory_utilization: 0.42
-  vllm_standby: false
 
 # --- LoRA adapters ---
 lora:

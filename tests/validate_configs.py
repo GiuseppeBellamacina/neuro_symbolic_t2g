@@ -59,8 +59,6 @@ TRAINING_STEPS_KEYS = {"max_steps", "num_train_epochs"}
 TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
     "model.num_gpus": int,
     "model.use_unsloth": bool,
-    "model.fast_inference": bool,
-    "model.vllm_standby": bool,
     "dataset.seed": int,
     "dataset.thinking": bool,
     "training.max_steps": int,
