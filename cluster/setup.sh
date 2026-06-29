@@ -24,10 +24,7 @@ set -e
 echo "=== Setup Neuro-Symbolic T2G (Cluster) ==="
 echo ""
 
-# ── 1. Verifica GPU ──────────────────────────────────────────────────────────
-echo "🔍 Rilevamento GPU..."
-
-# Trova il comando python disponibile
+# ── 1. Verifica ambiente ──────────────────────────────────────────────────────
 if command -v python3 &>/dev/null; then
     PY=python3
 elif command -v python &>/dev/null; then
@@ -37,88 +34,14 @@ else
     exit 1
 fi
 echo "   Python: $($PY --version 2>&1)"
-
-# Prima rileva la GPU via nvidia-smi (non richiede torch)
-GPU_NAME=""
-GPU_VRAM_MB=0
 if command -v nvidia-smi &>/dev/null; then
-    GPU_INFO_SMI=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1)
-    if [ -n "$GPU_INFO_SMI" ]; then
-        GPU_NAME=$(echo "$GPU_INFO_SMI" | cut -d',' -f1 | xargs)
-        GPU_VRAM_MB=$(echo "$GPU_INFO_SMI" | cut -d',' -f2 | grep -oP '\d+')
-        GPU_VRAM_GB=$((GPU_VRAM_MB / 1024))
-        echo "   nvidia-smi: $GPU_NAME (~${GPU_VRAM_GB} GB)"
-    fi
+    nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1
 fi
-
-# Stima Compute Capability dal nome GPU (fallback se torch non disponibile)
-estimate_cc() {
-    case "$1" in
-        *L40S*)    echo "8.9" ;;
-        *L40*)     echo "8.9" ;;
-        *A100*)    echo "8.0" ;;
-        *A40*)     echo "8.6" ;;
-        *A30*)     echo "8.0" ;;
-        *A10*)     echo "8.6" ;;
-        *V100*)    echo "7.0" ;;
-        *T4*)      echo "7.5" ;;
-        *P100*)    echo "6.0" ;;
-        *P40*)     echo "6.1" ;;
-        *K80*)     echo "3.7" ;;
-        *K40*)     echo "3.5" ;;
-        *RTX*40*)  echo "8.9" ;;
-        *RTX*30*)  echo "8.6" ;;
-        *RTX*20*)  echo "7.5" ;;
-        *GTX*10*)  echo "6.1" ;;
-        *H100*)    echo "9.0" ;;
-        *H200*)    echo "9.0" ;;
-        *)         echo "0" ;;
-    esac
-}
-
-CC_MAJOR=0
-CC_MAJOR="${CC_MAJOR:-0}"  # safety default
-# Prova con torch (preciso) se disponibile
-GPU_INFO=$($PY -c "
-import torch
-print(f'  PyTorch: {torch.__version__}')
-print(f'  CUDA available: {torch.cuda.is_available()}')
-if torch.cuda.is_available():
-    name = torch.cuda.get_device_name(0)
-    cc = torch.cuda.get_device_capability()
-    vram = torch.cuda.get_device_properties(0).total_memory / 1e9
-    print(f'  GPU: {name} (CC {cc[0]}.{cc[1]}, {vram:.1f} GB)')
-    print(f'CC_MAJOR={cc[0]}')
-else:
-    print('  GPU: NESSUNA GPU rilevata')
-    print('CC_MAJOR=0')
-" 2>/dev/null) && {
-    echo "$GPU_INFO" | grep -v CC_MAJOR
-    CC_MAJOR=$(echo "$GPU_INFO" | grep CC_MAJOR | cut -d= -f2)
-} || {
-    # Fallback: stima CC dal nome GPU rilevato via nvidia-smi
-    if [ -n "$GPU_NAME" ]; then
-        CC_MAJOR=$(estimate_cc "$GPU_NAME")
-        echo "   ⚠️  torch non disponibile — CC stimato da nvidia-smi: $CC_MAJOR (GPU: $GPU_NAME)"
-    else
-        echo "   ⚠️  Nessuna GPU rilevata (né torch né nvidia-smi). Assumo CC=0 (CPU-only)."
-        CC_MAJOR=0
-    fi
-}
 
 # ── 2. Installa dipendenze dal pyproject.toml ─────────────────────────────────
 echo ""
-if [ "$CC_MAJOR" -ge 7 ] 2>/dev/null; then
-    echo "📦 GPU CC >= 7.0 → installazione completa (base + gpu)..."
-    $PY -m pip install --user -e ".[gpu]" --retries 10 --timeout 60
-    # Clear stale Unsloth compiled cache (prevents NameError on align_completion_tool_mask)
-    echo "🗑️  Pulizia cache Unsloth..."
-    rm -rf unsloth_compiled_cache
-else
-    echo "📦 GPU CC < 7.0 → installazione base (senza Unsloth)..."
-    echo "   Usa config con: use_unsloth: false"
-    $PY -m pip install --user -e . --retries 10 --timeout 60
-fi
+echo "📦 Installazione dipendenze..."
+$PY -m pip install --user -e . --retries 10 --timeout 60
 
 # ── 3. Scarica e processa il dataset ASLG-PC12 ────────────────────────────────
 echo ""
@@ -168,13 +91,6 @@ print(f'  Salvato in data/bigram_transition.npy')
 echo ""
 echo "🔍 Verifica installazione..."
 $PY -c "
-# Unsloth MUST be imported before trl/transformers/peft for optimizations
-try:
-    import unsloth
-    print(f'  Unsloth:       {unsloth.__version__}')
-except (ImportError, NotImplementedError, RuntimeError):
-    print(f'  Unsloth:       NON disponibile (GPU/CUDA non compatibile)')
-
 import torch, transformers, trl, peft, datasets
 print(f'  PyTorch:       {torch.__version__}')
 print(f'  CUDA:          {torch.cuda.is_available()}')

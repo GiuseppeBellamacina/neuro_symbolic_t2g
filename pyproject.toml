@@ -33,15 +33,9 @@ dependencies = [
     "safetensors",
     "python-dotenv",
     "regex",
-    "mergekit",
 ]
 
 [project.optional-dependencies]
-gpu = [
-    "unsloth==2026.3.17; sys_platform == 'linux'",
-    "unsloth_zoo>=2026.3.6,<2026.4.0; sys_platform == 'linux'",
-]
-
 dev = [
     "isort",
     "black[jupyter]",

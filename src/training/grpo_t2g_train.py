@@ -2,10 +2,10 @@
 GRPO T2G Training Loop — Phase 1.
 
 Integrates Constrained Decoding with Group Relative Policy Optimization (GRPO)
-for Text-to-Gloss (T2G) translation using Unsloth and TRL.
+for Text-to-Gloss (T2G) translation using HuggingFace + PEFT and TRL.
 
 Architecture:
-    1. Load model + tokenizer via Unsloth (LoRA + 4-bit quantization).
+    1. Load model + tokenizer via HuggingFace (LoRA + 4-bit quantization).
     2. Load ASLG-PC12 dataset and build prompt-completion pairs.
     3. Compute/load bigram transition matrix (Viterbi proxy).
     4. Build gloss vocabulary mask for constrained decoding.
@@ -502,7 +502,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     raise RuntimeError(
-        "Do not run this script directly. "
-        "Use 'python -m src.training --config ...' to ensure "
-        "Unsloth is imported before trl/transformers/peft for optimizations."
+        "Do not run this script directly. " "Use 'python -m src.training --config ...'"
     )

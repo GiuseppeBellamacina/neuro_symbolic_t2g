@@ -14,7 +14,6 @@ model:
   num_gpus: 1
   quantization: "4bit"
   dtype: "bfloat16"
-  use_unsloth: true
   max_seq_length: 1024
 
 # --- LoRA adapters ---

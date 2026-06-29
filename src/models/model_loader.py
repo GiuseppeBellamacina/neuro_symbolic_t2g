@@ -1,11 +1,7 @@
 """Model loading utilities: HuggingFace model + tokenizer + LoRA + quantization
 for the neuro_symbolic_t2g project.
 
-Supports two backends:
-  - Standard HuggingFace (transformers + peft + bitsandbytes)
-  - Unsloth (2-5x faster training, ~50-70% less VRAM)
-
-Set  model.use_unsloth: true  in your config YAML to enable Unsloth.
+Uses standard HuggingFace backend (transformers + peft + bitsandbytes).
 """
 
 from __future__ import annotations
@@ -181,83 +177,6 @@ def _load_with_transformers(
     return model, tokenizer
 
 
-# ---------------------------------------------------------------------------
-# Unsloth backend
-# ---------------------------------------------------------------------------
-
-
-def _load_with_unsloth(
-    config: dict[str, Any],
-) -> tuple[Any, Any]:
-    """Load model + tokenizer via Unsloth's FastLanguageModel.
-
-    Unsloth patches the model in-place with fused kernels and handles
-    LoRA + 4-bit quantization internally.
-    """
-    from unsloth import FastLanguageModel
-
-    model_cfg = config["model"]
-    lora_cfg = config.get("lora", {})
-
-    quantization = model_cfg.get("quantization", "4bit")
-    load_in_4bit = quantization == "4bit"
-
-    logger.info(
-        "Loading %s with Unsloth (4bit=%s, max_seq=%d)",
-        model_cfg["name"],
-        load_in_4bit,
-        model_cfg.get("max_seq_length", 1024),
-    )
-
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=model_cfg["name"],
-        max_seq_length=model_cfg.get("max_seq_length", 1024),
-        load_in_4bit=load_in_4bit,
-        dtype=None,
-    )
-
-    # Apply LoRA via Unsloth
-    if lora_cfg:
-        target_modules = lora_cfg.get(
-            "target_modules",
-            [
-                "q_proj",
-                "k_proj",
-                "v_proj",
-                "o_proj",
-                "gate_proj",
-                "up_proj",
-                "down_proj",
-            ],
-        )
-        logger.info(
-            "Unsloth LoRA: r=%d, alpha=%d, targets=%s",
-            lora_cfg.get("r", 16),
-            lora_cfg.get("lora_alpha", 32),
-            target_modules,
-        )
-        model = FastLanguageModel.get_peft_model(
-            model,
-            r=lora_cfg.get("r", 16),
-            lora_alpha=lora_cfg.get("lora_alpha", 32),
-            lora_dropout=lora_cfg.get("lora_dropout", 0),
-            target_modules=target_modules,
-            use_gradient_checkpointing="unsloth",
-            random_state=lora_cfg.get("random_state", 3407),
-        )
-
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.padding_side = "left"
-
-    return model, tokenizer
-
-
-# ---------------------------------------------------------------------------
-# High-level loader
-# ---------------------------------------------------------------------------
-
-
 def load_model_and_tokenizer(
     config: dict[str, Any],
 ) -> tuple[Any, Any]:
@@ -269,17 +188,9 @@ def load_model_and_tokenizer(
           name: "Qwen/Qwen2.5-0.5B-Instruct"
           quantization: "4bit"
           dtype: "bfloat16"
-          use_unsloth: true    # set true to use Unsloth backend (2x faster LoRA)
         lora:  # optional
           r: 16
           lora_alpha: 32
           ...
     """
-    model_cfg = config["model"]
-    use_unsloth = model_cfg.get("use_unsloth", False)
-
-    if use_unsloth:
-        logger.info("Backend: Unsloth")
-        return _load_with_unsloth(config)
-
     return _load_with_transformers(config)
