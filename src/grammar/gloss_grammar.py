@@ -13,6 +13,7 @@ Provides:
 from __future__ import annotations
 
 import logging
+import string
 from typing import Any
 
 from grammarllm import (
@@ -186,18 +187,44 @@ class GlossVocabularyMask:
 
         self.token_ids: set[int] = set()
         for token in vocab:
-            sub_tokens = tokenizer.tokenize(token)
-            for st in sub_tokens:
-                tid = tokenizer.convert_tokens_to_ids(st)
-                if isinstance(tid, int) and tid != tokenizer.unk_token_id:
-                    self.token_ids.add(tid)
-
+            # Add the full token ID (if the tokenizer knows it as a single token)
             tid = tokenizer.convert_tokens_to_ids(token)
             if isinstance(tid, int) and tid != tokenizer.unk_token_id:
                 self.token_ids.add(tid)
 
+            # Add subword token IDs, but filter noisy ones.
+            # Without filtering, individual character subwords (digits,
+            # punctuation, lowercase letters) let the model generate garbage
+            # like "c010500040005" or "-1-1-1-1-2-2".
+            sub_tokens = tokenizer.tokenize(token)
+            for st in sub_tokens:
+                # Decode the subword to check its surface form
+                raw = st.lstrip("Ġ▁")  # strip leading-space markers
+                # Skip noisy subwords: pure punctuation, pure digits,
+                # or single lowercase characters
+                if not raw:
+                    continue
+                if len(raw) == 1 and not raw.isupper():
+                    continue  # single char that isn't uppercase
+                if raw.isdigit():
+                    continue  # pure digits
+                if all(c in string.punctuation for c in raw):
+                    continue  # pure punctuation
+
+                stid = tokenizer.convert_tokens_to_ids(st)
+                if isinstance(stid, int) and stid != tokenizer.unk_token_id:
+                    self.token_ids.add(stid)
+
+        # Add EOS so the model can stop generating
         self.eos_token_id: int = tokenizer.eos_token_id
         self.token_ids.add(self.eos_token_id)
+
+        # Add whitespace tokens so the model can separate glosses with spaces
+        # (without this, it resorts to commas, dashes, or concatenation)
+        for space_str in [" ", "  ", "\n"]:
+            space_tokens = tokenizer.encode(space_str, add_special_tokens=False)
+            for stid in space_tokens:
+                self.token_ids.add(stid)
 
         logger.info(
             "GlossVocabularyMask: %d glosses → %d unique token IDs (inc. EOS=%d)",

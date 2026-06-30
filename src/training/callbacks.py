@@ -14,10 +14,58 @@ from transformers import (
     TrainerState,
     TrainingArguments,
 )
+from transformers.trainer_callback import ProgressCallback
 
 from src.utils.text_utils import extract_user_text
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Progress + log formatting (ported from grpo-strict-generation)
+# ---------------------------------------------------------------------------
+
+
+class TqdmOnlyProgressCallback(ProgressCallback):
+    """ProgressCallback that keeps the tqdm bar but suppresses the
+    duplicate dict-style log line printed by the default ``on_log``.
+    """
+
+    def on_log(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        logs: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        pass
+
+
+class HighPrecisionLogCallback(TrainerCallback):
+    """Print training metrics with higher float precision (8 decimal places).
+
+    The default HuggingFace Trainer formats floats to 6 decimal places, which
+    causes very small loss values (e.g. GRPO policy gradient loss) to appear
+    as ``-0.000000``.  This callback reprints every ``on_log`` event to stdout
+    with enough precision to see the actual values.
+    """
+
+    def on_log(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        logs: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        if not state.is_local_process_zero or not logs:
+            return
+        logs.pop("total_flos", None)
+        parts = [f"step={state.global_step}"]
+        for k, v in logs.items():
+            parts.append(f"{k}={v:.8f}" if isinstance(v, float) else f"{k}={v}")
+        print("  " + "  ".join(parts))
 
 
 # ---------------------------------------------------------------------------

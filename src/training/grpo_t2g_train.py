@@ -399,6 +399,8 @@ def main() -> None:
     from src.training.callbacks import (
         CompletionSampleCallback,
         CompletionSampleLogger,
+        HighPrecisionLogCallback,
+        TqdmOnlyProgressCallback,
     )
 
     sample_logger = CompletionSampleLogger(reward_fns, reward_weights, n_samples=3)
@@ -518,9 +520,12 @@ def main() -> None:
         callbacks=[sample_callback],
     )
 
-    # Remove default callbacks that conflict
+    # Replace default ProgressCallback with TqdmOnlyProgressCallback
+    # (keeps tqdm bar, suppresses duplicate log lines — same as grpo-strict-generation)
     try:
         trainer.remove_callback(ProgressCallback)
+        trainer.add_callback(TqdmOnlyProgressCallback)
+        trainer.add_callback(HighPrecisionLogCallback())
         trainer.remove_callback(WandbCallback)
     except Exception:
         pass
