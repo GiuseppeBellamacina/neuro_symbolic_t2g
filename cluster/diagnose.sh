@@ -7,6 +7,16 @@
 #   bash cluster/diagnose.sh
 # ============================================================================
 
+# ── 0. Auto-rilancio dentro srun + Apptainer se siamo sul login node ─────────
+if [ -z "$APPTAINER_CONTAINER" ]; then
+    echo "🚀 Login node rilevato → rilancio inside srun + Apptainer..."
+    ACCOUNT="${SLURM_ACCOUNT:-thesis-course}"
+    exec srun --account "$ACCOUNT" --partition "$ACCOUNT" --qos gpu-xlarge \
+         --gres=gpu:1 --gres=shard:22000 --mem=48G --cpus-per-task=8 \
+         apptainer run --nv /shared/sifs/latest.sif \
+         bash "$0" "$@"
+fi
+
 echo "============================================"
 echo "  Diagnostica ambiente pip — Neuro-Symbolic T2G"
 echo "  $(date)"
