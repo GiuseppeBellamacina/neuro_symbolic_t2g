@@ -23,6 +23,14 @@ from __future__ import annotations
 import argparse
 import gc
 import hashlib
+
+# ── Workaround: _is_package_available in transformers 5.3.0 restituisce  ─
+# una TUPLA (bool, str) invece di un bool.  In Python, una tupla non vuota
+# è sempre truthy → (False, None) è True → trl prova a importare mergekit e
+# llm_blender anche quando non sono installati.
+# Fix: usiamo importlib per caricare trl.import_utils bypassando il pigro
+# __getattr__, correggiamo le variabili a False, poi importiamo GRPOTrainer.
+import importlib
 import logging
 import os
 import random
@@ -32,24 +40,16 @@ from typing import Any
 import numpy as np
 import torch
 
-# ── Workaround: _is_package_available in transformers 5.3.0 restituisce  ─
-# una TUPLA (bool, str) invece di un bool.  In Python, una tupla non vuota
-# è sempre truthy → (False, None) è True → trl prova a importare mergekit e
-# llm_blender anche quando non sono installati.
-# Fix: importiamo trl.import_utils esplicitamente, correggiamo le variabili
-# a False, poi importiamo GRPOTrainer (il lazy-load valuta CORRETTAMENTE).
-import trl.import_utils  # noqa: E402 (must precede GRPOTrainer import)
+_trl_iu = importlib.import_module("trl.import_utils")  # noqa: E402
+if isinstance(_trl_iu._mergekit_available, tuple):
+    _trl_iu._mergekit_available = False
+if isinstance(_trl_iu._llm_blender_available, tuple):
+    _trl_iu._llm_blender_available = False
+
 import wandb
 from dotenv import load_dotenv
 from transformers.integrations.integration_utils import WandbCallback
 from transformers.trainer_callback import ProgressCallback
-
-if isinstance(trl.import_utils._mergekit_available, tuple):
-    trl.import_utils._mergekit_available = False
-if isinstance(trl.import_utils._llm_blender_available, tuple):
-    trl.import_utils._llm_blender_available = False
-# ───────────────────────────────────────────────────────────────────────────
-
 from trl import GRPOConfig, GRPOTrainer  # type: ignore[import]
 
 from datasets import Dataset
@@ -77,6 +77,9 @@ from src.rewards.t2g_rewards import (
 )
 from src.utils.config import load_config
 from src.utils.prompting import build_t2g_prompt
+
+# ───────────────────────────────────────────────────────────────────────────
+
 
 load_dotenv()
 
