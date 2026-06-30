@@ -102,12 +102,11 @@ def load_model(
         device_map=device_map,
         trust_remote_code=True,
     )
-    # Explicitly cast non-quantized layers (e.g. lm_head, embed, norm)
-    # to bfloat16 — bitsandbytes 4-bit only handles quantized linear layers.
-    if quant_config is not None:
-        for name, param in model.named_parameters():
-            if param.dtype == torch.float32:
-                param.data = param.data.to(torch_dtype)
+    # NOTE: Do NOT manually cast non-quantized layers (lm_head, embed, norms)
+    # to bfloat16 here.  prepare_model_for_kbit_training() (called by
+    # apply_lora) may re-cast some of them to float32 for gradient stability,
+    # creating a dtype mismatch that crashes lm_head.forward().
+    # Mixed precision is handled by the trainer's bf16=True via autocast.
     return model
 
 

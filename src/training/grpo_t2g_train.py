@@ -104,16 +104,20 @@ def _build_grpo_config(
     Path(log_dir).mkdir(parents=True, exist_ok=True)
 
     warmup_kwargs: dict[str, Any] = {}
-    if "warmup_ratio" in training_cfg:
-        warmup_kwargs["warmup_ratio"] = training_cfg["warmup_ratio"]
+    if "warmup_steps" in training_cfg:
+        warmup_kwargs["warmup_steps"] = training_cfg["warmup_steps"]
     else:
-        warmup_kwargs["warmup_steps"] = training_cfg.get("warmup_steps", 50)
+        warmup_kwargs["warmup_steps"] = 50
 
     wandb_cfg = (full_config or {}).get("wandb", {})
     from datetime import datetime
 
     base_name = wandb_cfg.get("run_name", "grpo-t2g")
     run_name = f"{base_name}-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    # Set tensorboard logging dir via env var (logging_dir kwarg is deprecated
+    # since transformers 5.2).
+    os.environ.setdefault("TENSORBOARD_LOGGING_DIR", log_dir)
 
     return GRPOConfig(
         output_dir=output_dir,
@@ -129,7 +133,6 @@ def _build_grpo_config(
         max_grad_norm=training_cfg.get("max_grad_norm", 0.1),
         bf16=training_cfg.get("bf16", True),
         logging_steps=training_cfg.get("logging_steps", 5),
-        logging_dir=log_dir,
         save_steps=training_cfg.get("save_steps", 100),
         save_total_limit=training_cfg.get("save_total_limit", 3),
         # GRPO-specific

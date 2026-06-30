@@ -62,7 +62,7 @@ training:
   gradient_accumulation_steps: 8
   learning_rate: 5.0e-6
   lr_scheduler_type: "cosine"
-  warmup_ratio: 0.1
+  warmup_steps: 150             # was warmup_ratio: 0.1 → deprecated in transformers 5.2+
   optim: "paged_adamw_8bit"
   weight_decay: 0.1
   max_grad_norm: 0.1

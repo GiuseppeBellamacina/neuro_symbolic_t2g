@@ -59,7 +59,6 @@ def download_aslg_dataset(
         ds: DatasetDict = load_dataset(  # type: ignore[assignment]
             DATASET_NAME,
             cache_dir=cache,
-            trust_remote_code=True,
         )
     except Exception as e:
         raise RuntimeError(f"Failed to load dataset '{DATASET_NAME}': {e}") from e
