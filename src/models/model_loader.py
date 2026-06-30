@@ -102,6 +102,12 @@ def load_model(
         device_map=device_map,
         trust_remote_code=True,
     )
+    # Explicitly cast non-quantized layers (e.g. lm_head, embed, norm)
+    # to bfloat16 — bitsandbytes 4-bit only handles quantized linear layers.
+    if quant_config is not None:
+        for name, param in model.named_parameters():
+            if param.dtype == torch.float32:
+                param.data = param.data.to(torch_dtype)
     return model
 
 
