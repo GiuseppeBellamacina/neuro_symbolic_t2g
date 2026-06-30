@@ -84,6 +84,24 @@ else
 fi
 echo ""
 
+# ── 4c. find_spec: DOVE trova mergekit e llm_blender? ───────────────────
+echo "── 4c. Dove find_spec trova mergekit e llm_blender ──"
+$PY -c "
+import importlib.util
+
+for pkg in ['mergekit', 'llm_blender']:
+    spec = importlib.util.find_spec(pkg)
+    if spec is None:
+        print(f'  {pkg:15s} → NOT FOUND (None)')
+    else:
+        print(f'  {pkg:15s} → FOUND')
+        print(f'    name:      {spec.name}')
+        print(f'    origin:    {spec.origin}')
+        print(f'    submodule_search_locations: {spec.submodule_search_locations}')
+        print(f'    has_location: {spec.has_location}')
+"
+echo ""
+
 # ── 5. Pacchetti installati in ~/.local ───────────────────────────────────
 echo "── 5. Pacchetti in ~/.local ──"
 USER_SITE=$($PY -c "import site; print(site.getusersitepackages())")

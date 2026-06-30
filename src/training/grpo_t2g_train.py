@@ -26,6 +26,8 @@ import hashlib
 import logging
 import os
 import random
+import sys
+import types
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +37,60 @@ import wandb
 from dotenv import load_dotenv
 from transformers.integrations.integration_utils import WandbCallback
 from transformers.trainer_callback import ProgressCallback
+
+# ── Workaround: trl find_spec rileva moduli fantasma in /opt/conda ──────
+# Il container Apptainer ha artefatti che fanno sì che find_spec() restituisca
+# True per mergekit e llm_blender anche quando non sono installati.  trl li
+# importa (condizionalmente), causando ModuleNotFoundError.  Registriamo stub
+# in sys.modules PRIMA dell'import di trl così che 'import X' non fallisca.
+# I moduli non vengono mai usati dal nostro codice.
+
+# ── llm_blender: import flat (non ha submodules) ────────────────────────
+if "llm_blender" not in sys.modules:
+    _lb = types.ModuleType("llm_blender")
+    _lb.__file__ = "<stub: neuro_symbolic_t2g/llm_blender>"
+    _lb.__spec__ = None
+    sys.modules["llm_blender"] = _lb
+
+# PairRMJudge accede a llm_blender.Blender; forniamo uno stub esplicativo
+if not hasattr(sys.modules["llm_blender"], "Blender"):
+
+    class _StubBlender:
+        def __init__(self):
+            raise ImportError(
+                "llm-blender is not installed. "
+                "PairRMJudge requires: pip install llm-blender"
+            )
+
+    sys.modules["llm_blender"].Blender = _StubBlender
+
+# ── mergekit: ha submodules (mergekit.config, mergekit.merge) ────────────
+# mergekit_utils.py importa: from mergekit.config import MergeConfiguration
+#                           from mergekit.merge import MergeOptions, run_merge
+for _pkg in ("mergekit", "mergekit.config", "mergekit.merge"):
+    if _pkg not in sys.modules:
+        _m = types.ModuleType(_pkg)
+        _m.__file__ = f"<stub: neuro_symbolic_t2g/{_pkg}>"
+        _m.__spec__ = None
+        sys.modules[_pkg] = _m
+
+sys.modules["mergekit"].__path__ = []  # necessario per submodule imports
+
+
+# Stub per MergeConfig: se istanziato, errore esplicativo
+class _StubMergeConfig:
+    def __init__(self, *args, **kwargs):
+        raise ImportError(
+            "mergekit is not installed. "
+            "mergekit is used by trl only for model merging features."
+        )
+
+
+sys.modules["mergekit.config"].MergeConfiguration = _StubMergeConfig
+sys.modules["mergekit.merge"].MergeOptions = type("MergeOptions", (), {})
+sys.modules["mergekit.merge"].run_merge = lambda *a, **kw: None
+# ───────────────────────────────────────────────────────────────────────────
+
 from trl import GRPOConfig, GRPOTrainer  # type: ignore[import]
 
 from datasets import Dataset
