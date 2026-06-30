@@ -36,9 +36,9 @@ import torch
 # una TUPLA (bool, str) invece di un bool.  In Python, una tupla non vuota
 # è sempre truthy → (False, None) è True → trl prova a importare mergekit e
 # llm_blender anche quando non sono installati.
-# Fix: importiamo trl, correggiamo le variabili a False, poi importiamo
-# GRPOTrainer (il lazy-load di trl valuta i conditional CORRETTAMENTE).
-import trl  # noqa: E402
+# Fix: importiamo trl.import_utils esplicitamente, correggiamo le variabili
+# a False, poi importiamo GRPOTrainer (il lazy-load valuta CORRETTAMENTE).
+import trl.import_utils  # noqa: E402 (must precede GRPOTrainer import)
 import wandb
 from dotenv import load_dotenv
 from transformers.integrations.integration_utils import WandbCallback
