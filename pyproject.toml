@@ -30,6 +30,7 @@ dependencies = [
     "pyyaml",
     "tqdm",
     "wandb",
+    "weave",
     "safetensors",
     "python-dotenv",
     "regex",
