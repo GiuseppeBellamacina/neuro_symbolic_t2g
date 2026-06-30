@@ -75,6 +75,14 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
         else:
             self.vocab_size = 0
 
+        # Precompute the boolean mask tensor once (avoids Python loop per step)
+        self._allowed_mask_tensor = torch.zeros(
+            self.vocab_size, dtype=torch.bool, device=device
+        )
+        for tid in self.allowed_ids:
+            if 0 <= tid < self.vocab_size:
+                self._allowed_mask_tensor[tid] = True
+
         logger.info(
             "GlossVocabularyLogitsProcessor initialized "
             "(allowed=%d tokens, vocab_size=%d, device=%s)",
@@ -99,9 +107,10 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
         """
         probs = self._pre_process(scores)
 
-        allowed_mask = self._build_allowed_mask(
-            self.allowed_ids, scores.shape[-1], scores.device
-        )
+        # Use precomputed mask — O(1) instead of O(|allowed_ids|) Python loop
+        allowed_mask = self._allowed_mask_tensor
+        if allowed_mask.device != scores.device:
+            allowed_mask = allowed_mask.to(scores.device)
 
         # Track masked probability mass + entropy (shared mixin)
         self._track_masked_stats(probs, allowed_mask)

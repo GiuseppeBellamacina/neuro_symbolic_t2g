@@ -12,6 +12,7 @@ from typing import Any
 import torch
 from peft import (
     LoraConfig,
+    PeftModel,
     get_peft_model,
     prepare_model_for_kbit_training,
 )
@@ -152,8 +153,16 @@ def apply_lora(
 
 def _load_with_transformers(
     config: dict[str, Any],
+    adapter_path: str | None = None,
 ) -> tuple[Any, Any]:
-    """Load via standard HuggingFace transformers + PEFT."""
+    """Load via standard HuggingFace transformers + PEFT.
+
+    Args:
+        config: Full config dict.
+        adapter_path: Optional path to a saved LoRA adapter (e.g. from SFT
+            pre-training).  If provided, loads the adapter on top of the base
+            model instead of creating a fresh LoRA config.
+    """
     model_cfg = config["model"]
     lora_cfg = config.get("lora", {})
 
@@ -169,7 +178,17 @@ def _load_with_transformers(
     )
     tokenizer = load_tokenizer(model_cfg["name"])
 
-    if lora_cfg:
+    if adapter_path:
+        # Load a pre-trained SFT adapter instead of creating fresh LoRA.
+        # is_trainable=True is crucial so GRPO can continue training.
+        logger.info("Loading existing LoRA adapter from: %s", adapter_path)
+        if getattr(model, "is_loaded_in_4bit", False) or getattr(
+            model, "is_loaded_in_8bit", False
+        ):
+            model = prepare_model_for_kbit_training(model)
+        model = PeftModel.from_pretrained(model, adapter_path, is_trainable=True)
+        model.print_trainable_parameters()
+    elif lora_cfg:
         model = apply_lora(
             model,
             r=lora_cfg.get("r", 16),
@@ -184,8 +203,15 @@ def _load_with_transformers(
 
 def load_model_and_tokenizer(
     config: dict[str, Any],
+    adapter_path: str | None = None,
 ) -> tuple[Any, Any]:
     """High-level loader: model + tokenizer from a config dict.
+
+    Args:
+        config: Full config dict.
+        adapter_path: Optional path to a saved LoRA adapter (e.g. from SFT
+            pre-training).  If provided, loads the adapter instead of
+            creating a fresh LoRA config.
 
     Expected config structure::
 
@@ -198,4 +224,4 @@ def load_model_and_tokenizer(
           lora_alpha: 32
           ...
     """
-    return _load_with_transformers(config)
+    return _load_with_transformers(config, adapter_path=adapter_path)

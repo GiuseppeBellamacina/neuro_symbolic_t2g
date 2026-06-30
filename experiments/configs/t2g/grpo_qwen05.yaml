@@ -45,6 +45,25 @@ dataset:
   # T2G does not use <think> blocks
   thinking: false
 
+# --- SFT Pre-training (Phase 0: teach model gloss format before GRPO) ---
+sft_pretrain:
+  enabled: true
+  training:
+    num_train_epochs: 1           # 1 epoch is enough to learn the format
+    per_device_train_batch_size: 4
+    gradient_accumulation_steps: 4
+    learning_rate: 2.0e-5
+    lr_scheduler_type: "cosine"
+    warmup_steps: 50
+    optim: "paged_adamw_8bit"
+    weight_decay: 0.1
+    max_grad_norm: 1.0
+    bf16: true
+    logging_steps: 10
+    save_steps: 200
+    save_total_limit: 1
+    max_seq_length: 768
+
 # --- Iperparametri di training ---
 training:
   max_steps: 1500
@@ -66,7 +85,7 @@ training:
 # --- Parametri GRPO ---
 grpo:
   num_generations: 4         # G = number of completions per prompt
-  max_completion_length: 256  # Gloss sequences are short
+  max_completion_length: 64   # Gloss sequences are typically 5-20 tokens
   max_prompt_length: 256
   beta: 0.04                  # KL penalty coefficient
   temperature: 0.7            # Exploration temperature during rollouts

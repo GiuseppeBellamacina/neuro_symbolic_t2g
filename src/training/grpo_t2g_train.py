@@ -237,7 +237,7 @@ def _build_generation_kwargs(
     """
     grpo_cfg = config.get("generation", config.get("grpo", {}))
     kwargs: dict[str, Any] = {
-        "max_new_tokens": grpo_cfg.get("max_completion_length", 256),
+        "max_new_tokens": grpo_cfg.get("max_completion_length", 128),
     }
     return kwargs
 
@@ -320,11 +320,48 @@ def main() -> None:
         print("Data preparation complete. Exiting.")
         return
 
+    # ── Step 1.5: Optional SFT Pre-training ─────────────────────────────
+    sft_adapter_path: str | None = None
+    sft_pretrain_cfg = config.get("sft_pretrain", {})
+    if sft_pretrain_cfg.get("enabled", False):
+        print(f"\n{'=' * 60}")
+        print("STEP 1.5: SFT Pre-training")
+
+        from src.training.sft_train import run_sft
+
+        # Build a synthetic config for run_sft using sft_pretrain section
+        sft_config = {
+            **config,
+            "training": {
+                **config["training"],
+                **sft_pretrain_cfg.get("training", {}),
+                "output_dir": str(
+                    sft_pretrain_cfg.get(
+                        "output_dir",
+                        Path(config["training"]["output_dir"]) / "sft_pretrain",
+                    )
+                ),
+                "log_dir": str(
+                    sft_pretrain_cfg.get(
+                        "log_dir",
+                        Path(config["training"]["log_dir"]) / "sft_pretrain",
+                    )
+                ),
+                "trainer": "sft",
+            },
+        }
+        sft_adapter_path = run_sft(sft_config)
+        print(f"  SFT adapter saved to: {sft_adapter_path}")
+
+        # Aggressive cleanup between SFT and GRPO
+        gc.collect()
+        torch.cuda.empty_cache()
+
     # ── Step 2: Model loading ────────────────────────────────────────────
     print(f"\n{'=' * 60}")
     print("STEP 2: Model Loading")
 
-    model, tokenizer = load_model_and_tokenizer(config)
+    model, tokenizer = load_model_and_tokenizer(config, adapter_path=sft_adapter_path)
 
     # ── Step 3: Constrained decoding setup ────────────────────────────────
     print(f"\n{'=' * 60}")
@@ -485,7 +522,21 @@ def main() -> None:
     gen_kwargs = _build_generation_kwargs(config)
     grpo_config.generation_kwargs = gen_kwargs
 
-    # ── Monkey-patch model.generate() ──────────────────────────────────
+    trainer = GRPOTrainer(
+        model=model,
+        args=grpo_config,
+        train_dataset=t2g_dataset,
+        reward_funcs=wrapped_reward_fns,
+        processing_class=tokenizer,
+        callbacks=[sample_callback],
+    )
+
+    # ── Monkey-patch model.generate() AFTER trainer init ────────────────
+    # IMPORTANT: The patch must be applied AFTER GRPOTrainer.__init__()
+    # because the trainer may wrap/store the model differently than the
+    # object we passed in.  We patch `trainer.model` directly to ensure
+    # TRL's internal rollout generation calls our patched method.
+    #
     # Two things this patch does:
     #   1. AUTOCAST: model.generate() during GRPO rollouts runs OUTSIDE the
     #      trainer's autocast context.  With 4-bit quantization + LoRA,
@@ -497,27 +548,29 @@ def main() -> None:
     #   2. LOGITS PROCESSOR: transformers 5.3.0 GenerationConfig rejects
     #      logits_processor as a kwarg, but model.generate() accepts it.
     #      Inject the vocabulary mask here when grammar is enabled.
-    _orig_generate = model.generate
+    _generation_model = trainer.model
+    _orig_generate = _generation_model.generate
     _autocast_dtype = torch.bfloat16 if grpo_config.bf16 else torch.float16
+    _lp_called = False
 
     def _patched_generate(*_args: Any, **_kwargs: Any) -> Any:
+        nonlocal _lp_called
         if logits_processor_for_gen is not None:
             _kwargs["logits_processor"] = [logits_processor_for_gen] + _kwargs.get(
                 "logits_processor", []
             )
+            if not _lp_called:
+                _lp_called = True
+                print("  [constrained-decoding] logits_processor ACTIVE in generate()")
+                print(
+                    f"  [constrained-decoding] allowed tokens: {len(logits_processor_for_gen.allowed_ids)}"
+                )
         with torch.autocast(device_type="cuda", dtype=_autocast_dtype):
             return _orig_generate(*_args, **_kwargs)
 
-    model.generate = _patched_generate  # type: ignore[method-assign]
-    print("  model.generate monkey-patched (autocast + logits_processor)")
-
-    trainer = GRPOTrainer(
-        model=model,
-        args=grpo_config,
-        train_dataset=t2g_dataset,
-        reward_funcs=wrapped_reward_fns,
-        processing_class=tokenizer,
-        callbacks=[sample_callback],
+    _generation_model.generate = _patched_generate  # type: ignore[method-assign]
+    print(
+        "  model.generate monkey-patched on trainer.model (autocast + logits_processor)"
     )
 
     # Replace default ProgressCallback with TqdmOnlyProgressCallback

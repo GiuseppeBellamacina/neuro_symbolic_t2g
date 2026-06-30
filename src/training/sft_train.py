@@ -124,20 +124,19 @@ def _prepare_sft_dataset(
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="SFT training for Text-to-Gloss (T2G)")
-    parser.add_argument("--config", type=str, required=True, help="Path to config YAML")
-    parser.add_argument(
-        "--resume", action="store_true", help="Resume from latest checkpoint"
-    )
-    parser.add_argument(
-        "--prepare-data",
-        action="store_true",
-        help="Only prepare data (download dataset, compute transitions, save vocab)",
-    )
-    args = parser.parse_args()
+def run_sft(config: dict[str, Any], resume: bool = False) -> str:
+    """Run SFT training and return the path to the saved adapter.
 
-    config = load_config(args.config)
+    This function is designed to be called from grpo_t2g_train.py for
+    SFT pre-training before GRPO.  It aggressively cleans up GPU memory
+    when done so GRPO can use the full VRAM.
+
+    Args:
+        config: Full config dict (same format as YAML).
+
+    Returns:
+        Path to the saved SFT LoRA adapter directory.
+    """
 
     # ── Setup logging ────────────────────────────────────────────────────
     logging.basicConfig(
@@ -191,9 +190,7 @@ def main() -> None:
         bigram_matrix.shape,
     )
 
-    if args.prepare_data:
-        logger.info("Data preparation complete. Exiting.")
-        return
+    # (prepare-data is handled in main(), not here)
 
     # ── Step 2: Model loading ────────────────────────────────────────────
     logger.info("=" * 60)
@@ -259,7 +256,7 @@ def main() -> None:
 
     # ── Resume logic ─────────────────────────────────────────────────────
     resume_from: str | None = None
-    if args.resume:
+    if resume:
         ckpts = sorted(Path(output_dir).glob("checkpoint-*"))
         if ckpts:
             resume_from = str(ckpts[-1])
@@ -313,19 +310,52 @@ def main() -> None:
     trainer.save_model(str(final_path))
     tokenizer.save_pretrained(str(final_path))
 
-    # ── Cleanup ──────────────────────────────────────────────────────────
+    # ── Cleanup (aggressive: free VRAM for GRPO phase) ──────────────────
+    final_path_str = str(final_path)
     if wandb.run:
         wandb.finish()
 
-    del trainer
+    del trainer, model
     gc.collect()
     torch.cuda.empty_cache()
 
     logger.info("=" * 60)
     logger.info("SFT T2G training complete!")
-    logger.info("  Model: %s", final_path)
+    logger.info("  Model: %s", final_path_str)
     logger.info("  Logs:  %s", log_dir)
     logger.info("=" * 60)
+
+    return final_path_str
+
+
+def main() -> None:
+    """Standalone entry point for SFT training (used by __main__.py)."""
+    parser = argparse.ArgumentParser(description="SFT training for Text-to-Gloss (T2G)")
+    parser.add_argument("--config", type=str, required=True, help="Path to config YAML")
+    parser.add_argument(
+        "--resume", action="store_true", help="Resume from latest checkpoint"
+    )
+    parser.add_argument(
+        "--prepare-data",
+        action="store_true",
+        help="Only prepare data (download dataset, compute transitions, save vocab)",
+    )
+    args = parser.parse_args()
+
+    config = load_config(args.config)
+
+    if args.prepare_data:
+        # Handle prepare-data separately
+        ds_cfg = config["dataset"]
+        from src.datasets.aslg_dataset import download_aslg_dataset
+
+        download_aslg_dataset(
+            cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
+        )
+        print("Data preparation complete.")
+        return
+
+    run_sft(config, resume=args.resume)
 
 
 if __name__ == "__main__":
