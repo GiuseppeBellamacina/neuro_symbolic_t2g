@@ -12,6 +12,7 @@ dependencies = [
     "torch",
     "transformers",
     "trl==0.24.0",
+    "mergekit",
     "peft",
     "datasets",
     "accelerate",
