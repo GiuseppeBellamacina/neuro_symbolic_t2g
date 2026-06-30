@@ -41,6 +41,8 @@ fi
 # ── 2. Installa dipendenze dal pyproject.toml ─────────────────────────────────
 echo ""
 echo "📦 Installazione dipendenze..."
+$PY -m pip cache purge 2>/dev/null || true
+echo "   Cache pip ripulita"
 $PY -m pip install --user -e . --retries 10 --timeout 60
 
 # ── 3. Scarica e processa il dataset ASLG-PC12 ────────────────────────────────
