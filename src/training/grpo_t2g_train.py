@@ -217,8 +217,9 @@ def _build_generation_kwargs(
 ) -> dict[str, Any]:
     """Build generation kwargs for GRPO rollouts.
 
-    Passed to GRPOTrainer via ``generation_kwargs`` parameter.
-    Includes the logits processor for vocabulary-constrained generation.
+    Set via ``grpo_config.generation_kwargs`` before creating GRPOTrainer.
+    In trl 0.24.0, generation_kwargs lives on GRPOConfig (args), not on
+    GRPOTrainer.__init__() directly.
     When ``logits_processor`` is ``None`` (grammar disabled), no processor
     is included.
 
@@ -449,9 +450,14 @@ def main() -> None:
             logger.info(f"Resuming from {resume_from}")
 
     # ── Wandb setup ──────────────────────────────────────────────────────
+    # Modalità offline (cluster senza internet) — come grpo-strict-generation.
+    # WANDB_MODE=offline è già esportato da train.sh; lo rinforziamo qui.
     wandb_cfg = config.get("wandb", {})
+    log_dir = config["training"]["log_dir"]
+    if "WANDB_MODE" not in os.environ:
+        os.environ["WANDB_MODE"] = "offline"
     os.environ["WANDB_PROJECT"] = wandb_cfg.get("project", "neuro-symbolic-t2g")
-    os.environ["WANDB_DIR"] = config["training"]["log_dir"]
+    os.environ["WANDB_DIR"] = log_dir
     os.environ["WANDB_TAGS"] = ",".join(
         wandb_cfg.get("tags", ["grpo", "t2g", "constrained-decoding"])
     )
@@ -462,7 +468,8 @@ def main() -> None:
             name=grpo_config.run_name,
             config=config,
             tags=wandb_cfg.get("tags", ["grpo", "t2g"]),
-            dir=config["training"]["log_dir"],
+            dir=log_dir,
+            mode="offline",
         )
 
     # ── Step 7: Training ─────────────────────────────────────────────────
@@ -470,12 +477,11 @@ def main() -> None:
     logger.info("STEP 7: GRPO Training")
     logger.info("=" * 60)
 
-    # ── Generation kwargs for vocabulary constraint ──
-    # These are passed to GRPOTrainer which forwards them to model.generate()
-    # during rollout exploration.  This ensures EVERY generated token is
-    # constrained to the ASL gloss vocabulary.
-    # When grammar is disabled (ablation), no logits_processor is included.
+    # ── Generation kwargs for vocabulary-constrained rollout generation ──
+    # In trl 0.24.0, generation_kwargs goes into GRPOConfig (args), NOT
+    # directly into GRPOTrainer.__init__().
     gen_kwargs = _build_generation_kwargs(config, logits_processor_for_gen)
+    grpo_config.generation_kwargs = gen_kwargs
 
     trainer = GRPOTrainer(
         model=model,
@@ -483,7 +489,6 @@ def main() -> None:
         train_dataset=t2g_dataset,
         reward_funcs=wrapped_reward_fns,
         processing_class=tokenizer,
-        generation_kwargs=gen_kwargs,
         callbacks=[sample_callback],
     )
 
