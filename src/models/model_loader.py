@@ -98,7 +98,7 @@ def load_model(
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         quantization_config=quant_config,
-        torch_dtype=torch_dtype,
+        dtype=torch_dtype,  # transformers 5.3.0: 'torch_dtype' → 'dtype'
         device_map=device_map,
         trust_remote_code=True,
     )

@@ -269,6 +269,8 @@ def main() -> None:
     # Modalità offline — come grpo-strict-generation.
     if "WANDB_MODE" not in os.environ:
         os.environ["WANDB_MODE"] = "offline"
+    # Disable weave (wandb 0.25.0 tenta il login anche offline).
+    os.environ["WANDB_DISABLE_WEAVE"] = "true"
     os.environ["WANDB_PROJECT"] = wandb_cfg.get("project", "neuro-symbolic-t2g")
     os.environ["WANDB_DIR"] = log_dir
     os.environ["WANDB_TAGS"] = ",".join(

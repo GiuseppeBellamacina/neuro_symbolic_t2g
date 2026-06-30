@@ -278,16 +278,15 @@ def main() -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-    logger.info(f"Reproducibility: seed={seed} (random, numpy, torch, cuda)")
+    print(f"[grpo] Reproducibility: seed={seed} (random, numpy, torch, cuda)")
 
     # ── Step 1: Data preparation ─────────────────────────────────────────
     ds_cfg = config["dataset"]
     vocab_path = ds_cfg.get("vocab_path", "data/gloss_vocab.txt")
     bigram_path = ds_cfg.get("bigram_matrix_path", "data/bigram_transition.npy")
 
-    logger.info("=" * 60)
-    logger.info("STEP 1: Data Preparation")
-    logger.info("=" * 60)
+    print(f"\n{'=' * 60}")
+    print("STEP 1: Data Preparation")
 
     # Download dataset
     dataset = download_aslg_dataset(
@@ -312,32 +311,28 @@ def main() -> None:
         )
         save_transition_matrix(bigram_matrix, bigram_path)
 
-    logger.info(
-        f"Data prepared: |V|={len(vocab)}, " f"bigram shape={bigram_matrix.shape}"
-    )
+    print(f"  Data prepared: |V|={len(vocab)}, bigram shape={bigram_matrix.shape}")
 
     if args.prepare_data:
-        logger.info("Data preparation complete. Exiting.")
+        print("Data preparation complete. Exiting.")
         return
 
     # ── Step 2: Model loading ────────────────────────────────────────────
-    logger.info("=" * 60)
-    logger.info("STEP 2: Model Loading")
-    logger.info("=" * 60)
+    print(f"\n{'=' * 60}")
+    print("STEP 2: Model Loading")
 
     model, tokenizer = load_model_and_tokenizer(config)
 
     # ── Step 3: Constrained decoding setup ────────────────────────────────
-    logger.info("=" * 60)
-    logger.info("STEP 3: Constrained Decoding Setup")
-    logger.info("=" * 60)
+    print(f"\n{'=' * 60}")
+    print("STEP 3: Constrained Decoding Setup")
 
     # Grammar toggle: set ``grammar.enabled: false`` to disable constrained
     # decoding (for ablation study — GRPO without grammar).
     grammar_enabled = config.get("grammar", {}).get("enabled", True)
     if not grammar_enabled:
-        logger.info(
-            "⚠️  grammar.enabled=false — GRPO rollouts will use UNCONSTRAINED "
+        print(
+            "  ⚠️  grammar.enabled=false — GRPO rollouts will use UNCONSTRAINED "
             "generation (no vocabulary mask).  This is intended for ablation "
             "studies only."
         )
@@ -350,7 +345,7 @@ def main() -> None:
         use_pda = config.get("grammar", {}).get("use_grammarllm_pda", False)
 
         if use_pda:
-            logger.info("Using FULL grammarllm PDA pipeline for constrained decoding")
+            print("  Using FULL grammarllm PDA pipeline for constrained decoding")
             logit_processor, streamer, pda = create_grammarllm_pipeline(
                 vocab,
                 tokenizer,
@@ -363,21 +358,18 @@ def main() -> None:
                 temperature=grpo_cfg.get("temperature", 0.7),
             )
             logits_processor_for_gen = grammar_lp
-            logger.info("  GrammarLLM PDA pipeline ready")
+            print("  GrammarLLM PDA pipeline ready")
         else:
-            logger.info(
-                "Using lightweight GlossVocabularyMask for constrained decoding"
-            )
+            print("  Using lightweight GlossVocabularyMask for constrained decoding")
             gloss_mask = GlossVocabularyMask(vocab, tokenizer)
             logits_processor_for_gen = GlossVocabularyLogitsProcessor(
                 gloss_mask, device="cuda" if torch.cuda.is_available() else "cpu"
             )
-            logger.info("  Vocabulary mask ready")
+            print("  Vocabulary mask ready")
 
     # ── Step 4: Dataset preparation ──────────────────────────────────────
-    logger.info("=" * 60)
-    logger.info("STEP 4: Dataset Preparation")
-    logger.info("=" * 60)
+    print(f"\n{'=' * 60}")
+    print("STEP 4: Dataset Preparation")
 
     t2g_dataset = _prepare_t2g_dataset(config, tokenizer, vocab, dataset=dataset)
 
@@ -390,9 +382,8 @@ def main() -> None:
     )
 
     # ── Step 5: Reward functions ─────────────────────────────────────────
-    logger.info("=" * 60)
-    logger.info("STEP 5: Reward Functions")
-    logger.info("=" * 60)
+    print(f"\n{'=' * 60}")
+    print("STEP 5: Reward Functions")
 
     initialize_rewards(
         bigram_matrix,
@@ -417,9 +408,8 @@ def main() -> None:
     )
 
     # ── Step 6: GRPO configuration ───────────────────────────────────────
-    logger.info("=" * 60)
-    logger.info("STEP 6: GRPO Configuration")
-    logger.info("=" * 60)
+    print(f"\n{'=' * 60}")
+    print("STEP 6: GRPO Configuration")
 
     grpo_config = _build_grpo_config(
         config["training"],
@@ -428,7 +418,7 @@ def main() -> None:
         reward_weights=reward_weights,
     )
 
-    logger.info(
+    print(
         f"[grpo] max_steps={grpo_config.max_steps}, "
         f"batch={grpo_config.per_device_train_batch_size}, "
         f"grad_accum={grpo_config.gradient_accumulation_steps}, "
@@ -444,7 +434,7 @@ def main() -> None:
         ckpts = sorted(Path(grpo_config.output_dir).glob("checkpoint-*"))
         if ckpts:
             resume_from = str(ckpts[-1])
-            logger.info(f"Resuming from {resume_from}")
+            print(f"[grpo] Resuming from {resume_from}")
 
     # ── Wandb setup ──────────────────────────────────────────────────────
     # Modalità offline (cluster senza internet) — come grpo-strict-generation.
@@ -453,6 +443,8 @@ def main() -> None:
     log_dir = config["training"]["log_dir"]
     if "WANDB_MODE" not in os.environ:
         os.environ["WANDB_MODE"] = "offline"
+    # Disable weave (wandb 0.25.0 tenta il login anche offline).
+    os.environ["WANDB_DISABLE_WEAVE"] = "true"
     os.environ["WANDB_PROJECT"] = wandb_cfg.get("project", "neuro-symbolic-t2g")
     os.environ["WANDB_DIR"] = log_dir
     os.environ["WANDB_TAGS"] = ",".join(
@@ -470,9 +462,8 @@ def main() -> None:
         )
 
     # ── Step 7: Training ─────────────────────────────────────────────────
-    logger.info("=" * 60)
-    logger.info("STEP 7: GRPO Training")
-    logger.info("=" * 60)
+    print(f"\n{'=' * 60}")
+    print("STEP 7: GRPO Training")
 
     # ── Workaround: transformers 5.3.0 + peft non espongono  ──────────
     # model.warnings_issued, ma trl 0.24.0 lo usa in GRPOTrainer.__init__.
@@ -504,7 +495,7 @@ def main() -> None:
             return _orig_generate(*_args, **_kwargs)
 
         model.generate = _patched_generate  # type: ignore[method-assign]
-        logger.info("  logits_processor injected via model.generate monkey-patch")
+        print("  logits_processor injected via model.generate monkey-patch")
 
     trainer = GRPOTrainer(
         model=model,
@@ -522,12 +513,12 @@ def main() -> None:
     except Exception:
         pass
 
-    logger.info("Starting GRPO training...")
+    print("\n[grpo] Starting GRPO training...")
     trainer.train(resume_from_checkpoint=resume_from)
 
     # ── Save final model ─────────────────────────────────────────────────
     final_path = Path(grpo_config.output_dir) / "final"
-    logger.info(f"Saving final model to {final_path}...")
+    print(f"\n[grpo] Saving final model to {final_path}...")
     trainer.save_model(str(final_path))
     tokenizer.save_pretrained(str(final_path))
 
@@ -539,11 +530,10 @@ def main() -> None:
     gc.collect()
     torch.cuda.empty_cache()
 
-    logger.info("=" * 60)
-    logger.info("GRPO T2G training complete!")
-    logger.info(f"  Model: {final_path}")
-    logger.info(f"  Logs:  {config['training']['log_dir']}")
-    logger.info("=" * 60)
+    print(f"\n{'=' * 60}")
+    print("GRPO T2G training complete!")
+    print(f"  Model: {final_path}")
+    print(f"  Logs:  {config['training']['log_dir']}")
 
 
 if __name__ == "__main__":
