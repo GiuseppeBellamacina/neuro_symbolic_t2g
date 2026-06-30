@@ -12,6 +12,7 @@ dependencies = [
     "torch",
     "transformers",
     "trl==0.24.0",
+    "mergekit",    # richiesto da trl: find_spec lo trova in /opt/conda
     "peft",
     "datasets",
     "accelerate",
