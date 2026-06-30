@@ -483,22 +483,31 @@ def main() -> None:
     gen_kwargs = _build_generation_kwargs(config)
     grpo_config.generation_kwargs = gen_kwargs
 
-    # ── Inject logits_processor via monkey-patch ─────────────────────
-    # transformers 5.3.0 GenerationConfig rejects logits_processor, but
-    # model.generate() accepts it.  Wrap model.generate so the processor
-    # is always passed during GRPO rollouts.
-    if logits_processor_for_gen is not None:
-        _orig_generate = model.generate
+    # ── Monkey-patch model.generate() ──────────────────────────────────
+    # Two things this patch does:
+    #   1. AUTOCAST: model.generate() during GRPO rollouts runs OUTSIDE the
+    #      trainer's autocast context.  With 4-bit quantization + LoRA,
+    #      prepare_model_for_kbit_training() upcasts LoRA adapters to float32,
+    #      but lm_head stays in bfloat16 (from dtype=bfloat16 at load time).
+    #      Without autocast, lm_head receives float32 hidden states → crash:
+    #        RuntimeError: expected scalar type BFloat16 but found Float
+    #      Wrapping generate() in autocast harmonizes all dtypes.
+    #   2. LOGITS PROCESSOR: transformers 5.3.0 GenerationConfig rejects
+    #      logits_processor as a kwarg, but model.generate() accepts it.
+    #      Inject the vocabulary mask here when grammar is enabled.
+    _orig_generate = model.generate
+    _autocast_dtype = torch.bfloat16 if grpo_config.bf16 else torch.float16
 
-        def _patched_generate(*_args: Any, **_kwargs: Any) -> Any:
-            # Merge: vocabulary mask FIRST, then any existing processors.
+    def _patched_generate(*_args: Any, **_kwargs: Any) -> Any:
+        if logits_processor_for_gen is not None:
             _kwargs["logits_processor"] = [logits_processor_for_gen] + _kwargs.get(
                 "logits_processor", []
             )
+        with torch.autocast(device_type="cuda", dtype=_autocast_dtype):
             return _orig_generate(*_args, **_kwargs)
 
-        model.generate = _patched_generate  # type: ignore[method-assign]
-        print("  logits_processor injected via model.generate monkey-patch")
+    model.generate = _patched_generate  # type: ignore[method-assign]
+    print("  model.generate monkey-patched (autocast + logits_processor)")
 
     trainer = GRPOTrainer(
         model=model,
