@@ -213,32 +213,29 @@ def _prepare_t2g_dataset(
 
 def _build_generation_kwargs(
     config: dict[str, Any],
-    logits_processor: GlossVocabularyLogitsProcessor | None,
 ) -> dict[str, Any]:
     """Build generation kwargs for GRPO rollouts.
 
     Set via ``grpo_config.generation_kwargs`` before creating GRPOTrainer.
     In trl 0.24.0, generation_kwargs lives on GRPOConfig (args), not on
     GRPOTrainer.__init__() directly.
-    When ``logits_processor`` is ``None`` (grammar disabled), no processor
-    is included.
+
+    **IMPORTANT**: ``logits_processor`` is NOT included here.  trl 0.24.0
+    passes generation_kwargs to ``GenerationConfig(**kwargs)``, and
+    transformers 5.3.0 rejects ``logits_processor`` as a GenerationConfig
+    argument.  Instead, the logits processor is injected via a monkey-patch
+    of ``model.generate()`` in ``main()``.
 
     Args:
         config: Full config dict.
-        logits_processor: The ``GlossVocabularyLogitsProcessor`` instance,
-            or ``None`` to disable constrained decoding.
 
     Returns:
-        Dict of generation kwargs compatible with ``model.generate()``.
+        Dict of generation kwargs compatible with ``GenerationConfig()``.
     """
     grpo_cfg = config.get("generation", config.get("grpo", {}))
     kwargs: dict[str, Any] = {
         "max_new_tokens": grpo_cfg.get("max_completion_length", 256),
-        # NOTE: do_sample and temperature are controlled by GRPOConfig,
-        # not duplicated here to avoid conflicts.
     }
-    if logits_processor is not None:
-        kwargs["logits_processor"] = [logits_processor]
     return kwargs
 
 
@@ -485,8 +482,29 @@ def main() -> None:
     # ── Generation kwargs for vocabulary-constrained rollout generation ──
     # In trl 0.24.0, generation_kwargs goes into GRPOConfig (args), NOT
     # directly into GRPOTrainer.__init__().
-    gen_kwargs = _build_generation_kwargs(config, logits_processor_for_gen)
+    # NOTE: logits_processor CANNOT be in generation_kwargs because trl
+    # 0.24.0 does GenerationConfig(**generation_kwargs) and transformers
+    # 5.3.0 rejects logits_processor in GenerationConfig.
+    # Workaround: monkey-patch model.generate() to inject the processor.
+    gen_kwargs = _build_generation_kwargs(config)
     grpo_config.generation_kwargs = gen_kwargs
+
+    # ── Inject logits_processor via monkey-patch ─────────────────────
+    # transformers 5.3.0 GenerationConfig rejects logits_processor, but
+    # model.generate() accepts it.  Wrap model.generate so the processor
+    # is always passed during GRPO rollouts.
+    if logits_processor_for_gen is not None:
+        _orig_generate = model.generate
+
+        def _patched_generate(*_args: Any, **_kwargs: Any) -> Any:
+            # Merge: vocabulary mask FIRST, then any existing processors.
+            _kwargs["logits_processor"] = [logits_processor_for_gen] + _kwargs.get(
+                "logits_processor", []
+            )
+            return _orig_generate(*_args, **_kwargs)
+
+        model.generate = _patched_generate  # type: ignore[method-assign]
+        logger.info("  logits_processor injected via model.generate monkey-patch")
 
     trainer = GRPOTrainer(
         model=model,
