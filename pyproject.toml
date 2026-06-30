@@ -11,7 +11,7 @@ dependencies = [
     # Core ML
     "torch",
     "transformers",
-    "trl==0.24.0",
+    "trl[judges]==0.24.0",
     "mergekit",
     "peft",
     "datasets",
