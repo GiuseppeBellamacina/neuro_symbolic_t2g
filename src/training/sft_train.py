@@ -266,6 +266,9 @@ def main() -> None:
             logger.info("Resuming from %s", resume_from)
 
     # ── Wandb setup ──────────────────────────────────────────────────────
+    # Modalità offline — come grpo-strict-generation.
+    if "WANDB_MODE" not in os.environ:
+        os.environ["WANDB_MODE"] = "offline"
     os.environ["WANDB_PROJECT"] = wandb_cfg.get("project", "neuro-symbolic-t2g")
     os.environ["WANDB_DIR"] = log_dir
     os.environ["WANDB_TAGS"] = ",".join(
@@ -279,12 +282,18 @@ def main() -> None:
             config=config,
             tags=wandb_cfg.get("tags", ["sft", "t2g"]),
             dir=log_dir,
+            mode="offline",
         )
 
     # ── Step 5: Training ─────────────────────────────────────────────────
     logger.info("=" * 60)
     logger.info("STEP 5: SFT Training")
     logger.info("=" * 60)
+
+    # ── Workaround: transformers 5.3.0 + peft non espongono  ──────────
+    # model.warnings_issued.
+    if not hasattr(model, "warnings_issued"):
+        model.warnings_issued = {}
 
     trainer = SFTTrainer(
         model=model,

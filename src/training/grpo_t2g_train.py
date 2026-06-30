@@ -477,6 +477,11 @@ def main() -> None:
     logger.info("STEP 7: GRPO Training")
     logger.info("=" * 60)
 
+    # ── Workaround: transformers 5.3.0 + peft non espongono  ──────────
+    # model.warnings_issued, ma trl 0.24.0 lo usa in GRPOTrainer.__init__.
+    if not hasattr(model, "warnings_issued"):
+        model.warnings_issued = {}
+
     # ── Generation kwargs for vocabulary-constrained rollout generation ──
     # In trl 0.24.0, generation_kwargs goes into GRPOConfig (args), NOT
     # directly into GRPOTrainer.__init__().
