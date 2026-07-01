@@ -166,29 +166,34 @@ def _load_with_transformers(
     model_cfg = config["model"]
     lora_cfg = config.get("lora", {})
 
+    quantization = model_cfg.get("quantization", "4bit")
+    if adapter_path:
+        logger.info(
+            "Adapter path provided → disabling quantization to allow in-memory merging."
+        )
+        quantization = "none"
+
     logger.info(
         "Backend: HuggingFace (transformers + peft) — quantization=%s",
-        model_cfg.get("quantization", "none"),
+        quantization,
     )
 
     model = load_model(
         model_name=model_cfg["name"],
-        quantization=model_cfg.get("quantization", "4bit"),
+        quantization=quantization,
         dtype=model_cfg.get("dtype", "bfloat16"),
     )
     tokenizer = load_tokenizer(model_cfg["name"])
 
     if adapter_path:
-        # Load a pre-trained SFT adapter instead of creating fresh LoRA.
-        # is_trainable=True is crucial so GRPO can continue training.
-        logger.info("Loading existing LoRA adapter from: %s", adapter_path)
-        if getattr(model, "is_loaded_in_4bit", False) or getattr(
-            model, "is_loaded_in_8bit", False
-        ):
-            model = prepare_model_for_kbit_training(model)
-        model = PeftModel.from_pretrained(model, adapter_path, is_trainable=True)
-        model.print_trainable_parameters()
-    elif lora_cfg:
+        logger.info("Loading existing SFT adapter from: %s", adapter_path)
+        # Load adapter as non-trainable, merge it, and unload it to get a pure base model with SFT weights
+        model = PeftModel.from_pretrained(model, adapter_path, is_trainable=False)
+        logger.info("Merging SFT adapter in-memory...")
+        model = model.merge_and_unload()
+        logger.info("SFT adapter successfully merged into base model.")
+
+    if lora_cfg:
         model = apply_lora(
             model,
             r=lora_cfg.get("r", 16),
@@ -214,6 +219,14 @@ def _load_with_unsloth(
     quantization = model_cfg.get("quantization", "4bit")
     load_in_4bit = quantization == "4bit"
 
+    if adapter_path:
+        if is_main_process():
+            logger.info(
+                "[unsloth] Adapter path provided → disabling quantization to allow in-memory merging."
+            )
+        load_in_4bit = False
+        quantization = "none"
+
     model_to_load = adapter_path if adapter_path else model_cfg["name"]
 
     if is_main_process():
@@ -231,9 +244,14 @@ def _load_with_unsloth(
         dtype=None,  # auto-detect
     )
 
-    # Apply LoRA via Unsloth only if loading the base model and LoRA is configured.
-    # If we loaded the pre-trained SFT adapter, PEFT is already initialized.
-    if not adapter_path and lora_cfg:
+    if adapter_path:
+        if is_main_process():
+            logger.info("[unsloth] Merging SFT adapter in-memory...")
+        model = model.merge_and_unload()
+        if is_main_process():
+            logger.info("[unsloth] SFT adapter successfully merged into base model.")
+
+    if lora_cfg:
         target_modules = lora_cfg.get(
             "target_modules",
             [
