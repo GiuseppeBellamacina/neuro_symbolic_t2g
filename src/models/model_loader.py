@@ -201,29 +201,6 @@ def _load_with_transformers(
     return model, tokenizer
 
 
-def _resolve_fast_inference(model_cfg: dict[str, Any]) -> bool:
-    """Determine if fast_inference (vLLM) can be enabled.
-
-    Returns True only when the config flag is set AND vLLM is installed.
-    """
-    requested = model_cfg.get("fast_inference", False)
-    if not requested:
-        return False
-
-    try:
-        import vllm as _vllm  # noqa: F401
-    except ImportError:
-        import warnings
-
-        warnings.warn(
-            "fast_inference requires vllm — package not found, disabling fast_inference.",
-            stacklevel=2,
-        )
-        return False
-
-    return True
-
-
 def _load_with_unsloth(
     config: dict[str, Any],
     adapter_path: str | None = None,
@@ -247,35 +224,11 @@ def _load_with_unsloth(
             model_cfg.get("max_seq_length", 2048),
         )
 
-    # Disable fast_inference (vLLM) if constrained decoding (grammar logits processor) is active,
-    # as vLLM's sampler does not natively support standard Hugging Face logits_processor lists.
-    use_fast_inference = _resolve_fast_inference(model_cfg)
-    if use_fast_inference:
-        if config.get("grammar", {}).get("enabled", True):
-            if is_main_process():
-                logger.info(
-                    "[unsloth] Constrained decoding (grammar.enabled=true) is active. "
-                    "Disabling fast_inference (vLLM) to ensure HuggingFace logits_processor compatibility."
-                )
-            use_fast_inference = False
-
-    fi_kwargs: dict[str, Any] = {}
-    if use_fast_inference:
-        fi_kwargs["fast_inference"] = True
-        fi_kwargs["max_lora_rank"] = lora_cfg.get("r", 16)
-        fi_kwargs["gpu_memory_utilization"] = model_cfg.get(
-            "gpu_memory_utilization", 0.9
-        )
-        fi_kwargs["unsloth_vllm_standby"] = model_cfg.get("vllm_standby", False)
-        if is_main_process():
-            logger.info("[unsloth] fast_inference enabled (vLLM backend)")
-
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=model_to_load,
         max_seq_length=model_cfg.get("max_seq_length", 2048),
         load_in_4bit=load_in_4bit,
         dtype=None,  # auto-detect
-        **fi_kwargs,
     )
 
     # Apply LoRA via Unsloth only if loading the base model and LoRA is configured.
