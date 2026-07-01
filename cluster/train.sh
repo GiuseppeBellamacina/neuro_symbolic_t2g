@@ -53,24 +53,32 @@ export WANDB_MODE=offline
 
 cd "$HOME/neuro_symbolic_t2g"
 
-# Prepara dataset se mancante
-if [ ! -d "data/aslg_pc12_train" ]; then
-    echo "Dataset ASLG-PC12 non trovato, download in corso..."
+# Prepara dataset e vocabolario se mancanti
+if [ ! -d "data/aslg_pc12_train" ] || [ ! -f "data/gloss_vocab.txt" ]; then
+    echo "Dataset ASLG-PC12 o vocabolario non trovati, rigenerazione in corso..."
     if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
         apptainer run --nv /shared/sifs/latest.sif python3 -c "
-from src.datasets.aslg_dataset import download_aslg_dataset, build_t2g_dataset
+from src.datasets.aslg_dataset import download_aslg_dataset, extract_gloss_vocabulary, save_vocabulary, build_t2g_dataset
 dataset = download_aslg_dataset()
+vocab = extract_gloss_vocabulary(dataset, split='train')
+save_vocabulary(vocab, 'data/gloss_vocab.txt')
 train_ds = build_t2g_dataset(dataset, split='train')
+test_ds = build_t2g_dataset(dataset, split='test')
 train_ds.save_to_disk('data/aslg_pc12_train')
-print('Dataset salvato.')
+test_ds.save_to_disk('data/aslg_pc12_test')
+print('Dataset e vocabolario pronti.')
 "
     else
         python3 -c "
-from src.datasets.aslg_dataset import download_aslg_dataset, build_t2g_dataset
+from src.datasets.aslg_dataset import download_aslg_dataset, extract_gloss_vocabulary, save_vocabulary, build_t2g_dataset
 dataset = download_aslg_dataset()
+vocab = extract_gloss_vocabulary(dataset, split='train')
+save_vocabulary(vocab, 'data/gloss_vocab.txt')
 train_ds = build_t2g_dataset(dataset, split='train')
+test_ds = build_t2g_dataset(dataset, split='test')
 train_ds.save_to_disk('data/aslg_pc12_train')
-print('Dataset salvato.')
+test_ds.save_to_disk('data/aslg_pc12_test')
+print('Dataset e vocabolario pronti.')
 "
     fi
 fi
