@@ -9,15 +9,21 @@ Loads the config YAML and routes to the correct trainer (GRPO or SFT).
 
 import argparse
 import sys as _sys
-from unittest.mock import MagicMock
 
 # ── Workaround for trl 0.24.0 bug ────────────────────────────────────
 # trl/extras/vllm_client.py unconditionally imports vllm_ascend (Huawei
 # Ascend NPU support). On NVIDIA GPUs this package does not exist and
 # the import fails with ModuleNotFoundError, crashing the training.
-# We inject a dummy module into sys.modules before trl is imported.
+# We inject a dummy module with a valid ModuleSpec into sys.modules
+# before trl is imported to satisfy Python's importlib.util.find_spec.
 if "vllm_ascend" not in _sys.modules:
-    _sys.modules["vllm_ascend"] = MagicMock()
+    import importlib.machinery
+    import types
+
+    spec = importlib.machinery.ModuleSpec("vllm_ascend", None)
+    dummy = types.ModuleType("vllm_ascend")
+    dummy.__spec__ = spec
+    _sys.modules["vllm_ascend"] = dummy
 
 import yaml
 
