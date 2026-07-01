@@ -141,8 +141,12 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     # ── Setup logging ────────────────────────────────────────────────────
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        format="%(message)s",
     )
+    # Quiet down external libraries
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("datasets").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
 
     # ── Set random seeds for reproducibility ─────────────────────────────
     seed = config["dataset"].get("seed", 42)

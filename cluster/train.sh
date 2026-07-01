@@ -50,8 +50,7 @@ echo "============================================"
 mkdir -p logs
 
 export WANDB_MODE=offline
-export HF_HUB_OFFLINE=1
-export TRANSFORMERS_OFFLINE=1
+export PYTHONUNBUFFERED=1
 
 cd "$HOME/neuro_symbolic_t2g"
 
@@ -119,10 +118,16 @@ echo ""
 if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
     apptainer run --nv \
         --env WANDB_MODE=offline \
+        --env HF_HUB_OFFLINE=1 \
+        --env TRANSFORMERS_OFFLINE=1 \
+        --env PYTHONUNBUFFERED=1 \
         --env PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8 \
         /shared/sifs/latest.sif \
         python -m src.training --config "${CONFIG}" ${EXTRA_ARGS}
 else
+    export HF_HUB_OFFLINE=1
+    export TRANSFORMERS_OFFLINE=1
+    export PYTHONUNBUFFERED=1
     python -m src.training --config "${CONFIG}" ${EXTRA_ARGS}
 fi
 

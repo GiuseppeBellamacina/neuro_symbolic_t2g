@@ -271,8 +271,12 @@ def main() -> None:
     # ── Setup logging ────────────────────────────────────────────────────
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        format="%(message)s",
     )
+    # Quiet down external libraries
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("datasets").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
 
     # ── Set random seeds for reproducibility ─────────────────────────────
     seed = config["dataset"].get("seed", 42)
@@ -350,7 +354,7 @@ def main() -> None:
                 "trainer": "sft",
             },
         }
-        sft_adapter_path = run_sft(sft_config)
+        sft_adapter_path = run_sft(sft_config, resume=args.resume)
         print(f"  SFT adapter saved to: {sft_adapter_path}")
 
         # Aggressive cleanup between SFT and GRPO
