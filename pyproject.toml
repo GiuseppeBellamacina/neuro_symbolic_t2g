@@ -16,6 +16,7 @@ dependencies = [
     "datasets",
     "accelerate",
     "bitsandbytes",
+    "unsloth==2026.3.17",
 
     # Data & Eval
     "rouge-score>=0.1.2",
