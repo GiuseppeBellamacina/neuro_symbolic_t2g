@@ -112,6 +112,19 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
         if allowed_mask.device != scores.device:
             allowed_mask = allowed_mask.to(scores.device)
 
+        # Ensure allowed_mask size matches the scores vocab size dynamically (handling model vocab padding)
+        vocab_size_logits = scores.shape[-1]
+        if allowed_mask.size(0) != vocab_size_logits:
+            if allowed_mask.size(0) < vocab_size_logits:
+                padding_len = vocab_size_logits - allowed_mask.size(0)
+                padding = torch.zeros(
+                    padding_len, dtype=torch.bool, device=allowed_mask.device
+                )
+                self._allowed_mask_tensor = torch.cat([allowed_mask, padding], dim=0)
+            else:
+                self._allowed_mask_tensor = allowed_mask[:vocab_size_logits]
+            allowed_mask = self._allowed_mask_tensor
+
         # Track masked probability mass + entropy (shared mixin)
         self._track_masked_stats(probs, allowed_mask)
 
