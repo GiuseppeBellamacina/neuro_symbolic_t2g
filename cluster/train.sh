@@ -56,18 +56,29 @@ cd "$HOME/neuro_symbolic_t2g"
 # Prepara dataset se mancante
 if [ ! -d "data/aslg_pc12_train" ]; then
     echo "Dataset ASLG-PC12 non trovato, download in corso..."
-    python3 -c "
+    if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
+        apptainer run --nv /shared/sifs/latest.sif python3 -c "
 from src.datasets.aslg_dataset import download_aslg_dataset, build_t2g_dataset
 dataset = download_aslg_dataset()
 train_ds = build_t2g_dataset(dataset, split='train')
 train_ds.save_to_disk('data/aslg_pc12_train')
 print('Dataset salvato.')
 "
+    else
+        python3 -c "
+from src.datasets.aslg_dataset import download_aslg_dataset, build_t2g_dataset
+dataset = download_aslg_dataset()
+train_ds = build_t2g_dataset(dataset, split='train')
+train_ds.save_to_disk('data/aslg_pc12_train')
+print('Dataset salvato.')
+"
+    fi
 fi
 
 if [ ! -f "data/bigram_transition.npy" ]; then
     echo "Matrici di transizione non trovate, calcolo in corso..."
-    python3 -c "
+    if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
+        apptainer run --nv /shared/sifs/latest.sif python3 -c "
 from src.datasets.aslg_dataset import download_aslg_dataset, load_vocabulary
 from src.datasets.transition_matrix import compute_bigram_transitions, save_transition_matrix
 dataset = download_aslg_dataset()
@@ -76,6 +87,17 @@ bigram = compute_bigram_transitions(dataset, vocab, split='train', smoothing=1.0
 save_transition_matrix(bigram, 'data/bigram_transition.npy')
 print('Matrici salvate.')
 "
+    else
+        python3 -c "
+from src.datasets.aslg_dataset import download_aslg_dataset, load_vocabulary
+from src.datasets.transition_matrix import compute_bigram_transitions, save_transition_matrix
+dataset = download_aslg_dataset()
+vocab = load_vocabulary('data/gloss_vocab.txt')
+bigram = compute_bigram_transitions(dataset, vocab, split='train', smoothing=1.0)
+save_transition_matrix(bigram, 'data/bigram_transition.npy')
+print('Matrici salvate.')
+"
+    fi
 fi
 
 echo ""
