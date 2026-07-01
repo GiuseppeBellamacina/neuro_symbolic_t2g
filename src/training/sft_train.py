@@ -299,12 +299,30 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     if not hasattr(model, "warnings_issued"):
         model.warnings_issued = {}
 
+    from transformers.integrations import WandbCallback
+    from transformers.trainer_callback import ProgressCallback
+
+    from src.training.callbacks import (
+        HighPrecisionLogCallback,
+        TqdmOnlyProgressCallback,
+    )
+
     trainer = SFTTrainer(
         model=model,
         args=sft_config,
         train_dataset=sft_dataset,
         processing_class=tokenizer,
     )
+
+    # Replace default ProgressCallback with TqdmOnlyProgressCallback
+    # (keeps tqdm bar, suppresses duplicate log lines — same as grpo-strict-generation)
+    try:
+        trainer.remove_callback(ProgressCallback)
+        trainer.add_callback(TqdmOnlyProgressCallback)
+        trainer.add_callback(HighPrecisionLogCallback())
+        trainer.remove_callback(WandbCallback)
+    except Exception:
+        pass
 
     logger.info("Starting SFT training...")
     trainer.train(resume_from_checkpoint=resume_from)
