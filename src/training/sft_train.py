@@ -223,6 +223,10 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     base_name = wandb_cfg.get("run_name", "sft-t2g")
     run_name = f"{base_name}-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
+    # Set tensorboard logging dir via env var (logging_dir kwarg is deprecated
+    # since transformers 5.2).
+    os.environ.setdefault("TENSORBOARD_LOGGING_DIR", log_dir)
+
     sft_config = SFTConfig(
         output_dir=output_dir,
         run_name=run_name,
@@ -237,21 +241,22 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         max_grad_norm=training_cfg.get("max_grad_norm", 1.0),
         bf16=training_cfg.get("bf16", True),
         logging_steps=training_cfg.get("logging_steps", 10),
-        logging_dir=log_dir,
         save_steps=training_cfg.get("save_steps", 200),
         save_total_limit=training_cfg.get("save_total_limit", 3),
-        max_seq_length=training_cfg.get("max_seq_length", 768),
+        max_length=training_cfg.get(
+            "max_seq_length", 768
+        ),  # renamed from max_seq_length in TRL 0.20+
         dataset_text_field="text",
         report_to="wandb",
     )
 
     logger.info(
-        "[sft] epochs=%d, batch=%d, grad_accum=%d, lr=%.1e, " "max_seq=%d",
+        "[sft] epochs=%d, batch=%d, grad_accum=%d, lr=%.1e, max_len=%d",
         sft_config.num_train_epochs,
         sft_config.per_device_train_batch_size,
         sft_config.gradient_accumulation_steps,
         sft_config.learning_rate,
-        sft_config.max_seq_length,
+        sft_config.max_length,
     )
 
     # ── Resume logic ─────────────────────────────────────────────────────
