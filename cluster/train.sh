@@ -51,6 +51,7 @@ mkdir -p logs
 
 export WANDB_MODE=offline
 export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
 
 cd "$HOME/neuro_symbolic_t2g"
 

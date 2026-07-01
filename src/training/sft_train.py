@@ -246,6 +246,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         max_length=training_cfg.get(
             "max_seq_length", 768
         ),  # renamed from max_seq_length in TRL 0.20+
+        gradient_checkpointing=training_cfg.get("gradient_checkpointing", False),
         dataset_text_field="text",
         report_to="wandb",
     )
