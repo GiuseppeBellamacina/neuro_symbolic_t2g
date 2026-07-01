@@ -40,7 +40,7 @@ dataset:
   vocab_path: "data/gloss_vocab.txt"
   bigram_matrix_path: "data/bigram_transition.npy"
   split: "train"
-  max_samples: 30000
+  max_samples: 20000
   seed: 42
   # T2G does not use <think> blocks
   thinking: false
@@ -86,7 +86,7 @@ training:
 # --- Parametri GRPO ---
 grpo:
   num_generations: 4         # G = number of completions per prompt
-  max_completion_length: 64   # Gloss sequences are typically 5-20 tokens
+  max_completion_length: 128  # Doubled: 64 was too tight for subword sequences, causing clipped_ratio=1.0
   max_prompt_length: 256
   beta: 0.04                  # KL penalty coefficient
   temperature: 0.7            # Exploration temperature during rollouts

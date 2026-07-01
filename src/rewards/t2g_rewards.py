@@ -512,15 +512,15 @@ def viterbi_distance_reward(
 def gloss_format_reward(completion: str) -> float:
     """Reward for generating only gloss tokens (no free text, no JSON).
 
-    Punishes outputs that contain natural language, code blocks, or
-    thinking tags not properly handled.
+    Punishes outputs that contain natural language, code blocks,
+    thinking tags, digit sequences, or mixed alphanumeric garbage.
 
     Args:
         completion: Raw model completion.
 
     Returns:
         ``1.0`` if output looks like clean glosses, ``0.5`` if mixed,
-        ``0.0`` if clearly non-gloss text.
+        ``0.0`` if clearly non-gloss text or garbage.
     """
     text = extract_gloss_text(completion)
     if not text:
@@ -540,12 +540,28 @@ def gloss_format_reward(completion: str) -> float:
         if re.search(pattern, text, re.IGNORECASE):
             return 0.5  # mixed content
 
-    # If text is just space-separated tokens (likely glosses), it's fine
-    tokens = text.split()
-    if len(tokens) > 0:
-        return 1.0
+    # ── Digit / numeric garbage detection ─────────────────────────
+    # Penalize sequences of 3+ consecutive digits (e.g. "13079117...")
+    digit_sequences = re.findall(r"\d{3,}", text)
+    if digit_sequences:
+        # Proportional penalty: more digit sequences → lower reward
+        total_digit_chars = sum(len(s) for s in digit_sequences)
+        if total_digit_chars > 20:
+            return 0.0  # severe numeric garbage
+        return 0.25  # moderate numeric contamination
 
-    return 0.0
+    # ── Token-level sanity checks ─────────────────────────────────
+    tokens = text.split()
+    if len(tokens) == 0:
+        return 0.0
+
+    # Check for excessively long tokens (concatenated subword garbage)
+    # Real ASL glosses rarely exceed 20 characters
+    long_token_count = sum(1 for t in tokens if len(t) > 25)
+    if long_token_count > 0:
+        return 0.5
+
+    return 1.0
 
 
 # ---------------------------------------------------------------------------

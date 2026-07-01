@@ -186,34 +186,76 @@ class GlossVocabularyMask:
         self.tokenizer = tokenizer
 
         self.token_ids: set[int] = set()
+        _skipped_glosses: list[str] = []
+
         for token in vocab:
+            # ── Filter the whole gloss entry first ────────────────────
+            # Skip glosses that are purely numeric (dates, codes, etc.)
+            # or contain digits mixed with other chars (e.g. "T04931944").
+            # These leak digit token IDs into the mask and let the model
+            # generate long numeric garbage strings.
+            stripped = token.strip()
+            if any(c.isdigit() for c in stripped) and stripped not in {
+                "<BOS>",
+                "<EOS>",
+                "<UNK>",
+            }:
+                _skipped_glosses.append(stripped)
+                continue
+
             # Add the full token ID (if the tokenizer knows it as a single token)
             tid = tokenizer.convert_tokens_to_ids(token)
             if isinstance(tid, int) and tid != tokenizer.unk_token_id:
                 self.token_ids.add(tid)
 
-            # Add subword token IDs, but filter noisy ones.
+            # Add the space-prefixed token ID (if it represents a single token in Qwen)
+            tid_space = tokenizer.convert_tokens_to_ids(" " + token)
+            if isinstance(tid_space, int) and tid_space != tokenizer.unk_token_id:
+                self.token_ids.add(tid_space)
+
+            # Add subword token IDs for both representations, but filter noisy ones aggressively.
             # Without filtering, individual character subwords (digits,
             # punctuation, lowercase letters) let the model generate garbage
             # like "c010500040005" or "-1-1-1-1-2-2".
-            sub_tokens = tokenizer.tokenize(token)
-            for st in sub_tokens:
-                # Decode the subword to check its surface form
-                raw = st.lstrip("Ġ▁")  # strip leading-space markers
-                # Skip noisy subwords: pure punctuation, pure digits,
-                # or single lowercase characters
-                if not raw:
-                    continue
-                if len(raw) == 1 and not raw.isupper():
-                    continue  # single char that isn't uppercase
-                if raw.isdigit():
-                    continue  # pure digits
-                if all(c in string.punctuation for c in raw):
-                    continue  # pure punctuation
+            for token_variant in [token, " " + token]:
+                sub_tokens = tokenizer.tokenize(token_variant)
+                for st in sub_tokens:
+                    # Decode the subword to check its surface form
+                    # Strip leading space markers (like G, ▁) and literal spaces
+                    raw = st.lstrip("Ġ▁ ").strip()
+                    if not raw:
+                        continue
 
-                stid = tokenizer.convert_tokens_to_ids(st)
-                if isinstance(stid, int) and stid != tokenizer.unk_token_id:
-                    self.token_ids.add(stid)
+                    # Block subwords containing ANY digit (catches "2022",
+                    # "T04", "97", "00" etc.)
+                    if any(c.isdigit() for c in raw):
+                        continue
+
+                    # Block subwords that are entirely lowercase (catches
+                    # "ment", "ation", "auto", "ing" etc. that let the model
+                    # invent fake glosses like AUTOPARTICIPATE, PREVIUSION)
+                    if raw.islower():
+                        continue
+
+                    # Block single characters that aren't uppercase letters
+                    if len(raw) == 1 and not raw.isupper():
+                        continue
+
+                    # Block pure punctuation
+                    if all(c in string.punctuation for c in raw):
+                        continue
+
+                    stid = tokenizer.convert_tokens_to_ids(st)
+                    if isinstance(stid, int) and stid != tokenizer.unk_token_id:
+                        self.token_ids.add(stid)
+
+        if _skipped_glosses:
+            logger.info(
+                "GlossVocabularyMask: skipped %d glosses containing digits "
+                "(e.g. %s)",
+                len(_skipped_glosses),
+                _skipped_glosses[:5],
+            )
 
         # Add EOS so the model can stop generating
         self.eos_token_id: int = tokenizer.eos_token_id

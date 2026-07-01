@@ -88,7 +88,8 @@ test_ds = build_t2g_dataset(dataset, split='test')
 test_ds.save_to_disk('data/aslg_pc12_test')
 print('Dataset salvato.')
 "
-fi    EVAL_ARGS="--config ${CONFIG}"
+fi
+EVAL_ARGS="--config ${CONFIG} --plot"
 if [ -n "$CHECKPOINT" ]; then
     EVAL_ARGS="${EVAL_ARGS} --checkpoint ${CHECKPOINT}"
 else

@@ -250,13 +250,16 @@ class CompletionSampleLogger:
         for idx, sample in enumerate(self._buffer, 1):
             instr = sample["instruction"]
             comp = sample["completion"]
-            diff = sample.get("difficulty", "?")
             bd = sample["breakdown"]
-            bd_items = list(bd.items())
-            row1 = "  ".join(f"{k}={v:+.2f}" for k, v in bd_items)
+
+            # Only display rewards that are active (weight > 0.0 in self._weight_map)
+            active_bd = {
+                k: v for k, v in bd.items() if self._weight_map.get(k, 0.0) > 0.0
+            }
+            row1 = "  ".join(f"{k}={v:+.2f}" for k, v in active_bd.items())
 
             lines.append(f"\n{_SEPARATOR}")
-            lines.append(f"  Sample {idx}  [difficulty={diff}]")
+            lines.append(f"  Sample {idx}")
             lines.append(f"{_SEPARATOR}")
             lines.append(f"  PROMPT: {instr}")
             think, output = _split_think(comp)
@@ -424,10 +427,16 @@ class CompletionSampleCallback(TrainerCallback):
             # ── Reward breakdown logging ───────────────────────────────
             if self._logger._buffer:
                 try:
+                    # Only log and plot components that are active (weight > 0)
+                    active_components = [
+                        c
+                        for c in self._REWARD_COMPONENTS
+                        if self._logger._weight_map.get(c, 0.0) > 0.0
+                    ]
 
                     # Define reward metrics once
                     if not self._reward_defined and wandb.run:
-                        for comp in self._REWARD_COMPONENTS:
+                        for comp in active_components:
                             wandb.define_metric(
                                 f"rewards/{comp}",
                                 summary="last",
@@ -435,27 +444,24 @@ class CompletionSampleCallback(TrainerCallback):
                         self._reward_defined = True
 
                     # Compute per-interval averages from buffered samples
-                    reward_sums: dict[str, float] = {
-                        c: 0.0 for c in self._REWARD_COMPONENTS
-                    }
+                    reward_sums: dict[str, float] = {c: 0.0 for c in active_components}
                     n_samples = 0
                     for sample in self._logger._buffer:
                         bd = sample.get("breakdown", {})
-                        for comp in self._REWARD_COMPONENTS:
+                        for comp in active_components:
                             reward_sums[comp] += bd.get(comp, 0.0)
                         n_samples += 1
 
                     if n_samples > 0 and wandb.run:
                         reward_avgs = {
-                            c: reward_sums[c] / n_samples
-                            for c in self._REWARD_COMPONENTS
+                            c: reward_sums[c] / n_samples for c in active_components
                         }
 
                         # Log individual scalars
                         wandb.log(
                             {
                                 f"rewards/{comp}": reward_avgs[comp]
-                                for comp in self._REWARD_COMPONENTS
+                                for comp in active_components
                             },
                             step=step,
                         )
@@ -470,12 +476,11 @@ class CompletionSampleCallback(TrainerCallback):
                             xs = [d["Step"] for d in self._reward_buffer]
                             ys_list = [
                                 [d[comp] for d in self._reward_buffer]
-                                for comp in self._REWARD_COMPONENTS
+                                for comp in active_components
                             ]
                             # Derive short labels from component names
                             labels = [
-                                c.replace("_reward", "")
-                                for c in self._REWARD_COMPONENTS
+                                c.replace("_reward", "") for c in active_components
                             ]
 
                             wandb.log(

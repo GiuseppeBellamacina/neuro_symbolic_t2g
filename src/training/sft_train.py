@@ -40,7 +40,7 @@ from src.datasets.transition_matrix import (
 )
 from src.models.model_loader import load_model_and_tokenizer
 from src.utils.config import load_config
-from src.utils.prompting import build_t2g_prompt
+from src.utils.prompting import SYSTEM_PROMPT
 
 load_dotenv()
 
@@ -89,13 +89,11 @@ def _prepare_sft_dataset(
         text = sample["prompt"]
         gold = sample["completion"]
 
-        # Build prompt with centralized template (same as training/eval)
-        prompt = build_t2g_prompt(text, tokenizer)
-
-        # Build full conversation: user prompt + assistant gold gloss
-        # Apply chat template to get a single string for SFTTrainer
+        # Build full conversation: system prompt + user text + assistant gold gloss
+        # This aligns formatting exactly with the GRPO rollout prompt structure.
         messages = [
-            {"role": "user", "content": prompt},
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": text},
             {"role": "assistant", "content": gold},
         ]
         try:
@@ -105,8 +103,12 @@ def _prepare_sft_dataset(
                 add_generation_prompt=False,
             )
         except Exception:
-            # Fallback: concatenate manually
-            full_text = f"{prompt}\n{gold}"
+            # Fallback: concatenate manually with ChatML format
+            full_text = (
+                f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n"
+                f"<|im_start|>user\n{text}<|im_end|>\n"
+                f"<|im_start|>assistant\n{gold}<|im_end|>"
+            )
 
         conversations.append({"text": full_text})
 
