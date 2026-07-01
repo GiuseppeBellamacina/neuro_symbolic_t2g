@@ -89,7 +89,20 @@ print(f'  Bigram matrix: {bigram.shape}')
 print(f'  Salvato in data/bigram_transition.npy')
 " || echo "⚠️  Matrici di transizione non calcolate"
 
-# ── 5. Verifica installazione ─────────────────────────────────────────────────
+# ── 5. Pre-download modello per Unsloth (offline cache) ────────────────────────
+echo ""
+echo "📥 Download modello Qwen2.5-0.5B-Instruct per la cache offline..."
+$PY -c "
+try:
+    from unsloth import FastLanguageModel
+    print('  Download Qwen2.5-0.5B-Instruct BNB 4-bit...')
+    FastLanguageModel.from_pretrained('Qwen/Qwen2.5-0.5B-Instruct', load_in_4bit=True)
+    print('  ✅ Modello scaricato e salvato nella cache locale.')
+except Exception as e:
+    print(f'  ⚠️ Errore nel download del modello: {e}')
+"
+
+# ── 6. Verifica installazione ─────────────────────────────────────────────────
 echo ""
 echo "🔍 Verifica installazione..."
 $PY -c "
@@ -100,6 +113,11 @@ print(f'  Transformers:  {transformers.__version__}')
 print(f'  TRL:           {trl.__version__}')
 print(f'  PEFT:          {peft.__version__}')
 print(f'  Datasets:      {datasets.__version__}')
+try:
+    import unsloth
+    print(f'  Unsloth:       {unsloth.__version__}')
+except ImportError:
+    print('  Unsloth:       Non installato')
 "
 
 echo ""
