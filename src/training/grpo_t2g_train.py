@@ -367,6 +367,17 @@ def main() -> None:
 
     model, tokenizer = load_model_and_tokenizer(config, adapter_path=sft_adapter_path)
 
+    # Load separate reference model if SFT pre-training is enabled.
+    # This prevents KL divergence explosion under LoRA by ensuring the reference
+    # model has the SFT adapter active (not disabled).
+    ref_model = None
+    if sft_adapter_path:
+        print("  Loading separate reference model with SFT adapter...")
+        ref_model, _ = load_model_and_tokenizer(config, adapter_path=sft_adapter_path)
+        ref_model.eval()
+        for p in ref_model.parameters():
+            p.requires_grad = False
+
     # ── Step 3: Constrained decoding setup ────────────────────────────────
     print(f"\n{'=' * 60}")
     print("STEP 3: Constrained Decoding Setup")
@@ -528,6 +539,7 @@ def main() -> None:
 
     trainer = GRPOTrainer(
         model=model,
+        ref_model=ref_model,
         args=grpo_config,
         train_dataset=t2g_dataset,
         reward_funcs=wrapped_reward_fns,

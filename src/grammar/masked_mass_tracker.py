@@ -115,28 +115,32 @@ class MaskedMassTracker:
         probs: torch.Tensor,
         allowed_mask: torch.Tensor,
     ) -> None:
-        """Accumulate masked mass, full entropy, and allowed-token entropy.
+        """Accumulate masked mass, full entropy, and allowed-token entropy as tensors.
 
-        ``probs`` is the full softmax distribution (batch, vocab_size).
-        ``allowed_mask`` is a boolean tensor marking allowed token positions.
-        Must be called inside ``torch.no_grad()`` and BEFORE applying the
-        mask to scores.
+        Avoids calling `.item()` to prevent GPU-CPU synchronization bottlenecks.
         """
         eps = 1e-12
+        device = probs.device
+        dtype = probs.dtype
+
+        # Initialize GPU accumulators on the correct device if needed
+        if isinstance(self._masked_mass_sum, float):
+            self._masked_mass_sum = torch.tensor(0.0, device=device, dtype=dtype)
+            self._masked_entropy_sum = torch.tensor(0.0, device=device, dtype=dtype)
+            self._entropy_allowed_sum = torch.tensor(0.0, device=device, dtype=dtype)
 
         # ── Masked probability mass ──────────────────────────────────
-        masked_mass = probs[:, ~allowed_mask].sum(dim=-1).mean().item()
+        masked_mass = probs[:, ~allowed_mask].sum(dim=-1).mean()
         self._masked_mass_sum += masked_mass
         self._masked_mass_count += 1
 
         # ── Full-distribution entropy ─────────────────────────────────
-        entropy = -(probs * torch.log(probs + eps)).sum(dim=-1).mean().item()
+        entropy = -(probs * torch.log(probs + eps)).sum(dim=-1).mean()
         self._masked_entropy_sum += entropy
 
         # ── Allowed-token entropy (re-normalized) ─────────────────────
-        with torch.no_grad():
-            allowed_sum = probs[:, allowed_mask].sum(dim=-1)
-            safe_mask = allowed_sum > eps
+        allowed_sum = probs[:, allowed_mask].sum(dim=-1)
+        safe_mask = allowed_sum > eps
         if safe_mask.any():
             probs_allowed = probs[:, allowed_mask]
             probs_allowed = probs_allowed / probs_allowed.sum(dim=-1, keepdim=True)
@@ -144,32 +148,14 @@ class MaskedMassTracker:
                 -(probs_allowed * torch.log(probs_allowed + eps))
                 .sum(dim=-1)[safe_mask]
                 .mean()
-                .item()
             )
-        else:
-            entropy_allowed = 0.0
-        self._entropy_allowed_sum += entropy_allowed
+            self._entropy_allowed_sum += entropy_allowed
 
     # ── Public stats interface ────────────────────────────────────────
 
     def get_masked_mass_stats(self, reset_after: bool = False) -> dict[str, float]:
         """Return average masked probability mass, entropy, and allowed-token
         entropy since last reset.
-
-        The three W&B metrics:
-
-        * ``avg_masked_mass`` — fraction of softmax mass on disallowed tokens.
-        * ``avg_masked_entropy`` — full-distribution Shannon entropy.
-        * ``avg_masked_entropy_allowed`` — entropy over re-normalized
-          allowed-token distribution.
-
-        Args:
-            reset_after: If ``True``, reset accumulators after returning
-                (for per-interval W&B logging).
-
-        Returns:
-            Dict with keys ``avg_masked_mass``, ``avg_masked_entropy``,
-            ``avg_masked_entropy_allowed``, and ``total_steps``.
         """
         if self._masked_mass_count == 0:
             return {
@@ -178,11 +164,28 @@ class MaskedMassTracker:
                 "avg_masked_entropy_allowed": 0.0,
                 "total_steps": 0,
             }
+
+        # Retrieve the accumulated tensor values from the GPU using `.item()`
+        mass_val = (
+            self._masked_mass_sum.item()
+            if isinstance(self._masked_mass_sum, torch.Tensor)
+            else self._masked_mass_sum
+        )
+        ent_val = (
+            self._masked_entropy_sum.item()
+            if isinstance(self._masked_entropy_sum, torch.Tensor)
+            else self._masked_entropy_sum
+        )
+        allowed_ent_val = (
+            self._entropy_allowed_sum.item()
+            if isinstance(self._entropy_allowed_sum, torch.Tensor)
+            else self._entropy_allowed_sum
+        )
+
         stats = {
-            "avg_masked_mass": self._masked_mass_sum / self._masked_mass_count,
-            "avg_masked_entropy": self._masked_entropy_sum / self._masked_mass_count,
-            "avg_masked_entropy_allowed": self._entropy_allowed_sum
-            / self._masked_mass_count,
+            "avg_masked_mass": mass_val / self._masked_mass_count,
+            "avg_masked_entropy": ent_val / self._masked_mass_count,
+            "avg_masked_entropy_allowed": allowed_ent_val / self._masked_mass_count,
             "total_steps": self._masked_mass_count,
         }
         if reset_after:

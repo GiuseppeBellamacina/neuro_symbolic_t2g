@@ -41,59 +41,89 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+class TrieNode:
+    """A node in the token-level Prefix Tree (Trie)."""
+
+    def __init__(self) -> None:
+        self.children: dict[int, TrieNode] = {}
+        self.is_terminal: bool = False
+
+
 class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
-    """Logits processor that masks non-gloss tokens at each generation step.
+    """Logits processor that enforces exact gloss sequences using a Token-level Trie.
 
     Inherits from ``transformers.LogitsProcessor`` for full compatibility
     with Hugging Face ``model.generate(logits_processor=[...])``.
 
-    At each step, sets the logit of every token NOT in the ASL gloss vocabulary
-    to ``-inf``.  EOS is always allowed so the model can terminate.
+    Uses a token-level prefix tree (Trie) compiled from the vocabulary to ensure
+    the model can only generate sequences of tokens that perfectly reconstruct
+    valid words from the gloss vocabulary (separated by spaces).
 
     Args:
         gloss_vocab_mask: A ``GlossVocabularyMask`` instance.
         device: Torch device for tensor operations.
+        track_diagnostics: If True, track diagnostics (disabled by default in GRPO).
     """
 
     def __init__(
         self,
         gloss_vocab_mask: Any,
         device: str | torch.device = "cpu",
+        track_diagnostics: bool = False,
     ) -> None:
         LogitsProcessor.__init__(self)
         MaskedMassTracker._init_masked_stats(self)
 
         self.mask = gloss_vocab_mask
         self.device = device
-        self.allowed_ids: set[int] = gloss_vocab_mask.token_ids
+        self.tokenizer = gloss_vocab_mask.tokenizer
+        self.eos_token_id = self.tokenizer.eos_token_id
+        self.track_diagnostics = track_diagnostics
 
-        tokenizer = gloss_vocab_mask.tokenizer
-        if hasattr(tokenizer, "vocab_size"):
-            self.vocab_size: int = tokenizer.vocab_size
-        elif hasattr(tokenizer, "__len__"):
-            self.vocab_size: int = len(tokenizer)
-        else:
-            self.vocab_size = 0
+        # Build Token-level Trie from vocabulary
+        self.root = TrieNode()
+        self._build_trie(gloss_vocab_mask.vocab)
 
-        # Precompute the boolean mask tensor once (avoids Python loop per step)
-        self._allowed_mask_tensor = torch.zeros(
-            self.vocab_size, dtype=torch.bool, device=device
+        self.vocab_size = (
+            self.tokenizer.vocab_size
+            if hasattr(self.tokenizer, "vocab_size")
+            else len(self.tokenizer)
         )
-        for tid in self.allowed_ids:
-            if 0 <= tid < self.vocab_size:
-                self._allowed_mask_tensor[tid] = True
+
+        self.prompt_len = -1
+        self.step_count = 0
 
         logger.info(
-            "GlossVocabularyLogitsProcessor initialized "
-            "(allowed=%d tokens, vocab_size=%d, device=%s)",
-            len(self.allowed_ids),
+            "GlossVocabularyLogitsProcessor initialized with Token-level Trie "
+            "(vocab_size=%d, device=%s, track_diagnostics=%s)",
             self.vocab_size,
             device,
+            track_diagnostics,
         )
 
+    def _build_trie(self, vocab: list[str]) -> None:
+        """Insert all normal and space-prefixed glosses into the Trie."""
+        for token in vocab:
+            stripped = token.strip()
+            if not stripped or stripped in {"<BOS>", "<EOS>", "<UNK>"}:
+                continue
+
+            for variant in [token, " " + token]:
+                token_ids = self.tokenizer.encode(variant, add_special_tokens=False)
+                if not token_ids:
+                    continue
+
+                node = self.root
+                for tid in token_ids:
+                    if tid not in node.children:
+                        node.children[tid] = TrieNode()
+                    node = node.children[tid]
+                node.is_terminal = True
+
     def reset(self) -> None:
-        """Reset step counter and masked mass/entropy stats for a new generation."""
+        """Reset step counter, prompt length, and diagnostic metrics for a new generation."""
         self.step_count = 0
+        self.prompt_len = -1
         self._reset_masked_stats()
 
     def __call__(
@@ -101,49 +131,64 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
         input_ids: torch.LongTensor,
         scores: torch.FloatTensor,
     ) -> torch.FloatTensor:
-        """Apply vocabulary mask to logits and track diagnostic metrics.
+        """Apply Token-Trie constrained mask dynamically per batch element."""
+        self.step_count += 1
 
-        Hugging Face ``LogitsProcessor`` interface.
-        """
-        probs = self._pre_process(scores)
+        if self.prompt_len < 0:
+            self.prompt_len = input_ids.shape[1]
 
-        # Use precomputed mask — O(1) instead of O(|allowed_ids|) Python loop
-        allowed_mask = self._allowed_mask_tensor
-        if allowed_mask.device != scores.device:
-            allowed_mask = allowed_mask.to(scores.device)
+        batch_size, vocab_size_logits = scores.shape
 
-        # Ensure allowed_mask size matches the scores vocab size dynamically (handling model vocab padding)
-        vocab_size_logits = scores.shape[-1]
-        if allowed_mask.size(0) != vocab_size_logits:
-            if allowed_mask.size(0) < vocab_size_logits:
-                padding_len = vocab_size_logits - allowed_mask.size(0)
-                padding = torch.zeros(
-                    padding_len, dtype=torch.bool, device=allowed_mask.device
-                )
-                self._allowed_mask_tensor = torch.cat([allowed_mask, padding], dim=0)
-            else:
-                self._allowed_mask_tensor = allowed_mask[:vocab_size_logits]
-            allowed_mask = self._allowed_mask_tensor
+        # Build dynamic mask for the batch
+        mask = torch.zeros(
+            (batch_size, vocab_size_logits),
+            dtype=torch.bool,
+            device=scores.device,
+        )
 
-        # Track masked probability mass + entropy (shared mixin)
-        self._track_masked_stats(probs, allowed_mask)
+        for i in range(batch_size):
+            # Extract newly generated tokens (slice from the end of the prompt)
+            gen_tokens = input_ids[i, self.prompt_len :].tolist()
+
+            # Trace history through the Trie to determine the current state
+            node = self.root
+            for tok in gen_tokens:
+                if tok in node.children:
+                    node = node.children[tok]
+                elif node.is_terminal and tok in self.root.children:
+                    node = self.root.children[tok]
+                else:
+                    node = self.root  # Fallback on mismatch
+
+            # Allowed tokens from the current state in the Trie
+            allowed = set(node.children.keys())
+
+            # If node is terminal or root, we can start a new gloss or generate EOS
+            if node.is_terminal or node == self.root:
+                allowed.update(self.root.children.keys())
+                allowed.add(self.eos_token_id)
+
+            # Apply allowed tokens to the mask
+            for tid in allowed:
+                if 0 <= tid < vocab_size_logits:
+                    mask[i, tid] = True
+
+        # Track masked probability mass + entropy only if diagnostics are explicitly enabled
+        if self.track_diagnostics:
+            with torch.no_grad():
+                probs = torch.nn.functional.softmax(scores, dim=-1)
+            # Find a single allowed mask representing the root state for logging
+            # (or log based on batch mean allowed mask)
+            self._track_masked_stats(probs, mask.any(dim=0))
 
         scores = scores.clone()
-        scores[:, ~allowed_mask] = -float("inf")
-
-        if self.step_count <= 3 or self.step_count % 10 == 0:
-            logger.debug(
-                "[Step %d] Allowed tokens: %d / %d",
-                self.step_count,
-                allowed_mask.sum().item(),
-                self.vocab_size,
-            )
+        scores[~mask] = -float("inf")
 
         return scores
 
     def __repr__(self) -> str:
         return (
-            f"GlossVocabularyLogitsProcessor(allowed={len(self.allowed_ids)}, "
+            f"GlossVocabularyLogitsProcessor(vocab_size={self.vocab_size}, "
             f"steps={self.step_count})"
         )
 

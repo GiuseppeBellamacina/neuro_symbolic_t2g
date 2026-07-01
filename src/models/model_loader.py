@@ -201,17 +201,127 @@ def _load_with_transformers(
     return model, tokenizer
 
 
+def _resolve_fast_inference(model_cfg: dict[str, Any]) -> bool:
+    """Determine if fast_inference (vLLM) can be enabled.
+
+    Returns True only when the config flag is set AND vLLM is installed.
+    """
+    requested = model_cfg.get("fast_inference", False)
+    if not requested:
+        return False
+
+    try:
+        import vllm as _vllm  # noqa: F401
+    except ImportError:
+        import warnings
+
+        warnings.warn(
+            "fast_inference requires vllm — package not found, disabling fast_inference.",
+            stacklevel=2,
+        )
+        return False
+
+    return True
+
+
+def _load_with_unsloth(
+    config: dict[str, Any],
+    adapter_path: str | None = None,
+) -> tuple[Any, Any]:
+    """Load model + tokenizer via Unsloth's FastLanguageModel."""
+    from unsloth import FastLanguageModel
+
+    model_cfg = config["model"]
+    lora_cfg = config.get("lora", {})
+
+    quantization = model_cfg.get("quantization", "4bit")
+    load_in_4bit = quantization == "4bit"
+
+    model_to_load = adapter_path if adapter_path else model_cfg["name"]
+
+    if is_main_process():
+        logger.info(
+            "[unsloth] Loading %s (quantization=%s, max_seq_length=%d)",
+            model_to_load,
+            quantization,
+            model_cfg.get("max_seq_length", 2048),
+        )
+
+    # Disable fast_inference (vLLM) if constrained decoding (grammar logits processor) is active,
+    # as vLLM's sampler does not natively support standard Hugging Face logits_processor lists.
+    use_fast_inference = _resolve_fast_inference(model_cfg)
+    if use_fast_inference:
+        if config.get("grammar", {}).get("enabled", True):
+            if is_main_process():
+                logger.info(
+                    "[unsloth] Constrained decoding (grammar.enabled=true) is active. "
+                    "Disabling fast_inference (vLLM) to ensure HuggingFace logits_processor compatibility."
+                )
+            use_fast_inference = False
+
+    fi_kwargs: dict[str, Any] = {}
+    if use_fast_inference:
+        fi_kwargs["fast_inference"] = True
+        fi_kwargs["max_lora_rank"] = lora_cfg.get("r", 16)
+        fi_kwargs["gpu_memory_utilization"] = model_cfg.get(
+            "gpu_memory_utilization", 0.9
+        )
+        fi_kwargs["unsloth_vllm_standby"] = model_cfg.get("vllm_standby", False)
+        if is_main_process():
+            logger.info("[unsloth] fast_inference enabled (vLLM backend)")
+
+    model, tokenizer = FastLanguageModel.from_pretrained(
+        model_name=model_to_load,
+        max_seq_length=model_cfg.get("max_seq_length", 2048),
+        load_in_4bit=load_in_4bit,
+        dtype=None,  # auto-detect
+        **fi_kwargs,
+    )
+
+    # Apply LoRA via Unsloth only if loading the base model and LoRA is configured.
+    # If we loaded the pre-trained SFT adapter, PEFT is already initialized.
+    if not adapter_path and lora_cfg:
+        target_modules = lora_cfg.get(
+            "target_modules",
+            [
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",
+            ],
+        )
+        if is_main_process():
+            logger.info(
+                "[unsloth-lora] r=%d, alpha=%d, targets=%s",
+                lora_cfg.get("r", 16),
+                lora_cfg.get("lora_alpha", 32),
+                target_modules,
+            )
+        model = FastLanguageModel.get_peft_model(
+            model,
+            r=lora_cfg.get("r", 16),
+            lora_alpha=lora_cfg.get("lora_alpha", 32),
+            lora_dropout=lora_cfg.get("lora_dropout", 0),
+            target_modules=target_modules,
+            use_gradient_checkpointing="unsloth",
+            random_state=lora_cfg.get("random_state", 3407),
+        )
+
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "left"
+
+    return model, tokenizer
+
+
 def load_model_and_tokenizer(
     config: dict[str, Any],
     adapter_path: str | None = None,
 ) -> tuple[Any, Any]:
     """High-level loader: model + tokenizer from a config dict.
-
-    Args:
-        config: Full config dict.
-        adapter_path: Optional path to a saved LoRA adapter (e.g. from SFT
-            pre-training).  If provided, loads the adapter instead of
-            creating a fresh LoRA config.
 
     Expected config structure::
 
@@ -219,9 +329,18 @@ def load_model_and_tokenizer(
           name: "Qwen/Qwen2.5-0.5B-Instruct"
           quantization: "4bit"
           dtype: "bfloat16"
+          use_unsloth: true
         lora:  # optional
           r: 16
           lora_alpha: 32
           ...
     """
+    model_cfg = config["model"]
+    use_unsloth = model_cfg.get("use_unsloth", False)
+
+    if use_unsloth:
+        if is_main_process():
+            logger.info("Backend: Unsloth")
+        return _load_with_unsloth(config, adapter_path=adapter_path)
+
     return _load_with_transformers(config, adapter_path=adapter_path)
