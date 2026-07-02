@@ -566,9 +566,16 @@ def main() -> None:
             if not _lp_called:
                 _lp_called = True
                 print("  [constrained-decoding] logits_processor ACTIVE in generate()")
-                print(
-                    f"  [constrained-decoding] allowed tokens: {len(logits_processor_for_gen.allowed_ids)}"
-                )
+                allowed_count = 0
+                if hasattr(logits_processor_for_gen, "allowed_ids"):
+                    allowed_count = len(logits_processor_for_gen.allowed_ids)
+                elif hasattr(logits_processor_for_gen, "get_valid_tokens"):
+                    allowed_count = len(logits_processor_for_gen.get_valid_tokens())
+                elif hasattr(logits_processor_for_gen, "mask") and hasattr(
+                    logits_processor_for_gen.mask, "token_ids"
+                ):
+                    allowed_count = len(logits_processor_for_gen.mask.token_ids)
+                print(f"  [constrained-decoding] allowed tokens: {allowed_count}")
         with torch.autocast(device_type="cuda", dtype=_autocast_dtype):
             return _orig_generate(*_args, **_kwargs)
 

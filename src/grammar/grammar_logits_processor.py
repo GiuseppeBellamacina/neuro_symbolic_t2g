@@ -186,6 +186,11 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
 
         return scores
 
+    @property
+    def allowed_ids(self) -> set[int]:
+        """Get the set of allowed token IDs in the mask."""
+        return self.mask.token_ids
+
     def __repr__(self) -> str:
         return (
             f"GlossVocabularyLogitsProcessor(vocab_size={self.vocab_size}, "
@@ -289,6 +294,11 @@ class GrammarPDALogitsProcessor(LogitsProcessor, MaskedMassTracker):
     def is_eos(self) -> bool:
         """Check if the PDA has reached the end state (stack empty)."""
         return self.pda.eos()
+
+    @property
+    def allowed_ids(self) -> list[int]:
+        """Get the list of currently allowed token IDs from the PDA."""
+        return self.get_valid_tokens()
 
     @property
     def points(self) -> list[tuple[float, float]] | None:
