@@ -150,15 +150,33 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
             # Extract newly generated tokens (slice from the end of the prompt)
             gen_tokens = input_ids[i, self.prompt_len :].tolist()
 
-            # Trace history through the Trie to determine the current state
+            # Trace history through the Trie to determine the current state.
+            #
+            # NOTE (fix, see docs/T2G_PIPELINE_REVIEW.md §4): on a mismatch
+            # (neither a valid continuation of the current node, nor a valid
+            # start of a new gloss from a terminal state), we must NOT just
+            # reset to ``self.root`` and silently drop ``tok`` — the token was
+            # already emitted and is present in ``input_ids``, so it must be
+            # re-tested against the root before giving up. Otherwise a token
+            # that legitimately starts a *new* gloss (but doesn't happen to
+            # follow a terminal node in this reconstruction) is discarded,
+            # causing the Trie state to silently drift out of sync with the
+            # true generated sequence for one or more subsequent steps.
             node = self.root
             for tok in gen_tokens:
                 if tok in node.children:
                     node = node.children[tok]
                 elif node.is_terminal and tok in self.root.children:
                     node = self.root.children[tok]
+                elif tok in self.root.children:
+                    # `tok` can itself start a new gloss from the root, even
+                    # though the previous node wasn't terminal (e.g. a BPE
+                    # split produced a token sequence not seen as a full
+                    # gloss prefix). Re-sync here instead of dropping `tok`.
+                    node = self.root.children[tok]
                 else:
-                    node = self.root  # Fallback on mismatch
+                    node = self.root  # No match at all: state is undefined,
+                    # restart from empty (best-effort recovery).
 
             # Allowed tokens from the current state in the Trie
             allowed = set(node.children.keys())

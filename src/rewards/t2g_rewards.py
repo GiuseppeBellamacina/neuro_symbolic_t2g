@@ -1,7 +1,7 @@
 """
 Reward Functions for T2G GRPO Training.
 
-Six reward components:
+Seven reward components:
 
 1. **Translation Quality Reward** (ROUGE-L):
    Lexical similarity between generated gloss and gold reference.
@@ -15,9 +15,13 @@ Six reward components:
 4. **Viterbi Distance Reward** (Viterbi-Upper-Bound) 🧪:
    Compares LLM path against the diverse Viterbi optimum.
 
-5. **Format Reward**: Penalizes free text / non-gloss outputs.
+5. **Gloss-Order Reward** (Word-Level Edit-Distance):
+   Normalized Levenshtein distance against the gold gloss sequence —
+   complements ROUGE-L with a signal sensitive to gloss ordering.
 
-6. **Repetition Reward**: Penalizes degenerate token repetition.
+6. **Format Reward**: Penalizes free text / non-gloss outputs.
+
+7. **Repetition Reward**: Penalizes degenerate token repetition.
 
 Rewards are combined via weighted sum and wrapped to match the signature
 expected by TRL's ``GRPOTrainer``:
@@ -399,6 +403,98 @@ def gold_structure_reward(
 
 
 # ---------------------------------------------------------------------------
+# Reward Component: Gloss-Order Edit-Distance Reward
+# ---------------------------------------------------------------------------
+
+
+def _word_level_levenshtein(a: list[str], b: list[str]) -> int:
+    """Compute word-level Levenshtein (edit) distance between two token lists.
+
+    Standard O(len(a) * len(b)) dynamic-programming implementation,
+    operating on whole gloss tokens rather than characters — appropriate
+    since ASL gloss order is a sequence-of-symbols problem, not a
+    character-similarity problem.
+
+    Args:
+        a: First token sequence.
+        b: Second token sequence.
+
+    Returns:
+        The minimum number of token insertions/deletions/substitutions
+        needed to transform ``a`` into ``b``.
+    """
+    n, m = len(a), len(b)
+    if n == 0:
+        return m
+    if m == 0:
+        return n
+
+    # Single-row DP to keep this cheap (glosses are short sequences).
+    prev_row = list(range(m + 1))
+    for i in range(1, n + 1):
+        curr_row = [i] + [0] * m
+        for j in range(1, m + 1):
+            cost_sub = prev_row[j - 1] + (0 if a[i - 1] == b[j - 1] else 1)
+            cost_del = prev_row[j] + 1
+            cost_ins = curr_row[j - 1] + 1
+            curr_row[j] = min(cost_sub, cost_del, cost_ins)
+        prev_row = curr_row
+
+    return prev_row[m]
+
+
+def gloss_order_reward(
+    completion: str,
+    gold_gloss: str,
+) -> float:
+    """Reward the correct **ordering** of glosses via normalized edit-distance.
+
+    ``translation_quality_reward`` (ROUGE-L) is a lexical-overlap proxy
+    designed for natural-language summarization and is comparatively weak
+    at penalizing wrong ordering of a short, highly-structured symbol
+    sequence like ASL gloss (see docs/T2G_PIPELINE_REVIEW.md §5.3).  This
+    reward instead computes the **word-level Levenshtein distance**
+    between the generated and gold gloss sequences, normalized by the
+    length of the longer sequence, so that gloss transpositions/insertions/
+    deletions are penalized in a way that is sensitive to sequence order —
+    independent from (and complementary to) the bigram-based structural
+    rewards, which only look at local transition plausibility, not
+    similarity to the actual gold ordering.
+
+    .. math::
+
+        \\text{reward} = 1 - \\frac{\\text{edit\\_distance}(a, b)}{\\max(|a|, |b|)}
+
+    - ``1.0`` → identical gloss sequence (order and content match exactly).
+    - ``0.0`` → completely different sequence (no overlap after edits).
+
+    Args:
+        completion: Generated gloss sequence (model output).
+        gold_gloss: Ground-truth gloss sequence.
+
+    Returns:
+        Normalized similarity in ``[0, 1]``; ``0.0`` if either sequence
+        is empty.
+    """
+    generated = extract_gloss_text(completion).strip()
+    gold = gold_gloss.strip()
+
+    if not generated or not gold:
+        return 0.0
+
+    gen_tokens = generated.split()
+    gold_tokens = gold.split()
+
+    if not gen_tokens or not gold_tokens:
+        return 0.0
+
+    distance = _word_level_levenshtein(gen_tokens, gold_tokens)
+    max_len = max(len(gen_tokens), len(gold_tokens))
+
+    return float(max(0.0, 1.0 - distance / max_len))
+
+
+# ---------------------------------------------------------------------------
 # Reward Component 4: Viterbi Distance Reward
 # ---------------------------------------------------------------------------
 
@@ -673,6 +769,11 @@ def build_t2g_reward_functions(
       **(recommended over weight_structure)**.
     - ``weight_viterbi``: Bigram score vs Viterbi theoretical optimum
       **(experimental — see caveat in ``viterbi_distance_reward``)**.
+    - ``weight_gloss_order``: Word-level edit-distance similarity with gold
+      gloss — complements ``weight_translation`` (ROUGE-L, a lexical-overlap
+      proxy borrowed from summarization) with a signal that is sensitive to
+      long-range gloss **ordering**, which bigram-based structural rewards
+      do not capture (see docs/T2G_PIPELINE_REVIEW.md §5.3).
     - ``weight_format``: Clean gloss-only format reward.
     - ``weight_repetition``: Repetition penalty.
 
@@ -724,6 +825,13 @@ def build_t2g_reward_functions(
     w = reward_config.get("weight_viterbi", 0.0)
     if w > 0:
         funcs.append(_make_gloss_reward_fn(viterbi_distance_reward))
+        weights.append(w)
+
+    # Gloss-order edit-distance reward (needs gold gloss) — complements
+    # ROUGE-L with an ordering-sensitive signal (see docs §5.3).
+    w = reward_config.get("weight_gloss_order", 0.0)
+    if w > 0:
+        funcs.append(_make_gloss_reward_fn(gloss_order_reward, needs_gold_gloss=True))
         weights.append(w)
 
     # Format reward

@@ -28,6 +28,78 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Merge verification (drift detection between loading backends)
+# ---------------------------------------------------------------------------
+
+
+def _log_merge_checksum(model: Any, label: str) -> None:
+    """Log a cheap checksum (mean/std) of a representative layer's weights.
+
+    Used to empirically verify that the two model-loading backends
+    (``_load_with_transformers`` and ``_load_with_unsloth``) produce
+    equivalent weights after merging a LoRA adapter into the base model.
+    See docs/T2G_PIPELINE_REVIEW.md §3 — the two paths use different
+    APIs (``PeftModel.merge_and_unload()`` vs. Unsloth's internal
+    resolution) and were not verified to be bit-identical; this logs a
+    lightweight signal (not a strict guarantee) to catch gross drift.
+
+    Picks the first linear-ish weight tensor found (by common projection
+    names), falling back to the first parameter with >1 dimension if none
+    match. Purely diagnostic — never raises.
+
+    Args:
+        model: The (merged) model to inspect.
+        label: A short tag identifying the loading path/backend, used as
+            a log prefix (e.g. ``"transformers"`` or ``"unsloth"``).
+    """
+    try:
+        target_names = ("q_proj", "k_proj", "v_proj", "o_proj")
+        sample_name: str | None = None
+        sample_weight: torch.Tensor | None = None
+
+        for name, param in model.named_parameters():
+            if any(t in name for t in target_names) and "lora" not in name.lower():
+                sample_name = name
+                sample_weight = param
+                break
+
+        if sample_weight is None:
+            # Fallback: first >1-D parameter found.
+            for name, param in model.named_parameters():
+                if param.dim() > 1:
+                    sample_name = name
+                    sample_weight = param
+                    break
+
+        if sample_weight is None:
+            logger.warning(
+                "[merge-checksum:%s] No suitable weight tensor found; skipping.",
+                label,
+            )
+            return
+
+        with torch.no_grad():
+            w = sample_weight.detach().float()
+            mean = w.mean().item()
+            std = w.std().item()
+            numel = w.numel()
+
+        if is_main_process():
+            logger.info(
+                "[merge-checksum:%s] layer=%s dtype=%s numel=%d mean=%.6f std=%.6f "
+                "(compare across backends to verify merge equivalence)",
+                label,
+                sample_name,
+                sample_weight.dtype,
+                numel,
+                mean,
+                std,
+            )
+    except Exception as exc:  # pragma: no cover - purely diagnostic
+        logger.warning("[merge-checksum:%s] Skipped checksum logging: %s", label, exc)
+
+
+# ---------------------------------------------------------------------------
 # Quantization
 # ---------------------------------------------------------------------------
 
@@ -193,6 +265,7 @@ def _load_with_transformers(
         logger.info("Merging SFT adapter in-memory...")
         model = model.merge_and_unload()
         logger.info("SFT adapter successfully merged into base model.")
+        _log_merge_checksum(model, label="transformers")
 
     if lora_cfg:
         model = apply_lora(
@@ -302,6 +375,7 @@ def _load_with_unsloth(
         model = model.merge_and_unload()
         if is_main_process():
             logger.info("[unsloth] SFT adapter successfully merged into base model.")
+        _log_merge_checksum(model, label="unsloth")
 
     if lora_cfg:
         target_modules = lora_cfg.get(

@@ -47,7 +47,7 @@ dataset:
 
 # --- Iperparametri di training SFT ---
 training:
-  trainer: sft  # Auto-detection key for __main__.py bootstrap
+  trainer: sft # Auto-detection key for __main__.py bootstrap
   # SFT usa epoche invece di max_steps (supervised, non RL)
   num_train_epochs: 3
   per_device_train_batch_size: 4
@@ -75,9 +75,11 @@ generation:
 # --- Pesi della reward function (eval-only per SFT) ---
 reward:
   # Translation quality (ROUGE-L similarity with gold gloss)
-  weight_translation: 0.40
+  weight_translation: 0.30
   # Gold-structure reward: bigram score vs gold reference baseline
-  weight_gold_structure: 0.40
+  weight_gold_structure: 0.35
+  # Gloss-order reward: word-level edit-distance vs gold gloss (§5.3)
+  weight_gloss_order: 0.15
   # Format reward: ensure gloss tokens only (no free text)
   weight_format: 0.10
   # Repetition penalty

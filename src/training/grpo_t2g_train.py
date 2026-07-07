@@ -474,6 +474,37 @@ def main() -> None:
         f"max_completion={grpo_config.max_completion_length}"
     )
 
+    # ── Workaround: unsloth-zoo autocast dtype defaults to float16 ───────
+    # `unsloth_zoo.rl_replacements.grpo_accumulated_loss` (materialized as
+    # unsloth_compiled_cache/UnslothGRPOTrainer.py on the cluster) lazily
+    # initializes `trainer._autocast_dtype` on the FIRST training step via:
+    #
+    #   trainer._autocast_dtype = (
+    #       torch.float16
+    #       if os.environ.get('ACCELERATE_MIXED_PRECISION', 'fp16') == 'fp16'
+    #       else torch.bfloat16
+    #   )
+    #
+    # This reads the RAW `ACCELERATE_MIXED_PRECISION` env var directly,
+    # bypassing HF Accelerate's own `AcceleratorState().mixed_precision`
+    # bookkeeping entirely. `GRPOConfig(bf16=True)` sets
+    # `TrainingArguments.mixed_precision = "bf16"` as a *Python attribute*
+    # and forwards it straight into `Accelerator(mixed_precision="bf16")`
+    # — this never touches `os.environ`. The env var is only ever set by
+    # the `accelerate launch` CLI or DeepSpeed, neither of which this
+    # project uses (script is run directly via `python -m src.training`).
+    # Result: the env var is unset → unsloth-zoo defaults to 'fp16' →
+    # `trainer._autocast_dtype = torch.float16`, wrapping GRPO's forward
+    # pass in a FLOAT16 autocast context that conflicts with the model's
+    # actual bfloat16 weights/LoRA adapters, causing:
+    #   RuntimeError: self and mat2 must have the same dtype, but got
+    #   Half and Float  (in unsloth/kernels/utils.py:matmul_lora)
+    #
+    # Fix: explicitly set the env var to match `grpo_config.bf16` BEFORE
+    # `GRPOTrainer` is constructed / trained, so unsloth-zoo's lazy check
+    # picks up the correct dtype on its first (and only) evaluation.
+    os.environ["ACCELERATE_MIXED_PRECISION"] = "bf16" if grpo_config.bf16 else "fp16"
+
     # ── Resume logic ─────────────────────────────────────────────────────
     resume_from: str | None = None
     if args.resume:
@@ -534,6 +565,14 @@ def main() -> None:
         processing_class=tokenizer,
         callbacks=[sample_callback],
     )
+
+    # ── Defensive: force unsloth-zoo's internal autocast dtype directly ──
+    # Belt-and-suspenders alongside the `ACCELERATE_MIXED_PRECISION` env
+    # var fix above: pre-set `trainer._autocast_dtype` on the trainer
+    # instance itself so `grpo_accumulated_loss`'s
+    # `if not hasattr(trainer, '_autocast_dtype')` lazy-init check is a
+    # no-op regardless of env var propagation timing/caching quirks.
+    trainer._autocast_dtype = torch.bfloat16 if grpo_config.bf16 else torch.float16
 
     # ── Monkey-patch model.generate() AFTER trainer init ────────────────
     # IMPORTANT: The patch must be applied AFTER GRPOTrainer.__init__()
