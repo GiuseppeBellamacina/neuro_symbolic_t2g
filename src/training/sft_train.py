@@ -306,7 +306,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     if not hasattr(model, "warnings_issued"):
         model.warnings_issued = {}
 
-    from transformers.integrations import WandbCallback
+    from transformers.integrations.integration_utils import WandbCallback
     from transformers.trainer_callback import ProgressCallback
 
     from src.training.callbacks import (
