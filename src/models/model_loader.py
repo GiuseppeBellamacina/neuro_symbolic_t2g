@@ -147,6 +147,7 @@ def apply_lora(
     )
 
     model = get_peft_model(model, lora_config)
+    _align_lora_dtype_to_base(model)
     model.print_trainable_parameters()
     return model
 
@@ -204,6 +205,57 @@ def _load_with_transformers(
         )
 
     return model, tokenizer
+
+
+def _align_lora_dtype_to_base(model: Any) -> None:
+    """Force LoRA adapter (A/B) weights to match the base model's compute dtype.
+
+    Workaround for an open upstream Unsloth bug (dtype mismatch in
+    ``matmul_lora`` / LoRA fused kernels during GRPO training):
+    https://github.com/unslothai/unsloth/issues/4891
+    (fix PR https://github.com/unslothai/unsloth/pull/4918 still unmerged
+    as of 2026-07-07).
+
+    Root cause: with bnb-4bit + bfloat16 activations, ``fast_dequantize``
+    can return the base weight in ``quant_state.dtype`` (often float16),
+    while newly-initialized LoRA A/B adapter weights follow the model's
+    ``dtype`` (bfloat16). Unsloth's custom autograd kernels then crash in
+    ``out.addmm_(XA, B.to(dtype), alpha=s)`` with:
+        RuntimeError: self and mat2 must have the same dtype, but got Half
+        and Float
+    This surfaces specifically under GRPO's chunked loss computation
+    (``grpo_accumulated_loss``) combined with Unsloth's smart gradient
+    checkpointing recompute path — SFT training with the same LoRA config
+    does not trigger it.
+
+    Fix: after ``get_peft_model``, walk all LoRA A/B submodules and cast
+    them to the dtype of the underlying base layer's weight. This is a
+    no-op once upstream ships a proper fix.
+    """
+    try:
+        import torch
+        from peft.tuners.lora import LoraLayer
+
+        n_cast = 0
+        for module in model.modules():
+            if isinstance(module, LoraLayer):
+                base_weight = getattr(module.get_base_layer(), "weight", None)
+                target_dtype = (
+                    base_weight.dtype if base_weight is not None else torch.bfloat16
+                )
+                for adapter_dict in (module.lora_A, module.lora_B):
+                    for sub in adapter_dict.values():
+                        if hasattr(sub, "weight") and sub.weight.dtype != target_dtype:
+                            sub.to(target_dtype)
+                            n_cast += 1
+        if n_cast and is_main_process():
+            logger.info(
+                "[dtype-fix] Cast %d LoRA A/B submodules to base compute dtype "
+                "(workaround for unsloth#4891).",
+                n_cast,
+            )
+    except Exception as exc:  # pragma: no cover - defensive, must never break training
+        logger.warning("[dtype-fix] Skipped LoRA dtype alignment: %s", exc)
 
 
 def _load_with_unsloth(
@@ -280,6 +332,7 @@ def _load_with_unsloth(
             use_gradient_checkpointing="unsloth",
             random_state=lora_cfg.get("random_state", 3407),
         )
+        _align_lora_dtype_to_base(model)
 
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
