@@ -98,19 +98,37 @@ In `neuro_symbolic_t2g/pyproject.toml`:
 "unsloth==2026.3.17",
 
 # dopo
-"unsloth>=2026.7.7",
-"unsloth_zoo>=2026.7.7",
+"unsloth>=2026.7.1",
 ```
 
-`unsloth_zoo` è stato aggiunto esplicitamente (prima dipendenza transitiva
-non pinnata) per evitare skew di versione tra i due pacchetti, dato che
-Unsloth fa riferimento a funzioni interne di `unsloth_zoo` che evolvono in
-coppia.
+> ⚠️ **Correzione**: un primo tentativo aveva fissato `>=2026.7.7`,
+> dedotto dalle date dei commit visti nella cronologia GitHub del branch
+> `main`. Quella versione **non esiste ancora su PyPI** — i commit su
+> GitHub non sono automaticamente rilasciati come package. L'installazione
+> sul cluster ha fallito con `No matching distribution found for
+unsloth>=2026.7.7` (l'ultima versione pubblicata al 2026-07-07 è
+> `2026.7.1`). Corretto a `>=2026.7.1`. **Lezione**: quando si fissa una
+> versione minima da bug-fix osservati su GitHub, verificare sempre che
+> la versione sia effettivamente pubblicata su PyPI (`pip index versions
+<pkg>`), non solo che il commit esista nel repository.
+
+`unsloth_zoo` non è stato pinnato esplicitamente: è una dipendenza
+transitiva di `unsloth` e verrà risolta automaticamente alla versione
+compatibile.
 
 **Azione richiesta sul cluster**: rieseguire l'installazione
 (`pip install --user -e . --upgrade`) prima del prossimo run, poiché il
 pin è cambiato solo nel file di progetto — l'ambiente Python esistente sul
 cluster ha ancora la versione vecchia installata finché non si aggiorna.
+
+> **Nota di follow-up**: se dopo l'upgrade a `2026.7.1` il crash dovesse
+> ripresentarsi, significa che il fix `position_ids[:, -1:]` non è ancora
+> incluso in quella release (i commit più recenti osservati, come #6907
+> del 6 luglio e #6925 del 7 luglio, potrebbero non essere ancora nel
+> tarball pubblicato). In tal caso verificare `pip index versions
+unsloth` per una release più recente, oppure installare direttamente da
+> Git (`unsloth @ git+https://github.com/unslothai/unsloth.git@main`) come
+> soluzione ponte.
 
 ---
 
@@ -278,7 +296,8 @@ Cause candidate, in ordine di impatto stimato:
 ## 7. File modificati in questa sessione
 
 - `neuro_symbolic_t2g/pyproject.toml` — bump `unsloth==2026.3.17` →
-  `unsloth>=2026.7.7`, aggiunto `unsloth_zoo>=2026.7.7`.
+  `unsloth>=2026.7.1` (versione più recente pubblicata su PyPI al
+  2026-07-07).
 - `neuro_symbolic_t2g/docs/T2G_PIPELINE_REVIEW.md` — questo documento
   (nuovo).
 
