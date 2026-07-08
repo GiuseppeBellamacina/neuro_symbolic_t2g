@@ -34,11 +34,23 @@ import importlib
 import logging
 import os
 import random
+import warnings
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import torch
+
+# ── Silence noisy transformers FutureWarnings ──────────────────────────
+# transformers 5.3.0 prints 5 FutureWarning lines per generate() call about
+# the deprecated AttentionMaskConverter API. These are internal to transformers
+# and will be fixed in v5.10. Suppress them to keep the training log clean.
+warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
+warnings.filterwarnings(
+    "ignore",
+    message=".*AttentionMaskConverter.*",
+    category=FutureWarning,
+)
 
 _trl_iu = importlib.import_module("trl.import_utils")  # noqa: E402
 if isinstance(_trl_iu._mergekit_available, tuple):
@@ -599,6 +611,13 @@ def main() -> None:
     def _patched_generate(*_args: Any, **_kwargs: Any) -> Any:
         nonlocal _lp_called
         if logits_processor_for_gen is not None:
+            # CRITICAL: reset the processor's prompt_len cache before each
+            # generate() call. TRL generates completions for different prompts
+            # in sequence — if prompt_len is stale from a previous rollout,
+            # the Trie traces from the wrong offset in input_ids, producing
+            # garbage allowed-token sets. This was the root cause of the
+            # DEBUTRECHT/HOWEVERY garbage tokens in the 2026-07-08 run.
+            logits_processor_for_gen.reset()
             _kwargs["logits_processor"] = [logits_processor_for_gen] + _kwargs.get(
                 "logits_processor", []
             )

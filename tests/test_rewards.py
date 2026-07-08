@@ -283,9 +283,9 @@ def test_viterbi_distance_reward() -> None:
         f"{score:.4f}",
     )
 
-    # Raw (should be negative)
+    # Raw (should be <= 0, since Viterbi is the optimal path)
     raw = viterbi_distance_reward(plausible, normalize=False)
-    check("Raw < 0.0", raw < 0.0, f"{raw:.4f}")
+    check("Raw <= 0.0", raw <= 0.0, f"{raw:.4f}")
 
 
 def test_build_reward_functions() -> None:
@@ -352,6 +352,93 @@ def test_build_reward_functions() -> None:
     check("Old-style (structure): 2 functions", len(funcs4) == 2, f"got {len(funcs4)}")
     check("Old-style: weights sum to 1.0", abs(sum(weights4) - 1.0) < 0.01)
 
+    # Check soft Viterbi weight
+    custom_soft = {
+        "weight_translation": 0.3,
+        "weight_soft_viterbi": 0.3,
+        "weight_gold_structure": 0.3,
+        "weight_format": 0.05,
+        "weight_repetition": 0.05,
+    }
+    funcs5, weights5 = build_t2g_reward_functions(custom_soft)
+    check("Custom (soft-viterbi): 5 functions", len(funcs5) == 5, f"got {len(funcs5)}")
+    check(
+        "Custom (soft-viterbi): weights sum to 1.0",
+        abs(sum(weights5) - 1.0) < 0.01,
+    )
+
+    # Check verifier-scaled weight
+    custom_ver = {
+        "weight_verifier_scaled": 0.65,
+        "weight_gloss_order": 0.15,
+        "weight_format": 0.10,
+        "weight_repetition": 0.10,
+    }
+    funcs6, weights6 = build_t2g_reward_functions(custom_ver)
+    check(
+        "Custom (verifier-scaled): 4 functions",
+        len(funcs6) == 4,
+        f"got {len(funcs6)}",
+    )
+    check(
+        "Custom (verifier-scaled): weights sum to 1.0",
+        abs(sum(weights6) - 1.0) < 0.01,
+    )
+
+
+def test_soft_viterbi_distance_reward() -> None:
+    print("\n-- 8. Soft Viterbi Distance Reward (Differentiable) --")
+    from src.rewards.t2g_rewards import soft_viterbi_distance_reward
+
+    plausible = "IX MAN WALK HOUSE"
+    score = soft_viterbi_distance_reward(plausible, normalize=True)
+    check("Soft Viterbi in [0, 1]", 0.0 <= score <= 1.0, f"{score:.4f}")
+    check("Soft Viterbi > 0", score > 0.0)
+
+    short = "IX"
+    score_short = soft_viterbi_distance_reward(short, normalize=True)
+    check("Short (<2 tokens) = 0.0", score_short == 0.0)
+
+    empty = soft_viterbi_distance_reward("", normalize=True)
+    check("Empty = 0.0", empty == 0.0)
+
+    # Bad sequence — should get lower score
+    bad = "DOG fs-JOHN BOOK CAN NOT WANT"
+    score_bad = soft_viterbi_distance_reward(bad, normalize=True)
+    check("Bad < plausible", score_bad < score, f"{score_bad:.4f} < {score:.4f}")
+    check("Bad in [0, 1]", 0.0 <= score_bad <= 1.0, f"{score_bad:.4f}")
+
+    # Raw (should be <= 0, since soft Viterbi is an upper bound)
+    raw = soft_viterbi_distance_reward(plausible, normalize=False)
+    check("Soft Viterbi raw <= 0.0", raw <= 0.0, f"{raw:.4f}")
+
+
+def test_verifier_scaled_reward() -> None:
+    print("\n-- 9. Verifier-Scaled Reward (RECIPE-inspired) --")
+    from src.rewards.t2g_rewards import verifier_scaled_reward
+
+    plausible = "IX MAN WALK HOUSE"
+    gold = "IX MAN WALK HOUSE"
+    score = verifier_scaled_reward(plausible, gold)
+    check("Verifier-scaled perfect in [0, 1]", 0.0 <= score <= 1.0, f"{score:.4f}")
+    check("Verifier-scaled perfect > 0.5", score > 0.5, f"{score:.4f}")
+
+    # Wrong sequence — should be low
+    bad = "DOG fs-JOHN BOOK CAN NOT WANT"
+    score_bad = verifier_scaled_reward(bad, gold)
+    check(
+        "Verifier-scaled bad < perfect",
+        score_bad < score,
+        f"{score_bad:.4f} < {score:.4f}",
+    )
+    check("Verifier-scaled bad in [0, 1]", 0.0 <= score_bad <= 1.0, f"{score_bad:.4f}")
+
+    # Empty
+    check("Verifier-scaled empty = 0.0", verifier_scaled_reward("", gold) == 0.0)
+    check(
+        "Verifier-scaled empty gold = 0.0", verifier_scaled_reward(plausible, "") == 0.0
+    )
+
 
 def main() -> None:
     global PASS, FAIL
@@ -367,6 +454,8 @@ def main() -> None:
         test_repetition_reward()
         test_gold_structure_reward()
         test_viterbi_distance_reward()
+        test_soft_viterbi_distance_reward()
+        test_verifier_scaled_reward()
         test_build_reward_functions()
     except Exception as e:
         print(f"\n  !! CRASH: {e}")

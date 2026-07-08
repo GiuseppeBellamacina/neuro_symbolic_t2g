@@ -1,13 +1,12 @@
 # ============================================================================
-# Ablation Study — GRPO WITHOUT Grammar (GRPO No Grammar)
+# Ablation Study — GRPO with Soft Viterbi Reward (Differentiable Viterbi)
 #
-# Esegue training GRPO standard SENZA constrained decoding.
-# Il modello genera liberamente (nessun vocabulary mask).
-# Le reward sono le stesse del training standard (ROUGE-L + structure + format + repetition).
+# Tests the soft Viterbi (forward-backward) reward instead of the hard
+# Viterbi distance.  The soft Viterbi provides a smoother, differentiable
+# upper bound inspired by ViterbiPlanNet's DVL (arXiv:2603.04265).
 #
 # Usato da:
-#   CONFIG=experiments/configs/t2g/ablation/grpo_no_grammar.yaml sbatch cluster/train.sh
-#   python -m src.training --config experiments/configs/t2g/ablation/grpo_no_grammar.yaml
+#   CONFIG=experiments/configs/t2g/ablation/grpo_soft_viterbi.yaml sbatch cluster/train.sh
 # ============================================================================
 
 # --- Modello ---
@@ -42,20 +41,29 @@ dataset:
   vocab_path: "data/gloss_vocab.txt"
   bigram_matrix_path: "data/bigram_transition.npy"
   split: "train"
-  max_samples: null
+  max_samples: 20000
   seed: 42
   thinking: false
 
-# --- Grammar DISABLED for ablation ---
-grammar:
-  enabled: false
-  # Viterbi diversity penalty params (for viterbi_distance_reward eval)
-  viterbi_diversity:
-    self_loop_penalty: 0.5
-    max_occurrences: 2
-    diversity_threshold: 0.3
-    max_iters: 3
-    verifier_gamma: 1.0
+# --- SFT Pre-training ---
+sft_pretrain:
+  enabled: true
+  training:
+    num_train_epochs: 1
+    per_device_train_batch_size: 2
+    gradient_accumulation_steps: 8
+    learning_rate: 2.0e-5
+    lr_scheduler_type: "cosine"
+    warmup_steps: 50
+    optim: "paged_adamw_8bit"
+    weight_decay: 0.1
+    max_grad_norm: 1.0
+    bf16: true
+    logging_steps: 10
+    save_steps: 200
+    save_total_limit: 1
+    max_seq_length: 768
+    gradient_checkpointing: true
 
 # --- Iperparametri di training ---
 training:
@@ -64,7 +72,7 @@ training:
   gradient_accumulation_steps: 8
   learning_rate: 5.0e-6
   lr_scheduler_type: "cosine"
-  warmup_steps: 150 # was warmup_ratio: 0.1 → deprecated in transformers 5.2+
+  warmup_steps: 150
   optim: "paged_adamw_8bit"
   weight_decay: 0.1
   max_grad_norm: 0.1
@@ -72,24 +80,37 @@ training:
   logging_steps: 5
   save_steps: 100
   save_total_limit: 3
-  output_dir: "experiments/checkpoints/grpo/t2g/qwen25-05b-no-grammar"
-  log_dir: "experiments/logs/grpo/t2g/qwen25-05b-no-grammar"
+  output_dir: "experiments/checkpoints/grpo/t2g/qwen25-05b-soft-viterbi"
+  log_dir: "experiments/logs/grpo/t2g/qwen25-05b-soft-viterbi"
 
 # --- Parametri GRPO ---
 grpo:
   num_generations: 4
-  max_completion_length: 256
+  max_completion_length: 128
   max_prompt_length: 256
   beta: 0.04
   temperature: 0.7
 
 # --- Pesi della reward function ---
+# Ablation: replace gold_structure with soft_viterbi to test differentiable
+# structural reward (ViterbiPlanNet DVL, arXiv:2603.04265)
 reward:
   weight_translation: 0.30
-  weight_gold_structure: 0.35
+  weight_soft_viterbi: 0.35 # ← Differentiable Viterbi (forward-backward)
   weight_gloss_order: 0.15
   weight_format: 0.10
   weight_repetition: 0.10
+
+# --- Constrained Decoding ---
+grammar:
+  enabled: true
+  use_grammarllm_pda: false
+  viterbi_diversity:
+    self_loop_penalty: 0.5
+    max_occurrences: 2
+    diversity_threshold: 0.3
+    max_iters: 3
+    verifier_gamma: 1.0
 
 # --- Curriculum Learning (disabled) ---
 curriculum:
@@ -102,5 +123,5 @@ evaluation:
 # --- Weights & Biases ---
 wandb:
   project: "neuro-symbolic-t2g"
-  run_name: "ablation-grpo-no-grammar"
-  tags: ["ablation", "GRPO", "no-grammar", "T2G", "Qwen2.5-0.5B", "ASL"]
+  run_name: "grpo-t2g-soft-viterbi"
+  tags: ["grpo", "T2G", "ablation", "soft-viterbi", "ViterbiPlanNet"]

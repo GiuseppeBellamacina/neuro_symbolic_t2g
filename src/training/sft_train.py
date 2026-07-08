@@ -17,12 +17,21 @@ import gc
 import logging
 import os
 import random
+import warnings
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import torch
 import wandb
+
+# Silence noisy transformers FutureWarnings (AttentionMaskConverter deprecation)
+warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
+warnings.filterwarnings(
+    "ignore",
+    message=".*AttentionMaskConverter.*",
+    category=FutureWarning,
+)
 from dotenv import load_dotenv
 from trl import SFTConfig, SFTTrainer  # type: ignore[import]
 
@@ -212,6 +221,21 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
 
     sft_dataset = _prepare_sft_dataset(config, tokenizer, dataset=dataset)
 
+    # Log a few sample pairs for verification
+    logger.info("[sft] Sample conversation pairs (first 2):")
+    for i in range(min(2, len(sft_dataset))):
+        text = sft_dataset[i]["text"]
+        # Extract just the user instruction and gold gloss for compact display
+        user_marker = "<|im_start|>user\n"
+        asst_marker = "<|im_start|>assistant\n"
+        if user_marker in text and asst_marker in text:
+            user_text = text.split(user_marker)[1].split("<|im_end|>")[0].strip()
+            gold_text = text.split(asst_marker)[1].split("<|im_end|>")[0].strip()
+            logger.info("[sft]   #%d  EN: %s", i, user_text[:80])
+            logger.info("[sft]        GOLD: %s", gold_text[:80])
+        else:
+            logger.info("[sft]   #%d  (raw) %s", i, text[:100])
+
     # ── Step 4: SFT configuration ────────────────────────────────────────
     logger.info("=" * 60)
     logger.info("STEP 4: SFT Configuration")
@@ -265,6 +289,28 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         sft_config.learning_rate,
         sft_config.max_length,
     )
+    logger.info(
+        "[sft] warmup=%d, weight_decay=%.3f, scheduler=%s, optim=%s, bf16=%s",
+        sft_config.warmup_steps,
+        sft_config.weight_decay,
+        sft_config.lr_scheduler_type,
+        sft_config.optim,
+        sft_config.bf16,
+    )
+    logger.info(
+        "[sft] dataset_size=%d, effective_batch=%d, total_optim_steps≈%d",
+        len(sft_dataset),
+        sft_config.per_device_train_batch_size * sft_config.gradient_accumulation_steps,
+        max(
+            1,
+            len(sft_dataset)
+            // (
+                sft_config.per_device_train_batch_size
+                * sft_config.gradient_accumulation_steps
+            ),
+        )
+        * sft_config.num_train_epochs,
+    )
 
     # ── Resume logic ─────────────────────────────────────────────────────
     resume_from: str | None = None
@@ -311,6 +357,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
 
     from src.training.callbacks import (
         HighPrecisionLogCallback,
+        SFTSampleCallback,
         TqdmOnlyProgressCallback,
     )
 
@@ -330,6 +377,17 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         trainer.remove_callback(WandbCallback)
     except Exception:
         pass
+
+    # SFT sample + loss tracking callback for visibility into pre-training
+    sft_sample_cb = SFTSampleCallback(
+        tokenizer=tokenizer,
+        model=model,
+        dataset=sft_dataset,
+        every_n_steps=training_cfg.get("logging_steps", 10) * 5,
+        sample_every_n_steps=training_cfg.get("sft_sample_every_n_steps", 100),
+        n_samples=2,
+    )
+    trainer.add_callback(sft_sample_cb)
 
     logger.info("Starting SFT training...")
     trainer.train(resume_from_checkpoint=resume_from)

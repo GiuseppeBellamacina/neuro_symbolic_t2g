@@ -277,7 +277,36 @@ def _load_with_transformers(
             task_type=lora_cfg.get("task_type", "CAUSAL_LM"),
         )
 
+    _sanitize_generation_config(model)
+
     return model, tokenizer
+
+
+def _sanitize_generation_config(model: Any) -> None:
+    """Remove ``max_length`` from the model's ``generation_config``.
+
+    Qwen2.5 ships with ``max_length=32768`` in its ``generation_config.json``.
+    When GRPO passes ``max_new_tokens`` (e.g. 128) during rollout generation,
+    transformers 5.3.0 prints a warning on every step:
+
+        Both `max_new_tokens` (=128) and `max_length`(=32768) seem to have
+        been set. `max_new_tokens` will take precedence.
+
+    Removing ``max_length`` from the config silences the warning.  This is
+    safe because we always use ``max_new_tokens`` for generation.
+    """
+    gc = getattr(model, "generation_config", None)
+    if gc is not None and hasattr(gc, "max_length"):
+        try:
+            if gc.max_length is not None:
+                gc.max_length = None
+                if is_main_process():
+                    logger.debug(
+                        "[generation_config] Removed max_length to avoid "
+                        "conflict with max_new_tokens."
+                    )
+        except Exception:
+            pass
 
 
 def _align_lora_dtype_to_base(model: Any) -> None:
@@ -411,6 +440,8 @@ def _load_with_unsloth(
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
+
+    _sanitize_generation_config(model)
 
     return model, tokenizer
 

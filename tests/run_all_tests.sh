@@ -74,6 +74,9 @@ fi
 # 6. Monitor parsing (pure logic, no deps)
 run_test "tests/test_monitor.py" "Monitor Parsing Logic"
 
+# 7. Config validation (YAML schema checks)
+run_test "tests/validate_configs.py" "Config Validation"
+
 echo ""
 echo "========================================================"
 echo "  TEST SUITE COMPLETE"

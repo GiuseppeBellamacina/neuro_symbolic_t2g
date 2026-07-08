@@ -60,6 +60,18 @@ class MaskLogitsProcessor(LogitsProcessor):
             logging.info(f"{prefix} - Nessun token valido disponibile.")
             return 0.0, 1.0
 
+        # Filter out token IDs that are out of bounds for the logits tensor.
+        # Some tokenizers (e.g. Qwen) have added special tokens (like EOS)
+        # with IDs >= vocab_size, which would cause IndexError when indexing
+        # into the logits/probabilities tensor.
+        vocab_size = probabilities.shape[-1]
+        valid_tokens = [t for t in valid_tokens if 0 <= t < vocab_size]
+        if not valid_tokens:
+            logging.info(
+                f"{prefix} - All valid tokens out of bounds (vocab_size={vocab_size})."
+            )
+            return 0.0, 1.0
+
         valid_probs = probabilities[:, valid_tokens]
         cumulative_prob_mass_valid = valid_probs.sum().item()
         cumulative_prob_mass_invalid = 1.0 - cumulative_prob_mass_valid
@@ -80,6 +92,9 @@ class MaskLogitsProcessor(LogitsProcessor):
         """
         batch_size, vocab_size = probabilities.shape
         device = probabilities.device
+
+        # Filter out-of-bounds token IDs to prevent IndexError
+        valid_tokens = [t for t in valid_tokens if 0 <= t < vocab_size]
 
         # Crea maschera per token invalidi
         mask = torch.ones(vocab_size, dtype=torch.bool, device=device)
@@ -143,6 +158,11 @@ class MaskLogitsProcessor(LogitsProcessor):
 
         # CASO 1: Ci sono token validi - Applica filtro normale
         if valid_tokens:
+            # Filter out-of-bounds token IDs (e.g. EOS with id >= vocab_size)
+            vocab_size = scores.shape[-1]
+            valid_tokens = [t for t in valid_tokens if 0 <= t < vocab_size]
+
+        if valid_tokens:
             logging.info(f"Token validi disponibili: {len(valid_tokens)}")
 
             # Calcola metriche originali
@@ -179,28 +199,46 @@ class MaskLogitsProcessor(LogitsProcessor):
                 logging.info("Stack PDA vuoto -> Forzando generazione EOS")
 
                 eos_token_id = self.tokenizer.eos_token_id
-                original_probabilities = torch.softmax(scores, dim=-1)
+                vocab_size = scores.shape[-1]
 
-                self.log_top_10_scores(
-                    original_probabilities, prefix="ORIGINALE (pre-EOS)"
-                )
+                # If EOS token ID is out of bounds (added token with id >= vocab_size),
+                # we cannot index into the logits tensor. Return scores as-is
+                # and signal generation end.
+                if eos_token_id is not None and 0 <= eos_token_id < vocab_size:
+                    original_probabilities = torch.softmax(scores, dim=-1)
 
-                valid_mass, _ = self.log_valid_tokens_prob_mass(
-                    original_probabilities, [eos_token_id], prefix="ORIGINALE (pre-EOS)"
-                )
-                if self.track_metrics:
-                    self.preserved_mass.append(valid_mass)
+                    self.log_top_10_scores(
+                        original_probabilities, prefix="ORIGINALE (pre-EOS)"
+                    )
 
-                self.log_invalid_tokens_entropy(
-                    original_probabilities, [eos_token_id], prefix="ORIGINALE (pre-EOS)"
-                )
+                    valid_mass, _ = self.log_valid_tokens_prob_mass(
+                        original_probabilities,
+                        [eos_token_id],
+                        prefix="ORIGINALE (pre-EOS)",
+                    )
+                    if self.track_metrics:
+                        self.preserved_mass.append(valid_mass)
 
-                # Forza EOS
-                filtered_scores = torch.full_like(scores, -float("inf"))
-                filtered_scores[:, eos_token_id] = scores[:, eos_token_id]
+                    self.log_invalid_tokens_entropy(
+                        original_probabilities,
+                        [eos_token_id],
+                        prefix="ORIGINALE (pre-EOS)",
+                    )
 
-                filtered_probabilities = torch.softmax(filtered_scores, dim=-1)
-                self.log_top_10_scores(filtered_probabilities, prefix="FILTRATO (EOS)")
+                    # Forza EOS
+                    filtered_scores = torch.full_like(scores, -float("inf"))
+                    filtered_scores[:, eos_token_id] = scores[:, eos_token_id]
+
+                    filtered_probabilities = torch.softmax(filtered_scores, dim=-1)
+                    self.log_top_10_scores(
+                        filtered_probabilities, prefix="FILTRATO (EOS)"
+                    )
+                else:
+                    logging.warning(
+                        f"EOS token id {eos_token_id} out of bounds for vocab_size={vocab_size}; "
+                        "returning unfiltered scores."
+                    )
+                    filtered_scores = scores
 
                 self.generation_ended = True  # Segnala terminazione
                 return filtered_scores
@@ -214,7 +252,15 @@ class MaskLogitsProcessor(LogitsProcessor):
                 # Opzione sicura: forza comunque EOS per terminare
                 logging.warning("Forzando EOS per sicurezza")
                 eos_token_id = self.tokenizer.eos_token_id
-                filtered_scores = torch.full_like(scores, -float("inf"))
-                filtered_scores[:, eos_token_id] = scores[:, eos_token_id]
+                vocab_size = scores.shape[-1]
+                if eos_token_id is not None and 0 <= eos_token_id < vocab_size:
+                    filtered_scores = torch.full_like(scores, -float("inf"))
+                    filtered_scores[:, eos_token_id] = scores[:, eos_token_id]
+                else:
+                    logging.warning(
+                        f"EOS token id {eos_token_id} out of bounds for vocab_size={vocab_size}; "
+                        "returning unfiltered scores."
+                    )
+                    filtered_scores = scores
                 self.generation_ended = True
                 return filtered_scores

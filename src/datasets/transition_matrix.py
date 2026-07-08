@@ -672,3 +672,216 @@ def viterbi_optimal_score_diverse(
         max_iters=max_iters,
     )
     return score
+
+
+# ---------------------------------------------------------------------------
+# Soft Viterbi (Forward-Backward) — Differentiable Viterbi relaxation
+# ---------------------------------------------------------------------------
+
+
+def forward_log_probs(
+    transition_matrix: np.ndarray,
+    start_idx: int,
+    end_idx: int,
+    length: int,
+) -> np.ndarray:
+    """Compute forward log-probabilities (alpha) for all states at each step.
+
+    This is the forward pass of the forward-backward algorithm on the
+    bigram Markov chain, computed in log-space for numerical stability.
+
+    .. math::
+
+        \\alpha_t(s) = \\log P(o_1, \\ldots, o_t, q_t = s)
+
+    where :math:`q_t` is the state at step :math:`t`.
+
+    Inspired by the Differentiable Viterbi Layer (DVL) in ViterbiPlanNet
+    (arXiv:2603.04265), which replaces the non-differentiable argmax
+    Viterbi with smooth forward-backward computations to allow gradient
+    flow through the structural reward.
+
+    Args:
+        transition_matrix: ``(V, V)`` bigram transition probability matrix.
+        start_idx: Index of the start token (typically ``<BOS>``).
+        end_idx: Index of the end token (typically ``<EOS>``).
+        length: Path length (including BOS and EOS).
+
+    Returns:
+        ``alpha`` array of shape ``(length, V)`` where
+        ``alpha[t, s] = log P(prefix_1..t, state_t=s)``.
+    """
+    if length < 2:
+        raise ValueError(f"Path length must be >= 2, got {length}")
+
+    V = transition_matrix.shape[0]
+    small_eps = 1e-10
+
+    log_trans = np.log(np.maximum(transition_matrix, small_eps))
+
+    alpha = np.full((length, V), -np.inf, dtype=np.float64)
+    alpha[0, start_idx] = 0.0
+
+    for t in range(1, length - 1):
+        # alpha[t, s] = logsumexp(alpha[t-1, :] + log_trans[:, s])
+        scores = alpha[t - 1][:, np.newaxis] + log_trans  # (V, V)
+        alpha[t, :] = logsumexp(scores, axis=0)
+
+    # Final step: into end_idx
+    t_final = length - 1
+    alpha[t_final, end_idx] = logsumexp(alpha[t_final - 1] + log_trans[:, end_idx])
+
+    return alpha
+
+
+def backward_log_probs(
+    transition_matrix: np.ndarray,
+    start_idx: int,
+    end_idx: int,
+    length: int,
+) -> np.ndarray:
+    """Compute backward log-probabilities (beta) for all states at each step.
+
+    This is the backward pass of the forward-backward algorithm,
+    computed in log-space.
+
+    .. math::
+
+        \\beta_t(s) = \\log P(o_{t+1}, \\ldots, o_T \\mid q_t = s)
+
+    Args:
+        transition_matrix: ``(V, V)`` bigram transition probability matrix.
+        start_idx: Index of the start token.
+        end_idx: Index of the end token.
+        length: Path length (including BOS and EOS).
+
+    Returns:
+        ``beta`` array of shape ``(length, V)``.
+    """
+    if length < 2:
+        raise ValueError(f"Path length must be >= 2, got {length}")
+
+    V = transition_matrix.shape[0]
+    small_eps = 1e-10
+
+    log_trans = np.log(np.maximum(transition_matrix, small_eps))
+
+    beta = np.full((length, V), -np.inf, dtype=np.float64)
+    beta[length - 1, end_idx] = 0.0
+
+    for t in range(length - 2, 0, -1):
+        # beta[t, s] = logsumexp(log_trans[s, :] + beta[t+1, :])
+        scores = log_trans + beta[t + 1][np.newaxis, :]  # (V, V)
+        beta[t, :] = logsumexp(scores, axis=1)
+
+    # Step 0: from start_idx
+    beta[0, start_idx] = logsumexp(log_trans[start_idx, :] + beta[1, :])
+
+    return beta
+
+
+def logsumexp(x: np.ndarray, axis: int | None = None) -> np.ndarray:
+    """Numerically stable log-sum-exp.
+
+    Args:
+        x: Input array.
+        axis: Axis along which to compute logsumexp.
+
+    Returns:
+        Log-sum-exp of ``x`` along ``axis``.
+    """
+    x_max = np.max(x, axis=axis, keepdims=True)
+    # Handle -inf max (all elements are -inf)
+    x_max = np.where(np.isinf(x_max), 0.0, x_max)
+    result = np.log(np.sum(np.exp(x - x_max), axis=axis, keepdims=True)) + x_max
+    if axis is not None:
+        result = result.squeeze(axis=axis)
+    return result
+
+
+def soft_viterbi_score(
+    transition_matrix: np.ndarray,
+    start_idx: int,
+    end_idx: int,
+    length: int,
+) -> float:
+    """Compute the soft Viterbi (forward-backward) log-probability.
+
+    This is the **differentiable** relaxation of the Viterbi optimal
+    score, inspired by ViterbiPlanNet's Differentiable Viterbi Layer
+    (arXiv:2603.04265).  Instead of taking the max (hard Viterbi), it
+    uses the log-sum-exp (soft Viterbi) which provides a smooth
+    upper bound that allows gradient flow.
+
+    .. math::
+
+        \\text{soft\\_viterbi} = \\text{logsumexp}_{\\text{all paths}}
+        \\left( \\sum_{t=1}^{L-1} \\log P(q_t \\mid q_{t-1}) \\right)
+
+    This equals the log-partition function ``log Z`` of the Markov chain
+    over all paths of the given length from ``start_idx`` to ``end_idx``.
+
+    The soft Viterbi score is always >= the hard Viterbi score (since
+    logsumexp >= max), providing a tighter and smoother upper bound for
+    the ``soft_viterbi_distance_reward``.
+
+    Args:
+        transition_matrix: ``(V, V)`` bigram transition probability matrix.
+        start_idx: Index of the start token (typically ``<BOS>``).
+        end_idx: Index of the end token (typically ``<EOS>``).
+        length: Path length (including BOS and EOS).
+
+    Returns:
+        The soft Viterbi log-probability (log-partition function).
+    """
+    alpha = forward_log_probs(transition_matrix, start_idx, end_idx, length)
+    return float(alpha[length - 1, end_idx])
+
+
+def soft_viterbi_marginals(
+    transition_matrix: np.ndarray,
+    start_idx: int,
+    end_idx: int,
+    length: int,
+) -> np.ndarray:
+    """Compute edge marginals (posterior probabilities) via forward-backward.
+
+    Returns the posterior probability ``P(q_t = s, q_{t+1} = s' | path)``
+    for each step ``t`` and each pair of states ``(s, s')``.  This is the
+    "soft" version of the Viterbi path — instead of a single best path,
+    it gives a distribution over all paths weighted by their probability.
+
+    Used by the differentiable Viterbi reward to provide per-edge
+    gradient signals (inspired by ViterbiPlanNet's DVL).
+
+    Args:
+        transition_matrix: ``(V, V)`` bigram transition probability matrix.
+        start_idx: Index of the start token.
+        end_idx: Index of the end token.
+        length: Path length (including BOS and EOS).
+
+    Returns:
+        ``marginals`` array of shape ``(length-1, V, V)`` where
+        ``marginals[t, s, s']`` is the posterior probability of
+        transitioning from state ``s`` to ``s'`` at step ``t``.
+    """
+    V = transition_matrix.shape[0]
+    small_eps = 1e-10
+
+    alpha = forward_log_probs(transition_matrix, start_idx, end_idx, length)
+    beta = backward_log_probs(transition_matrix, start_idx, end_idx, length)
+    log_trans = np.log(np.maximum(transition_matrix, small_eps))
+
+    # Log-partition function (normalizer)
+    log_z = alpha[length - 1, end_idx]
+
+    marginals = np.zeros((length - 1, V, V), dtype=np.float64)
+
+    for t in range(length - 1):
+        # log P(q_t=s, q_{t+1}=s' | path) = alpha[t, s] + log_trans[s, s'] + beta[t+1, s'] - log_z
+        log_edge = (
+            alpha[t][:, np.newaxis] + log_trans + beta[t + 1][np.newaxis, :] - log_z
+        )
+        marginals[t] = np.exp(log_edge)
+
+    return marginals

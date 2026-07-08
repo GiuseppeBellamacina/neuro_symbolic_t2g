@@ -44,6 +44,15 @@ def build_gloss_grammar(
     Each gloss token is wrapped in ``<<...>>`` for grammarllm's exact-string
     matching, which automatically handles subword tokenization.
 
+    .. note::
+       The ``<<<EOS>>>`` triple-bracket escape was **removed** because
+       modern BPE tokenizers (e.g. Qwen) split it into sub-tokens
+       (``<E``, ``OS``, ``>``) that conflict with other productions in
+       the LL(1) parsing table.  EOS is instead added directly by
+       ``get_parsing_table_and_map_tt()`` via
+       ``final_grammar[("S*","RULE")].append([tokenizer.eos_token])``,
+       which uses the tokenizer's native EOS token string.
+
     Args:
         vocab: The sorted gloss vocabulary (should include ``<BOS>``, ``<EOS>``).
         tokenizer: A Hugging Face tokenizer (unused here; kept for API compatibility).
@@ -53,10 +62,10 @@ def build_gloss_grammar(
         ``ProductionRuleProcessor``::
 
             {
-                'S*': ["<<gloss_1>> S*", ..., "<<gloss_N>> S*", "<<<EOS>>>"],
+                'S*': ["<<gloss_1>> S*", ..., "<<gloss_N>> S*"],
             }
     """
-    skip_tokens = {"<BOS>", "<UNK>"}
+    skip_tokens = {"<BOS>", "<UNK>", "<EOS>", "<PAD>"}
     gloss_tokens = [t for t in vocab if t not in skip_tokens]
 
     logger.info(
@@ -69,8 +78,9 @@ def build_gloss_grammar(
     for gloss in gloss_tokens:
         productions.append(f"<<{gloss}>> S*")
 
-    if "<EOS>" in vocab:
-        productions.append("<<<EOS>>>")
+    # NOTE: <<<EOS>>> production removed — EOS is added by
+    # get_parsing_table_and_map_tt() using the tokenizer's native
+    # eos_token string, avoiding the BPE sub-token conflict.
 
     grammar = {"S*": productions}
     logger.info("  Grammar rules: S* → %d alternatives", len(productions))

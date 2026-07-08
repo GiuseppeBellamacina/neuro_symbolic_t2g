@@ -14,8 +14,9 @@ def get_parsing_table_and_map_tt(tokenizer, productions, regex_dict=None):
     # Process the grammar productions
     final_grammar, tag_mapping = processor.process_full_grammar(productions)
 
-    # add eos token to the grammar
-    final_grammar[("S*", "RULE")].append([tokenizer.eos_token])
+    # add eos token to the grammar (guard against None eos_token)
+    if tokenizer.eos_token is not None:
+        final_grammar[("S*", "RULE")].append([tokenizer.eos_token])
     # Generate parsing table
     pars_tab = parsing_table(final_grammar)
 
@@ -36,7 +37,13 @@ def get_parsing_table_and_map_tt(tokenizer, productions, regex_dict=None):
 def generate_grammar_parameters(tokenizer, pars_tab, map_terminal_tokens):
     # Create Pushdown Automaton and initialize processors and streamer
     pda = PushdownAutomaton(grammar=pars_tab, startSymbol="S*", map=map_terminal_tokens)
-    return MaskLogitsProcessor(tokenizer, pda), BaseStreamer(tokenizer, pda)
+    logit_processor = MaskLogitsProcessor(tokenizer, pda)
+    streamer = BaseStreamer(tokenizer, pda)
+    # Wire the logit processor to the streamer so that streamer.end()
+    # can reset generation_ended between generations (see BUG #7 in
+    # T2G_PIPELINE_REVIEW.md §10).
+    streamer.logit_processor = logit_processor
+    return logit_processor, streamer
 
 
 def setup_logging():

@@ -108,6 +108,15 @@ reward:
   weight_format: 0.10
   # Repetition penalty
   weight_repetition: 0.10
+  # ── Ablation modules (set to >0 to enable) ──────────────────────
+  # Soft Viterbi (differentiable, forward-backward) — ViterbiPlanNet DVL
+  # weight_soft_viterbi: 0.0
+  # Verifier-scaled reward (RECIPE-inspired structural confidence gate)
+  # weight_verifier_scaled: 0.0
+  # Hard Viterbi distance (experimental, non-differentiable)
+  # weight_viterbi: 0.0
+  # Absolute bigram score (no baseline — use gold_structure instead)
+  # weight_structure: 0.0
 
 # --- Constrained Decoding ---
 grammar:
@@ -119,6 +128,10 @@ grammar:
     max_occurrences: 2
     diversity_threshold: 0.3
     max_iters: 3
+    # Verifier gamma: controls how strictly the structural verifier
+    # filters the translation reward (verifier_scaled_reward).
+    # gamma=1.0 = linear, gamma=2.0 = quadratic (stricter).
+    verifier_gamma: 1.0
 
 # --- Curriculum Learning (disabled for Phase 1) ---
 curriculum:

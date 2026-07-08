@@ -11,6 +11,7 @@ class BaseStreamer:
         self.tokenizer = tokenizer
         self.pda = pda
         self.is_first_call = True
+        self.logit_processor = None  # Set by generate_grammar_parameters()
 
     def put(self, value):
         """Function that is called by `.generate()` to push new tokens"""
@@ -83,5 +84,7 @@ class BaseStreamer:
         # Reset per la prossima generazione
         self.is_first_call = True
         self.pda.reset()  # questo resetta anche il PDA
+        if self.logit_processor is not None:
+            self.logit_processor.reset()  # reset generation_ended flag
 
         logging.info("Streamer e PDA resettati per prossima generazione")

@@ -28,6 +28,7 @@ import hashlib
 import json
 import logging
 import random
+import warnings
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,14 @@ from typing import Any
 import numpy as np
 import torch
 from tqdm import tqdm
+
+# Silence noisy transformers FutureWarnings (AttentionMaskConverter deprecation)
+warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
+warnings.filterwarnings(
+    "ignore",
+    message=".*AttentionMaskConverter.*",
+    category=FutureWarning,
+)
 
 from src.datasets.aslg_dataset import (
     download_aslg_dataset,
@@ -99,7 +108,7 @@ def load_model_for_eval(
         from peft import PeftModel
 
         model = PeftModel.from_pretrained(model, str(ckpt_path))
-        model = model.merge_and_unload()
+        model = model.merge_and_unload()  # type: ignore[call-arg]
         logger.info("  LoRA adapters merged and unloaded")
     else:
         model = AutoModelForCausalLM.from_pretrained(
@@ -159,7 +168,7 @@ def evaluate_checkpoint(
     checkpoint_path: str | None,
     max_samples: int = 200,
     num_samples: int = 1,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[str], list[tuple[bool, str]]]:
     """Evaluate a checkpoint on the test set with full metrics.
 
     Args:
@@ -170,7 +179,10 @@ def evaluate_checkpoint(
         num_samples: Number of completions per prompt (1 = greedy, >1 = sampled).
 
     Returns:
-        Dict with all computed metrics.
+        Tuple of ``(results, flat_completions, validity)`` where *results*
+        is a dict with all computed metrics, *flat_completions* is a list
+        of generated gloss strings, and *validity* is a list of
+        ``(is_valid, reason)`` tuples.
     """
     ds_cfg = config["dataset"]
     # Support both generation (SFT) and grpo (GRPO) — generation preferred
@@ -263,8 +275,8 @@ def evaluate_checkpoint(
     all_exact_matches: list[float] = []
 
     for sample in tqdm(test_ds, desc="Evaluating"):
-        text = sample["text"]
-        gold = sample["gloss"]
+        text = sample["text"]  # type: ignore[index]
+        gold = sample["gloss"]  # type: ignore[index]
 
         # Build prompt with centralized template (same as training)
         prompt = build_t2g_prompt(text, tokenizer)
@@ -313,6 +325,7 @@ def evaluate_checkpoint(
     from src.utils.metrics import (
         check_gloss_validity,
         compute_detailed_metrics,
+        compute_evaluation_report,
         compute_pass_at_1,
         compute_pass_at_k,
         compute_reward_breakdown,
@@ -355,9 +368,23 @@ def evaluate_checkpoint(
     detailed = compute_detailed_metrics(flat_completions, all_references)
 
     # Per-component reward breakdown (all completions with sample_ids)
+    # Only compute components with weight > 0 to save computation
+    rewards_cfg = config.get("reward", {})
+    reward_weight_map = {
+        "translation_quality_reward": rewards_cfg.get("weight_translation", 0.0),
+        "structural_dense_reward": rewards_cfg.get("weight_structure", 0.0),
+        "gold_structure_reward": rewards_cfg.get("weight_gold_structure", 0.0),
+        "viterbi_distance_reward": rewards_cfg.get("weight_viterbi", 0.0),
+        "soft_viterbi_distance_reward": rewards_cfg.get("weight_soft_viterbi", 0.0),
+        "verifier_scaled_reward": rewards_cfg.get("weight_verifier_scaled", 0.0),
+        "gloss_order_reward": rewards_cfg.get("weight_gloss_order", 0.0),
+        "gloss_format_reward": rewards_cfg.get("weight_format", 0.0),
+        "gloss_repetition_reward": rewards_cfg.get("weight_repetition", 0.0),
+    }
     reward_components = compute_reward_breakdown(
         flat_completions,
         sample_ids=flat_sample_ids,
+        reward_weights=reward_weight_map,
     )
 
     # ROUGE-L mean/std
@@ -366,6 +393,11 @@ def evaluate_checkpoint(
     ]
 
     # ── Assemble results ─────────────────────────────────────────────────
+    # Comprehensive evaluation report with BLEU + bootstrap CI (RECIPE-inspired)
+    eval_report = compute_evaluation_report(
+        flat_completions, all_references, n_bootstrap=1000
+    )
+
     results: dict[str, Any] = {
         "num_samples_evaluated": len(all_references),
         "num_completions_per_prompt": num_samples,
@@ -386,6 +418,8 @@ def evaluate_checkpoint(
         "reward_breakdown": reward_components,
         "detailed_metrics": detailed,
         "total_completions": len(flat_completions),
+        # ── Comprehensive report (BLEU + bootstrap CI 95%) ──
+        "evaluation_report": eval_report,
     }
     if passk:
         results["pass_at_k"] = passk
@@ -407,12 +441,18 @@ def main() -> None:
         default=None,
         help="Checkpoint path (omit for zero-shot base model evaluation)",
     )
-    parser.add_argument("--max-samples", type=int, default=200, help="Max test samples")
+    parser.add_argument(
+        "--max-samples",
+        type=int,
+        default=None,
+        help="Max test samples (overrides config evaluation.max_samples)",
+    )
     parser.add_argument(
         "--num-samples",
         type=int,
-        default=1,
-        help="Completions per prompt (1=greedy, >1=sampled for Pass@k)",
+        default=None,
+        help="Completions per prompt (1=greedy, >1=sampled for Pass@k). "
+        "Overrides config evaluation.num_samples.",
     )
     parser.add_argument(
         "--output", type=str, default=None, help="Path to save results JSON"
@@ -437,6 +477,15 @@ def main() -> None:
 
     config = load_config(args.config)
 
+    # ── Resolve eval params from config (CLI args override) ──────────────
+    eval_cfg = config.get("evaluation", {})
+    max_samples = args.max_samples
+    if max_samples is None:
+        max_samples = eval_cfg.get("max_samples", 200)
+    num_samples = args.num_samples
+    if num_samples is None:
+        num_samples = eval_cfg.get("num_samples", 1)
+
     # ── Set random seeds for reproducibility ─────────────────────────────
     seed = config["dataset"].get("seed", 42)
     random.seed(seed)
@@ -458,8 +507,8 @@ def main() -> None:
     results, completions, validity = evaluate_checkpoint(
         config,
         args.checkpoint,
-        max_samples=args.max_samples,
-        num_samples=args.num_samples,
+        max_samples=max_samples,
+        num_samples=num_samples,
     )
 
     # ── Print results ────────────────────────────────────────────────────
@@ -481,6 +530,33 @@ def main() -> None:
         f"  Validity rate:           {results['validity_rate']:.4f}  "
         f"({results['valid_count']} valid / {results['invalid_count']} invalid)"
     )
+
+    # ── Comprehensive report (BLEU + bootstrap CI 95%) ──
+    if "evaluation_report" in results:
+        er = results["evaluation_report"]
+        print("\n  ── BLEU & Confidence Intervals (95% CI) ──")
+        if "rouge_l" in er:
+            rl = er["rouge_l"]
+            print(
+                f"    ROUGE-L:  {rl['mean']:.4f}  "
+                f"CI: [{rl['ci_95'][0]:.4f}, {rl['ci_95'][1]:.4f}]"
+            )
+        if "bleu" in er:
+            bl = er["bleu"]
+            print(
+                f"    BLEU:     corpus={bl['corpus']:.4f}  "
+                f"sentence={bl['sentence_mean']:.4f}  "
+                f"CI: [{bl['ci_95'][0]:.4f}, {bl['ci_95'][1]:.4f}]"
+            )
+        if "pass_at_1" in er:
+            pa = er["pass_at_1"]
+            print(
+                f"    Pass@1:   {pa['mean']:.4f}  "
+                f"CI: [{pa['ci_95'][0]:.4f}, {pa['ci_95'][1]:.4f}]"
+            )
+        if "gloss_validity_rate" in er:
+            print(f"    Gloss validity rate: {er['gloss_validity_rate']:.4f}")
+
     print("\n  ── Reward Breakdown ──")
     for k, v in results["reward_breakdown"].items():
         print(f"    {k}: {v:.4f}")
@@ -548,6 +624,9 @@ def main() -> None:
             "structural_dense_reward": structure_weight,
             "gold_structure_reward": structure_weight,
             "viterbi_distance_reward": rewards_cfg.get("weight_viterbi", 0.0),
+            "soft_viterbi_distance_reward": rewards_cfg.get("weight_soft_viterbi", 0.0),
+            "verifier_scaled_reward": rewards_cfg.get("weight_verifier_scaled", 0.0),
+            "gloss_order_reward": rewards_cfg.get("weight_gloss_order", 0.0),
             "gloss_format_reward": rewards_cfg.get("weight_format", 0.1),
             "gloss_repetition_reward": rewards_cfg.get("weight_repetition", 0.1),
         }

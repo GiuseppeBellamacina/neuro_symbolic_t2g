@@ -102,19 +102,42 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
         )
 
     def _build_trie(self, vocab: list[str]) -> None:
-        """Insert all normal and space-prefixed glosses into the Trie."""
+        """Insert all normal and space-prefixed glosses into the Trie.
+
+        The Trie has two root-level entry points:
+        - ``self.root`` (no-space root): children are the first BPE token of
+          each gloss WITHOUT a leading space. Used only at the very start of
+          generation (first token after the prompt).
+        - ``self.space_root`` (space root): children are the first BPE token
+          of each gloss WITH a leading space (``" " + gloss``). Used to
+          start a new gloss after a terminal node — this enforces whitespace
+          boundaries between glosses and prevents arbitrary concatenation
+          of single-BPE-token glosses (the DEBUTRECHT bug).
+
+        See docs/T2G_PIPELINE_REVIEW.md §9.2 for the root cause analysis.
+        """
+        self.space_root = TrieNode()
+
         for token in vocab:
             stripped = token.strip()
             if not stripped or stripped in {"<BOS>", "<EOS>", "<UNK>"}:
                 continue
 
-            for variant in [token, " " + token]:
-                token_ids = self.tokenizer.encode(variant, add_special_tokens=False)
-                if not token_ids:
-                    continue
-
+            # Non-space variant → root
+            token_ids = self.tokenizer.encode(token, add_special_tokens=False)
+            if token_ids:
                 node = self.root
                 for tid in token_ids:
+                    if tid not in node.children:
+                        node.children[tid] = TrieNode()
+                    node = node.children[tid]
+                node.is_terminal = True
+
+            # Space-prefixed variant → space_root
+            space_ids = self.tokenizer.encode(" " + token, add_special_tokens=False)
+            if space_ids:
+                node = self.space_root
+                for tid in space_ids:
                     if tid not in node.children:
                         node.children[tid] = TrieNode()
                     node = node.children[tid]
@@ -150,39 +173,54 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
             # Extract newly generated tokens (slice from the end of the prompt)
             gen_tokens = input_ids[i, self.prompt_len :].tolist()
 
-            # Trace history through the Trie to determine the current state.
+            # Trace history through the dual-root Trie.
             #
-            # NOTE (fix, see docs/T2G_PIPELINE_REVIEW.md §4): on a mismatch
-            # (neither a valid continuation of the current node, nor a valid
-            # start of a new gloss from a terminal state), we must NOT just
-            # reset to ``self.root`` and silently drop ``tok`` — the token was
-            # already emitted and is present in ``input_ids``, so it must be
-            # re-tested against the root before giving up. Otherwise a token
-            # that legitimately starts a *new* gloss (but doesn't happen to
-            # follow a terminal node in this reconstruction) is discarded,
-            # causing the Trie state to silently drift out of sync with the
-            # true generated sequence for one or more subsequent steps.
+            # The Trie has two roots:
+            # - ``self.root``: non-space-prefixed gloss starts (first token
+            #   of generation only).
+            # - ``self.space_root``: space-prefixed gloss starts (used to
+            #   begin a new gloss after a terminal node).
+            #
+            # This enforces whitespace boundaries: after a terminal gloss,
+            # the next token MUST come from ``space_root`` (i.e. it must be
+            # a space-prefixed BPE token), preventing arbitrary
+            # concatenation of single-BPE-token glosses like DE+B+RE+CH+T
+            # → "DEBUTRECHT". See docs/T2G_PIPELINE_REVIEW.md §9.2, §10.
             node = self.root
+            at_start = True  # True only for the very first generated token
+
             for tok in gen_tokens:
                 if tok in node.children:
                     node = node.children[tok]
-                elif node.is_terminal and tok in self.root.children:
+                    at_start = False
+                elif node.is_terminal and tok in self.space_root.children:
+                    # Whitespace boundary: previous gloss is complete (node
+                    # is terminal), and `tok` starts a new space-prefixed
+                    # gloss. Jump to the space_root's child.
+                    node = self.space_root.children[tok]
+                    at_start = False
+                elif at_start and tok in self.root.children:
+                    # First token of generation — must come from root
                     node = self.root.children[tok]
-                elif tok in self.root.children:
-                    # `tok` can itself start a new gloss from the root, even
-                    # though the previous node wasn't terminal (e.g. a BPE
-                    # split produced a token sequence not seen as a full
-                    # gloss prefix). Re-sync here instead of dropping `tok`.
-                    node = self.root.children[tok]
+                    at_start = False
                 else:
-                    node = self.root  # No match at all: state is undefined,
-                    # restart from empty (best-effort recovery).
+                    # No valid transition. Reset to root as best-effort
+                    # recovery — the mask will be very restrictive here.
+                    node = self.root
+                    at_start = False
 
             # Allowed tokens from the current state in the Trie
             allowed = set(node.children.keys())
 
-            # If node is terminal or root, we can start a new gloss or generate EOS
-            if node.is_terminal or node == self.root:
+            # If node is terminal, we can start a new gloss (via space_root)
+            # or generate EOS.
+            if node.is_terminal:
+                allowed.update(self.space_root.children.keys())
+                allowed.add(self.eos_token_id)
+
+            # At the very start (root, no tokens generated yet), also allow
+            # root children (non-space starts).
+            if node == self.root and not gen_tokens:
                 allowed.update(self.root.children.keys())
                 allowed.add(self.eos_token_id)
 

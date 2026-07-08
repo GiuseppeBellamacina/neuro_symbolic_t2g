@@ -61,7 +61,12 @@ _PLOT_METRICS = [
     ("reward", "Mean Reward"),
     ("loss", "Loss"),
     ("rewards/translation_quality_reward/mean", "Translation Quality (ROUGE-L)"),
+    ("rewards/gold_structure_reward/mean", "Gold Structure (Bigram vs Gold)"),
     ("rewards/structural_dense_reward/mean", "Structural (Bigram Proxy)"),
+    ("rewards/viterbi_distance_reward/mean", "Viterbi Distance"),
+    ("rewards/soft_viterbi_distance_reward/mean", "Soft Viterbi (DVL)"),
+    ("rewards/verifier_scaled_reward/mean", "Verifier-Scaled (RECIPE)"),
+    ("rewards/gloss_order_reward/mean", "Gloss Order (Edit Dist)"),
     ("rewards/gloss_format_reward/mean", "Format Reward"),
     ("rewards/gloss_repetition_reward/mean", "Repetition Penalty"),
     ("completion_length", "Completion Length"),
@@ -193,21 +198,36 @@ def plot_training_curves(
 
 _COMPONENT_ORDER = [
     "translation_quality_reward",
+    "gold_structure_reward",
     "structural_dense_reward",
+    "viterbi_distance_reward",
+    "soft_viterbi_distance_reward",
+    "verifier_scaled_reward",
+    "gloss_order_reward",
     "gloss_format_reward",
     "gloss_repetition_reward",
 ]
 
 _COMPONENT_COLORS = {
     "translation_quality_reward": "#4C72B0",
-    "structural_dense_reward": "#55A868",
+    "gold_structure_reward": "#55A868",
+    "structural_dense_reward": "#8172B3",
+    "viterbi_distance_reward": "#937860",
+    "soft_viterbi_distance_reward": "#DA8BC3",
+    "verifier_scaled_reward": "#8C8C8C",
+    "gloss_order_reward": "#CCB974",
     "gloss_format_reward": "#DD8452",
     "gloss_repetition_reward": "#C44E52",
 }
 
 _COMPONENT_LABELS = {
     "translation_quality_reward": "Translation (ROUGE-L)",
+    "gold_structure_reward": "Gold Structure",
     "structural_dense_reward": "Structure (Bigram)",
+    "viterbi_distance_reward": "Viterbi",
+    "soft_viterbi_distance_reward": "Soft Viterbi (DVL)",
+    "verifier_scaled_reward": "Verifier (RECIPE)",
+    "gloss_order_reward": "Gloss Order",
     "gloss_format_reward": "Format",
     "gloss_repetition_reward": "Repetition",
 }
@@ -238,6 +258,9 @@ def plot_reward_breakdown(
     all_components: set[str] = set()
     for sb in stage_breakdowns:
         all_components.update(sb["scores"].keys())
+    # Only plot components with weight > 0 (skip inactive ones)
+    if reward_weights is not None:
+        all_components = {c for c in all_components if reward_weights.get(c, 0.0) > 0}
     components = [c for c in _COMPONENT_ORDER if c in all_components]
 
     if reward_weights is None:

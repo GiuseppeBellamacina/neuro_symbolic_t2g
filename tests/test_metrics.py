@@ -77,10 +77,14 @@ def test_gloss_validity() -> None:
     check("Clean gloss = valid", is_valid)
     check("  Error message empty", err == "", f"'{err}'")
 
-    # Free text
+    # Free text — should be invalid because tokens are not in gloss vocab
     is_valid2, err2 = check_gloss_validity("The man walks to the house")
     check("Free text = invalid", not is_valid2)
-    check("  Error type = free_text_detected", "free_text" in err2, err2)
+    check(
+        "  Error type = out_of_vocab or free_text",
+        "out_of_vocab" in err2 or "free_text" in err2,
+        err2,
+    )
 
     # Empty
     is_valid3, err3 = check_gloss_validity("")
@@ -208,7 +212,7 @@ def test_reward_breakdown() -> None:
     # Test completion-based version
     completions = ["IX MAN WALK HOUSE", "DOG CAT", "NOT CAN WANT"]
     result2 = compute_reward_breakdown(completions)
-    check("Completion-based: has 4 keys", len(result2) >= 4, f"{result2.keys()}")
+    check("Completion-based: has 9 keys", len(result2) >= 9, f"{result2.keys()}")
     check(
         "Completion-based: translation_quality_reward exists",
         "translation_quality_reward" in result2,
@@ -226,6 +230,26 @@ def test_reward_breakdown() -> None:
     )
     for k, v in result2.items():
         check(f"  {k} is float", isinstance(v, float), f"{v:.4f}")
+
+    # Test filtering: only active components (weight > 0) should be returned
+    filtered = compute_reward_breakdown(
+        completions,
+        reward_weights={
+            "translation_quality_reward": 0.3,
+            "gloss_format_reward": 0.1,
+            # All others weight 0 → should be skipped
+        },
+    )
+    check("Filtered: has 2 keys", len(filtered) == 2, f"{filtered.keys()}")
+    check(
+        "Filtered: translation_quality_reward exists",
+        "translation_quality_reward" in filtered,
+    )
+    check("Filtered: gloss_format_reward exists", "gloss_format_reward" in filtered)
+    check(
+        "Filtered: gold_structure_reward NOT present",
+        "gold_structure_reward" not in filtered,
+    )
 
 
 def main() -> None:

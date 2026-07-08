@@ -97,6 +97,11 @@ TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
     "lora.random_state": int,
     "reward.weight_translation": (int, float),
     "reward.weight_gold_structure": (int, float),
+    "reward.weight_structure": (int, float),
+    "reward.weight_viterbi": (int, float),
+    "reward.weight_soft_viterbi": (int, float),
+    "reward.weight_verifier_scaled": (int, float),
+    "reward.weight_gloss_order": (int, float),
     "reward.weight_format": (int, float),
     "reward.weight_repetition": (int, float),
 }

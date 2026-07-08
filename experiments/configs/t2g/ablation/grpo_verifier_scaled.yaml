@@ -1,0 +1,128 @@
+# ============================================================================
+# Ablation Study — GRPO with Verifier-Scaled Reward (RECIPE-inspired)
+#
+# Tests the verifier-scaled reward (RECIPE, arXiv:2605.19976) which uses
+# structural plausibility as a confidence multiplier for translation quality.
+# This implements the verifier principle: "verifying is cheaper than labeling".
+#
+# Usato da:
+#   CONFIG=experiments/configs/t2g/ablation/grpo_verifier_scaled.yaml sbatch cluster/train.sh
+# ============================================================================
+
+# --- Modello ---
+model:
+  name: "Qwen/Qwen2.5-0.5B-Instruct"
+  num_gpus: 1
+  quantization: "4bit"
+  dtype: "bfloat16"
+  use_unsloth: true
+  max_seq_length: 1024
+
+# --- LoRA adapters ---
+lora:
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  task_type: "CAUSAL_LM"
+  random_state: 3407
+
+# --- Dataset ---
+dataset:
+  dataset_name: "achrafothman/aslg_pc12"
+  dataset_cache: "data/aslg_pc12"
+  vocab_path: "data/gloss_vocab.txt"
+  bigram_matrix_path: "data/bigram_transition.npy"
+  split: "train"
+  max_samples: 20000
+  seed: 42
+  thinking: false
+
+# --- SFT Pre-training ---
+sft_pretrain:
+  enabled: true
+  training:
+    num_train_epochs: 1
+    per_device_train_batch_size: 2
+    gradient_accumulation_steps: 8
+    learning_rate: 2.0e-5
+    lr_scheduler_type: "cosine"
+    warmup_steps: 50
+    optim: "paged_adamw_8bit"
+    weight_decay: 0.1
+    max_grad_norm: 1.0
+    bf16: true
+    logging_steps: 10
+    save_steps: 200
+    save_total_limit: 1
+    max_seq_length: 768
+    gradient_checkpointing: true
+
+# --- Iperparametri di training ---
+training:
+  max_steps: 1500
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 5.0e-6
+  lr_scheduler_type: "cosine"
+  warmup_steps: 150
+  optim: "paged_adamw_8bit"
+  weight_decay: 0.1
+  max_grad_norm: 0.1
+  bf16: true
+  logging_steps: 5
+  save_steps: 100
+  save_total_limit: 3
+  output_dir: "experiments/checkpoints/grpo/t2g/qwen25-05b-verifier-scaled"
+  log_dir: "experiments/logs/grpo/t2g/qwen25-05b-verifier-scaled"
+
+# --- Parametri GRPO ---
+grpo:
+  num_generations: 4
+  max_completion_length: 128
+  max_prompt_length: 256
+  beta: 0.04
+  temperature: 0.7
+
+# --- Pesi della reward function ---
+# Ablation: replace translation + gold_structure with verifier_scaled
+# (RECIPE-inspired: structural plausibility gates translation quality)
+reward:
+  weight_verifier_scaled: 0.65 # ← RECIPE verifier-scaled (replaces translation + gold_structure)
+  weight_gloss_order: 0.15
+  weight_format: 0.10
+  weight_repetition: 0.10
+
+# --- Constrained Decoding ---
+grammar:
+  enabled: true
+  use_grammarllm_pda: false
+  viterbi_diversity:
+    self_loop_penalty: 0.5
+    max_occurrences: 2
+    diversity_threshold: 0.3
+    max_iters: 3
+    # Verifier gamma: controls strictness of the structural gate.
+    # gamma=2.0 = quadratic (stricter filtering of implausible sequences)
+    verifier_gamma: 2.0
+
+# --- Curriculum Learning (disabled) ---
+curriculum:
+  enabled: false
+
+# --- Evaluation ---
+evaluation:
+  batch_size: 8
+
+# --- Weights & Biases ---
+wandb:
+  project: "neuro-symbolic-t2g"
+  run_name: "grpo-t2g-verifier-scaled"
+  tags: ["grpo", "T2G", "ablation", "verifier-scaled", "RECIPE"]

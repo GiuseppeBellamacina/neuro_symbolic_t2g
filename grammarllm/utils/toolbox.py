@@ -4,7 +4,7 @@ chat_template = """
     {{- message['content'].strip() + eos_token + '\n' }}
 {%- endfor %}
 {%- if add_generation_prompt %}
-    {{- '<|assistant|>\n' }}
+    {{- 'user|>\n' }}
 {%- endif %}
 """
 

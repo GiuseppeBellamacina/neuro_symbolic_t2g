@@ -14,7 +14,6 @@ Usage:
 from __future__ import annotations
 
 import sys
-import tempfile
 from pathlib import Path
 
 import torch
@@ -216,7 +215,10 @@ def test_grammar_build(tokenizer) -> None:
         "Productions contain gloss tokens",
         any("MAN" in p or "WALK" in p for p in grammar["S*"]),
     )
-    check("Productions contain EOS", any("EOS" in p for p in grammar["S*"]))
+    # NOTE: <<<EOS>>> production was removed from build_gloss_grammar()
+    # to avoid BPE sub-token conflicts. EOS is now added by
+    # get_parsing_table_and_map_tt() via tokenizer.eos_token.
+    check("Productions do NOT contain <<<EOS>>>", "<<<EOS>>>" not in str(grammar))
     check(
         "Productions contain S* recursion",
         any("S*" in p for p in grammar["S*"] if "EOS" not in p),
@@ -249,7 +251,9 @@ def test_masked_mass_tracking(tokenizer) -> None:
         "CAN",
     ]
     mask = GlossVocabularyMask(test_vocab, tokenizer)
-    processor = GlossVocabularyLogitsProcessor(mask, device="cpu")
+    processor = GlossVocabularyLogitsProcessor(
+        mask, device="cpu", track_diagnostics=True
+    )
 
     vocab_size = tokenizer.vocab_size
 
@@ -317,8 +321,8 @@ def test_masked_mass_tracking(tokenizer) -> None:
 
 def test_pda_logits_processor_mass_tracking(tokenizer) -> None:
     print("\n-- 6. GrammarPDALogitsProcessor Masked Mass & Entropy Tracking --")
+    from grammarllm import get_parsing_table_and_map_tt
     from grammarllm.modules.PushdownAutomaton import PushdownAutomaton
-    from grammarllm.scripts.generate_LL1_parsing_table import generate_ll1_table
     from src.grammar.gloss_grammar import build_gloss_grammar
     from src.grammar.grammar_logits_processor import GrammarPDALogitsProcessor
 
@@ -335,11 +339,11 @@ def test_pda_logits_processor_mass_tracking(tokenizer) -> None:
         "CAN",
     ]
 
-    # Build grammar and parsing table for PDA
+    # Build grammar and parsing table for PDA using the public API
+    # (same path as create_grammarllm_pipeline in src/grammar/gloss_grammar.py)
     grammar = build_gloss_grammar(test_vocab, tokenizer)
-    with tempfile.TemporaryDirectory() as tmp:
-        table = generate_ll1_table(grammar, str(Path(tmp)))
-    pda = PushdownAutomaton(grammar, table, tokenizer)
+    table, map_terminal_tokens = get_parsing_table_and_map_tt(tokenizer, grammar)
+    pda = PushdownAutomaton(grammar=table, startSymbol="S*", map=map_terminal_tokens)
     processor = GrammarPDALogitsProcessor(tokenizer, pda)
 
     vocab_size = tokenizer.vocab_size

@@ -23,6 +23,9 @@ Seven reward components:
 
 7. **Repetition Reward**: Penalizes degenerate token repetition.
 
+8. **Verifier-Scaled Reward** (RECIPE-inspired):
+   Uses structural plausibility as a confidence multiplier for translation quality.
+
 Rewards are combined via weighted sum and wrapped to match the signature
 expected by TRL's ``GRPOTrainer``:
 ``fn(completions, prompts, **kwargs) -> list[float]``.
@@ -62,6 +65,7 @@ _viterbi_diversity_params: dict[str, float | int] = {
     "max_occurrences": 2,
     "diversity_threshold": 0.3,
     "max_iters": 3,
+    "verifier_gamma": 1.0,
 }
 
 #: Gold gloss registry: maps sample_id (SHA256 of user instruction) → gold gloss.
@@ -104,6 +108,7 @@ def initialize_rewards(
         "max_occurrences": diversity_cfg.get("max_occurrences", 2),
         "diversity_threshold": diversity_cfg.get("diversity_threshold", 0.3),
         "max_iters": diversity_cfg.get("max_iters", 3),
+        "verifier_gamma": diversity_cfg.get("verifier_gamma", 1.0),
     }
     logger.info("Viterbi diversity params: %s", _viterbi_diversity_params)
 
@@ -362,20 +367,30 @@ def gold_structure_reward(
     # Map tokens to indices for both sequences
     bos_idx = _token_to_idx.get("<BOS>", -1)
     eos_idx = _token_to_idx.get("<EOS>", -1)
-    unk_idx = _token_to_idx.get("<UNK>", 0)
 
-    def _indices(tokens: list[str]) -> list[int]:
+    def _indices(tokens: list[str]) -> tuple[list[int], int]:
+        """Map tokens to indices. Returns (indices, oov_count).
+
+        OOV tokens are skipped (not mapped to <UNK>) so that garbage
+        tokens don't get partial credit via <UNK> bigram probabilities.
+        The oov_count is used to penalize the reward proportionally.
+        """
         indices: list[int] = []
+        oov_count = 0
         if bos_idx >= 0:
             indices.append(bos_idx)
         for t in tokens:
-            indices.append(_token_to_idx.get(t, unk_idx))
+            idx = _token_to_idx.get(t, -1)
+            if idx >= 0:
+                indices.append(idx)
+            else:
+                oov_count += 1
         if eos_idx >= 0:
             indices.append(eos_idx)
-        return indices
+        return indices, oov_count
 
-    llm_indices = _indices(llm_text.split())
-    gold_indices = _indices(gold_text.split())
+    llm_indices, llm_oov = _indices(llm_text.split())
+    gold_indices, gold_oov = _indices(gold_text.split())
 
     # Compute log-probabilities
     from src.datasets.transition_matrix import sequence_score_bigram
@@ -397,7 +412,14 @@ def gold_structure_reward(
         gold_avg = gold_log_prob / n_gold_trans
         reward = float(np.exp(llm_avg - gold_avg))
         # Cap at 1.0 (at or above gold structural quality)
-        return min(reward, 1.0)
+        reward = min(reward, 1.0)
+        # Penalize OOV tokens: each OOV token reduces the reward
+        # proportionally, so garbage tokens don't get free credit.
+        total_tokens = len(llm_text.split())
+        if total_tokens > 0:
+            oov_penalty = llm_oov / total_tokens
+            reward *= 1.0 - oov_penalty
+        return reward
 
     return llm_log_prob - gold_log_prob
 
@@ -601,63 +623,239 @@ def viterbi_distance_reward(
 
 
 # ---------------------------------------------------------------------------
+# Reward Component 4b: Soft Viterbi Distance Reward (Differentiable)
+# ---------------------------------------------------------------------------
+
+
+def soft_viterbi_distance_reward(
+    completion: str,
+    normalize: bool = True,
+) -> float:
+    """Differentiable reward based on soft Viterbi (forward-backward) distance.
+
+    Inspired by ViterbiPlanNet's Differentiable Viterbi Layer (DVL)
+    (arXiv:2603.04265), this replaces the non-differentiable argmax
+    Viterbi with a smooth log-sum-exp relaxation (forward-backward).
+
+    The soft Viterbi score is the **log-partition function** — the
+    log-probability of *all* paths of the given length, weighted by
+    their probability.  This provides a smoother and tighter upper bound
+    than the hard Viterbi (which only considers the single best path),
+    and allows gradient flow through the structural reward.
+
+    .. math::
+
+        \\text{reward} = \\exp\\left(
+            \\frac{\\text{llm\\_log\\_prob} - \\text{soft\\_viterbi\\_log\\_prob}}{L}
+        \\right)
+
+    where :math:`\\text{soft\\_viterbi\\_log\\_prob} = \\log Z` is the
+    log-partition function computed via forward-backward.
+
+    - ``1.0`` → LLM path matches the soft Viterbi optimum.
+    - ``≈ 0.0`` → LLM path is far from the soft optimum.
+
+    .. note::
+       The soft Viterbi score is always >= the hard Viterbi score
+       (logsumexp >= max), so this reward is generally lower than
+       ``viterbi_distance_reward`` for the same sequence.  This is
+       expected — the soft bound is tighter.
+
+    Args:
+        completion: Generated gloss sequence.
+        normalize: If ``True``, exponentiate to ``(0, 1]`` range.
+            If ``False``, return raw average-log-prob difference.
+
+    Returns:
+        Soft Viterbi proximity reward.
+    """
+    if _bigram_matrix is None or not _gloss_vocab:
+        logger.warning("Transition matrix not initialized; returning 0.0")
+        return 0.0
+
+    text = extract_gloss_text(completion)
+    tokens = text.strip().split()
+
+    if len(tokens) < 2:
+        return 0.0
+
+    bos_idx = _token_to_idx.get("<BOS>", -1)
+    eos_idx = _token_to_idx.get("<EOS>", -1)
+
+    if bos_idx < 0 or eos_idx < 0:
+        logger.warning("BOS/EOS not in vocabulary; returning 0.0")
+        return 0.0
+
+    # Build LLM path indices (BOS + tokens + EOS)
+    llm_indices: list[int] = [bos_idx]
+    for token in tokens:
+        idx = _token_to_idx.get(token, _token_to_idx.get("<UNK>", 0))
+        llm_indices.append(idx)
+    llm_indices.append(eos_idx)
+
+    path_length = len(llm_indices)
+
+    from src.datasets.transition_matrix import (
+        sequence_score_bigram,
+        soft_viterbi_score,
+    )
+
+    llm_log_prob = sequence_score_bigram(_bigram_matrix, llm_indices)
+    soft_viterbi_log_prob = soft_viterbi_score(
+        _bigram_matrix,
+        bos_idx,
+        eos_idx,
+        path_length,
+    )
+
+    n_trans = path_length - 1
+    if n_trans <= 0:
+        return 0.0
+
+    if normalize:
+        llm_avg = llm_log_prob / n_trans
+        soft_viterbi_avg = soft_viterbi_log_prob / n_trans
+        return float(np.exp(llm_avg - soft_viterbi_avg))
+
+    return (llm_log_prob - soft_viterbi_log_prob) / n_trans
+
+
+# ---------------------------------------------------------------------------
+# Reward Component 8: Verifier-Scaled Reward (RECIPE-inspired)
+# ---------------------------------------------------------------------------
+
+
+def verifier_scaled_reward(
+    completion: str,
+    gold_gloss: str,
+) -> float:
+    """RECIPE-inspired verifier-scaled translation reward.
+
+    Inspired by RECIPE (arXiv:2605.19976): *"extracting clean step labels
+    from noisy video is hard, but verifying whether a generated step
+    sequence is temporally grounded is cheap and scales to millions of
+    videos"*.
+
+    This function implements the verifier principle: instead of using
+    the structural quality (bigram plausibility) as a standalone reward,
+    it uses it as a **confidence multiplier** for the translation quality
+    (ROUGE-L).  This means:
+
+    - High ROUGE-L + high structural plausibility → high reward (confident match)
+    - High ROUGE-L + low structural plausibility → reduced reward (suspicious match)
+    - Low ROUGE-L + high structural plausibility → low reward (wrong but plausible)
+    - Low ROUGE-L + low structural plausibility → very low reward (wrong and implausible)
+
+    .. math::
+
+        \\text{reward} = \\text{ROUGE-L} \\times \\text{verifier\\_confidence}
+
+    where :math:`\\text{verifier\\_confidence} \\in [0, 1]` is the
+    structural plausibility (normalized bigram score) of the generated
+    sequence.
+
+    This is more informative than either reward alone: it penalizes
+    sequences that happen to match the gold lexically but are structurally
+    implausible (e.g., correct tokens in wrong order with implausible
+    transitions), and vice versa.
+
+    Args:
+        completion: Generated gloss sequence.
+        gold_gloss: Ground-truth gloss sequence.
+
+    Returns:
+        Verifier-scaled reward in ``[0, 1]``.
+    """
+    rouge = translation_quality_reward(completion, gold_gloss)
+    structural = structural_dense_reward(completion, normalize=True)
+
+    # The verifier confidence is the structural plausibility, which
+    # acts as a multiplicative gate on the translation quality.
+    # We use a soft gate: verifier_confidence = structural^gamma
+    # where gamma controls how strictly the verifier filters.
+    # gamma=1.0 means linear scaling; gamma=2.0 means quadratic (stricter).
+    gamma = float(_viterbi_diversity_params.get("verifier_gamma", 1.0))
+
+    verifier_confidence = structural**gamma
+    return float(rouge * verifier_confidence)
+
+
+# ---------------------------------------------------------------------------
 # Format reward: ensure gloss-only output
 # ---------------------------------------------------------------------------
 
 
 def gloss_format_reward(completion: str) -> float:
-    """Reward for generating only gloss tokens (no free text, no JSON).
+    """Reward for generating only valid gloss tokens from the vocabulary.
 
-    Punishes outputs that contain natural language, code blocks,
-    thinking tags, digit sequences, or mixed alphanumeric garbage.
+    Validates each whitespace-separated token in the completion against the
+    actual gloss vocabulary (``_gloss_vocab``), rather than using generic
+    regex patterns that conflict with valid ASL gloss tokens (e.g. ``.``,
+    ``BE``, ``FOR``, ``TO`` are all legitimate glosses).
+
+    Scoring:
+    - ``1.0`` — all tokens are in the vocabulary.
+    - ``0.5`` — mixed: some tokens valid, some not.
+    - ``0.25`` — mostly garbage (>50% tokens out-of-vocab).
+    - ``0.0`` — empty output or all tokens out-of-vocab.
+
+    Also penalizes concatenated subword garbage (tokens >25 chars) and
+    severe numeric contamination (3+ consecutive digits).
 
     Args:
         completion: Raw model completion.
 
     Returns:
-        ``1.0`` if output looks like clean glosses, ``0.5`` if mixed,
-        ``0.0`` if clearly non-gloss text or garbage.
+        Format reward in ``[0, 1]``.
     """
     text = extract_gloss_text(completion)
     if not text:
         return 0.0
 
-    # Check for obvious non-gloss patterns
-    # Free text typically has lowercase articles, prepositions, punctuation
-    free_text_patterns = [
-        r"\b(the|a|an|is|are|was|were|will|would|should|can|could)\b",
-        r"\b(in|on|at|by|for|with|from|to|of|and|or|but)\b",
-        r"[.,!?;:]",  # punctuation
-        r"```",  # code blocks
-        r"\{|\}",  # JSON-like
-    ]
+    # Strip code blocks / JSON-like wrappers (residual from extract_gloss_text)
+    if "```" in text or "{" in text or "}" in text:
+        text = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+        text = re.sub(r"[{}]", "", text)
 
-    for pattern in free_text_patterns:
-        if re.search(pattern, text, re.IGNORECASE):
-            return 0.5  # mixed content
-
-    # ── Digit / numeric garbage detection ─────────────────────────
-    # Penalize sequences of 3+ consecutive digits (e.g. "13079117...")
-    digit_sequences = re.findall(r"\d{3,}", text)
-    if digit_sequences:
-        # Proportional penalty: more digit sequences → lower reward
-        total_digit_chars = sum(len(s) for s in digit_sequences)
-        if total_digit_chars > 20:
-            return 0.0  # severe numeric garbage
-        return 0.25  # moderate numeric contamination
-
-    # ── Token-level sanity checks ─────────────────────────────────
     tokens = text.split()
-    if len(tokens) == 0:
+    if not tokens:
         return 0.0
 
-    # Check for excessively long tokens (concatenated subword garbage)
-    # Real ASL glosses rarely exceed 20 characters
-    long_token_count = sum(1 for t in tokens if len(t) > 25)
-    if long_token_count > 0:
-        return 0.5
+    # ── Vocabulary membership check ───────────────────────────────
+    # This is the primary signal: each token must be a valid gloss.
+    vocab_set = set(_gloss_vocab) if _gloss_vocab else None
 
-    return 1.0
+    if vocab_set is not None:
+        valid_count = sum(1 for t in tokens if t in vocab_set)
+        valid_ratio = valid_count / len(tokens)
+
+        if valid_ratio == 1.0:
+            # All tokens are valid glosses — check for garbage concatenation
+            long_token_count = sum(1 for t in tokens if len(t) > 25)
+            if long_token_count > 0:
+                return 0.5  # Suspicious: valid but abnormally long tokens
+            return 1.0
+        elif valid_ratio >= 0.5:
+            return 0.5  # Mixed: some valid, some not
+        elif valid_ratio > 0.0:
+            return 0.25  # Mostly garbage
+        else:
+            return 0.0  # All out-of-vocab
+    else:
+        # Fallback: vocabulary not initialized — use heuristic checks
+        # (kept for safety, but should not happen in normal training)
+        digit_sequences = re.findall(r"\d{3,}", text)
+        if digit_sequences:
+            total_digit_chars = sum(len(s) for s in digit_sequences)
+            if total_digit_chars > 20:
+                return 0.0
+            return 0.25
+
+        long_token_count = sum(1 for t in tokens if len(t) > 25)
+        if long_token_count > 0:
+            return 0.5
+
+        return 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -769,6 +967,13 @@ def build_t2g_reward_functions(
       **(recommended over weight_structure)**.
     - ``weight_viterbi``: Bigram score vs Viterbi theoretical optimum
       **(experimental — see caveat in ``viterbi_distance_reward``)**.
+    - ``weight_soft_viterbi``: Bigram score vs **soft** Viterbi (forward-backward)
+      optimum — differentiable relaxation inspired by ViterbiPlanNet's DVL
+      (arXiv:2603.04265).  Smoother and tighter than ``weight_viterbi``.
+    - ``weight_verifier_scaled``: RECIPE-inspired verifier-scaled reward
+      (arXiv:2605.19976) — uses structural plausibility as a confidence
+      multiplier for translation quality.  More informative than either
+      reward alone.
     - ``weight_gloss_order``: Word-level edit-distance similarity with gold
       gloss — complements ``weight_translation`` (ROUGE-L, a lexical-overlap
       proxy borrowed from summarization) with a signal that is sensitive to
@@ -825,6 +1030,22 @@ def build_t2g_reward_functions(
     w = reward_config.get("weight_viterbi", 0.0)
     if w > 0:
         funcs.append(_make_gloss_reward_fn(viterbi_distance_reward))
+        weights.append(w)
+
+    # Soft Viterbi distance reward (differentiable, forward-backward)
+    # *** Inspired by ViterbiPlanNet's DVL (arXiv:2603.04265) ***
+    w = reward_config.get("weight_soft_viterbi", 0.0)
+    if w > 0:
+        funcs.append(_make_gloss_reward_fn(soft_viterbi_distance_reward))
+        weights.append(w)
+
+    # Verifier-scaled reward (RECIPE-inspired)
+    # *** Uses structural plausibility as confidence multiplier (arXiv:2605.19976) ***
+    w = reward_config.get("weight_verifier_scaled", 0.0)
+    if w > 0:
+        funcs.append(
+            _make_gloss_reward_fn(verifier_scaled_reward, needs_gold_gloss=True)
+        )
         weights.append(w)
 
     # Gloss-order edit-distance reward (needs gold gloss) — complements

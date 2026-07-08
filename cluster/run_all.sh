@@ -6,7 +6,9 @@
 # controlla ogni 60s se la coda è vuota e sottomette il prossimo job.
 #
 # Uso:
-#   bash cluster/run_all.sh                       # train + eval (default: GRPO+grammar)
+#   bash cluster/run_all.sh                       # train + eval (default: grpo_optimal)
+#   bash cluster/run_all.sh grpo_qwen05             # train + eval con config specifico
+#   bash cluster/run_all.sh grpo_qwen05 --train-only # solo training con config specifico
 #   bash cluster/run_all.sh --ablation             # ablation study completo
 #   bash cluster/run_all.sh --eval-only            # solo evaluation
 #   bash cluster/run_all.sh --train-only           # solo training
@@ -14,13 +16,23 @@
 #   bash cluster/run_all.sh --append               # aggiungi job a pipeline attiva
 #   bash cluster/run_all.sh --remove               # rimuovi job dalla pipeline
 #
+# Config specifici (passa il nome senza .yaml):
+#   bash cluster/run_all.sh grpo_qwen05             # config base
+#   bash cluster/run_all.sh grpo_optimal            # config ottimale (default)
+#   bash cluster/run_all.sh sft                     # SFT baseline
+#   bash cluster/run_all.sh grpo_no_grammar         # ablation senza grammar
+#   (cerca in experiments/configs/t2g/ e experiments/configs/t2g/ablation/)
+#
 # Ablation Study (--ablation):
-#   1. Base Model Zero-shot (senza grammar)
-#   2. Base Model + GRAMMAR-LLM (con grammar, no training)
+#   1. Base Model Zero-shot (senza grammar)              [eval only]
+#   2. Base Model + GRAMMAR-LLM (con grammar, no training) [eval only]
 #   3. GRPO senza grammar (train + eval)
-#   4. GRPO + GRAMMAR-LLM (train + eval — metodo completo)
+#   4. GRPO + GRAMMAR-LLM (train + eval — metodo base)
 #   5. SFT (train + eval — baseline supervisionata)
 #   6. GRPO + GrammarLLM PDA (train + eval — LL(1) constrained)
+#   7. GRPO + Soft Viterbi (train + eval — DVL differentiable)
+#   8. GRPO + Verifier-Scaled (train + eval — RECIPE-inspired)
+#   9. GRPO + Optimal (train + eval — tutti i moduli combinati)
 #
 # Monitorare:
 #   tail -f logs/chain_watcher.log           # log del watcher
@@ -41,6 +53,7 @@ ABLATION=0
 RESUME=0
 APPEND=0
 REMOVE=0
+CONFIG_NAME=""
 for arg in "$@"; do
     case "$arg" in
         --ablation)    ABLATION=1 ;;
@@ -50,31 +63,49 @@ for arg in "$@"; do
         --remove)      REMOVE=1 ;;
         --resume)      RESUME=1 ;;
         --help|-h)
-            echo "Uso: bash cluster/run_all.sh [opzioni]"
+            echo "Uso: bash cluster/run_all.sh [opzioni] [config_name]"
             echo ""
             echo "Opzioni:"
-            echo "  --ablation       Ablation study completo (6 varianti)"
-            echo "  --eval-only      Solo evaluation (skip training)"
-            echo "  --train-only     Solo training (skip eval)"
-            echo "  --resume         Riprendi pipeline da dove si era fermata"
-            echo "  --append         Aggiungi job alla pipeline attiva"
-            echo "  --remove         Rimuovi job dalla pipeline attiva"
+            echo "  (nessun argomento)  Default: grpo_optimal (train + eval)"
+            echo "  config_name         Nome del config senza .yaml (es. grpo_qwen05)"
+            echo "  --ablation          Ablation study completo (9 varianti)"
+            echo "  --eval-only         Solo evaluation (skip training)"
+            echo "  --train-only        Solo training (skip eval)"
+            echo "  --resume            Riprendi pipeline da dove si era fermata"
+            echo "  --append            Aggiungi job alla pipeline attiva"
+            echo "  --remove            Rimuovi job dalla pipeline attiva"
             echo ""
-            echo "Ablation Study (--ablation):"
-            echo "  1. zero-shot       Base model, no grammar         [eval only]"
-            echo "  2. zero-shot-gram  Base model + Grammar-LLM       [eval only]"
-            echo "  3. grpo-no-grammar GRPO senza grammar              [train+eval]"
-            echo "  4. grpo-grammar    GRPO + GRAMMAR-LLM (completo)  [train+eval]"
-            echo "  5. sft             SFT supervised baseline        [train+eval]"
-            echo "  6. grpo-pda        GRPO + GrammarLLM PDA            [train+eval]"
+            echo "Config disponibili (passa il nome senza .yaml):"
+            echo "  grpo_optimal        GRPO + tutti i moduli (default)"
+            echo "  grpo_qwen05         GRPO + grammar (config base)"
+            echo "  sft                 SFT supervised baseline"
+            echo "  grpo_no_grammar     Ablation: GRPO senza grammar"
+            echo "  grpo_pda            Ablation: GRPO + PDA"
+            echo "  grpo_soft_viterbi   Ablation: GRPO + Soft Viterbi"
+            echo "  grpo_verifier_scaled Ablation: GRPO + Verifier-Scaled"
+            echo "  zero_shot           Ablation: zero-shot senza grammar"
+            echo "  zero_shot_grammar   Ablation: zero-shot con grammar"
+            echo ""
+            echo "Esempi:"
+            echo "  bash cluster/run_all.sh grpo_qwen05              # train + eval con config base"
+            echo "  bash cluster/run_all.sh grpo_qwen05 --train-only  # solo training"
+            echo "  bash cluster/run_all.sh --ablation               # tutti i 9 config"
             exit 0
+            ;;
+        -*)  # ignora flag non riconosciuti
+            ;;
+        *)
+            # Primo argomento non-flag = nome del config
+            if [ -z "$CONFIG_NAME" ]; then
+                CONFIG_NAME="$arg"
+            fi
             ;;
     esac
 done
 
 # ── Modelli T2G ───────────────────────────────────────────────────────────────
 if [ "$ABLATION" -eq 1 ]; then
-    # Ablation study: 6 varianti in ordine
+    # Ablation study: 9 varianti in ordine (dai più semplici ai più complessi)
     # Formato: TAG:CONFIG[:MODE]
     # MODE: te=train+eval (default), e=eval-only, t=train-only
     MODELS=(
@@ -84,9 +115,35 @@ if [ "$ABLATION" -eq 1 ]; then
         "grpo-grammar:experiments/configs/t2g/grpo_qwen05.yaml:te"
         "sft:experiments/configs/t2g/sft.yaml:te"
         "grpo-pda:experiments/configs/t2g/ablation/grpo_pda.yaml:te"
+        "grpo-soft-viterbi:experiments/configs/t2g/ablation/grpo_soft_viterbi.yaml:te"
+        "grpo-verifier:experiments/configs/t2g/ablation/grpo_verifier_scaled.yaml:te"
+        "grpo-optimal:experiments/configs/t2g/grpo_optimal.yaml:te"
     )
+elif [ -n "$CONFIG_NAME" ]; then
+    # Config specifico passato come argomento (es. "grpo_qwen05")
+    # Cerca in experiments/configs/t2g/ e experiments/configs/t2g/ablation/
+    CONFIG_PATH=""
+    for dir in "experiments/configs/t2g" "experiments/configs/t2g/ablation"; do
+        for ext in ".yaml" ""; do
+            candidate="${dir}/${CONFIG_NAME}${ext}"
+            if [ -f "$candidate" ]; then
+                CONFIG_PATH="$candidate"
+                break 2
+            fi
+        done
+    done
+    if [ -z "$CONFIG_PATH" ]; then
+        echo "❌ Config non trovato: $CONFIG_NAME"
+        echo "   Cercato in: experiments/configs/t2g/ e experiments/configs/t2g/ablation/"
+        echo "   Usa: bash cluster/run_all.sh --help per la lista dei config"
+        exit 1
+    fi
+    # Deriva il tag dal nome del config (senza percorso ed estensione)
+    TAG=$(basename "$CONFIG_PATH" .yaml)
+    MODELS=("${TAG}:${CONFIG_PATH}")
 else
-    MODELS=("qwen05:experiments/configs/t2g/grpo_qwen05.yaml")
+    # Default: config ottimale
+    MODELS=("qwen05:experiments/configs/t2g/grpo_optimal.yaml")
 fi
 
 PROJ_DIR="$HOME/neuro_symbolic_t2g"

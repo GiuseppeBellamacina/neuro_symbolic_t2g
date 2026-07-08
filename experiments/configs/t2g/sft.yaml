@@ -16,6 +16,7 @@ model:
   num_gpus: 1
   quantization: "4bit"
   dtype: "bfloat16"
+  use_unsloth: true
   max_seq_length: 1024
 
 # --- LoRA adapters ---
@@ -95,6 +96,7 @@ grammar:
     max_occurrences: 2
     diversity_threshold: 0.3
     max_iters: 3
+    verifier_gamma: 1.0
 
 # --- Curriculum Learning (disabled) ---
 curriculum:

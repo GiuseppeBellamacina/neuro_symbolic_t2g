@@ -37,7 +37,7 @@ def test_completion_sample_extraction() -> None:
     print("\n-- 1. Completion Sample Extraction --")
     from src.utils.chain_monitor import _extract_completion_samples
 
-    # Simulate a log with completion samples block
+    # Simulate a log with completion samples block (includes GOLD + match indicator)
     log_lines = [
         "step=100 loss=0.005 reward=0.350 ",
         "some other log line",
@@ -45,11 +45,13 @@ def test_completion_sample_extraction() -> None:
         "  COMPLETION SAMPLES",
         "================================================================",
         "-------------------------------------------------------------------",
-        "  Sample 1  [difficulty=medium]",
+        "  Sample 1  [difficulty=medium] [✗]",
         "-------------------------------------------------------------------",
         "  PROMPT: The man walks into the house.",
         "  OUTPUT:",
         "    IX MAN WALK HOUSE",
+        "  GOLD:",
+        "    IX MAN WALK ENTER HOUSE",
         "  REWARDS: translation_quality_reward=+0.80  structural_dense_reward=+0.65  gloss_format_reward=+1.00  gloss_repetition_reward=+1.00",
         "  TOTAL:   +0.80",
         "================================================================",
@@ -64,6 +66,7 @@ def test_completion_sample_extraction() -> None:
     check("Contains 'Last completion'", "Last completion" in text)
     check("Contains PROMPT", "PROMPT" in text or "prompt" in text.lower())
     check("Contains OUTPUT", "OUTPUT" in text or "IX MAN WALK" in text)
+    check("Contains GOLD", "GOLD" in text or "ENTER HOUSE" in text)
     check("Contains REWARDS", "REWARDS" in text or "translation_quality_reward" in text)
     check("Contains TOTAL", "TOTAL" in text or "total" in text.lower())
 
@@ -72,6 +75,9 @@ def test_completion_sample_extraction() -> None:
         "Difficulty badge present",
         "medium" in text.lower() or "difficulty" in text.lower(),
     )
+
+    # Verify match indicator (✗ mismatch since OUTPUT != GOLD)
+    check("Match indicator present", "mismatch" in text.lower())
 
     # Empty log should return empty
     empty = _extract_completion_samples(["no samples here"])
@@ -127,6 +133,54 @@ def test_training_log_parsing() -> None:
     check("JobInfo label", job.label == "train-qwen05")
     check("JobInfo step", job.step == 100)
     check("JobInfo stage_total", job.stage_total == 1500)
+
+
+def test_sft_log_parsing() -> None:
+    print("\n-- 2b. SFT Log Parsing --")
+    from src.utils.chain_monitor import (
+        _SFT_PROGRESS,
+        _extract_sft_samples,
+    )
+
+    # Test SFT progress regex
+    line = (
+        "  [sft] step=50/200 (25.0%)  loss=2.345678  avg=2.5  "
+        "min=2.1  lr=1.5e-05  epoch=0.5"
+    )
+    m = _SFT_PROGRESS.search(line)
+    check("SFT progress matched", m is not None)
+    if m:
+        check("SFT step = 50", int(m.group(1)) == 50)
+        check("SFT total = 200", int(m.group(2)) == 200)
+        check("SFT loss = 2.345678", abs(float(m.group(3)) - 2.345678) < 0.001)
+
+    # Test SFT sample extraction
+    sft_log_lines = [
+        "some log line",
+        "======================================================================",
+        "  SFT SAMPLE PREDICTIONS (step 100)",
+        "======================================================================",
+        "-------------------------------------------------------------------",
+        "  PROMPT: The man walks into the house.",
+        "  GOLD:   IX MAN WALK ENTER HOUSE",
+        "  PRED:   IX MAN WALK HOUSE",
+        "-------------------------------------------------------------------",
+        "  PROMPT: The woman reads a book.",
+        "  GOLD:   IX WOMAN READ BOOK",
+        "  PRED:   IX WOMAN READ BOOK",
+        "======================================================================",
+    ]
+    samples = _extract_sft_samples(sft_log_lines)
+    check("SFT samples extracted", len(samples) == 2, f"{len(samples)} samples")
+    if samples:
+        text = "\n".join(samples)
+        check("SFT sample has GOLD", "GOLD" in text)
+        check("SFT sample has PRED", "PRED" in text)
+        check("SFT sample has correct gold", "ENTER HOUSE" in text)
+
+    # Empty log
+    empty = _extract_sft_samples(["no sft samples here"])
+    check("No SFT samples in empty log", len(empty) == 0)
 
 
 def test_time_helpers() -> None:
@@ -239,6 +293,7 @@ def main() -> None:
     try:
         test_completion_sample_extraction()
         test_training_log_parsing()
+        test_sft_log_parsing()
         test_time_helpers()
         test_eval_log_parsing()
         test_estimate_total_eta()

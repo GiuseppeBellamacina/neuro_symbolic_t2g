@@ -171,6 +171,7 @@ def test_callbacks_interface() -> None:
     from src.training.callbacks import (
         CompletionSampleCallback,
         CompletionSampleLogger,
+        SFTSampleCallback,
     )
 
     dataset = download_aslg_dataset(cache_dir="data/test_integration_cache")
@@ -207,35 +208,122 @@ def test_callbacks_interface() -> None:
         "format_samples contains 'COMPLETION SAMPLES'",
         "COMPLETION SAMPLES" in formatted,
     )
+    # When no gold is registered, GOLD section should not appear
+    check(
+        "format_samples has no GOLD when unregistered",
+        "GOLD:" not in formatted,
+    )
+
+    # Register a gold gloss and verify GOLD appears in formatted output
+    import hashlib
+
+    from src.rewards.t2g_rewards import register_gold_glosses
+    from src.utils.text_utils import extract_user_text
+
+    # Build fake prompts matching the completions
+    fake_prompt_1 = [{"role": "user", "content": "The man walks into the house."}]
+    fake_prompt_2 = [{"role": "user", "content": "The dog chases the cat."}]
+    fake_prompts = [fake_prompt_1, fake_prompt_2]
+    sid1 = hashlib.sha256(
+        extract_user_text(fake_prompt_1).encode("utf-8", errors="replace")
+    ).hexdigest()
+    sid2 = hashlib.sha256(
+        extract_user_text(fake_prompt_2).encode("utf-8", errors="replace")
+    ).hexdigest()
+    register_gold_glosses([sid1, sid2], ["IX MAN WALK ENTER HOUSE", "DOG CHASE CAT"])
+
+    logger._capture(completions, fake_prompts)
+    formatted2 = logger.format_samples()
+    check(
+        "format_samples includes GOLD when registered",
+        "GOLD:" in formatted2,
+    )
+    check(
+        "format_samples includes correct gold text",
+        "ENTER HOUSE" in formatted2,
+    )
+    # Verify match indicator appears (✗ since OUTPUT != GOLD)
+    check(
+        "format_samples includes match indicator",
+        "✓" in formatted2 or "✗" in formatted2,
+    )
+    # Verify only active reward components (weight > 0) are in the breakdown.
+    # build_t2g_reward_functions() with no config returns 4 active rewards:
+    # translation, gold_structure, format, repetition.
+    sample = logger._buffer[0]
+    bd_keys = set(sample["breakdown"].keys())
+    expected_active = {
+        "translation_quality_reward",
+        "gold_structure_reward",
+        "gloss_format_reward",
+        "gloss_repetition_reward",
+    }
+    check(
+        "Only active reward components in breakdown (weight > 0)",
+        bd_keys == expected_active,
+        f"got: {bd_keys}, expected: {expected_active}",
+    )
+    check(
+        "Inactive components not computed (viterbi not present)",
+        "viterbi_distance_reward" not in bd_keys,
+    )
 
     # Test callback creation
     cb = CompletionSampleCallback(logger, every_n_steps=5)
     check("Callback created", cb is not None)
     check("Callback has logger", cb._logger is logger)
 
+    # Test SFTSampleCallback creation (no model/tokenizer — should not crash)
+    sft_cb = SFTSampleCallback(
+        tokenizer=None, model=None, dataset=None, every_n_steps=25
+    )
+    check("SFTSampleCallback created", sft_cb is not None)
+    check("SFTSampleCallback has every_n_steps", sft_cb._every_n_steps == 25)
+
 
 def test_module_imports() -> None:
     print("\n-- 5. Module Import Chain --")
     modules = [
         (
-            "src.datasetsaslg_dataset",
+            "src.datasets.aslg_dataset",
             ["download_aslg_dataset", "extract_gloss_vocabulary", "build_t2g_dataset"],
         ),
         (
-            "src.datasetstransition_matrix",
-            ["compute_bigram_transitions", "load_transition_matrix"],
+            "src.datasets.transition_matrix",
+            [
+                "compute_bigram_transitions",
+                "load_transition_matrix",
+                "soft_viterbi_score",
+                "forward_log_probs",
+                "backward_log_probs",
+            ],
         ),
         ("src.grammar.gloss_grammar", ["GlossVocabularyMask"]),
         ("src.grammar.grammar_logits_processor", ["GlossVocabularyLogitsProcessor"]),
         (
             "src.rewards.t2g_rewards",
-            ["build_t2g_reward_functions", "initialize_rewards"],
+            [
+                "build_t2g_reward_functions",
+                "initialize_rewards",
+                "soft_viterbi_distance_reward",
+                "verifier_scaled_reward",
+            ],
         ),
         (
             "src.training.callbacks",
-            ["CompletionSampleLogger", "CompletionSampleCallback"],
+            ["CompletionSampleLogger", "CompletionSampleCallback", "SFTSampleCallback"],
         ),
-        ("src.utils.metrics", ["compute_pass_at_1", "compute_reward_breakdown"]),
+        (
+            "src.utils.metrics",
+            [
+                "compute_pass_at_1",
+                "compute_reward_breakdown",
+                "compute_evaluation_report",
+                "bootstrap_confidence_interval",
+                "sentence_bleu",
+                "corpus_bleu",
+            ],
+        ),
         ("src.utils.visualization", ["plot_training_curves", "plot_reward_breakdown"]),
         ("src.utils.chain_monitor", []),
         ("src.utils.live_training_table", []),

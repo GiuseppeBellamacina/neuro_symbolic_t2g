@@ -48,6 +48,16 @@ _STAGE_START = re.compile(r"\[stage (\d+)\] steps=(\d+)")
 _STAGE_DONE = re.compile(r"\[stage (\d+)\] (\S+) completed")
 # tqdm progress bar: " 47%|████▋     | 420/900 [29:23<25:49"
 _TQDM_PROGRESS = re.compile(r"^\s*\d+%\|.*\|\s*(\d+)/(\d+)\s*\[", re.MULTILINE)
+# SFT progress: "  [sft] step=50/200 (25.0%)  loss=2.345678  avg=2.5  min=2.1  lr=1.5e-05  epoch=0.5"
+_SFT_PROGRESS = re.compile(
+    r"\[sft\] step=(\d+)/(\d+).*loss=([\d.]+).*lr=([\d.e+-]+).*epoch=([\d.]+)"
+)
+# SFT sample predictions header
+_SFT_SAMPLE_HEADER = re.compile(r"SFT SAMPLE PREDICTIONS \(step (\d+)\)")
+# SFT training summary
+_SFT_SUMMARY = re.compile(r"SFT TRAINING SUMMARY")
+# SFT phase start
+_SFT_PHASE_START = re.compile(r"STEP 1\.5: SFT Pre-training")
 # Eval generation bar: "Generating:  45%|████▍| 17/38 ["
 _TQDM_GENERATING = re.compile(r"Generating.*\|\s*(\d+)/(\d+)\s*\[")
 # tqdm time info: "[04:25<37:02, 33.17s/it]" or "[1:23:45<2:03:04"
@@ -95,6 +105,11 @@ class JobInfo:
     tqdm_eta: str = ""  # remaining time from tqdm bar
     last_reward: str = ""  # last logged mean reward
     completion_samples: list[str] = field(default_factory=list)
+    sft_active: bool = False  # True when SFT pre-training phase is running
+    sft_loss: str = ""  # last SFT loss value
+    sft_step: int = 0  # current SFT step
+    sft_total: int = 0  # total SFT steps (estimated)
+    sft_samples: list[str] = field(default_factory=list)  # SFT sample predictions
 
     @property
     def label(self) -> str:
@@ -348,11 +363,13 @@ def _extract_completion_samples(
     prompt_text = ""
     think_lines: list[str] = []
     output_lines: list[str] = []
+    gold_lines: list[str] = []
     rewards_line = ""
     total_line = ""
     difficulty = ""
     section = ""
     found_first = False
+    match_indicator = ""
     for line in block:
         if line.startswith("Sample ") and found_first:
             break
@@ -361,6 +378,9 @@ def _extract_completion_samples(
             dm = re.search(r"\[difficulty=(\w+)\]", line)
             if dm:
                 difficulty = dm.group(1)
+            mm = re.search(r"\[([✓✗])\]", line)
+            if mm:
+                match_indicator = mm.group(1)
             continue
         if line.startswith("PROMPT:"):
             prompt_text = line[len("PROMPT:") :].strip()
@@ -371,6 +391,9 @@ def _extract_completion_samples(
             continue
         if line == "OUTPUT:":
             section = "output"
+            continue
+        if line == "GOLD:":
+            section = "gold"
             continue
         if line.startswith("REWARDS:"):
             rewards_line = line
@@ -391,6 +414,8 @@ def _extract_completion_samples(
             think_lines.append(line)
         elif section == "output":
             output_lines.append(line)
+        elif section == "gold":
+            gold_lines.append(line)
 
     if not output_lines and not rewards_line:
         return []
@@ -398,8 +423,15 @@ def _extract_completion_samples(
     diff_colors = {"simple": _GREEN, "medium": _YELLOW, "hard": _RED}
     diff_color = diff_colors.get(difficulty, _DIM)
     diff_badge = f" {diff_color}[{difficulty}]{_RST}" if difficulty else ""
+    match_badge = ""
+    if match_indicator == "✓":
+        match_badge = f" {_GREEN}[✓ match]{_RST}"
+    elif match_indicator == "✗":
+        match_badge = f" {_RED}[✗ mismatch]{_RST}"
 
-    result = [f"{_DIM}─── Last completion{_RST}{diff_badge} {_DIM}───{_RST}"]
+    result = [
+        f"{_DIM}─── Last completion{_RST}{diff_badge}{match_badge} {_DIM}───{_RST}"
+    ]
 
     if prompt_text:
         result.append(f"  {_CYAN}PROMPT:{_RST} {prompt_text.strip()}")
@@ -417,6 +449,12 @@ def _extract_completion_samples(
             display.append("[...]")
         for dl in display:
             result.append(f"  {_DIM}{dl}{_RST}")
+
+    if gold_lines:
+        gold_text = " ".join(gl.strip() for gl in gold_lines).strip()
+        if max_lines > 0 and len(gold_text) > 80:
+            gold_text = gold_text[:80] + "..."
+        result.append(f"  {_YELLOW}✓ GOLD:{_RST} {_YELLOW}{gold_text}{_RST}")
 
     if rewards_line:
         parts = re.findall(r"(\w+)=([+-]?\d+\.\d+)", rewards_line)
@@ -453,6 +491,46 @@ def _extract_completion_samples(
     return result
 
 
+def _extract_sft_samples(lines: list[str]) -> list[str]:
+    """Extract SFT sample predictions (PROMPT/GOLD/PRED) from the log."""
+    block: list[str] = []
+    in_block = False
+    for line in lines:
+        stripped = line.strip()
+        if _SFT_SAMPLE_HEADER.search(stripped):
+            in_block = True
+            block = []
+            continue
+        if in_block:
+            if stripped.startswith("═" * 10) and len(block) > 3:
+                in_block = False
+                break
+            block.append(stripped)
+
+    if not block:
+        return []
+
+    result: list[str] = []
+    prompt_text = ""
+    gold_text = ""
+    pred_text = ""
+    for line in block:
+        if line.startswith("PROMPT:"):
+            prompt_text = line[len("PROMPT:") :].strip()
+        elif line.startswith("GOLD:"):
+            gold_text = line[len("GOLD:") :].strip()
+        elif line.startswith("PRED:"):
+            pred_text = line[len("PRED:") :].strip()
+            # Flush one sample
+            result.append(
+                f"  {_CYAN}PROMPT:{_RST} {prompt_text}\n"
+                f"  {_YELLOW}GOLD:{_RST}   {gold_text}\n"
+                f"  {_GREEN}PRED:{_RST}   {pred_text}"
+            )
+            prompt_text = gold_text = pred_text = ""
+    return result
+
+
 def _parse_training_log(log_path: Path, job: JobInfo) -> None:
     """Parse a training log file and update job state."""
     stage_lines = _grep_lines(log_path, r"\[stage [0-9]+\]")
@@ -479,6 +557,32 @@ def _parse_training_log(log_path: Path, job: JobInfo) -> None:
     samples = _extract_completion_samples(sample_tail, max_lines=_SAMPLE_MAX_LINES)
     if samples:
         job.completion_samples = samples
+
+    # ── SFT phase parsing ───────────────────────────────────────────────
+    # Detect SFT phase and extract progress info
+    for line in tail:
+        if _SFT_PHASE_START.search(line):
+            job.sft_active = True
+            break
+        if "STEP 2: Model Loading" in line and "SFT" not in line:
+            # SFT phase ended if we see STEP 2 after SFT
+            if job.sft_active:
+                job.sft_active = False
+            break
+
+    # Parse SFT progress lines (last one wins)
+    for line in reversed(tail):
+        m = _SFT_PROGRESS.search(line)
+        if m:
+            job.sft_step = int(m.group(1))
+            job.sft_total = int(m.group(2))
+            job.sft_loss = m.group(3)
+            break
+
+    # Parse SFT sample predictions (last block)
+    sft_samples = _extract_sft_samples(tail)
+    if sft_samples:
+        job.sft_samples = sft_samples
 
     for line in reversed(tail):
         m = _KV_STEP.search(line)
@@ -1044,7 +1148,13 @@ def _display(
 
         if j.job_type == "train" and j.step > 0:
             tot = j.stage_total if j.stage_total > 0 else "?"
-            desc = f"step {_WHITE}{j.step}{_RST}/{tot}"
+            if j.sft_active and j.sft_step > 0:
+                sft_tot = j.sft_total if j.sft_total > 0 else "?"
+                desc = f"{_MAGENTA}SFT{_RST} step {_WHITE}{j.sft_step}{_RST}/{sft_tot}"
+                if j.sft_loss:
+                    desc += f" {_DIM}loss={j.sft_loss}{_RST}"
+            else:
+                desc = f"step {_WHITE}{j.step}{_RST}/{tot}"
         elif j.job_type == "eval":
             if j.eval_label:
                 desc = j.eval_label
@@ -1068,6 +1178,10 @@ def _display(
 
         cur = j.step
         tot = j.stage_total if j.job_type == "train" else j.eval_step_total
+        # Use SFT step/total when in SFT phase
+        if j.sft_active and j.sft_step > 0 and j.sft_total > 0:
+            cur = j.sft_step
+            tot = j.sft_total
         if cur > 0 and tot > 0:
             pct = int(cur / tot * 100)
             bar_w = 20
@@ -1207,10 +1321,20 @@ def _display(
                 stage_cells = "".join(stage_strs)
                 print(f"  {tag:<24s} {rw_str} {stage_cells}")
 
-    if show_samples and running and running[0].completion_samples:
-        print()
-        for sl in running[0].completion_samples:
-            print(f"  {sl}")
+    if show_samples and running:
+        j = running[0]
+        # Show SFT samples if in SFT phase
+        if j.sft_active and j.sft_samples:
+            print()
+            print(f"  {_BOLD}{_MAGENTA}SFT Sample Predictions:{_RST}")
+            for sl in j.sft_samples[-2:]:  # last 2 samples
+                print(f"  {sl}")
+                print(f"  {_DIM}{'─' * 50}{_RST}")
+        # Show GRPO completion samples
+        if j.completion_samples:
+            print()
+            for sl in j.completion_samples:
+                print(f"  {sl}")
 
     failed_with_errors = [j for j in jobs if j.state == "FAILED" and j.error_type]
     if failed_with_errors:
