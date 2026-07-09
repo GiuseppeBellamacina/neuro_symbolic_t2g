@@ -1,18 +1,21 @@
 # T2G Config Matrix — Ablation Study
 
-6 config YAML che coprono il piano di ablation **Training × Grammar** per Text-to-Gloss (T2G).
-Tutti usano **Qwen2.5-0.5B-Instruct** (4-bit, LoRA r=16, 1500 step / 3 epoche).
+8 config YAML che coprono il piano di ablation **Training × Grammar** per Text-to-Gloss (T2G),
+più una config **optimal** e una **experimental** con tutti i 9 moduli reward attivi.
+Tutti usano **Qwen2.5-0.5B-Instruct** (4-bit, LoRA, 1500 step / 3 epoche).
 
 **Quick reference:**
 
-| # | Config | Training | Grammar | Eval | Cosa testa |
-|---|---|---|---|---|---|
-| 1 | `t2g/grpo_qwen05.yaml` | ✅ GRPO | ✅ Vocab Mask | ✅ | **Main training** — GRPO + gloss vocabulary mask |
-| 2 | `t2g/sft.yaml` | ✅ SFT | ✅ Vocab Mask | ✅ | Baseline supervisionata via teacher forcing |
-| 3 | `ablation/zero_shot.yaml` | ❌ | ❌ | ✅ | Modello base grezzo (nessun vincolo) |
-| 4 | `ablation/zero_shot_grammar.yaml` | ❌ | ✅ Vocab Mask | ✅ | Modello base + vincoli (no training) |
-| 5 | `ablation/grpo_no_grammar.yaml` | ✅ GRPO | ❌ | ✅ | GRPO senza constrained decoding |
-| 6 | `ablation/grpo_pda.yaml` | ✅ GRPO | ✅ PDA LL(1) | ✅ | GRPO + Pushdown Automaton (grammatica completa) |
+| #   | Config                            | Training | Grammar       | Eval | Cosa testa                                           |
+| --- | --------------------------------- | -------- | ------------- | ---- | ---------------------------------------------------- |
+| 1   | `t2g/grpo_optimal.yaml`           | ✅ GRPO  | ✅ Vocab Mask | ✅   | **Optimal** — LoRA r=32, 9 reward weights bilanciati |
+| 2   | `t2g/grpo_experimental_all.yaml`  | ✅ GRPO  | ✅ Vocab Mask | ✅   | **Experimental** — tutti i 9 moduli reward attivi    |
+| 3   | `t2g/grpo_qwen05.yaml`            | ✅ GRPO  | ✅ Vocab Mask | ✅   | **Main training** — GRPO + gloss vocabulary mask     |
+| 4   | `t2g/sft.yaml`                    | ✅ SFT   | ✅ Vocab Mask | ✅   | Baseline supervisionata via teacher forcing          |
+| 5   | `ablation/zero_shot.yaml`         | ❌       | ❌            | ✅   | Modello base grezzo (nessun vincolo)                 |
+| 6   | `ablation/zero_shot_grammar.yaml` | ❌       | ✅ Vocab Mask | ✅   | Modello base + vincoli (no training)                 |
+| 7   | `ablation/grpo_no_grammar.yaml`   | ✅ GRPO  | ❌            | ✅   | GRPO senza constrained decoding                      |
+| 8   | `ablation/grpo_pda.yaml`          | ✅ GRPO  | ✅ PDA LL(1)  | ✅   | GRPO + Pushdown Automaton (grammatica completa)      |
 
 ## Ablation Matrix
 
@@ -26,14 +29,14 @@ SFT Baseline                       sft
 
 ## Sezioni condivise da tutti
 
-| Sezione | Contenuto | Note |
-|---|---|---|
-| `model` | `name`, `num_gpus`, `quantization`, `dtype`, `use_unsloth`, `fast_inference`, `max_seq_length`, `gpu_memory_utilization`, `vllm_standby` | `fast_inference: false` sempre (incompatibile con LogitsProcessor) |
-| `dataset` | `dataset_name`, `dataset_cache`, `vocab_path`, `bigram_matrix_path`, `split`, `max_samples`, `seed`, `thinking: false` | T2G non usa `<think>` blocks |
-| `wandb` | `project`, `run_name`, `tags` | `neuro-symbolic-t2g` |
-| `lora` | `r: 16`, `lora_alpha: 32`, `lora_dropout: 0`, `target_modules`, `task_type`, `random_state: 3407` | Solo training configs; eval-only ne sono privi |
-| `curriculum` | `enabled: false` | Disabilitato per Phase 1 |
-| `evaluation` | `batch_size: 8` | Solo training configs |
+| Sezione      | Contenuto                                                                                                                                | Note                                                               |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `model`      | `name`, `num_gpus`, `quantization`, `dtype`, `use_unsloth`, `fast_inference`, `max_seq_length`, `gpu_memory_utilization`, `vllm_standby` | `fast_inference: false` sempre (incompatibile con LogitsProcessor) |
+| `dataset`    | `dataset_name`, `dataset_cache`, `vocab_path`, `bigram_matrix_path`, `split`, `max_samples`, `seed`, `thinking: false`                   | T2G non usa `<think>` blocks                                       |
+| `wandb`      | `project`, `run_name`, `tags`                                                                                                            | `neuro-symbolic-t2g`                                               |
+| `lora`       | `r: 16`, `lora_alpha: 32`, `lora_dropout: 0`, `target_modules`, `task_type`, `random_state: 3407`                                        | Solo training configs; eval-only ne sono privi                     |
+| `curriculum` | `enabled: false`                                                                                                                         | Disabilitato per Phase 1                                           |
+| `evaluation` | `batch_size: 8`                                                                                                                          | Solo training configs                                              |
 
 ---
 
@@ -72,6 +75,7 @@ reward:       weight_translation=0.40, weight_gold_structure=0.40,
 ```
 
 **Differenze da grpo_qwen05:**
+
 - `training.trainer: sft` → il bootstrap (`__main__.py`) carica `sft_train.py` invece di `grpo_t2g_train.py`
 - `generation` invece di `grpo` — parametri di eval, non di training
 - `num_train_epochs: 3` invece di `max_steps: 1500`
@@ -163,6 +167,7 @@ grpo:         num_generations=4, beta=0.04, temperature=0.7
 ```
 
 **Differenze da grpo_qwen05:**
+
 - `use_grammarllm_pda: true` → attiva il Pushdown Automaton
 - `pda_temperature: 1.0` → temperatura per lo scaling dei logit nel PDA
 
@@ -185,25 +190,30 @@ di token allowed              "dove si trova" nella grammatica
 
 Il PDA (Pushdown Automaton) mantiene uno **stack** che traccia lo stato
 corrente nella grammatica LL(1). A ogni token generato:
+
 1. Il PDA verifica se il token è valido nello stato corrente
 2. Aggiorna lo stack (push/pop in base alle produzioni grammaticali)
 3. Restituisce la lista dei token validi per il prossimo step
 
 La grammatica è costruita da `gloss_grammar.py`:
+
 ```
 S* → BOS S EOS
 S  → GLOSS S*         (continua con un altro gloss)
 S  → ε                (termina)
 ```
+
 Dove `GLOSS` è un non-terminale che espande in TUTTI i token del glossario
 (tranne BOS e UNK).
 
 **Vantaggi del PDA:**
+
 - Rileva sequenze degenerate (loop, ripetizioni infinite)
 - Può estendersi a vincoli più complessi (es. ordering, agreement)
 - Fornisce una baseline superiore per il constrained decoding "forte"
 
 **Svantaggi:**
+
 - Più lento (overhead del PDA a ogni step)
 - Richiede `grammarllm` come dipendenza
 - Overkill per la maggior parte dei task di gloss (basta la vocab mask)
@@ -216,9 +226,57 @@ visibile nelle metriche di repetition e validità.
 
 ## Cosa manca / Prossimi passi
 
-| Variante | Stato | Note |
-|---|---|---|
-| `notthink` vs `think` | Non applicabile | T2G non usa `<think>` blocks |
-| Curriculum learning | Rimandato | Tutti `curriculum.enabled: false` |
-| Multi-modello | Da aggiungere | Altri modelli oltre Qwen2.5-0.5B |
-| Viterbi diversity tuning | Da esplorare | Parametri in `grammar.viterbi_diversity` |
+| Variante                 | Stato           | Note                                                                |
+| ------------------------ | --------------- | ------------------------------------------------------------------- |
+| `notthink` vs `think`    | Non applicabile | T2G non usa `<think>` blocks                                        |
+| Curriculum learning      | Rimandato       | Tutti `curriculum.enabled: false`                                   |
+| Multi-modello            | Da aggiungere   | Altri modelli oltre Qwen2.5-0.5B                                    |
+| Viterbi diversity tuning | Esplorato       | `verifier_temperature` in `grammar.viterbi_diversity` (default 5.0) |
+
+---
+
+## Config Aggiuntive
+
+### `t2g/grpo_optimal.yaml` — **Optimal Config**
+
+```
+training:     GRPO, 1500 step, lr=5e-6, batch=1, grad_accum=8
+lora:         r=32, lora_alpha=64 (vs r=16 default)
+grammar:      enabled: true, use_grammarllm_pda: false
+reward:       weight_translation=0.30, weight_gold_structure=0.20,
+              weight_structure=0.10, weight_gloss_order=0.10,
+              weight_verifier_scaled=0.10, weight_soft_viterbi=0.05,
+              weight_viterbi=0.05, weight_format=0.05, weight_repetition=0.05
+evaluation:   max_samples=500, num_samples=5, best_of_n=false
+grpo:         num_generations=4, beta=0.04, temperature=0.7
+```
+
+**Cosa fa:** Config "ottimale" con LoRA r=32 (doppio del default) e tutti i 9
+moduli reward attivi con pesi bilanciati. Il peso maggiore va a translation
+(ROUGE-L) e gold-structure, con contributi minori dai moduli strutturali
+e di alignment.
+
+---
+
+### `t2g/grpo_experimental_all.yaml` — **Experimental Config (All 9 Modules)**
+
+```
+training:     GRPO, 1500 step, lr=5e-6, batch=1, grad_accum=8
+lora:         r=32, lora_alpha=64
+grammar:      enabled: true, use_grammarllm_pda: false
+reward:       weight_translation=0.15, weight_gold_structure=0.15,
+              weight_gloss_order=0.10, weight_verifier_scaled=0.10,
+              weight_soft_viterbi=0.10, weight_viterbi=0.05,
+              weight_structure=0.05, weight_format=0.10, weight_repetition=0.10
+              (sum=1.0)
+evaluation:   max_samples=500, num_samples=5, best_of_n=false
+grpo:         num_generations=4, beta=0.04, temperature=0.7
+```
+
+**Cosa fa:** Config sperimentale che attiva TUTTI i 9 moduli reward con pesi
+uniformi (~0.10-0.15 ciascuno). Serve per ablation del full reward space:
+verifica se combinare tutti i segnali strutturali migliora o confonde
+il training rispetto alla config optimal (dove solo 4 moduli sono attivi).
+
+**Verifica moduli:** Tutti i 9 moduli sono stati verificati funzionanti
+via test suite (37/37 pytest pass).

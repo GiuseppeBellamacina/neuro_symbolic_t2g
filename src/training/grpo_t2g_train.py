@@ -548,6 +548,22 @@ def main() -> None:
             tags=wandb_cfg.get("tags", ["grpo", "t2g"]),
             dir=log_dir,
             mode="offline",
+            # ── Fix: output.log missing on Files tab ──────────────────
+            # Without console_multipart, W&B buffers the ENTIRE stdout/
+            # stderr in memory and only writes/uploads output.log when
+            # wandb.finish() completes successfully.  On a SLURM cluster,
+            # jobs are frequently killed by OOM/timeout/SIGKILL before
+            # reaching finish() — losing the whole log.  With
+            # console_multipart=True, W&B writes timestamped chunks under
+            # wandb/run-*/files/logs/ incrementally, so partial logs
+            # survive a crash. See:
+            # https://docs.wandb.ai/models/app/console-logs (Multipart
+            # console logging).
+            settings=wandb.Settings(
+                console_multipart=True,
+                console_chunk_max_bytes=1_000_000,
+                console_chunk_max_seconds=60,
+            ),
         )
 
     # ── Step 7: Training ─────────────────────────────────────────────────
@@ -652,22 +668,29 @@ def main() -> None:
     except Exception:
         pass
 
-    print("\n[grpo] Starting GRPO training...")
-    trainer.train(resume_from_checkpoint=resume_from)
+    # ── Fix: guarantee wandb.finish() even on crash/exception ───────────
+    # Previously, if trainer.train() raised (OOM, CUDA error, SLURM kill
+    # signal caught as exception, etc.), wandb.finish() was never reached,
+    # so the run stayed "crashed"/unfinished and output.log never made it
+    # to the Files tab.  Wrapping in try/finally ensures the run is always
+    # finalized and whatever log chunks were written get flushed.
+    try:
+        print("\n[grpo] Starting GRPO training...")
+        trainer.train(resume_from_checkpoint=resume_from)
 
-    # ── Save final model ─────────────────────────────────────────────────
-    final_path = Path(grpo_config.output_dir) / "final"
-    print(f"\n[grpo] Saving final model to {final_path}...")
-    trainer.save_model(str(final_path))
-    tokenizer.save_pretrained(str(final_path))
+        # ── Save final model ─────────────────────────────────────────────
+        final_path = Path(grpo_config.output_dir) / "final"
+        print(f"\n[grpo] Saving final model to {final_path}...")
+        trainer.save_model(str(final_path))
+        tokenizer.save_pretrained(str(final_path))
+    finally:
+        # ── Cleanup ───────────────────────────────────────────────────────
+        if wandb.run:
+            wandb.finish()
 
-    # ── Cleanup ──────────────────────────────────────────────────────────
-    if wandb.run:
-        wandb.finish()
-
-    del trainer
-    gc.collect()
-    torch.cuda.empty_cache()
+        del trainer
+        gc.collect()
+        torch.cuda.empty_cache()
 
     print(f"\n{'=' * 60}")
     print("GRPO T2G training complete!")

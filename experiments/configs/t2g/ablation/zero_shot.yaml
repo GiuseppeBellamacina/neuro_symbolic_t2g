@@ -34,9 +34,17 @@ grammar:
     max_occurrences: 2
     diversity_threshold: 0.3
     max_iters: 3
+    verifier_gamma: 1.0
+    verifier_temperature: 5.0
 
 reward:
   weight_translation: 1.0
+
+evaluation:
+  batch_size: 8
+  max_samples: 500
+  num_samples: 1 # zero-shot usa greedy
+  best_of_n: false
 
 wandb:
   project: "neuro-symbolic-t2g"

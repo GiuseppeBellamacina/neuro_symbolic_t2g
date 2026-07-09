@@ -167,6 +167,12 @@ grammar:
     # Verifier gamma: controlla la strictness del structural gate.
     # gamma=1.5 = leggermente più stricto del lineare (buon bilanciamento)
     verifier_gamma: 1.5
+    # Verifier temperature: scala avg_log_prob prima del sigmoid/softmax in
+    # structural_dense_reward (usato da verifier_scaled_reward). Disaccoppiato
+    # da verifier_gamma — NON riusare gamma come temperature, altrimenti il
+    # reward collassa quasi a 0 per sequenze a bassa probabilità (stesso bug
+    # di prima). temperature=5.0 = curva morbida raccomandata.
+    verifier_temperature: 5.0
 
 # --- Curriculum Learning (disabled — GRPO gestisce da solo) ---
 curriculum:
@@ -179,6 +185,10 @@ evaluation:
   batch_size: 8
   max_samples: 500 # 500 campioni per evaluation rapida, null per tutto il test set
   num_samples: 5 # 5 completions per prompt per Pass@k
+  # Best-of-N selection: seleziona il miglior completamento per prompt
+  # (ROUGE-L più alto tra i validi). Aiuta il modello piccolo a generalizzare.
+  # Attivato anche via CLI con --best-of-n.
+  best_of_n: false # true per attivare di default, o usa --best-of-n
 
 # --- Weights & Biases ---
 wandb:

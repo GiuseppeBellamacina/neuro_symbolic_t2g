@@ -37,7 +37,7 @@ Il config più completo e bilanciato. Combina tutte le migliorie introdotte:
 - **num_generations=8** (più alto del default 4, migliore stima del vantaggio)
 - **beta=0.02** (KL penalty basso, più esplorazione)
 - **temperature=0.8** (più alta, più diversità nei rollout)
-- **6 reward attive**: translation + gold_structure + gloss_order + verifier_scaled + format + repetition
+- **9 reward attive**: translation + gold_structure + structural_dense + gloss_order + verifier_scaled + soft_viterbi + viterbi + format + repetition
 - **verifier_gamma=1.5** (bilanciato tra strict e permissivo)
 - **Evaluation**: 500 campioni, 5 completions/prompt per Pass@k
 
@@ -51,8 +51,7 @@ Config di riferimento per GRPO. Più leggero e veloce di `grpo_optimal`:
 - **num_generations=4** (standard)
 - **beta=0.04** (KL penalty standard)
 - **temperature=0.7** (standard)
-- **5 reward attive**: translation + gold_structure + gloss_order + format + repetition
-  (manca verifier_scaled rispetto all'ottimale)
+- **4 reward** (translation + gold_structure + format + repetition — config base senza moduli sperimentali)
 - **verifier_gamma=1.0** (lineare)
 - **max_samples=20000** (sottoinsieme del dataset, non tutto)
 - **Evaluation**: solo batch_size=8 (nessun max_samples specificato)
@@ -65,7 +64,7 @@ Supervised Fine-Tuning puro, senza GRPO. Utile come baseline per il paper:
 - **batch_size=4, grad_accum=4** (effective batch=16)
 - **lr=2e-5** (più alto del GRPO, tipico per SFT)
 - **max_seq_length=768** (più corto del GRPO)
-- **5 reward attive** (solo per eval, non usate in training)
+- **4 reward** (translation + gold_structure + format + repetition — per eval, non usate in training)
 - **gradient_checkpointing** non abilitato (non serve con batch_size=4)
 - **use_unsloth non specificato** (default false)
 
@@ -80,7 +79,7 @@ cambia **una sola variabile** rispetto al config base `grpo_qwen05.yaml`.
 
 - **grammar.enabled=false** (nessun vocabulary mask)
 - **Niente SFT pre-training** (per isolare l'effetto del grammar)
-- **4 reward** (senza gloss_order — config più vecchio)
+- **4 reward** (translation + gold_structure + format + repetition)
 - **max_completion_length=256** (più lungo, il modello può generare free text)
 - **max_samples=null** (tutto il dataset)
 
@@ -92,8 +91,8 @@ garbage tokens. Confrontare con `grpo_qwen05.yaml`.
 - **grammar.use_grammarllm_pda=true** (PDA completo invece del Trie)
 - **pda_temperature=1.0** (scaling dei logit del PDA)
 - **Niente SFT pre-training**
-- **4 reward** (senza gloss_order)
 - **max_completion_length=256**
+- **4 reward** (translation + gold_structure + format + repetition)
 
 **Scopo**: confrontare Trie dual-root (veloce) vs PDA LL(1) (più espressivo
 ma più lento). Confrontare con `grpo_qwen05.yaml`.
@@ -234,6 +233,65 @@ python -m src.training.eval_t2g \
     --config experiments/configs/t2g/grpo_optimal.yaml \
     --checkpoint experiments/checkpoints/grpo/t2g/qwen25-05b-optimal/final \
     --plot
+```
+
+#### Confronto Baseline vs GRPO (`--compare`)
+
+Per valutare automaticamente sia il modello base (zero-shot) che il checkpoint
+GRPO e generare grafici di confronto + `comparison.json` + wandb con tag
+dedicati:
+
+```bash
+python -m src.training.eval_t2g \
+    --config experiments/configs/t2g/grpo_optimal.yaml \
+    --checkpoint experiments/checkpoints/grpo/t2g/qwen25-05b-optimal/final \
+    --compare
+```
+
+Questo valuta prima la baseline (zero-shot, senza LoRA) salvando
+`eval_baseline.json` + `generations_baseline.json`, poi valuta il checkpoint
+GRPO, e infine genera:
+
+- `baseline_vs_grpo_comparison.png` — grafico a barre confronto metriche
+- `comparison.json` — delta ROUGE-L / Pass@1 / Exact Match / Validity
+- wandb run con tag `["eval", "compare", "grpo"]` + metriche `baseline/*` e `delta/*`
+
+Se hai già una baseline valutata, puoi saltare la rivalutazione passando
+`--baseline-json path/to/eval_baseline.json`.
+
+#### Best-of-N (`--best-of-n`)
+
+Aiuta i modelli piccoli a generalizzare meglio: genera N completamenti per
+prompt (richiede `evaluation.num_samples > 1` nel config) e seleziona il
+migliore (ROUGE-L più alto tra i validi). Trasforma Pass@N in un Pass@1 più
+forte senza ulteriore training.
+
+```bash
+python -m src.training.eval_t2g \
+    --config experiments/configs/t2g/grpo_optimal.yaml \
+    --checkpoint path/to/ckpt \
+    --compare --best-of-n
+```
+
+#### Solo Baseline (`--eval-baseline-only`)
+
+Per generare solo il JSON della baseline (da riutilizzare poi con
+`--baseline-json`):
+
+```bash
+python -m src.training.eval_t2g \
+    --config experiments/configs/t2g/grpo_optimal.yaml \
+    --eval-baseline-only --plot
+```
+
+#### Cluster (SLURM)
+
+`cluster/eval.sh` usa `--compare` di default. Variabili d'ambiente:
+
+```bash
+CONFIG=experiments/configs/t2g/grpo_optimal.yaml sbatch cluster/eval.sh
+CONFIG=experiments/configs/t2g/grpo_optimal.yaml CHECKPOINT="path/to/ckpt" sbatch cluster/eval.sh
+CONFIG=experiments/configs/t2g/grpo_optimal.yaml CHECKPOINT="path/to/ckpt" BEST_OF_N=1 sbatch cluster/eval.sh
 ```
 
 ---

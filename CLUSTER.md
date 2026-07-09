@@ -28,7 +28,7 @@ Traduzione English → ASL Glosses (T2G) con:
 
 - **Modello**: Qwen2.5-0.5B-Instruct (~1 GB)
 - **Constrained Decoding**: LogitsProcessor che forza l'output a sole glosse ASL
-- **GRPO Training**: RLHF con 6 reward (translation quality, gold-structure, viterbi, format, repetition, structural dense)
+- **GRPO Training**: RLHF con 9 reward deterministiche (translation quality, gold-structure, structural dense, gloss-order, verifier-scaled, soft-viterbi, viterbi, format, repetition)
 - **LoRA/QLoRA**: Training iper-efficiente via Unsloth (o PEFT standard)
 
 ### Cosa serve

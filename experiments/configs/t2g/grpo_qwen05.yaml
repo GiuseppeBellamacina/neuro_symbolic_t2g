@@ -132,6 +132,9 @@ grammar:
     # filters the translation reward (verifier_scaled_reward).
     # gamma=1.0 = linear, gamma=2.0 = quadratic (stricter).
     verifier_gamma: 1.0
+    # Verifier temperature: scala avg_log_prob prima del sigmoid/softmax in
+    # structural_dense_reward. Disaccoppiato da verifier_gamma.
+    verifier_temperature: 5.0
 
 # --- Curriculum Learning (disabled for Phase 1) ---
 curriculum:
@@ -140,6 +143,9 @@ curriculum:
 # --- Evaluation ---
 evaluation:
   batch_size: 8
+  max_samples: 500 # 500 campioni per evaluation rapida, null per tutto il test set
+  num_samples: 5 # 5 completions per prompt per Pass@k
+  best_of_n: false # true per attivare best-of-N selection, o usa --best-of-n
 
 # --- Weights & Biases ---
 wandb:

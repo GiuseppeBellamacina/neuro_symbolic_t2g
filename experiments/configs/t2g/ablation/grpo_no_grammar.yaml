@@ -56,6 +56,9 @@ grammar:
     diversity_threshold: 0.3
     max_iters: 3
     verifier_gamma: 1.0
+    # Verifier temperature: scala avg_log_prob prima del sigmoid/softmax in
+    # structural_dense_reward. Disaccoppiato da verifier_gamma.
+    verifier_temperature: 5.0
 
 # --- Iperparametri di training ---
 training:
@@ -98,6 +101,9 @@ curriculum:
 # --- Evaluation ---
 evaluation:
   batch_size: 8
+  max_samples: 500
+  num_samples: 5
+  best_of_n: false
 
 # --- Weights & Biases ---
 wandb:

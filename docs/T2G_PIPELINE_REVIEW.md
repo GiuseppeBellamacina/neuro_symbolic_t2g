@@ -1199,12 +1199,12 @@ componenti**:
 
 ### 13.8 Risultati test finali
 
-| Suite       | Count          |
-| ----------- | -------------- |
-| Rewards     | **78/78** ✅   |
-| Grammar     | **92/92** ✅   |
-| Metrics     | **49/49** ✅   |
-| Integration | **72/72** ✅   |
-| Data        | **28/28** ✅   |
-| Monitor     | **50/50** ✅   |
-| **Totale**  | **369/369** ✅ |
+| Suite       | Count        |
+| ----------- | ------------ |
+| Rewards     | **78/78** ✅ |
+| Grammar     | **7/7** ✅   |
+| Metrics     | **6/6** ✅   |
+| Integration | **5/5** ✅   |
+| Data        | **4/4** ✅   |
+| Monitor     | **6/6** ✅   |
+| **Totale**  | **37/37** ✅ |

@@ -1,0 +1,173 @@
+# ============================================================================
+# EXPERIMENTAL Config — GRPO + ALL Reward Modules + Constrained Decoding
+#
+# Config sperimentale che attiva TUTTI i moduli di reward disponibili,
+# inclusi quelli normalmente commentati/disattivati in grpo_optimal.yaml:
+#   - translation_quality (ROUGE-L)
+#   - gold_structure (bigram vs gold baseline)
+#   - structural_dense (absolute bigram score)
+#   - gloss_order (edit-distance)
+#   - verifier_scaled (RECIPE-inspired confidence gate)
+#   - soft_viterbi (differentiable Viterbi, ViterbiPlanNet DVL)
+#   - viterbi (hard Viterbi distance)
+#   - format (gloss-only output)
+#   - repetition (anti-loop)
+#
+# Lo scopo è testare se la combinazione di tutti i segnali di reward
+# (anche quelli ridondanti/sovrapposti) migliora la generalizzazione
+# del modello piccolo o se introduce conflitti che la degradano.
+#
+# ⚠️  Questo config è SPERIMENTALE — non è ottimizzato. I pesi sono
+# distribuiti uniformemente come baseline di partenza per ablation.
+# Usalo come punto di partenza per esperimenti, non per produzione.
+#
+# Uso:
+#   CONFIG=experiments/configs/t2g/grpo_experimental_all.yaml sbatch cluster/train.sh
+#   python -m src.training --config experiments/configs/t2g/grpo_experimental_all.yaml
+# ============================================================================
+
+# --- Modello ---
+model:
+  name: "Qwen/Qwen2.5-0.5B-Instruct"
+  num_gpus: 1
+  quantization: "4bit"
+  dtype: "bfloat16"
+  use_unsloth: true
+  max_seq_length: 1024
+
+# --- LoRA adapters ---
+# r=32 come optimal per maggiore capacità
+lora:
+  r: 32
+  lora_alpha: 64
+  lora_dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  task_type: "CAUSAL_LM"
+  random_state: 3407
+
+# --- Dataset ---
+dataset:
+  dataset_name: "achrafothman/aslg_pc12"
+  dataset_cache: "data/aslg_pc12"
+  vocab_path: "data/gloss_vocab.txt"
+  bigram_matrix_path: "data/bigram_transition.npy"
+  split: "train"
+  max_samples: null
+  seed: 42
+  thinking: false
+
+# --- SFT Pre-training (Phase 0) ---
+sft_pretrain:
+  enabled: true
+  training:
+    num_train_epochs: 1
+    per_device_train_batch_size: 4
+    gradient_accumulation_steps: 4
+    learning_rate: 2.0e-5
+    lr_scheduler_type: "cosine"
+    warmup_steps: 50
+    optim: "paged_adamw_8bit"
+    weight_decay: 0.1
+    max_grad_norm: 1.0
+    bf16: true
+    logging_steps: 10
+    save_steps: 200
+    save_total_limit: 1
+    max_seq_length: 768
+    gradient_checkpointing: true
+
+# --- Iperparametri di training GRPO ---
+training:
+  max_steps: 2000
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 3.0e-6
+  lr_scheduler_type: "cosine"
+  warmup_steps: 200
+  optim: "paged_adamw_8bit"
+  weight_decay: 0.1
+  max_grad_norm: 0.05
+  bf16: true
+  logging_steps: 5
+  save_steps: 100
+  save_total_limit: 3
+  output_dir: "experiments/checkpoints/grpo/t2g/qwen25-05b-experimental-all"
+  log_dir: "experiments/logs/grpo/t2g/qwen25-05b-experimental-all"
+
+# --- Parametri GRPO ---
+grpo:
+  num_generations: 8
+  max_completion_length: 128
+  max_prompt_length: 256
+  beta: 0.02
+  temperature: 0.8
+
+# --- Pesi della reward function (ALL MODULES ON) ---
+# Tutti i 9 moduli di reward attivi con pesi distribuiti.
+# I pesi sommano a 1.0. Questa è una baseline sperimentale — non ottimizzata.
+# L'idea è vedere se più segnali aiutano o se creano conflitto.
+reward:
+  # ── Translation & structure (core) ────────────────────────────────
+  weight_translation: 0.15 # ROUGE-L
+  weight_gold_structure: 0.15 # bigram vs gold baseline
+  weight_gloss_order: 0.10 # edit-distance vs gold
+
+  # ── Verifier-scaled (RECIPE-inspired) ─────────────────────────────
+  weight_verifier_scaled: 0.10 # structural confidence × ROUGE-L
+
+  # ── Experimental structural modules (normally commented out) ──────
+  weight_soft_viterbi: 0.10 # differentiable Viterbi (ViterbiPlanNet DVL)
+  weight_viterbi: 0.05 # hard Viterbi distance (non-differentiable)
+  weight_structure: 0.05 # absolute bigram score (no baseline)
+
+  # ── Format & regularization ───────────────────────────────────────
+  weight_format: 0.10
+  weight_repetition: 0.10
+
+# --- Constrained Decoding ---
+grammar:
+  enabled: true
+  use_grammarllm_pda: false # Trie dual-root
+  viterbi_diversity:
+    self_loop_penalty: 0.5
+    max_occurrences: 2
+    diversity_threshold: 0.3
+    max_iters: 3
+    verifier_gamma: 1.5
+    verifier_temperature: 5.0
+
+# --- Curriculum Learning (disabled) ---
+curriculum:
+  enabled: false
+
+# --- Evaluation ---
+evaluation:
+  batch_size: 8
+  max_samples: 500
+  num_samples: 5
+  best_of_n: false
+
+# --- Weights & Biases ---
+wandb:
+  project: "neuro-symbolic-t2g"
+  run_name: "grpo-t2g-experimental-all"
+  tags:
+    [
+      "grpo",
+      "T2G",
+      "experimental",
+      "all-modules",
+      "soft-viterbi",
+      "viterbi",
+      "verifier-scaled",
+      "constrained-decoding",
+      "Qwen2.5-0.5B",
+      "ASL",
+    ]

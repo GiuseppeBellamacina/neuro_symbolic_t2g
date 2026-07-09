@@ -5,6 +5,11 @@
 # Uso:
 #   CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/eval.sh
 #   CONFIG=experiments/configs/t2g/grpo_qwen05.yaml CHECKPOINT="path/to/ckpt" sbatch cluster/eval.sh
+#   CONFIG=experiments/configs/t2g/grpo_qwen05.yaml CHECKPOINT="path/to/ckpt" BEST_OF_N=1 sbatch cluster/eval.sh
+#
+# --compare è sempre attivo: valuta baseline (zero-shot) + GRPO e genera
+#   grafici di confronto + comparison.json + wandb con tag dedicati.
+# BEST_OF_N=1 attiva la selezione best-of-N (richiede num_samples>1 nel config).
 # ============================================================================
 
 # ┌────────────────────────────────────────────────────────┐
@@ -89,11 +94,17 @@ test_ds.save_to_disk('data/aslg_pc12_test')
 print('Dataset salvato.')
 "
 fi
-EVAL_ARGS="--config ${CONFIG} --plot"
+EVAL_ARGS="--config ${CONFIG} --plot --compare"
 if [ -n "$CHECKPOINT" ]; then
     EVAL_ARGS="${EVAL_ARGS} --checkpoint ${CHECKPOINT}"
 else
     echo "Zero-shot mode: nessun checkpoint (base model pulito)"
+fi
+
+# Best-of-N selection (opzionale — passa BEST_OF_N=1 per attivare)
+if [ "${BEST_OF_N}" = "1" ]; then
+    EVAL_ARGS="${EVAL_ARGS} --best-of-n"
+    echo "Best-of-N selection enabled"
 fi
 
 

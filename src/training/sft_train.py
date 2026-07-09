@@ -340,6 +340,15 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
             tags=wandb_cfg.get("tags", ["sft", "t2g"]),
             dir=log_dir,
             mode="offline",
+            # ── Fix: output.log missing on Files tab ──────────────────
+            # See grpo_t2g_train.py for full explanation: without
+            # console_multipart, W&B only flushes output.log on a clean
+            # wandb.finish(). SLURM OOM/timeout kills lose the log entirely.
+            settings=wandb.Settings(
+                console_multipart=True,
+                console_chunk_max_bytes=1_000_000,
+                console_chunk_max_seconds=60,
+            ),
         )
 
     # ── Step 5: Training ─────────────────────────────────────────────────
@@ -389,23 +398,27 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     )
     trainer.add_callback(sft_sample_cb)
 
-    logger.info("Starting SFT training...")
-    trainer.train(resume_from_checkpoint=resume_from)
+    # ── Fix: guarantee wandb.finish() even on crash/exception ───────────
+    # See grpo_t2g_train.py for full explanation.
+    final_path_str: str
+    try:
+        logger.info("Starting SFT training...")
+        trainer.train(resume_from_checkpoint=resume_from)
 
-    # ── Save final model ─────────────────────────────────────────────────
-    final_path = Path(output_dir) / "final"
-    logger.info("Saving final model to %s...", final_path)
-    trainer.save_model(str(final_path))
-    tokenizer.save_pretrained(str(final_path))
+        # ── Save final model ─────────────────────────────────────────────
+        final_path = Path(output_dir) / "final"
+        logger.info("Saving final model to %s...", final_path)
+        trainer.save_model(str(final_path))
+        tokenizer.save_pretrained(str(final_path))
+        final_path_str = str(final_path)
+    finally:
+        # ── Cleanup (aggressive: free VRAM for GRPO phase) ───────────────
+        if wandb.run:
+            wandb.finish()
 
-    # ── Cleanup (aggressive: free VRAM for GRPO phase) ──────────────────
-    final_path_str = str(final_path)
-    if wandb.run:
-        wandb.finish()
-
-    del trainer, model
-    gc.collect()
-    torch.cuda.empty_cache()
+        del trainer, model
+        gc.collect()
+        torch.cuda.empty_cache()
 
     logger.info("=" * 60)
     logger.info("SFT T2G training complete!")

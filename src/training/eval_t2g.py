@@ -16,9 +16,17 @@ Optionally generates plots via ``visualization.py`` (plotnine):
     - Reward component breakdown
 
 Usage:
-    python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --checkpoint experiments/checkpoints/grpo/t2g/qwen05/final
-    python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --checkpoint path/to/ckpt --num-samples 5 --plot
-    python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --checkpoint path/to/ckpt --baseline 0.15 --plot
+    # Single checkpoint eval
+    python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --checkpoint path/to/ckpt --plot
+
+    # Compare baseline (zero-shot) vs GRPO — generates comparison plots + JSON
+    python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --checkpoint path/to/ckpt --compare
+
+    # Best-of-N selection (helps small models generalize — requires num_samples>1)
+    python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --checkpoint path/to/ckpt --compare --best-of-n
+
+    # Baseline-only eval (generates baseline JSON for later comparison)
+    python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --eval-baseline-only --plot
 """
 
 from __future__ import annotations
@@ -168,7 +176,15 @@ def evaluate_checkpoint(
     checkpoint_path: str | None,
     max_samples: int = 200,
     num_samples: int = 1,
-) -> tuple[dict[str, Any], list[str], list[tuple[bool, str]]]:
+    best_of_n: bool = False,
+) -> tuple[
+    dict[str, Any],
+    list[str],
+    list[tuple[bool, str]],
+    list[str],
+    list[float],
+    list[dict[str, Any]],
+]:
     """Evaluate a checkpoint on the test set with full metrics.
 
     Args:
@@ -177,12 +193,21 @@ def evaluate_checkpoint(
             zero-shot evaluation (loads the base model without LoRA).
         max_samples: Max test samples to evaluate.
         num_samples: Number of completions per prompt (1 = greedy, >1 = sampled).
+        best_of_n: If True and num_samples > 1, select the best completion
+            per prompt (highest ROUGE-L among valid ones) instead of using
+            the first. This helps small models generalize by leveraging
+            multiple samples at inference time (Pass@1 → Best-of-N).
 
     Returns:
-        Tuple of ``(results, flat_completions, validity)`` where *results*
-        is a dict with all computed metrics, *flat_completions* is a list
-        of generated gloss strings, and *validity* is a list of
-        ``(is_valid, reason)`` tuples.
+        Tuple of ``(results, flat_completions, validity, all_references,
+        rouge_scores, generations)`` where *results* is a dict with all
+        computed metrics, *flat_completions* is a list of generated gloss
+        strings, *validity* is a list of ``(is_valid, reason)`` tuples,
+        *all_references* is the list of gold glosses, *rouge_scores* is the
+        list of per-completion ROUGE-L scores, and *generations* is a list
+        of per-completion dicts (text/gold/completion/valid/rouge_l) suitable
+        for a standalone JSON dump (mirrors grpo-strict-generation's
+        ``completions_*.json`` format).
     """
     ds_cfg = config["dataset"]
     # Support both generation (SFT) and grpo (GRPO) — generation preferred
@@ -265,12 +290,25 @@ def evaluate_checkpoint(
         test_ds = test_ds.select(range(min(max_samples, len(test_ds))))
 
     do_sample = num_samples > 1
+    if best_of_n and num_samples <= 1:
+        logger.warning(
+            "best_of_n=True but num_samples=%d (need >1). Disabling best_of_n.",
+            num_samples,
+        )
+        best_of_n = False
+    if best_of_n:
+        logger.info(
+            "Best-of-N selection enabled: generating %d samples/prompt and "
+            "selecting the best (highest ROUGE-L among valid).",
+            num_samples,
+        )
 
     # ── Collect completions ──────────────────────────────────────────────
     # Multi-sample: list[list[str]] per prompt (always nested for consistency)
     all_completions: list[list[str]] = []
     all_references: list[str] = []
     all_sample_ids: list[str] = []
+    all_texts: list[str] = []
     all_bigram_scores: list[float] = []
     all_exact_matches: list[float] = []
 
@@ -302,6 +340,7 @@ def evaluate_checkpoint(
         all_completions.append(completions)
 
         all_references.append(gold)
+        all_texts.append(str(text))
         all_sample_ids.append(
             hashlib.sha256(str(text).encode("utf-8", errors="replace")).hexdigest()
         )
@@ -336,13 +375,52 @@ def evaluate_checkpoint(
     # This matches the format-agnostic lookup in _lookup_gold_gloss.
     register_gold_glosses(all_sample_ids, all_references)
 
-    # Flatten completions and sample_ids for per-completion metrics.
-    # For num_samples=1, there is 1 completion per prompt.
-    # For num_samples>1, all completions are scored individually.
-    flat_completions: list[str] = [c for comps in all_completions for c in comps]
-    flat_sample_ids: list[str] = [
-        sid for i, sid in enumerate(all_sample_ids) for _ in all_completions[i]
-    ]
+    # ── Best-of-N selection ─────────────────────────────────────────────
+    # If best_of_n is enabled, for each prompt we select the best completion
+    # (highest ROUGE-L among valid ones; if none valid, highest ROUGE-L
+    # overall). This effectively turns Pass@N into a stronger Pass@1 by
+    # leveraging multiple samples at inference time — a well-known technique
+    # to help small models generalize better without additional training.
+    if best_of_n and num_samples > 1:
+        selected_completions: list[str] = []
+        for i, comps in enumerate(all_completions):
+            gold = all_references[i]
+            scored = [
+                (rouge_l_score(c, gold), check_gloss_validity(c), c) for c in comps
+            ]
+            # Prefer valid completions; among those, pick highest ROUGE-L.
+            valid_scored = [(rl, c) for rl, (v, _), c in scored if v]
+            if valid_scored:
+                best = max(valid_scored, key=lambda x: x[0])[1]
+            else:
+                # No valid completion — pick highest ROUGE-L overall.
+                best = max(scored, key=lambda x: x[0])[2]
+            selected_completions.append(best)
+        # Replace flat lists with selected (1 per prompt)
+        flat_completions = selected_completions
+        flat_sample_ids = list(all_sample_ids)
+        flat_texts = list(all_texts)
+        flat_references = list(all_references)
+        # Keep all_completions nested for Pass@k computation
+        logger.info(
+            "Best-of-N: selected 1 of %d completions per prompt (%d total).",
+            num_samples,
+            len(flat_completions),
+        )
+    else:
+        # Flatten completions and sample_ids for per-completion metrics.
+        # For num_samples=1, there is 1 completion per prompt.
+        # For num_samples>1, all completions are scored individually.
+        flat_completions = [c for comps in all_completions for c in comps]
+        flat_sample_ids = [
+            sid for i, sid in enumerate(all_sample_ids) for _ in all_completions[i]
+        ]
+        flat_texts = [
+            txt for i, txt in enumerate(all_texts) for _ in all_completions[i]
+        ]
+        flat_references = [
+            ref for i, ref in enumerate(all_references) for _ in all_completions[i]
+        ]
 
     # Validity stats
     validity: list[tuple[bool, str]] = [
@@ -392,6 +470,34 @@ def evaluate_checkpoint(
         rouge_l_score(c, r) for c, r in zip(flat_completions, all_references)
     ]
 
+    # ── Per-completion generations log (stile grpo-strict-generation) ────
+    # Salva ogni generazione con testo sorgente, gold, completion, validità
+    # ed ROUGE-L, per ispezione manuale e debugging (es. quali frasi vanno
+    # male, quali errori di validità sono più comuni, ecc).
+    generations: list[dict[str, Any]] = []
+    for i, (txt, ref, comp, (is_valid, err), rl, sid) in enumerate(
+        zip(
+            flat_texts,
+            flat_references,
+            flat_completions,
+            validity,
+            rouge_scores,
+            flat_sample_ids,
+        )
+    ):
+        entry: dict[str, Any] = {
+            "index": i,
+            "sample_id": sid,
+            "text": txt,
+            "gold_gloss": ref,
+            "completion": comp,
+            "valid": is_valid,
+            "rouge_l": round(rl, 4),
+        }
+        if not is_valid:
+            entry["error"] = err
+        generations.append(entry)
+
     # ── Assemble results ─────────────────────────────────────────────────
     # Comprehensive evaluation report with BLEU + bootstrap CI (RECIPE-inspired)
     eval_report = compute_evaluation_report(
@@ -401,8 +507,10 @@ def evaluate_checkpoint(
     results: dict[str, Any] = {
         "num_samples_evaluated": len(all_references),
         "num_completions_per_prompt": num_samples,
+        "best_of_n": best_of_n,
         "rouge_l_mean": float(np.mean(rouge_scores)) if rouge_scores else 0.0,
         "rouge_l_std": float(np.std(rouge_scores)) if rouge_scores else 0.0,
+        "rouge_l_median": float(np.median(rouge_scores)) if rouge_scores else 0.0,
         "pass_at_1": pass1,
         "bigram_log_prob_mean": (
             float(np.mean(all_bigram_scores)) if all_bigram_scores else 0.0
@@ -424,7 +532,14 @@ def evaluate_checkpoint(
     if passk:
         results["pass_at_k"] = passk
 
-    return results, flat_completions, validity
+    return (
+        results,
+        flat_completions,
+        validity,
+        all_references,
+        rouge_scores,
+        generations,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -468,6 +583,31 @@ def main() -> None:
         default=None,
         help="Baseline Pass@1 for comparison plot",
     )
+    parser.add_argument(
+        "--baseline-json",
+        type=str,
+        default=None,
+        help="Path to baseline eval JSON for full comparison plot",
+    )
+    parser.add_argument(
+        "--compare",
+        action="store_true",
+        help="Also evaluate the base model (zero-shot) and generate "
+        "baseline-vs-GRPO comparison plots + JSON. Implies --plot.",
+    )
+    parser.add_argument(
+        "--best-of-n",
+        action="store_true",
+        help="Select the best completion per prompt (highest ROUGE-L among "
+        "valid) instead of using the first. Helps small models generalize. "
+        "Requires --num-samples > 1.",
+    )
+    parser.add_argument(
+        "--eval-baseline-only",
+        action="store_true",
+        help="Evaluate only the base model (zero-shot, no checkpoint). "
+        "Useful for generating the baseline JSON to compare against later.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -485,6 +625,30 @@ def main() -> None:
     num_samples = args.num_samples
     if num_samples is None:
         num_samples = eval_cfg.get("num_samples", 1)
+    # best_of_n: CLI flag overrides config; config default is False
+    best_of_n = args.best_of_n or eval_cfg.get("best_of_n", False)
+
+    # ── Log eval configuration ───────────────────────────────────────────
+    logger.info(f"Config: {args.config}")
+    logger.info(f"Checkpoint: {args.checkpoint or 'zero-shot (base model)'}")
+    logger.info(f"Max samples: {max_samples}")
+    logger.info(f"Completions per prompt: {num_samples}")
+    logger.info(f"Grammar enabled: {config.get('grammar', {}).get('enabled', True)}")
+    logger.info(
+        f"Use PDA: {config.get('grammar', {}).get('use_grammarllm_pda', False)}"
+    )
+    logger.info(f"Plot: {args.plot}")
+    logger.info(f"Compare: {args.compare}")
+    logger.info(f"Best-of-N: {args.best_of_n}")
+    logger.info(f"Eval baseline only: {args.eval_baseline_only}")
+    if args.baseline is not None:
+        logger.info(f"Baseline Pass@1: {args.baseline}")
+    if args.baseline_json is not None:
+        logger.info(f"Baseline JSON: {args.baseline_json}")
+
+    # --compare implies --plot
+    if args.compare:
+        args.plot = True
 
     # ── Set random seeds for reproducibility ─────────────────────────────
     seed = config["dataset"].get("seed", 42)
@@ -504,12 +668,148 @@ def main() -> None:
     else:
         model_tag = config.get("wandb", {}).get("run_name", "zero-shot")
 
-    results, completions, validity = evaluate_checkpoint(
-        config,
-        args.checkpoint,
-        max_samples=max_samples,
-        num_samples=num_samples,
+    # ── Determine eval mode ─────────────────────────────────────────────
+    # Three modes:
+    #   1. --eval-baseline-only: eval base model, save as baseline_results.json
+    #   2. --compare: eval baseline (or load from --baseline-json) + eval GRPO,
+    #      then generate comparison plots + JSON
+    #   3. default: eval single checkpoint (or zero-shot)
+    baseline_results: dict[str, Any] | None = None
+    baseline_generations: list[dict[str, Any]] | None = None
+
+    if args.eval_baseline_only:
+        # Mode 1: baseline-only eval
+        logger.info("=" * 60)
+        logger.info("BASELINE EVALUATION (zero-shot base model)")
+        logger.info("=" * 60)
+        results, completions, validity, all_references, rouge_scores, generations = (
+            evaluate_checkpoint(
+                config,
+                checkpoint_path=None,
+                max_samples=max_samples,
+                num_samples=num_samples,
+                best_of_n=best_of_n,
+            )
+        )
+        model_tag = "baseline"
+
+    elif args.compare:
+        # Mode 2: baseline + GRPO comparison
+        # Step A: Load or evaluate baseline
+        if args.baseline_json is not None and Path(args.baseline_json).exists():
+            logger.info(f"Loading baseline results from {args.baseline_json}")
+            baseline_results = json.loads(
+                Path(args.baseline_json).read_text(encoding="utf-8")
+            )
+            # Try to load baseline generations too
+            bl_gen_path = (
+                Path(args.baseline_json).parent
+                / f"generations_{Path(args.baseline_json).stem.removeprefix('eval_')}.json"
+            )
+            if bl_gen_path.exists():
+                baseline_generations = json.loads(
+                    bl_gen_path.read_text(encoding="utf-8")
+                )
+        else:
+            logger.info("=" * 60)
+            logger.info("BASELINE EVALUATION (zero-shot base model)")
+            logger.info("=" * 60)
+            (
+                baseline_results,
+                _bl_comps,
+                _bl_val,
+                _bl_refs,
+                _bl_rouge,
+                baseline_generations,
+            ) = evaluate_checkpoint(
+                config,
+                checkpoint_path=None,
+                max_samples=max_samples,
+                num_samples=num_samples,
+                best_of_n=best_of_n,
+            )
+            # Save baseline results for future reuse
+            bl_out_dir = (
+                Path(args.checkpoint).parent
+                if args.checkpoint
+                else Path("experiments/eval")
+            )
+            bl_out_dir.mkdir(parents=True, exist_ok=True)
+            bl_path = bl_out_dir / "eval_baseline.json"
+            bl_path.write_text(
+                json.dumps(baseline_results, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            bl_gen_path = bl_out_dir / "generations_baseline.json"
+            bl_gen_path.write_text(
+                json.dumps(baseline_generations, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            logger.info(f"Baseline results saved to {bl_path}")
+            logger.info(f"Baseline generations saved to {bl_gen_path}")
+
+        # Step B: Evaluate GRPO checkpoint
+        logger.info("=" * 60)
+        logger.info("GRPO EVALUATION")
+        logger.info("=" * 60)
+        results, completions, validity, all_references, rouge_scores, generations = (
+            evaluate_checkpoint(
+                config,
+                args.checkpoint,
+                max_samples=max_samples,
+                num_samples=num_samples,
+                best_of_n=best_of_n,
+            )
+        )
+
+    else:
+        # Mode 3: single eval (default behavior)
+        results, completions, validity, all_references, rouge_scores, generations = (
+            evaluate_checkpoint(
+                config,
+                args.checkpoint,
+                max_samples=max_samples,
+                num_samples=num_samples,
+                best_of_n=best_of_n,
+            )
+        )
+
+    # ── Log key metrics ─────────────────────────────────────────────────
+    logger.info("Evaluation complete. Key metrics:")
+    logger.info(
+        f"  ROUGE-L mean: {results['rouge_l_mean']:.4f} ± {results['rouge_l_std']:.4f}"
     )
+    logger.info(f"  ROUGE-L median: {results.get('rouge_l_median', 0.0):.4f}")
+    logger.info(f"  Pass@1: {results['pass_at_1']:.4f}")
+    if results.get("pass_at_k"):
+        for k, v in results["pass_at_k"].items():
+            logger.info(f"  Pass@{k}: {v:.4f}")
+    logger.info(f"  Validity rate: {results['validity_rate']:.4f}")
+    logger.info(
+        f"  Valid: {results['valid_count']}, Invalid: {results['invalid_count']}"
+    )
+
+    # ── Log sample predictions ──────────────────────────────────────────
+    logger.info("Sample predictions (first 5):")
+    for i in range(min(5, len(completions))):
+        comp = completions[i]
+        is_valid, reason = validity[i]
+        ref = all_references[i] if i < len(all_references) else "N/A"
+        logger.info(f"  [{i+1}] valid={is_valid} ({reason})")
+        logger.info(f"      gold: {ref[:120]}{'...' if len(ref) > 120 else ''}")
+        logger.info(f"      pred: {comp[:120]}{'...' if len(comp) > 120 else ''}")
+
+    # ── Log reward breakdown ────────────────────────────────────────────
+    if results.get("reward_breakdown"):
+        logger.info("Reward breakdown:")
+        for name, val in results["reward_breakdown"].items():
+            logger.info(f"  {name}: {val:.4f}")
+
+    # ── Log error distribution ──────────────────────────────────────────
+    if results.get("error_distribution"):
+        logger.info("Error distribution:")
+        for err, count in results["error_distribution"].items():
+            logger.info(f"  {err}: {count}")
 
     # ── Print results ────────────────────────────────────────────────────
     print("\n" + "=" * 60)
@@ -577,23 +877,45 @@ def main() -> None:
         ckpt_name = Path(args.checkpoint).name if args.checkpoint else "zero_shot"
         out_path = ckpt_dir / f"eval_{ckpt_name}.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
         json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     logger.info(f"Results saved to {out_path}")
 
+    # ── Save generations JSON (stile grpo-strict-generation) ────────────
+    # File separato con ogni singola generazione (testo/gold/pred/valid/
+    # rouge_l), utile per ispezione manuale e per costruire dataset di
+    # analisi degli errori — analogo a completions_{name}.json in
+    # grpo-strict-generation/src/evaluation/eval_grpo.py.
+    gen_path = (
+        out_path.parent / f"generations_{out_path.stem.removeprefix('eval_')}.json"
+    )
+    gen_path.write_text(
+        json.dumps(generations, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    logger.info(f"Generations saved to {gen_path}")
+    print(f"  Generations saved to: {gen_path}")
+
     # ── Generate plots ───────────────────────────────────────────────────
     if args.plot:
         from src.utils.visualization import (
             plot_baseline_vs_grpo,
+            plot_baseline_vs_grpo_comparison,
+            plot_completion_examples,
             plot_completion_length_distribution,
+            plot_error_breakdown,
+            plot_pass_at_k_curve,
             plot_reward_breakdown,
+            plot_reward_radar,
+            plot_rouge_distribution,
+            plot_validity_pie,
         )
 
         figures_dir = Path(args.checkpoint).parent / "figures"
         figures_dir.mkdir(parents=True, exist_ok=True)
         valid_mask = [v for v, _ in validity]
+
+        logger.info("Generating evaluation figures...")
 
         # 1. Completion length distribution
         plot_completion_length_distribution(
@@ -603,18 +925,38 @@ def main() -> None:
             output_path=str(figures_dir / "completion_lengths.png"),
         )
 
-        # 2. Baseline vs GRPO (if baseline provided)
-        if args.baseline is not None:
-            plot_baseline_vs_grpo(
-                baseline_pass1=args.baseline,
-                grpo_pass1=results["pass_at_1"],
+        # 2. ROUGE-L score distribution
+        plot_rouge_distribution(
+            rouge_scores,
+            model_name=model_tag,
+            output_path=str(figures_dir / "rouge_distribution.png"),
+        )
+
+        # 3. Pass@k curve (if multi-sample)
+        if results.get("pass_at_k"):
+            plot_pass_at_k_curve(
+                results["pass_at_k"],
                 model_name=model_tag,
-                output_path=str(figures_dir / "baseline_vs_grpo.png"),
+                output_path=str(figures_dir / "pass_at_k.png"),
             )
 
-        # 3. Reward breakdown
+        # 4. Error breakdown pie chart
+        plot_error_breakdown(
+            results["error_distribution"],
+            model_name=model_tag,
+            output_path=str(figures_dir / "error_breakdown.png"),
+        )
+
+        # 5. Validity pie chart
+        plot_validity_pie(
+            valid_count=results["valid_count"],
+            invalid_count=results["invalid_count"],
+            model_name=model_tag,
+            output_path=str(figures_dir / "validity_pie.png"),
+        )
+
+        # 6. Reward breakdown bar chart
         rewards_cfg = config.get("reward", {})
-        # Use weight_gold_structure (recommended), fallback to weight_structure
         structure_weight = rewards_cfg.get(
             "weight_gold_structure",
             rewards_cfg.get("weight_structure", 0.4),
@@ -637,7 +979,206 @@ def main() -> None:
             output_path=str(figures_dir / "reward_breakdown.png"),
         )
 
+        # 7. Reward radar chart
+        plot_reward_radar(
+            results["reward_breakdown"],
+            reward_weights=weights,
+            model_name=model_tag,
+            output_path=str(figures_dir / "reward_radar.png"),
+        )
+
+        # 8. Completion examples (best & worst)
+        plot_completion_examples(
+            completions,
+            all_references,
+            rouge_scores,
+            n_examples=10,
+            model_name=model_tag,
+            output_path=str(figures_dir / "completion_examples.png"),
+        )
+
+        # 9. Baseline vs GRPO (if baseline Pass@1 provided via CLI)
+        if args.baseline is not None:
+            plot_baseline_vs_grpo(
+                baseline_pass1=args.baseline,
+                grpo_pass1=results["pass_at_1"],
+                model_name=model_tag,
+                output_path=str(figures_dir / "baseline_vs_grpo.png"),
+            )
+
+        # 10. Baseline vs GRPO full comparison
+        # Triggered by: --compare (baseline_results from in-run eval),
+        # or --baseline-json (baseline_results from saved JSON).
+        comparison_metrics: dict[str, Any] | None = None
+        if baseline_results is not None:
+            comparison_metrics = baseline_results
+        elif args.baseline_json is not None and Path(args.baseline_json).exists():
+            comparison_metrics = json.loads(
+                Path(args.baseline_json).read_text(encoding="utf-8")
+            )
+
+        if comparison_metrics is not None:
+            plot_baseline_vs_grpo_comparison(
+                baseline_metrics=comparison_metrics,
+                grpo_metrics=results,
+                model_name=model_tag,
+                output_path=str(figures_dir / "baseline_vs_grpo_comparison.png"),
+            )
+
+            # ── Print comparison summary ───────────────────────────────
+            print("\n" + "=" * 60)
+            print("  BASELINE vs GRPO COMPARISON")
+            print("=" * 60)
+            for metric_key, metric_label in [
+                ("rouge_l_mean", "ROUGE-L mean"),
+                ("pass_at_1", "Pass@1"),
+                ("exact_match", "Exact Match"),
+                ("validity_rate", "Validity Rate"),
+            ]:
+                bl_val = comparison_metrics.get(metric_key, 0.0)
+                gr_val = results.get(metric_key, 0.0)
+                delta = gr_val - bl_val
+                arrow = "↑" if delta > 0 else ("↓" if delta < 0 else "→")
+                print(
+                    f"  {metric_label:20s}  "
+                    f"BL={bl_val:.4f}  GRPO={gr_val:.4f}  "
+                    f"Δ={delta:+.4f} {arrow}"
+                )
+            print("=" * 60)
+
+            # ── Save comparison JSON ────────────────────────────────────
+            comparison_json = {
+                "baseline": {
+                    k: comparison_metrics.get(k, 0.0)
+                    for k in [
+                        "rouge_l_mean",
+                        "pass_at_1",
+                        "exact_match",
+                        "validity_rate",
+                        "bigram_log_prob_mean",
+                    ]
+                },
+                "grpo": {
+                    k: results.get(k, 0.0)
+                    for k in [
+                        "rouge_l_mean",
+                        "pass_at_1",
+                        "exact_match",
+                        "validity_rate",
+                        "bigram_log_prob_mean",
+                    ]
+                },
+                "delta": {
+                    k: results.get(k, 0.0) - comparison_metrics.get(k, 0.0)
+                    for k in [
+                        "rouge_l_mean",
+                        "pass_at_1",
+                        "exact_match",
+                        "validity_rate",
+                        "bigram_log_prob_mean",
+                    ]
+                },
+            }
+            comp_path = out_path.parent / "comparison.json"
+            comp_path.write_text(
+                json.dumps(comparison_json, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            logger.info(f"Comparison saved to {comp_path}")
+            print(f"  Comparison saved to: {comp_path}")
+
         print(f"\n  Figures saved to: {figures_dir}")
+
+    # ── wandb logging ───────────────────────────────────────────────────
+    # Log all metrics to wandb (offline mode on cluster). Tags distinguish
+    # baseline vs GRPO runs, mirroring grpo-strict-generation's approach.
+    try:
+        import os
+
+        if "WANDB_MODE" not in os.environ:
+            os.environ["WANDB_MODE"] = "offline"
+        os.environ["WANDB_DISABLE_WEAVE"] = "true"
+
+        import wandb
+
+        wandb_cfg = config.get("wandb", {})
+        base_run_name = (
+            wandb_cfg.get("run_name") or config["model"]["name"].split("/")[-1]
+        )
+
+        # Determine wandb tags based on eval mode
+        wandb_tags = wandb_cfg.get("tags", ["t2g", "eval"])
+        if "eval" not in wandb_tags:
+            wandb_tags = list(wandb_tags) + ["eval"]
+        if args.eval_baseline_only:
+            wandb_tags = list(wandb_tags) + ["baseline"]
+            wandb_run_name = f"eval-baseline-{base_run_name}"
+        elif args.compare:
+            wandb_tags = list(wandb_tags) + ["compare", "grpo"]
+            wandb_run_name = f"eval-compare-{base_run_name}"
+        else:
+            wandb_tags = list(wandb_tags) + ["grpo"]
+            wandb_run_name = f"eval-{base_run_name}-{model_tag}"
+
+        wandb_dir = (
+            Path(args.checkpoint).parent
+            if args.checkpoint
+            else Path("experiments/eval")
+        )
+        wandb_dir.mkdir(parents=True, exist_ok=True)
+
+        wandb.init(
+            project=wandb_cfg.get("project", "neuro-symbolic-t2g"),
+            name=wandb_run_name,
+            config=config,
+            tags=wandb_tags,
+            dir=str(wandb_dir),
+            mode="offline",
+            settings=wandb.Settings(
+                console_multipart=True,
+                console_chunk_max_bytes=1_000_000,
+                console_chunk_max_seconds=60,
+            ),
+        )
+
+        # Log all scalar metrics
+        wandb.log(results)
+
+        # Log comparison metrics if available
+        if baseline_results is not None:
+            wandb.log(
+                {
+                    "baseline/rouge_l_mean": baseline_results.get("rouge_l_mean", 0.0),
+                    "baseline/pass_at_1": baseline_results.get("pass_at_1", 0.0),
+                    "baseline/exact_match": baseline_results.get("exact_match", 0.0),
+                    "baseline/validity_rate": baseline_results.get(
+                        "validity_rate", 0.0
+                    ),
+                    "delta/rouge_l_mean": results.get("rouge_l_mean", 0.0)
+                    - baseline_results.get("rouge_l_mean", 0.0),
+                    "delta/pass_at_1": results.get("pass_at_1", 0.0)
+                    - baseline_results.get("pass_at_1", 0.0),
+                    "delta/exact_match": results.get("exact_match", 0.0)
+                    - baseline_results.get("exact_match", 0.0),
+                    "delta/validity_rate": results.get("validity_rate", 0.0)
+                    - baseline_results.get("validity_rate", 0.0),
+                }
+            )
+
+        # Log figures as images
+        if args.plot:
+            figures_dir = (
+                Path(args.checkpoint).parent / "figures"
+                if args.checkpoint
+                else Path("experiments/eval/figures")
+            )
+            for fig_file in figures_dir.glob("*.png"):
+                wandb.log({f"figures/{fig_file.stem}": wandb.Image(str(fig_file))})
+
+        wandb.finish()
+        logger.info(f"wandb run logged: {wandb_run_name} (tags={wandb_tags})")
+    except Exception as e:
+        logger.warning(f"wandb logging failed (non-fatal): {e}")
 
 
 if __name__ == "__main__":

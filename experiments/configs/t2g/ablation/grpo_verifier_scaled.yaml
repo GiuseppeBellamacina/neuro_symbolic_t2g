@@ -112,6 +112,12 @@ grammar:
     # Verifier gamma: controls strictness of the structural gate.
     # gamma=2.0 = quadratic (stricter filtering of implausible sequences)
     verifier_gamma: 2.0
+    # Verifier temperature: scales avg_log_prob before the sigmoid/softmax in
+    # structural_dense_reward (used by verifier_scaled_reward). Decoupled from
+    # verifier_gamma — do NOT reuse gamma as temperature, or the reward
+    # collapses near 0 for low-probability sequences (same bug as before).
+    # temperature=5.0 is the recommended gentle curve.
+    verifier_temperature: 5.0
 
 # --- Curriculum Learning (disabled) ---
 curriculum:
@@ -120,6 +126,9 @@ curriculum:
 # --- Evaluation ---
 evaluation:
   batch_size: 8
+  max_samples: 500
+  num_samples: 5
+  best_of_n: false
 
 # --- Weights & Biases ---
 wandb:

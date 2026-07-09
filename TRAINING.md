@@ -28,35 +28,43 @@ Il progetto addestra **Qwen2.5-0.5B-Instruct** a tradurre frasi inglesi in **glo
    appartenere al vocabolario gloss ASL (15K token). Il modello NON può generare
    parole inglesi.
 4. **T2G Dataset**: ogni sample ha `prompt` (frase inglese) e `completion` (glosse gold)
-5. **4 Reward Functions**: guidano l'apprendimento senza supervisione umana
+5. **9 Reward Functions**: guidano l'apprendimento senza supervisione umana
 6. **GRPO Training**: il modello genera G=4 completions per prompt, riceve reward,
    e aggiorna i pesi LoRA per massimizzare la reward attesa
 7. **Salvataggio**: checkpoint ogni 100 step, modello finale in `experiments/checkpoints/grpo/t2g/qwen05/final/`
 
-### Le 6 funzioni di reward
+### Le 9 funzioni di reward
 
-| Reward | Peso | Cosa misura |
-|--------|------|-------------|
-| **Translation quality** (ROUGE-L) | 0.40 | Similarità con le glosse gold |
-| **Gold-structure** (Gold Baseline) ⭐ | 0.40 | Confronto bigram vs gold reference |
-| **Format** | 0.10 | Assicura output di sole glosse (no free text) |
-| **Repetition** | 0.10 | Penalizza sequenze ripetitive |
+| Reward                                | Peso (optimal) | Cosa misura                                       |
+| ------------------------------------- | -------------- | ------------------------------------------------- |
+| **Translation quality** (ROUGE-L)     | 0.30           | Similarità con le glosse gold                     |
+| **Gold-structure** (Gold Baseline) ⭐ | 0.20           | Confronto bigram vs gold reference                |
+| **Structural dense** (Softmax)        | 0.10           | Bigram prob con softmax + temperature             |
+| **Gloss-order** (Edit-distance)       | 0.10           | Levenshtein normalizzato vs gold                  |
+| **Verifier-scaled** (RECIPE)          | 0.10           | ROUGE × log1p(structural) — confidence multiplier |
+| **Soft-Viterbi** (Differentiable)     | 0.05           | Viterbi differentiable (forward-backward)         |
+| **Viterbi** (Hard)                    | 0.05           | Upper bound teorico (diverse Viterbi)             |
+| **Format**                            | 0.05           | Assicura output di sole glosse (no free text)     |
+| **Repetition**                        | 0.05           | Penalizza sequenze ripetitive                     |
 
-Disponibili anche: **Viterbi Distance** (🧪 upper bound teorico) e **Structural Dense** (legacy senza baseline). Vedi `docs/REWARDS.md`.
+Vedi `docs/REWARDS.md` per dettagli completi.
 
 ### Cosa aspettarsi
 
 **Fase iniziale (step 0-200)**:
+
 - Il modello base produce output casuali/non sense
 - Translation reward ~0.0-0.1
 - Le glosse generate sono valide (constrained decoding) ma scorrette
 
 **Fase intermedia (step 200-800)**:
+
 - Il modello inizia a produrre glosse correlate all'input
 - Translation reward sale a ~0.2-0.4
 - Struttura bigram migliora (reward structure ~0.5-0.7)
 
 **Fase avanzata (step 800-1500)**:
+
 - Traduzioni ragionevolmente accurate
 - Translation reward ~0.5-0.7
 - Il modello impara pattern gloss tipici dell'ASL
@@ -117,6 +125,7 @@ CONFIG=experiments/configs/t2g/grpo_qwen05.yaml EXTRA_ARGS="--resume" sbatch clu
 ### Configurazione
 
 Modifica `experiments/configs/t2g/grpo_qwen05.yaml` per:
+
 - **Durata**: `training.max_steps` (default 1500)
 - **Velocità**: `grpo.num_generations` (default 4, riduci a 2 per GPU piccole)
 - **GPU piccole (K80)**: `model.quantization: null`, `model.use_unsloth: false`

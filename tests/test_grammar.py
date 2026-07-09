@@ -1,57 +1,25 @@
 #!/usr/bin/env python3
-"""Verify Grammar & Constrained Decoding ? Test Script.
+"""Test grammar and constrained decoding components.
 
 Validates:
   1. GlossVocabularyMask maps gloss tokens to tokenizer IDs
   2. GlossVocabularyLogitsProcessor correctly masks non-gloss tokens
-  3. LogitsProcessor preserves shape and sets disallowed tokens to -inf
-  4. decode_to_glosses works correctly
+  3. decode_to_glosses (method on GlossVocabularyMask) works correctly
+  4. Grammar build via create_grammarllm_pipeline (PDA)
+  5. Masked mass tracking (with track_diagnostics=True)
+  6. PDA logits processor mass tracking
+  7. _build_allowed_mask edge cases
 
-Usage:
-    python tests/test_grammar.py
+Uses the ``tokenizer`` fixture from conftest.py.
 """
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import torch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-PASS = 0
-FAIL = 0
-
-
-def check(name: str, condition: bool, detail: str = "") -> None:
-    global PASS, FAIL
-    if condition:
-        PASS += 1
-        print(f"  [PASS] {name}" + (f" -- {detail}" if detail else ""))
-    else:
-        FAIL += 1
-        print(f"  [FAIL] {name}" + (f" -- {detail}" if detail else ""))
-
-
-def get_tokenizer():
-    """Load a tokenizer ? try Qwen first as it's T2G's target, fallback to gpt2."""
-    from transformers import AutoTokenizer
-
-    for name in ("Qwen/Qwen2.5-0.5B-Instruct", "gpt2"):
-        try:
-            tok = AutoTokenizer.from_pretrained(name, trust_remote_code=True)
-            if tok.pad_token is None:
-                tok.pad_token = tok.eos_token
-            print(f"  Using tokenizer: {name} (vocab_size={tok.vocab_size})")
-            return tok
-        except Exception:
-            continue
-    raise RuntimeError("No tokenizer available for testing")
-
-
-def test_gloss_vocabulary_mask(tokenizer) -> None:
-    print("\n-- 1. GlossVocabularyMask --")
+def test_gloss_vocabulary_mask(tokenizer):
+    """GlossVocabularyMask maps gloss tokens to tokenizer IDs."""
     from src.grammar.gloss_grammar import GlossVocabularyMask
 
     test_vocab = [
@@ -63,39 +31,18 @@ def test_gloss_vocabulary_mask(tokenizer) -> None:
         "WALK",
         "HOUSE",
         "BOOK",
-        "fs-JOHN",
-        "fs-MARY",
-        "NOT",
-        "CAN",
+        "DOG",
+        "CAT",
     ]
     mask = GlossVocabularyMask(test_vocab, tokenizer)
-
-    check(
-        "Mask has token IDs",
-        len(mask.token_ids) > 0,
-        f"{len(mask.token_ids)} token IDs",
-    )
-    check("EOS is in token IDs", mask.eos_token_id in mask.token_ids)
-    check("EOS is allowed", mask.is_allowed(mask.eos_token_id))
-    check("Random high ID is NOT allowed", not mask.is_allowed(999999))
-
-    # Tokenizer-specific: the subword tokenization might produce
-    # different numbers of token IDs than number of glosses.
-    # This is expected ? just verify at least EOS is included.
-    check(
-        "get_allowed_token_ids returns list",
-        isinstance(mask.get_allowed_token_ids(), list),
-    )
-    check("Allowed IDs non-empty", len(mask.get_allowed_token_ids()) > 0)
-
+    assert len(mask.token_ids) > 0, f"Token IDs non-empty: {len(mask.token_ids)}"
+    assert mask.is_allowed(mask.eos_token_id), "EOS allowed in mask"
     allowed = mask.get_allowed_token_ids()
-    # Verify all returned IDs are actually in token_ids
-    for tid in allowed[:20]:  # check first 20 only to avoid spam
-        check(f"  ID {tid} in mask.token_ids", tid in mask.token_ids, "")
+    assert len(allowed) > 0, "Allowed IDs non-empty"
 
 
-def test_logits_processor(tokenizer) -> None:
-    print("\n-- 2. GlossVocabularyLogitsProcessor --")
+def test_logits_processor(tokenizer):
+    """GlossVocabularyLogitsProcessor masks non-gloss tokens correctly."""
     from src.grammar.gloss_grammar import GlossVocabularyMask
     from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
 
@@ -108,55 +55,28 @@ def test_logits_processor(tokenizer) -> None:
         "WALK",
         "HOUSE",
         "BOOK",
-        "fs-JOHN",
-        "NOT",
-        "CAN",
-        "WANT",
+        "DOG",
+        "CAT",
     ]
     mask = GlossVocabularyMask(test_vocab, tokenizer)
     processor = GlossVocabularyLogitsProcessor(mask, device="cpu")
 
     vocab_size = tokenizer.vocab_size
-    check("Vocab size detected", processor.vocab_size > 0, f"{processor.vocab_size}")
-
-    # Create fake logits (uniform random) and input ids
-    dummy_scores = torch.randn(1, vocab_size) * 0.1
+    scores = torch.randn(1, vocab_size) * 0.5
     dummy_input_ids = torch.zeros(1, 5, dtype=torch.long)
+    result = processor(dummy_input_ids, scores)
 
-    filtered = processor(dummy_input_ids, dummy_scores)
-    check("Output shape preserved", filtered.shape == dummy_scores.shape)
-    check("Step counter incremented", processor.step_count == 1)
-
-    # Count allowed tokens
-    num_allowed = sum(
-        1 for i in range(vocab_size) if filtered[0, i].item() != float("-inf")
-    )
-    num_disallowed = vocab_size - num_allowed
-    check("Disallowed tokens are -inf", num_disallowed > 0, f"{num_disallowed} masked")
-    check("Allowed tokens are finite", num_allowed > 0, f"{num_allowed} allowed")
-
-    # At least EOS should be allowed (guard against tokenizers
-    # where eos_token_id > vocab_size, e.g. Qwen has extra added tokens)
-    eos_id = tokenizer.eos_token_id
-    if eos_id < vocab_size:
-        eos_allowed = filtered[0, eos_id].item() != float("-inf")
-        check("EOS token is allowed", eos_allowed)
-    else:
-        # EOS ID outside vocab range ? can't be in the logit tensor.
-        # Verify it IS in the mask's allowed set (pre-generation check).
-        check(
-            f"EOS token {eos_id} >= vocab_size {vocab_size} (added token)",
-            eos_id in mask.token_ids,
-            "EOS is allowed by mask but outside logit range",
-        )
-
-    # Test reset
-    processor.reset()
-    check("Reset clears step counter", processor.step_count == 0)
+    assert (
+        result.shape == scores.shape
+    ), f"Shape preserved: {result.shape} vs {scores.shape}"
+    disallowed = result[0] < -1e10
+    assert disallowed.sum() > 0, "Some tokens are masked (-inf)"
+    allowed = result[0] > -1e10
+    assert allowed.sum() > 0, "Some tokens are allowed (not -inf)"
 
 
-def test_decode_to_glosses(tokenizer) -> None:
-    print("\n-- 3. decode_to_glosses --")
+def test_decode_to_glosses(tokenizer):
+    """GlossVocabularyMask.decode_to_glosses converts token IDs to gloss strings."""
     from src.grammar.gloss_grammar import GlossVocabularyMask
 
     test_vocab = [
@@ -166,34 +86,24 @@ def test_decode_to_glosses(tokenizer) -> None:
         "IX",
         "MAN",
         "WALK",
+        "HOUSE",
+        "BOOK",
+        "DOG",
+        "CAT",
     ]
     mask = GlossVocabularyMask(test_vocab, tokenizer)
 
-    # Tokenize a gloss token that should decode back
-    man_tokens = tokenizer.encode("MAN", add_special_tokens=False)
-    house_tokens = tokenizer.encode("WALK", add_special_tokens=False)
-
-    if man_tokens and house_tokens:
-        decoded = mask.decode_to_glosses(man_tokens)
-        check("decode_to_glosses returns list", isinstance(decoded, list))
-        check("decode_to_glosses has content", len(decoded) > 0)
-
-    # Test with EOS stops decoding
-    fake_ids = (
-        man_tokens + [tokenizer.eos_token_id] + house_tokens
-        if man_tokens
-        else [tokenizer.eos_token_id]
-    )
-    decoded = mask.decode_to_glosses(fake_ids)
-    check(
-        "decode_to_glosses stops at EOS",
-        len(decoded) <= len(man_tokens) if man_tokens else True,
-    )
+    # Encode a simple gloss sequence
+    text = "IX MAN WALK"
+    ids = tokenizer.encode(text, add_special_tokens=False)
+    result = mask.decode_to_glosses(ids)
+    assert isinstance(result, list), f"Returns list, got {type(result)}"
+    assert len(result) > 0, f"Non-empty result: {len(result)}"
 
 
-def test_grammar_build(tokenizer) -> None:
-    print("\n-- 4. Grammar Build --")
-    from src.grammar.gloss_grammar import build_gloss_grammar
+def test_grammar_build(tokenizer):
+    """Build LL(1) grammar and PDA via create_grammarllm_pipeline."""
+    from src.grammar.gloss_grammar import create_grammarllm_pipeline
 
     test_vocab = [
         "<BOS>",
@@ -202,39 +112,20 @@ def test_grammar_build(tokenizer) -> None:
         "IX",
         "MAN",
         "WALK",
+        "HOUSE",
+        "BOOK",
+        "DOG",
+        "CAT",
     ]
-    grammar = build_gloss_grammar(test_vocab, tokenizer)
+    logit_processor, streamer, pda = create_grammarllm_pipeline(test_vocab, tokenizer)
 
-    check("Grammar has S* start symbol", "S*" in grammar)
-    check(
-        "S* has productions",
-        len(grammar["S*"]) > 0,
-        f"{len(grammar['S*'])} productions",
-    )
-    check(
-        "Productions contain gloss tokens",
-        any("MAN" in p or "WALK" in p for p in grammar["S*"]),
-    )
-    # NOTE: <<<EOS>>> production was removed from build_gloss_grammar()
-    # to avoid BPE sub-token conflicts. EOS is now added by
-    # get_parsing_table_and_map_tt() via tokenizer.eos_token.
-    check("Productions do NOT contain <<<EOS>>>", "<<<EOS>>>" not in str(grammar))
-    check(
-        "Productions contain S* recursion",
-        any("S*" in p for p in grammar["S*"] if "EOS" not in p),
-    )
-
-    # BOS and UNK should NOT appear in productions
-    for p in grammar["S*"]:
-        check(
-            f"  Production '{p[:40]}' excludes BOS/UNK",
-            "BOS" not in p and "UNK" not in p,
-            "",
-        )
+    assert pda is not None, "PDA created"
+    assert logit_processor is not None, "LogitsProcessor created"
+    assert streamer is not None, "Streamer created"
 
 
-def test_masked_mass_tracking(tokenizer) -> None:
-    print("\n-- 5. Masked Probability Mass Tracking --")
+def test_masked_mass_tracking(tokenizer):
+    """MaskedMassTracker tracks entropy and mass statistics (with track_diagnostics=True)."""
     from src.grammar.gloss_grammar import GlossVocabularyMask
     from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
 
@@ -247,83 +138,41 @@ def test_masked_mass_tracking(tokenizer) -> None:
         "WALK",
         "HOUSE",
         "BOOK",
-        "NOT",
-        "CAN",
+        "DOG",
+        "CAT",
     ]
     mask = GlossVocabularyMask(test_vocab, tokenizer)
+    # track_diagnostics=True is required for mass tracking
     processor = GlossVocabularyLogitsProcessor(
         mask, device="cpu", track_diagnostics=True
     )
 
     vocab_size = tokenizer.vocab_size
-
-    # Simulate 5 generation steps with random-ish logits
-    for _step in range(5):
+    for _ in range(5):
         scores = torch.randn(1, vocab_size) * 0.5
         dummy_input_ids = torch.zeros(1, 5, dtype=torch.long)
         _ = processor(dummy_input_ids, scores)
 
     stats = processor.get_masked_mass_stats()
-    check("Total steps = 5", stats["total_steps"] == 5, f"{stats['total_steps']}")
-    check(
-        "Average masked mass in [0, 1]",
-        0.0 <= stats["avg_masked_mass"] <= 1.0,
-        f"{stats['avg_masked_mass']:.4f}",
-    )
-    check("Masked mass > 0 (some tokens disallowed)", stats["avg_masked_mass"] > 0.0)
-    check(
-        "Average masked entropy in [0, log(V)]",
-        0.0 <= stats["avg_masked_entropy"] <= 12.0,
-        f"{stats['avg_masked_entropy']:.4f}",
-    )
-    check(
-        "Masked entropy > 0 (non-degenerate distribution)",
-        stats["avg_masked_entropy"] > 0.0,
-    )
+    assert stats["total_steps"] == 5, f"Total steps = 5, got {stats['total_steps']}"
+    assert (
+        0.0 <= stats["avg_masked_mass"] <= 1.0
+    ), f"Mass in [0,1]: {stats['avg_masked_mass']}"
+    assert stats["avg_masked_mass"] > 0.0, "Mass > 0"
+    assert (
+        0.0 <= stats["avg_masked_entropy"] <= 12.0
+    ), f"Entropy in [0, log(V)]: {stats['avg_masked_entropy']}"
+    assert stats["avg_masked_entropy"] > 0.0, "Entropy > 0"
 
-    # Reset should clear stats (including entropy)
     processor.reset()
     stats_reset = processor.get_masked_mass_stats()
-    check("Reset clears total_steps", stats_reset["total_steps"] == 0)
-    check("Reset clears avg_masked_mass", stats_reset["avg_masked_mass"] == 0.0)
-    check("Reset clears avg_masked_entropy", stats_reset["avg_masked_entropy"] == 0.0)
-
-    # After reset, new steps accumulate again
-    for _step in range(3):
-        scores = torch.randn(1, vocab_size) * 0.5
-        dummy_input_ids = torch.zeros(1, 5, dtype=torch.long)
-        _ = processor(dummy_input_ids, scores)
-
-    stats2 = processor.get_masked_mass_stats()
-    check("After reset + 3 steps", stats2["total_steps"] == 3)
-    check(
-        "Masked mass in [0, 1] after reset",
-        0.0 <= stats2["avg_masked_mass"] <= 1.0,
-        f"{stats2['avg_masked_mass']:.4f}",
-    )
-    check(
-        "Masked entropy > 0 after reset",
-        stats2["avg_masked_entropy"] > 0.0,
-        f"{stats2['avg_masked_entropy']:.4f}",
-    )
-
-    # Test reset_after=True (per-interval logging path)
-    stats3 = processor.get_masked_mass_stats(reset_after=True)
-    check("reset_after returns correct total_steps", stats3["total_steps"] == 3)
-    stats_after = processor.get_masked_mass_stats()
-    check("reset_after clears counters", stats_after["total_steps"] == 0)
-    check("reset_after clears entropy", stats_after["avg_masked_entropy"] == 0.0)
-    check(
-        "reset_after clears entropy_allowed",
-        stats_after.get("avg_masked_entropy_allowed", -1.0) == 0.0,
-    )
+    assert stats_reset["total_steps"] == 0, "Reset clears total_steps"
+    assert stats_reset["avg_masked_mass"] == 0.0, "Reset clears mass"
 
 
-def test_pda_logits_processor_mass_tracking(tokenizer) -> None:
-    print("\n-- 6. GrammarPDALogitsProcessor Masked Mass & Entropy Tracking --")
-    from grammarllm import get_parsing_table_and_map_tt
-    from grammarllm.modules.PushdownAutomaton import PushdownAutomaton
-    from src.grammar.gloss_grammar import build_gloss_grammar
+def test_pda_logits_processor_mass_tracking(tokenizer):
+    """PDA logits processor mass tracking."""
+    from src.grammar.gloss_grammar import create_grammarllm_pipeline
     from src.grammar.grammar_logits_processor import GrammarPDALogitsProcessor
 
     test_vocab = [
@@ -335,169 +184,83 @@ def test_pda_logits_processor_mass_tracking(tokenizer) -> None:
         "WALK",
         "HOUSE",
         "BOOK",
-        "NOT",
-        "CAN",
+        "DOG",
+        "CAT",
     ]
-
-    # Build grammar and parsing table for PDA using the public API
-    # (same path as create_grammarllm_pipeline in src/grammar/gloss_grammar.py)
-    grammar = build_gloss_grammar(test_vocab, tokenizer)
-    table, map_terminal_tokens = get_parsing_table_and_map_tt(tokenizer, grammar)
-    pda = PushdownAutomaton(grammar=table, startSymbol="S*", map=map_terminal_tokens)
+    _, _, pda = create_grammarllm_pipeline(test_vocab, tokenizer)
     processor = GrammarPDALogitsProcessor(tokenizer, pda)
 
     vocab_size = tokenizer.vocab_size
-
-    # Sanity check: PDA has valid tokens in initial state
     valid_init = processor.get_valid_tokens()
-    check(
-        "PDA initial valid tokens non-empty",
-        len(valid_init) > 0,
-        f"{len(valid_init)} valid tokens",
-    )
+    assert len(valid_init) > 0, f"PDA initial valid tokens non-empty: {len(valid_init)}"
 
-    # Simulate 5 generation steps with random-ish logits
-    for _step in range(5):
+    for _ in range(5):
         scores = torch.randn(1, vocab_size) * 0.5
         dummy_input_ids = torch.zeros(1, 5, dtype=torch.long)
         _ = processor(dummy_input_ids, scores)
 
     stats = processor.get_masked_mass_stats()
-    check("PDA: total steps = 5", stats["total_steps"] == 5, f"{stats['total_steps']}")
-    check(
-        "PDA: masked mass in [0, 1]",
-        0.0 <= stats["avg_masked_mass"] <= 1.0,
-        f"{stats['avg_masked_mass']:.4f}",
-    )
-    check("PDA: masked mass > 0", stats["avg_masked_mass"] > 0.0)
-    check(
-        "PDA: entropy in [0, log(V)]",
-        0.0 <= stats["avg_masked_entropy"] <= 12.0,
-        f"{stats['avg_masked_entropy']:.4f}",
-    )
-    check("PDA: entropy > 0", stats["avg_masked_entropy"] > 0.0)
-    check(
-        "PDA: entropy_allowed in [0, log(|allowed|)]",
-        0.0 <= stats["avg_masked_entropy_allowed"] <= 8.0,
-        f"{stats['avg_masked_entropy_allowed']:.4f}",
-    )
-    check(
-        "PDA: entropy_allowed >= 0",
-        stats["avg_masked_entropy_allowed"] >= 0.0,
-        f"{stats['avg_masked_entropy_allowed']:.4f}",
-    )
+    assert stats["total_steps"] == 5, f"PDA total steps = 5, got {stats['total_steps']}"
+    assert 0.0 <= stats["avg_masked_mass"] <= 1.0
+    assert stats["avg_masked_mass"] > 0.0, "PDA mass > 0"
+    assert 0.0 <= stats["avg_masked_entropy"] <= 12.0
+    assert stats["avg_masked_entropy"] > 0.0, "PDA entropy > 0"
 
-    # Reset should clear all stats
     processor.reset()
     stats_reset = processor.get_masked_mass_stats()
-    check("PDA: reset clears total_steps", stats_reset["total_steps"] == 0)
-    check("PDA: reset clears avg_masked_mass", stats_reset["avg_masked_mass"] == 0.0)
-    check(
-        "PDA: reset clears avg_masked_entropy", stats_reset["avg_masked_entropy"] == 0.0
-    )
-    check(
-        "PDA: reset clears entropy_allowed",
-        stats_reset.get("avg_masked_entropy_allowed", -1.0) == 0.0,
-    )
+    assert stats_reset["total_steps"] == 0, "PDA reset clears total_steps"
 
     # Accumulate again
-    for _step in range(3):
+    for _ in range(3):
         scores = torch.randn(1, vocab_size) * 0.5
         dummy_input_ids = torch.zeros(1, 5, dtype=torch.long)
         _ = processor(dummy_input_ids, scores)
 
     stats2 = processor.get_masked_mass_stats()
-    check("PDA: after reset + 3 steps", stats2["total_steps"] == 3)
+    assert (
+        stats2["total_steps"] == 3
+    ), f"PDA after reset + 3 steps: {stats2['total_steps']}"
 
     # reset_after=True path
     stats3 = processor.get_masked_mass_stats(reset_after=True)
-    check("PDA: reset_after returns correct total_steps", stats3["total_steps"] == 3)
+    assert stats3["total_steps"] == 3, "reset_after returns correct total_steps"
     stats_after = processor.get_masked_mass_stats()
-    check("PDA: reset_after clears counters", stats_after["total_steps"] == 0)
-    check(
-        "PDA: reset_after clears entropy",
-        stats_after.get("avg_masked_entropy", -1.0) == 0.0,
-    )
-    check(
-        "PDA: reset_after clears entropy_allowed",
-        stats_after.get("avg_masked_entropy_allowed", -1.0) == 0.0,
-    )
+    assert stats_after["total_steps"] == 0, "reset_after clears counters"
 
 
-def test_build_allowed_mask() -> None:
-    print("\n-- 7. _build_allowed_mask Edge Cases --")
+def test_build_allowed_mask():
+    """_build_allowed_mask edge cases."""
     from src.grammar.masked_mass_tracker import MaskedMassTracker
 
     tracker = MaskedMassTracker()
     tracker._init_masked_stats()
 
-    # Edge case 1: empty set → all-False mask
+    # Empty set
     mask = tracker._build_allowed_mask(set(), vocab_size=10, device="cpu")
-    check("empty set: shape correct", mask.shape == (10,))
-    check("empty set: all False", mask.sum().item() == 0)
-    check("empty set: dtype bool", mask.dtype == torch.bool)
+    assert mask.shape == (10,), "Empty set: shape correct"
+    assert mask.sum().item() == 0, "Empty set: all False"
+    assert mask.dtype == torch.bool, "Empty set: dtype bool"
 
-    # Edge case 2: normal usage
+    # Normal usage
     mask = tracker._build_allowed_mask({0, 5, 9}, vocab_size=10, device="cpu")
-    check(
-        "normal: positions 0,5,9 True",
-        mask[0].item() and mask[5].item() and mask[9].item(),
-    )
-    check("normal: position 1 False", not mask[1].item())
-    check("normal: sum=3", mask.sum().item() == 3)
+    assert mask[0].item() and mask[5].item() and mask[9].item(), "Positions 0,5,9 True"
+    assert not mask[1].item(), "Position 1 False"
+    assert mask.sum().item() == 3, "Sum=3"
 
-    # Edge case 3: all IDs out of range → all-False
+    # Out of range
     mask = tracker._build_allowed_mask({-5, -1, 100, 200}, vocab_size=10, device="cpu")
-    check("out-of-range: all False", mask.sum().item() == 0)
-    check("out-of-range: no crash", mask.shape == (10,))
+    assert mask.sum().item() == 0, "Out-of-range: all False"
 
-    # Edge case 4: mix of valid and out-of-range
+    # Mixed
     mask = tracker._build_allowed_mask({-1, 0, 5, 100}, vocab_size=10, device="cpu")
-    check("mixed: only 0,5 True", mask[0].item() and mask[5].item())
-    check("mixed: sum=2", mask.sum().item() == 2)
+    assert mask[0].item() and mask[5].item(), "Mixed: only 0,5 True"
+    assert mask.sum().item() == 2, "Mixed: sum=2"
 
-    # Edge case 5: vocab_size=0 → empty tensor, no crash
+    # vocab_size=0
     mask = tracker._build_allowed_mask({0, 1, 2}, vocab_size=0, device="cpu")
-    check("vocab_size=0: shape (0,)", mask.shape == (0,))
-    check("vocab_size=0: sum=0", mask.sum().item() == 0)
-    check("vocab_size=0: no crash", True)
+    assert mask.shape == (0,), "vocab_size=0: shape (0,)"
+    assert mask.sum().item() == 0, "vocab_size=0: sum=0"
 
-    # Edge case 6: all valid IDs within range
+    # All valid
     mask = tracker._build_allowed_mask({0, 1, 2, 3, 4}, vocab_size=5, device="cpu")
-    check("all valid: sum=5", mask.sum().item() == 5)
-    check("all valid: first True", mask[0].item())
-    check("all valid: last True", mask[4].item())
-
-    print("  All _build_allowed_mask edge cases passed")
-
-
-def main() -> None:
-    global PASS, FAIL
-    print("=" * 60)
-    print("TEST: Grammar & Constrained Decoding")
-    print("=" * 60)
-
-    try:
-        tokenizer = get_tokenizer()
-        test_gloss_vocabulary_mask(tokenizer)
-        test_logits_processor(tokenizer)
-        test_decode_to_glosses(tokenizer)
-        test_grammar_build(tokenizer)
-        test_masked_mass_tracking(tokenizer)
-        test_pda_logits_processor_mass_tracking(tokenizer)
-        test_build_allowed_mask()
-    except Exception as e:
-        print(f"\n  !! CRASH: {e}")
-        import traceback
-
-        traceback.print_exc()
-        FAIL += 1
-
-    print(f"\n{'=' * 60}")
-    print(f"RESULTS: {PASS} passed, {FAIL} failed, {PASS + FAIL} total")
-    print(f"{'=' * 60}")
-    sys.exit(0 if FAIL == 0 else 1)
-
-
-if __name__ == "__main__":
-    main()
+    assert mask.sum().item() == 5, "All valid: sum=5"

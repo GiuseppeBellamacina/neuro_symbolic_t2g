@@ -58,6 +58,9 @@ _gloss_vocab: list[str] = []
 #: Token→index mapping for fast lookups.
 _token_to_idx: dict[str, int] = {}
 
+#: ROUGE-L scorer instance (initialized in ``initialize_rewards``).
+_ROUGE_SCORER: rouge_scorer.RougeScorer | None = None
+
 #: Viterbi diversity parameters loaded from config YAML.
 #  Configured via ``grammar.viterbi_diversity`` section.
 _viterbi_diversity_params: dict[str, float | int] = {
@@ -66,6 +69,12 @@ _viterbi_diversity_params: dict[str, float | int] = {
     "diversity_threshold": 0.3,
     "max_iters": 3,
     "verifier_gamma": 1.0,
+    # Decoupled from verifier_gamma (see verifier_scaled_reward docstring):
+    # controls the softmax temperature used to rescale structural_dense_reward
+    # before log1p-scaling it as the verifier confidence multiplier. Default
+    # 5.0 gives a gentle curve; configs can override via
+    # grammar.viterbi_diversity.verifier_temperature.
+    "verifier_temperature": 5.0,
 }
 
 #: Gold gloss registry: maps sample_id (SHA256 of user instruction) → gold gloss.
@@ -109,6 +118,7 @@ def initialize_rewards(
         "diversity_threshold": diversity_cfg.get("diversity_threshold", 0.3),
         "max_iters": diversity_cfg.get("max_iters", 3),
         "verifier_gamma": diversity_cfg.get("verifier_gamma", 1.0),
+        "verifier_temperature": diversity_cfg.get("verifier_temperature", 5.0),
     }
     logger.info("Viterbi diversity params: %s", _viterbi_diversity_params)
 
@@ -233,7 +243,8 @@ def translation_quality_reward(
 
 def structural_dense_reward(
     completion: str,
-    normalize: bool = True,
+    normalize: bool | str = True,
+    temperature: float = 1.0,
 ) -> float:
     """Score a gloss sequence using the precomputed bigram transition matrix.
 
@@ -242,7 +253,25 @@ def structural_dense_reward(
     N‑gram probabilities observed in real ASL data.
 
     The reward is the average log‑probability of bigram transitions
-    in the sequence, normalized to ``[0, 1]`` via exponentiation.
+    in the sequence, normalized to ``[0, 1]``.
+
+    Three normalization modes are supported:
+
+    - ``normalize="exp"`` (default, backward-compatible with ``True``):
+      :math:`\\exp(\\text{avg\\_log\\_prob} / T)`
+      With temperature :math:`T=1` this is the classic formulation.
+      **Problem**: for sequences with low bigram probability,
+      :math:`\\text{avg\\_log\\_prob} \\approx -15`, so
+      :math:`e^{-15} \\approx 0`, making the reward vanish.
+
+    - ``normalize="softmax"``:
+      :math:`\\frac{\\exp(\\text{avg\\_log\\_prob} / T)}
+                 {1 + \\exp(\\text{avg\\_log\\_prob} / T)}`
+      This is a sigmoid-softened version that maps any log-prob to
+      :math:`(0, 1)` without collapsing to 0 for low-probability sequences.
+
+    - ``normalize=False``:
+      Return the raw average log‑probability (can be negative).
 
     .. math::
 
@@ -256,9 +285,12 @@ def structural_dense_reward(
 
     Args:
         completion: Generated gloss sequence.
-        normalize: If ``True``, exponentiate the average log‑prob to
-            produce a score in ``[0, 1]``.  If ``False``, return the
-            raw average log‑probability (can be negative).
+        normalize: Normalization mode. ``True`` or ``"exp"`` for classic
+            exponentiation, ``"softmax"`` for sigmoid-softened, ``False``
+            for raw log-prob.
+        temperature: Temperature for the exponent. Higher values (e.g. 5)
+            make the reward less aggressive: :math:`e^{-15/5} = e^{-3} \\approx 0.05`
+            instead of :math:`e^{-15} \\approx 0`.
 
     Returns:
         Structural plausibility score.
@@ -303,11 +335,24 @@ def structural_dense_reward(
 
     avg_log_prob = log_sum / count
 
-    if normalize:
-        # Exponentiate to get a [0, 1] score
-        # e^0 = 1.0 (max), e^{-10} ≈ 0 (min)
-        return float(np.exp(avg_log_prob))
-    return avg_log_prob
+    # Normalize to [0, 1]
+    if normalize is False or normalize is None:
+        return avg_log_prob
+
+    # Temperature-scaled exponentiation
+    scaled = avg_log_prob / max(temperature, 1e-8)
+
+    if normalize == "softmax":
+        # Sigmoid: maps any log-prob to (0, 1) without collapsing to 0
+        # sigmoid(x) = exp(x) / (1 + exp(x))
+        # For x = -15/5 = -3 → sigmoid(-3) ≈ 0.047 (not 0!)
+        # For x = 0 → sigmoid(0) = 0.5
+        # For x = 2 → sigmoid(2) ≈ 0.88
+        return float(1.0 / (1.0 + np.exp(-scaled)))
+
+    # Default: exp (backward-compatible with normalize=True)
+    # e^0 = 1.0 (max), e^{-10} ≈ 0 (min)
+    return float(np.exp(scaled))
 
 
 # ---------------------------------------------------------------------------
@@ -767,16 +812,34 @@ def verifier_scaled_reward(
         Verifier-scaled reward in ``[0, 1]``.
     """
     rouge = translation_quality_reward(completion, gold_gloss)
-    structural = structural_dense_reward(completion, normalize=True)
 
-    # The verifier confidence is the structural plausibility, which
-    # acts as a multiplicative gate on the translation quality.
-    # We use a soft gate: verifier_confidence = structural^gamma
-    # where gamma controls how strictly the verifier filters.
-    # gamma=1.0 means linear scaling; gamma=2.0 means quadratic (stricter).
-    gamma = float(_viterbi_diversity_params.get("verifier_gamma", 1.0))
+    # Use softmax normalization with temperature to avoid the reward
+    # collapsing to 0 for low-probability sequences.
+    #   - Old behavior: structural^gamma → 0^1.5 = 0 (broken)
+    #   - New behavior: softmax(avg_log_prob / temperature) → always > 0
+    #
+    # NOTE: temperature is read from a DEDICATED "verifier_temperature" key
+    # (grammar.viterbi_diversity.verifier_temperature), decoupled from
+    # "verifier_gamma". Reusing verifier_gamma directly as temperature would
+    # silently reintroduce near-collapse behavior for existing configs that
+    # set gamma=1.5/2.0 (e.g. grpo_optimal.yaml, grpo_verifier_scaled.yaml) —
+    # those are much lower temperatures than the gentle default of 5.0 and
+    # would still heavily suppress structural for low-probability sequences.
+    temperature = float(_viterbi_diversity_params.get("verifier_temperature", 5.0))
+    if temperature <= 0.0:
+        temperature = 5.0
 
-    verifier_confidence = structural**gamma
+    structural = structural_dense_reward(
+        completion, normalize="softmax", temperature=temperature
+    )
+
+    # Use log1p scaling instead of power-gamma:
+    #   log(1 + structural) is a gentler concave function that:
+    #   - structural=0.05 → log(1.05) ≈ 0.049 (not 0!)
+    #   - structural=0.5  → log(1.5)  ≈ 0.405
+    #   - structural=1.0  → log(2.0)  ≈ 0.693
+    # This ensures the verifier never fully zeros out the reward.
+    verifier_confidence = float(np.log1p(structural))
     return float(rouge * verifier_confidence)
 
 

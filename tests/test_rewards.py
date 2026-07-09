@@ -1,324 +1,223 @@
 #!/usr/bin/env python3
-"""Verify Reward Functions ? Test Script.
+"""Test reward functions for T2G GRPO training.
 
 Validates:
   1. Translation quality (ROUGE-L): perfect match=1.0, bad match<perfect
   2. Structural dense: range [0,1], plausible>implausible
   3. Format: clean gloss=1.0, free text<1.0
   4. Repetition: normal=1.0, repetitive<1.0, severe=-1.0
+  5. Gold-structure: perfect=1.0, partial<perfect, implausible<partial
+  6. Viterbi distance: range [0,1], plausible>bad
+  7. build_t2g_reward_functions: correct count, weights sum to 1.0
+  8. Soft Viterbi: range [0,1], plausible>bad
+  9. Verifier-scaled: perfect>bad, empty=0.0
 
-Usage:
-    python tests/test_rewards.py
+All tests use the ``reward_setup`` fixture from conftest.py.
 """
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-PASS = 0
-FAIL = 0
+# ---------------------------------------------------------------------------
+# 1. Translation quality (ROUGE-L)
+# ---------------------------------------------------------------------------
 
 
-def check(name: str, condition: bool, detail: str = "") -> None:
-    global PASS, FAIL
-    if condition:
-        PASS += 1
-        print(f"  [PASS] {name}" + (f" -- {detail}" if detail else ""))
-    else:
-        FAIL += 1
-        print(f"  [FAIL] {name}" + (f" -- {detail}" if detail else ""))
-
-
-def setup_rewards():
-    """Setup mini vocabulary and bigram matrix for testing."""
-    import tempfile
-
-    import numpy as np
-
-    from src.datasets.transition_matrix import save_transition_matrix
-    from src.rewards.t2g_rewards import initialize_rewards
-
-    vocab = [
-        "<BOS>",
-        "<EOS>",
-        "<UNK>",
-        "IX",
-        "MAN",
-        "WALK",
-        "HOUSE",
-        "BOOK",
-        "DOG",
-        "CAT",
-        "NOT",
-        "CAN",
-        "WANT",
-        "GO",
-        "COME",
-        "fs-JOHN",
-    ]
-    V = len(vocab)
-    # Create a plausible bigram matrix with Laplace smoothing
-    # Make "IX ? MAN" and "MAN ? WALK" high probability
-    bigram = np.ones((V, V), dtype=np.float32) * (1.0 / V)
-    token_to_idx = {t: i for i, t in enumerate(vocab)}
-    # Set some plausible transitions
-    pairs = [
-        ("<BOS>", "IX"),
-        ("IX", "MAN"),
-        ("MAN", "WALK"),
-        ("WALK", "HOUSE"),
-        ("HOUSE", "<EOS>"),
-    ]
-    for a, b in pairs:
-        if a in token_to_idx and b in token_to_idx:
-            bigram[token_to_idx[a], :] = 0.001
-            bigram[token_to_idx[a], token_to_idx[b]] = 0.95
-            row = bigram[token_to_idx[a]]
-            bigram[token_to_idx[a]] = row / row.sum()
-
-    # Save and reload to test persistence
-    with tempfile.TemporaryDirectory() as tmp:
-        mpath = str(Path(tmp) / "test_bigram.npy")
-        save_transition_matrix(bigram, mpath)
-
-    initialize_rewards(bigram, vocab)
-    return vocab, bigram
-
-
-def test_translation_quality() -> None:
-    print("\n-- 1. Translation Quality (ROUGE-L) --")
+def test_translation_quality(reward_setup):
     from src.rewards.t2g_rewards import translation_quality_reward
 
     gold = "IX MAN WALK HOUSE"
     perfect = "IX MAN WALK HOUSE"
     score_perfect = translation_quality_reward(perfect, gold)
-    check("Perfect match > 0.8", score_perfect > 0.8, f"{score_perfect:.4f}")
-    check(
-        "Perfect match == 1.0", abs(score_perfect - 1.0) < 0.01, f"{score_perfect:.4f}"
-    )
+    assert score_perfect > 0.8, f"Perfect match > 0.8, got {score_perfect:.4f}"
+    assert (
+        abs(score_perfect - 1.0) < 0.01
+    ), f"Perfect match == 1.0, got {score_perfect:.4f}"
 
     partial = "IX MAN GO HOUSE"
     score_partial = translation_quality_reward(partial, gold)
-    check(
-        "Partial match < perfect",
-        score_partial < score_perfect,
-        f"{score_partial:.4f} vs {score_perfect:.4f}",
-    )
-    check("Partial match > 0", score_partial > 0.0)
+    assert (
+        score_partial < score_perfect
+    ), f"Partial < perfect: {score_partial:.4f} vs {score_perfect:.4f}"
+    assert score_partial > 0.0
 
     bad = "DOG CAT BIRD FISH"
     score_bad = translation_quality_reward(bad, gold)
-    check("Bad match < partial", score_bad < score_partial, f"{score_bad:.4f}")
-    check("Bad match >= 0", score_bad >= 0.0)
+    assert (
+        score_bad < score_partial
+    ), f"Bad < partial: {score_bad:.4f} < {score_partial:.4f}"
+    assert score_bad >= 0.0
 
-    empty = translation_quality_reward("", gold)
-    check("Empty completion = 0.0", empty == 0.0)
-
-    empty_gold = translation_quality_reward(perfect, "")
-    check("Empty gold = 0.0", empty_gold == 0.0)
+    assert translation_quality_reward("", gold) == 0.0, "Empty completion = 0.0"
+    assert translation_quality_reward(perfect, "") == 0.0, "Empty gold = 0.0"
 
 
-def test_structural_dense() -> None:
-    print("\n-- 2. Structural Dense (Bigram) --")
+# ---------------------------------------------------------------------------
+# 2. Structural dense (bigram)
+# ---------------------------------------------------------------------------
+
+
+def test_structural_dense(reward_setup):
     from src.rewards.t2g_rewards import structural_dense_reward
 
     plausible = "IX MAN WALK HOUSE"
     score_plausible = structural_dense_reward(plausible, normalize=True)
-    check("Plausible in [0,1]", 0.0 <= score_plausible <= 1.0, f"{score_plausible:.4f}")
-    check("Plausible > 0", score_plausible > 0.0)
+    assert (
+        0.0 <= score_plausible <= 1.0
+    ), f"Plausible in [0,1], got {score_plausible:.4f}"
+    assert score_plausible > 0.0
 
     implausible = "DOG fs-JOHN BOOK CAN"
     score_implausible = structural_dense_reward(implausible, normalize=True)
-    check(
-        "Implausible in [0,1]",
-        0.0 <= score_implausible <= 1.0,
-        f"{score_implausible:.4f}",
-    )
-    check(
-        "Plausible > implausible",
-        score_plausible > score_implausible,
-        f"{score_plausible:.4f} vs {score_implausible:.4f}",
-    )
+    assert (
+        0.0 <= score_implausible <= 1.0
+    ), f"Implausible in [0,1], got {score_implausible:.4f}"
+    assert (
+        score_plausible > score_implausible
+    ), f"Plausible > implausible: {score_plausible:.4f} vs {score_implausible:.4f}"
 
-    single = "IX"
-    score_single = structural_dense_reward(single, normalize=True)
-    check("Single token (no bigram) = 0.0", score_single == 0.0)
+    assert structural_dense_reward("IX", normalize=True) == 0.0, "Single token = 0.0"
+    assert structural_dense_reward("", normalize=True) == 0.0, "Empty = 0.0"
 
-    empty = structural_dense_reward("", normalize=True)
-    check("Empty = 0.0", empty == 0.0)
-
-    # Raw (non-normalized) should be negative
     raw = structural_dense_reward(plausible, normalize=False)
-    check("Raw score < 0 (log-prob)", raw < 0.0, f"{raw:.4f}")
+    assert raw < 0.0, f"Raw score < 0 (log-prob), got {raw:.4f}"
 
 
-def test_format_reward() -> None:
-    print("\n-- 3. Format Reward --")
+# ---------------------------------------------------------------------------
+# 3. Format reward
+# ---------------------------------------------------------------------------
+
+
+def test_format_reward(reward_setup):
     from src.rewards.t2g_rewards import gloss_format_reward
 
-    clean = "IX MAN WALK HOUSE"
-    score_clean = gloss_format_reward(clean)
-    check("Clean gloss = 1.0", score_clean == 1.0)
+    assert gloss_format_reward("IX MAN WALK HOUSE") == 1.0, "Clean gloss = 1.0"
 
     mixed = "Here is: IX MAN WALK"
-    score_mixed = gloss_format_reward(mixed)
-    check("Mixed (free text + gloss) < 1.0", score_mixed < 1.0, f"{score_mixed}")
+    assert gloss_format_reward(mixed) < 1.0, f"Mixed < 1.0, got {mixed}"
 
     free_text = "The man walks to the house."
-    score_free = gloss_format_reward(free_text)
-    check("Pure free text < 1.0", score_free < 1.0, f"{score_free}")
+    assert gloss_format_reward(free_text) < 1.0, "Free text < 1.0"
 
-    empty = gloss_format_reward("")
-    check("Empty = 0.0", empty == 0.0)
+    assert gloss_format_reward("") == 0.0, "Empty = 0.0"
 
     json_like = '{"gloss": "IX MAN"}'
-    score_json = gloss_format_reward(json_like)
-    check("JSON-like < 1.0", score_json < 1.0, f"{score_json}")
+    assert gloss_format_reward(json_like) < 1.0, "JSON-like < 1.0"
 
 
-def test_repetition_reward() -> None:
-    print("\n-- 4. Repetition Reward --")
+# ---------------------------------------------------------------------------
+# 4. Repetition reward
+# ---------------------------------------------------------------------------
+
+
+def test_repetition_reward(reward_setup):
     from src.rewards.t2g_rewards import gloss_repetition_reward
 
     normal = "IX MAN WALK HOUSE BOOK CAN NOT WANT GO COME"
-    score_normal = gloss_repetition_reward(normal)
-    check("Normal = 1.0", score_normal == 1.0)
+    assert gloss_repetition_reward(normal) == 1.0, "Normal = 1.0"
 
     moderate = "IX IX MAN WALK IX IX MAN WALK"
     score_moderate = gloss_repetition_reward(moderate)
-    check("Moderate repetition <= 1.0", score_moderate <= 1.0, f"{score_moderate}")
-    check("Moderate < 1.0 (penalized)", score_moderate < 1.0, f"{score_moderate}")
+    assert score_moderate <= 1.0, f"Moderate <= 1.0, got {score_moderate}"
+    assert score_moderate < 1.0, f"Moderate < 1.0 (penalized), got {score_moderate}"
 
     severe = "IX IX IX IX IX IX IX IX IX IX"
-    score_severe = gloss_repetition_reward(severe)
-    check("Severe repetition == -1.0", score_severe == -1.0)
+    assert gloss_repetition_reward(severe) == -1.0, "Severe = -1.0"
 
-    short = "IX MAN"
-    score_short = gloss_repetition_reward(short)
-    check("Short sequence (<4 tokens) = 1.0", score_short == 1.0)
-
-    empty = gloss_repetition_reward("")
-    check("Empty = 1.0", empty == 1.0)
+    assert gloss_repetition_reward("IX MAN") == 1.0, "Short (<4 tokens) = 1.0"
+    assert gloss_repetition_reward("") == 1.0, "Empty = 1.0"
 
 
-def test_gold_structure_reward() -> None:
-    print("\n-- 5. Gold-Structure Reward (Gold Baseline) --")
+# ---------------------------------------------------------------------------
+# 5. Gold-structure reward
+# ---------------------------------------------------------------------------
+
+
+def test_gold_structure_reward(reward_setup):
     from src.rewards.t2g_rewards import gold_structure_reward
 
     gold = "IX MAN WALK HOUSE"
-
-    # Perfect match with gold (same sequence)
     perfect = "IX MAN WALK HOUSE"
     score_perfect = gold_structure_reward(perfect, gold, normalize=True)
-    check(
-        "Perfect match = 1.0", abs(score_perfect - 1.0) < 0.05, f"{score_perfect:.4f}"
-    )
+    assert (
+        abs(score_perfect - 1.0) < 0.05
+    ), f"Perfect match ~= 1.0, got {score_perfect:.4f}"
 
-    # Slightly different from gold
     partial = "IX MAN GO HOUSE"
     score_partial = gold_structure_reward(partial, gold, normalize=True)
-    check("Partial in [0, 1]", 0.0 <= score_partial <= 1.0, f"{score_partial:.4f}")
-    check(
-        "Partial < perfect",
-        score_partial < score_perfect,
-        f"{score_partial:.4f} < {score_perfect:.4f}",
-    )
+    assert 0.0 <= score_partial <= 1.0, f"Partial in [0,1], got {score_partial:.4f}"
+    assert (
+        score_partial < score_perfect
+    ), f"Partial < perfect: {score_partial:.4f} < {score_perfect:.4f}"
 
-    # Implausible (bad bigram transitions)
     implausible = "DOG fs-JOHN BOOK CAN NOT"
     score_implausible = gold_structure_reward(implausible, gold, normalize=True)
-    check(
-        "Implausible in [0, 1]",
-        0.0 <= score_implausible <= 1.0,
-        f"{score_implausible:.4f}",
-    )
-    check(
-        "Implausible < partial",
-        score_implausible < score_partial,
-        f"{score_implausible:.4f} < {score_partial:.4f}",
-    )
+    assert 0.0 <= score_implausible <= 1.0
+    assert (
+        score_implausible < score_partial
+    ), f"Implausible < partial: {score_implausible:.4f} < {score_partial:.4f}"
 
-    # Empty
-    empty = gold_structure_reward("", gold, normalize=True)
-    check("Empty = 0.0", empty == 0.0)
+    assert gold_structure_reward("", gold, normalize=True) == 0.0, "Empty = 0.0"
+    assert gold_structure_reward(perfect, "", normalize=True) == 0.0, "Empty gold = 0.0"
 
-    empty_gold = gold_structure_reward(perfect, "", normalize=True)
-    check("Empty gold = 0.0", empty_gold == 0.0)
-
-    # Raw
     raw = gold_structure_reward(perfect, gold, normalize=False)
-    check("Raw perfect ~= 0.0", abs(raw) < 0.5, f"{raw:.4f}")
+    assert abs(raw) < 0.5, f"Raw perfect ~= 0.0, got {raw:.4f}"
 
 
-def test_viterbi_distance_reward() -> None:
-    print("\n-- 6. Viterbi Distance Reward --")
+# ---------------------------------------------------------------------------
+# 6. Viterbi distance reward
+# ---------------------------------------------------------------------------
+
+
+def test_viterbi_distance_reward(reward_setup):
     from src.rewards.t2g_rewards import viterbi_distance_reward
 
     plausible = "IX MAN WALK HOUSE"
     score = viterbi_distance_reward(plausible, normalize=True)
-    check("Viterbi distance in [0, 1]", 0.0 <= score <= 1.0, f"{score:.4f}")
-    check("Viterbi distance > 0", score > 0.0)
+    assert 0.0 <= score <= 1.0, f"Viterbi distance in [0,1], got {score:.4f}"
+    assert score > 0.0
 
-    short = "IX"
-    score_short = viterbi_distance_reward(short, normalize=True)
-    check("Short (<2 tokens) = 0.0", score_short == 0.0)
+    assert (
+        viterbi_distance_reward("IX", normalize=True) == 0.0
+    ), "Short (<2 tokens) = 0.0"
+    assert viterbi_distance_reward("", normalize=True) == 0.0, "Empty = 0.0"
 
-    empty = viterbi_distance_reward("", normalize=True)
-    check("Empty = 0.0", empty == 0.0)
-
-    # Bad sequence — should get lower Viterbi distance score
     bad = "DOG fs-JOHN BOOK CAN NOT WANT"
     score_bad = viterbi_distance_reward(bad, normalize=True)
-    check("Bad < plausible", score_bad < score, f"{score_bad:.4f} < {score:.4f}")
-    check("Bad in [0, 1]", 0.0 <= score_bad <= 1.0, f"{score_bad:.4f}")
+    assert score_bad < score, f"Bad < plausible: {score_bad:.4f} < {score:.4f}"
+    assert 0.0 <= score_bad <= 1.0
+    assert score > 0.05, f"Plausible > 0.05 (diverse baseline), got {score:.4f}"
 
-    # Bonus check: the Viterbi distance should NOT be extreme (not ~0.0)
-    # because the diverse Viterbi uses a realistic baseline
-    check(
-        "Plausible Viterbi distance > 0.05 (diverse baseline)",
-        score > 0.05,
-        f"{score:.4f}",
-    )
-
-    # Raw (should be <= 0, since Viterbi is the optimal path)
     raw = viterbi_distance_reward(plausible, normalize=False)
-    check("Raw <= 0.0", raw <= 0.0, f"{raw:.4f}")
+    assert raw <= 0.0, f"Raw <= 0.0, got {raw:.4f}"
 
 
-def test_build_reward_functions() -> None:
-    print("\n-- 7. build_t2g_reward_functions --")
+# ---------------------------------------------------------------------------
+# 7. build_t2g_reward_functions
+# ---------------------------------------------------------------------------
+
+
+def test_build_reward_functions(reward_setup):
     from src.rewards.t2g_rewards import build_t2g_reward_functions
 
+    # Default config
     funcs, weights = build_t2g_reward_functions()
-    check("4 reward functions (default)", len(funcs) == 4, f"got {len(funcs)}")
-    check("4 weights", len(weights) == 4, f"got {len(weights)}")
-    check("Funcs and weights same length", len(funcs) == len(weights))
-    check("All weights > 0", all(w > 0 for w in weights), f"{weights}")
-    check(
-        "Weights sum ? 1.0", abs(sum(weights) - 1.0) < 0.01, f"sum={sum(weights):.4f}"
-    )
+    assert len(funcs) == 4, f"4 default functions, got {len(funcs)}"
+    assert len(weights) == 4
+    assert len(funcs) == len(weights)
+    assert all(w > 0 for w in weights), f"All weights > 0: {weights}"
+    assert abs(sum(weights) - 1.0) < 0.01, f"Weights sum to 1.0, got {sum(weights):.4f}"
 
-    # Check that each function is callable with completions
+    # Each function should be callable
     completions = ["IX MAN WALK", "DOG CAT", "NOT CAN WANT"]
     for fn in funcs:
-        try:
-            result = fn(completions)
-            check(
-                f"  {fn.__name__} returns list of floats",
-                isinstance(result, list) and len(result) == len(completions),
-                f"{result}",
-            )
-            check(
-                f"  {fn.__name__} values are floats",
-                all(isinstance(v, float) for v in result),
-            )
-        except Exception as e:
-            check(f"  {fn.__name__} callable", False, f"Exception: {e}")
+        result = fn(completions)
+        assert isinstance(result, list), f"{fn.__name__} returns list"
+        assert len(result) == len(completions), f"{fn.__name__} returns correct length"
+        assert all(
+            isinstance(v, float) for v in result
+        ), f"{fn.__name__} values are floats"
 
-    # Check with custom weights including gold_structure
+    # Custom with gold_structure
     custom = {
         "weight_translation": 0.4,
         "weight_gold_structure": 0.4,
@@ -326,12 +225,10 @@ def test_build_reward_functions() -> None:
         "weight_repetition": 0.1,
     }
     funcs2, weights2 = build_t2g_reward_functions(custom)
-    check(
-        "Custom (gold-structure): 4 functions", len(funcs2) == 4, f"got {len(funcs2)}"
-    )
-    check("Custom: weights sum to 1.0", abs(sum(weights2) - 1.0) < 0.01)
+    assert len(funcs2) == 4, f"Custom (gold-structure): 4 functions, got {len(funcs2)}"
+    assert abs(sum(weights2) - 1.0) < 0.01
 
-    # Check with viterbi weight
+    # Custom with viterbi
     custom_vit = {
         "weight_translation": 0.3,
         "weight_viterbi": 0.3,
@@ -340,19 +237,16 @@ def test_build_reward_functions() -> None:
         "weight_repetition": 0.05,
     }
     funcs3, weights3 = build_t2g_reward_functions(custom_vit)
-    check("Custom (viterbi): 5 functions", len(funcs3) == 5, f"got {len(funcs3)}")
-    check("Custom (viterbi): weights sum to 1.0", abs(sum(weights3) - 1.0) < 0.01)
+    assert len(funcs3) == 5, f"Custom (viterbi): 5 functions, got {len(funcs3)}"
+    assert abs(sum(weights3) - 1.0) < 0.01
 
-    # Check old-style structural_dense still works
-    custom_old = {
-        "weight_translation": 0.5,
-        "weight_structure": 0.5,
-    }
+    # Old-style structural_dense
+    custom_old = {"weight_translation": 0.5, "weight_structure": 0.5}
     funcs4, weights4 = build_t2g_reward_functions(custom_old)
-    check("Old-style (structure): 2 functions", len(funcs4) == 2, f"got {len(funcs4)}")
-    check("Old-style: weights sum to 1.0", abs(sum(weights4) - 1.0) < 0.01)
+    assert len(funcs4) == 2, f"Old-style (structure): 2 functions, got {len(funcs4)}"
+    assert abs(sum(weights4) - 1.0) < 0.01
 
-    # Check soft Viterbi weight
+    # Soft Viterbi
     custom_soft = {
         "weight_translation": 0.3,
         "weight_soft_viterbi": 0.3,
@@ -361,13 +255,10 @@ def test_build_reward_functions() -> None:
         "weight_repetition": 0.05,
     }
     funcs5, weights5 = build_t2g_reward_functions(custom_soft)
-    check("Custom (soft-viterbi): 5 functions", len(funcs5) == 5, f"got {len(funcs5)}")
-    check(
-        "Custom (soft-viterbi): weights sum to 1.0",
-        abs(sum(weights5) - 1.0) < 0.01,
-    )
+    assert len(funcs5) == 5, f"Custom (soft-viterbi): 5 functions, got {len(funcs5)}"
+    assert abs(sum(weights5) - 1.0) < 0.01
 
-    # Check verifier-scaled weight
+    # Verifier-scaled
     custom_ver = {
         "weight_verifier_scaled": 0.65,
         "weight_gloss_order": 0.15,
@@ -375,100 +266,58 @@ def test_build_reward_functions() -> None:
         "weight_repetition": 0.10,
     }
     funcs6, weights6 = build_t2g_reward_functions(custom_ver)
-    check(
-        "Custom (verifier-scaled): 4 functions",
-        len(funcs6) == 4,
-        f"got {len(funcs6)}",
-    )
-    check(
-        "Custom (verifier-scaled): weights sum to 1.0",
-        abs(sum(weights6) - 1.0) < 0.01,
-    )
+    assert len(funcs6) == 4, f"Custom (verifier-scaled): 4 functions, got {len(funcs6)}"
+    assert abs(sum(weights6) - 1.0) < 0.01
 
 
-def test_soft_viterbi_distance_reward() -> None:
-    print("\n-- 8. Soft Viterbi Distance Reward (Differentiable) --")
+# ---------------------------------------------------------------------------
+# 8. Soft Viterbi distance reward
+# ---------------------------------------------------------------------------
+
+
+def test_soft_viterbi_distance_reward(reward_setup):
     from src.rewards.t2g_rewards import soft_viterbi_distance_reward
 
     plausible = "IX MAN WALK HOUSE"
     score = soft_viterbi_distance_reward(plausible, normalize=True)
-    check("Soft Viterbi in [0, 1]", 0.0 <= score <= 1.0, f"{score:.4f}")
-    check("Soft Viterbi > 0", score > 0.0)
+    assert 0.0 <= score <= 1.0, f"Soft Viterbi in [0,1], got {score:.4f}"
+    assert score > 0.0
 
-    short = "IX"
-    score_short = soft_viterbi_distance_reward(short, normalize=True)
-    check("Short (<2 tokens) = 0.0", score_short == 0.0)
+    assert (
+        soft_viterbi_distance_reward("IX", normalize=True) == 0.0
+    ), "Short (<2 tokens) = 0.0"
+    assert soft_viterbi_distance_reward("", normalize=True) == 0.0, "Empty = 0.0"
 
-    empty = soft_viterbi_distance_reward("", normalize=True)
-    check("Empty = 0.0", empty == 0.0)
-
-    # Bad sequence — should get lower score
     bad = "DOG fs-JOHN BOOK CAN NOT WANT"
     score_bad = soft_viterbi_distance_reward(bad, normalize=True)
-    check("Bad < plausible", score_bad < score, f"{score_bad:.4f} < {score:.4f}")
-    check("Bad in [0, 1]", 0.0 <= score_bad <= 1.0, f"{score_bad:.4f}")
+    assert score_bad < score, f"Bad < plausible: {score_bad:.4f} < {score:.4f}"
+    assert 0.0 <= score_bad <= 1.0
 
-    # Raw (should be <= 0, since soft Viterbi is an upper bound)
     raw = soft_viterbi_distance_reward(plausible, normalize=False)
-    check("Soft Viterbi raw <= 0.0", raw <= 0.0, f"{raw:.4f}")
+    assert raw <= 0.0, f"Soft Viterbi raw <= 0.0, got {raw:.4f}"
 
 
-def test_verifier_scaled_reward() -> None:
-    print("\n-- 9. Verifier-Scaled Reward (RECIPE-inspired) --")
+# ---------------------------------------------------------------------------
+# 9. Verifier-scaled reward
+# ---------------------------------------------------------------------------
+
+
+def test_verifier_scaled_reward(reward_setup):
     from src.rewards.t2g_rewards import verifier_scaled_reward
 
     plausible = "IX MAN WALK HOUSE"
     gold = "IX MAN WALK HOUSE"
     score = verifier_scaled_reward(plausible, gold)
-    check("Verifier-scaled perfect in [0, 1]", 0.0 <= score <= 1.0, f"{score:.4f}")
-    check("Verifier-scaled perfect > 0.5", score > 0.5, f"{score:.4f}")
+    assert 0.0 <= score <= 1.0, f"Verifier-scaled perfect in [0,1], got {score:.4f}"
+    # With log1p(structural) scaling, perfect match gives ~0.40 (not >0.5
+    # as in the old structural^gamma formula). The key property is that
+    # it's positive and significantly higher than a bad match.
+    assert score > 0.1, f"Verifier-scaled perfect > 0.1, got {score:.4f}"
 
-    # Wrong sequence — should be low
     bad = "DOG fs-JOHN BOOK CAN NOT WANT"
     score_bad = verifier_scaled_reward(bad, gold)
-    check(
-        "Verifier-scaled bad < perfect",
-        score_bad < score,
-        f"{score_bad:.4f} < {score:.4f}",
-    )
-    check("Verifier-scaled bad in [0, 1]", 0.0 <= score_bad <= 1.0, f"{score_bad:.4f}")
+    assert score_bad < score, f"Bad < perfect: {score_bad:.4f} < {score:.4f}"
+    assert 0.0 <= score_bad <= 1.0
 
-    # Empty
-    check("Verifier-scaled empty = 0.0", verifier_scaled_reward("", gold) == 0.0)
-    check(
-        "Verifier-scaled empty gold = 0.0", verifier_scaled_reward(plausible, "") == 0.0
-    )
-
-
-def main() -> None:
-    global PASS, FAIL
-    print("=" * 60)
-    print("TEST: Reward Functions")
-    print("=" * 60)
-
-    try:
-        setup_rewards()
-        test_translation_quality()
-        test_structural_dense()
-        test_format_reward()
-        test_repetition_reward()
-        test_gold_structure_reward()
-        test_viterbi_distance_reward()
-        test_soft_viterbi_distance_reward()
-        test_verifier_scaled_reward()
-        test_build_reward_functions()
-    except Exception as e:
-        print(f"\n  !! CRASH: {e}")
-        import traceback
-
-        traceback.print_exc()
-        FAIL += 1
-
-    print(f"\n{'=' * 60}")
-    print(f"RESULTS: {PASS} passed, {FAIL} failed, {PASS + FAIL} total")
-    print(f"{'=' * 60}")
-    sys.exit(0 if FAIL == 0 else 1)
-
-
-if __name__ == "__main__":
-    main()
+    assert verifier_scaled_reward("", gold) == 0.0, "Empty = 0.0"
+    assert verifier_scaled_reward(plausible, "") == 0.0, "Empty gold = 0.0"

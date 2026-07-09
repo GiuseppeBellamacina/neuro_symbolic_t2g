@@ -478,3 +478,438 @@ def plot_completion_length_distribution(
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     p.save(output_path, dpi=150, width=9, height=5, limitsize=False, verbose=False)
     print(f"Saved: {output_path}")
+
+
+# ---------------------------------------------------------------------------
+# Evaluation plots (matplotlib-based for more flexibility)
+# ---------------------------------------------------------------------------
+
+
+def plot_rouge_distribution(
+    rouge_scores: list[float],
+    model_name: str = "",
+    output_path: str = "experiments/logs/figures/rouge_distribution.png",
+) -> None:
+    """Histogram of ROUGE-L scores across all completions.
+
+    Shows the distribution of translation quality, with vertical lines
+    for mean and median.
+
+    Args:
+        rouge_scores: List of ROUGE-L F1 scores.
+        model_name: Short model name for the title.
+        output_path: Where to save the figure.
+    """
+    import matplotlib.pyplot as plt
+
+    if not rouge_scores:
+        print("No ROUGE-L scores to plot.")
+        return
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.hist(rouge_scores, bins=50, edgecolor="black", color="#4C72B0", alpha=0.7)
+    mean_val = np.mean(rouge_scores)
+    median_val = np.median(rouge_scores)
+    ax.axvline(
+        mean_val,
+        color="#C44E52",
+        linestyle="--",
+        linewidth=2,
+        label=f"Mean={mean_val:.4f}",
+    )
+    ax.axvline(
+        median_val,
+        color="#55A868",
+        linestyle="--",
+        linewidth=2,
+        label=f"Median={median_val:.4f}",
+    )
+    ax.set_xlabel("ROUGE-L F1 Score")
+    ax.set_ylabel("Count")
+    title = "ROUGE-L Score Distribution"
+    if model_name:
+        title += f" — {model_name}"
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    ax.legend()
+    plt.tight_layout()
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved: {output_path}")
+
+
+def plot_pass_at_k_curve(
+    pass_at_k: dict[str, float],
+    model_name: str = "",
+    output_path: str = "experiments/logs/figures/pass_at_k.png",
+) -> None:
+    """Line chart showing Pass@k for k=1,2,...,N.
+
+    Args:
+        pass_at_k: Dict mapping "pass@k" → float (e.g. {"pass@1": 0.27, ...}).
+        model_name: Short model name for the title.
+        output_path: Where to save the figure.
+    """
+    import matplotlib.pyplot as plt
+
+    if not pass_at_k:
+        print("No Pass@k data to plot.")
+        return
+
+    ks = sorted(int(k.replace("pass@", "")) for k in pass_at_k.keys())
+    vals = [pass_at_k[f"pass@{k}"] for k in ks]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(ks, vals, "o-", color="#4C72B0", linewidth=2, markersize=8)
+    for k, v in zip(ks, vals):
+        ax.annotate(
+            f"{v:.3f}",
+            (k, v),
+            textcoords="offset points",
+            xytext=(0, 10),
+            ha="center",
+            fontsize=9,
+        )
+    ax.set_xlabel("k (number of completions)")
+    ax.set_ylabel("Pass@k Rate")
+    ax.set_ylim(-0.05, 1.05)
+    ax.set_xticks(ks)
+    title = "Pass@k Curve"
+    if model_name:
+        title += f" — {model_name}"
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved: {output_path}")
+
+
+def plot_error_breakdown(
+    error_distribution: dict[str, int],
+    model_name: str = "",
+    output_path: str = "experiments/logs/figures/error_breakdown.png",
+) -> None:
+    """Pie chart of error types.
+
+    Args:
+        error_distribution: Dict mapping error type → count.
+        model_name: Short model name for the title.
+        output_path: Where to save the figure.
+    """
+    import matplotlib.pyplot as plt
+
+    if not error_distribution:
+        print("No error data to plot.")
+        return
+
+    labels = list(error_distribution.keys())
+    sizes = list(error_distribution.values())
+    colors = plt.cm.Set3(np.linspace(0, 1, len(labels)))
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    wedges, texts, autotexts = ax.pie(
+        sizes, labels=labels, autopct="%1.1f%%", colors=colors, startangle=90
+    )
+    for t in texts:
+        t.set_fontsize(10)
+    for t in autotexts:
+        t.set_fontsize(9)
+        t.set_fontweight("bold")
+    title = "Error Distribution"
+    if model_name:
+        title += f" — {model_name}"
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    plt.tight_layout()
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved: {output_path}")
+
+
+def plot_validity_pie(
+    valid_count: int,
+    invalid_count: int,
+    model_name: str = "",
+    output_path: str = "experiments/logs/figures/validity_pie.png",
+) -> None:
+    """Pie chart of valid vs invalid completions.
+
+    Args:
+        valid_count: Number of valid completions.
+        invalid_count: Number of invalid completions.
+        model_name: Short model name for the title.
+        output_path: Where to save the figure.
+    """
+    import matplotlib.pyplot as plt
+
+    total = valid_count + invalid_count
+    if total == 0:
+        print("No validity data to plot.")
+        return
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    sizes = [valid_count, invalid_count]
+    labels = [f"Valid ({valid_count})", f"Invalid ({invalid_count})"]
+    colors = ["#55A868", "#C44E52"]
+    ax.pie(
+        sizes,
+        labels=labels,
+        autopct="%1.1f%%",
+        colors=colors,
+        startangle=90,
+        textprops={"fontsize": 11},
+    )
+    title = "Gloss Validity Rate"
+    if model_name:
+        title += f" — {model_name}"
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    plt.tight_layout()
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved: {output_path}")
+
+
+def plot_reward_radar(
+    reward_breakdown: dict[str, float],
+    reward_weights: dict[str, float] | None = None,
+    model_name: str = "",
+    output_path: str = "experiments/logs/figures/reward_radar.png",
+) -> None:
+    """Radar chart of reward component scores.
+
+    Args:
+        reward_breakdown: Dict mapping component name → average score.
+        reward_weights: Optional dict of component name → weight.
+        model_name: Short model name for the title.
+        output_path: Where to save the figure.
+    """
+    import matplotlib.pyplot as plt
+
+    if not reward_breakdown:
+        print("No reward breakdown data to plot.")
+        return
+
+    # Short labels
+    label_map = {
+        "translation_quality_reward": "Translation",
+        "gold_structure_reward": "Gold Struct",
+        "structural_dense_reward": "Struct Dense",
+        "viterbi_distance_reward": "Viterbi",
+        "soft_viterbi_distance_reward": "Soft Viterbi",
+        "verifier_scaled_reward": "Verifier",
+        "gloss_order_reward": "Gloss Order",
+        "gloss_format_reward": "Format",
+        "gloss_repetition_reward": "Repetition",
+    }
+
+    components = list(reward_breakdown.keys())
+    labels = [label_map.get(c, c) for c in components]
+    values = [reward_breakdown[c] for c in components]
+    n = len(components)
+
+    angles = np.linspace(0, 2 * np.pi, n, endpoint=False).tolist()
+    values_closed = values + values[:1]
+    angles_closed = angles + angles[:1]
+
+    fig, ax = plt.subplots(figsize=(7, 7), subplot_kw={"polar": True})
+    ax.fill(angles_closed, values_closed, alpha=0.25, color="#4C72B0")
+    ax.plot(
+        angles_closed, values_closed, "o-", color="#4C72B0", linewidth=2, markersize=6
+    )
+    ax.set_xticks(angles)
+    ax.set_xticklabels(labels, fontsize=9)
+    ax.set_ylim(0, 1.05)
+    title = "Reward Component Radar"
+    if model_name:
+        title += f" — {model_name}"
+    ax.set_title(title, fontsize=13, fontweight="bold", pad=20)
+    plt.tight_layout()
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved: {output_path}")
+
+
+def plot_completion_examples(
+    completions: list[str],
+    references: list[str],
+    rouge_scores: list[float],
+    n_examples: int = 10,
+    model_name: str = "",
+    output_path: str = "experiments/logs/figures/completion_examples.png",
+) -> None:
+    """Table-like figure showing example completions vs gold references.
+
+    Shows the top N examples sorted by ROUGE-L (best and worst).
+
+    Args:
+        completions: Generated gloss sequences.
+        references: Gold reference glosses.
+        rouge_scores: ROUGE-L scores per completion.
+        n_examples: Number of examples to show (half best, half worst).
+        model_name: Short model name for the title.
+        output_path: Where to save the figure.
+    """
+    import matplotlib.pyplot as plt
+
+    if not completions:
+        print("No completion examples to plot.")
+        return
+
+    # Sort by ROUGE-L and pick best/worst
+    sorted_idx = sorted(range(len(rouge_scores)), key=lambda i: rouge_scores[i])
+    n_half = n_examples // 2
+    selected = sorted_idx[:n_half] + sorted_idx[-n_half:]
+    # Reverse so best is at top
+    selected = list(reversed(selected))
+
+    fig, axes = plt.subplots(
+        len(selected), 1, figsize=(12, max(6, len(selected) * 1.5))
+    )
+    if len(selected) == 1:
+        axes = [axes]
+
+    for ax, idx in zip(axes, selected):
+        comp = (
+            completions[idx][:80] + "..."
+            if len(completions[idx]) > 80
+            else completions[idx]
+        )
+        ref = (
+            references[idx][:80] + "..."
+            if len(references[idx]) > 80
+            else references[idx]
+        )
+        rl = rouge_scores[idx]
+        color = "#55A868" if rl >= 0.5 else "#DD8452" if rl >= 0.2 else "#C44E52"
+        ax.text(
+            0.01,
+            0.7,
+            f"ROUGE-L: {rl:.3f}",
+            fontsize=9,
+            color=color,
+            fontweight="bold",
+            transform=ax.transAxes,
+        )
+        ax.text(
+            0.01,
+            0.4,
+            f"GOLD:  {ref}",
+            fontsize=8,
+            fontfamily="monospace",
+            transform=ax.transAxes,
+        )
+        ax.text(
+            0.01,
+            0.1,
+            f"PRED:  {comp}",
+            fontsize=8,
+            fontfamily="monospace",
+            transform=ax.transAxes,
+        )
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.axis("off")
+        ax.axhline(y=0.0, color="#CCCCCC", linewidth=0.5)
+
+    title = "Completion Examples (Best & Worst)"
+    if model_name:
+        title += f" — {model_name}"
+    fig.suptitle(title, fontsize=13, fontweight="bold")
+    plt.tight_layout()
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {output_path}")
+
+
+def plot_baseline_vs_grpo_comparison(
+    baseline_metrics: dict[str, float],
+    grpo_metrics: dict[str, float],
+    model_name: str = "",
+    output_path: str = "experiments/logs/figures/baseline_vs_grpo.png",
+) -> None:
+    """Grouped bar chart comparing baseline vs GRPO on key metrics.
+
+    Args:
+        baseline_metrics: Dict with keys like rouge_l, pass_at_1, validity_rate, etc.
+        grpo_metrics: Same keys for the GRPO model.
+        model_name: Short model name for the title.
+        output_path: Where to save the figure.
+    """
+    import matplotlib.pyplot as plt
+
+    metrics_to_compare = [
+        ("rouge_l", "ROUGE-L"),
+        ("pass_at_1", "Pass@1"),
+        ("exact_match", "Exact Match"),
+        ("validity_rate", "Validity Rate"),
+        ("gloss_validity_rate", "Gloss Validity"),
+    ]
+
+    labels = [
+        m[1]
+        for m in metrics_to_compare
+        if m[0] in baseline_metrics and m[0] in grpo_metrics
+    ]
+    baseline_vals = [
+        baseline_metrics[m[0]]
+        for m in metrics_to_compare
+        if m[0] in baseline_metrics and m[0] in grpo_metrics
+    ]
+    grpo_vals = [
+        grpo_metrics[m[0]]
+        for m in metrics_to_compare
+        if m[0] in baseline_metrics and m[0] in grpo_metrics
+    ]
+
+    if not labels:
+        print("No overlapping metrics to compare.")
+        return
+
+    x = np.arange(len(labels))
+    width = 0.35
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    bars1 = ax.bar(
+        x - width / 2,
+        baseline_vals,
+        width,
+        label="Baseline",
+        color="#8172B2",
+        alpha=0.85,
+    )
+    bars2 = ax.bar(
+        x + width / 2, grpo_vals, width, label="GRPO", color="#4C72B0", alpha=0.85
+    )
+
+    for bars in [bars1, bars2]:
+        for bar in bars:
+            h = bar.get_height()
+            ax.annotate(
+                f"{h:.3f}",
+                xy=(bar.get_x() + bar.get_width() / 2, h),
+                xytext=(0, 3),
+                textcoords="offset points",
+                ha="center",
+                fontsize=8,
+            )
+
+    ax.set_ylabel("Score")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=10)
+    ax.set_ylim(0, max(max(baseline_vals), max(grpo_vals)) * 1.2)
+    title = "Baseline vs GRPO Comparison"
+    if model_name:
+        title += f" — {model_name}"
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    ax.legend()
+    ax.grid(True, axis="y", alpha=0.3)
+    plt.tight_layout()
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved: {output_path}")

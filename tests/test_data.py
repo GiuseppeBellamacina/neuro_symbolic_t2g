@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify Data Ingestion & Transition Matrix ? Test Script.
+"""Test data ingestion and transition matrix computation.
 
 Validates:
   1. ASLG-PC12 dataset downloads correctly
@@ -8,53 +8,28 @@ Validates:
   4. Save/load round-trip works
   5. T2G dataset format is correct
 
-Usage:
-    python tests/test_data.py
+Requires internet to download the dataset — tests are skipped if offline.
 """
 
 from __future__ import annotations
 
-import sys
 import tempfile
 from pathlib import Path
 
 import numpy as np
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-PASS = 0
-FAIL = 0
-
-
-def check(name: str, condition: bool, detail: str = "") -> None:
-    global PASS, FAIL
-    if condition:
-        PASS += 1
-        print(f"  [PASS] {name}" + (f" -- {detail}" if detail else ""))
-    else:
-        FAIL += 1
-        print(f"  [FAIL] {name}" + (f" -- {detail}" if detail else ""))
+def test_dataset_download(dataset):
+    """Dataset downloads and has train/test splits."""
+    assert hasattr(dataset, "keys"), "Dataset is DatasetDict"
+    assert "train" in dataset, "Has 'train' split"
+    assert "test" in dataset, "Has 'test' split"
+    assert len(dataset["train"]) > 0, "Train split not empty"
+    assert len(dataset["test"]) > 0, "Test split not empty"
 
 
-def test_dataset_download() -> None:
-    print("\n-- 1. Dataset Download --")
-    from src.datasets.aslg_dataset import download_aslg_dataset
-
-    dataset = download_aslg_dataset(cache_dir="data/test_cache")
-    check("Dataset is DatasetDict", hasattr(dataset, "keys"))
-    check("Has 'train' split", "train" in dataset)
-    check("Has 'test' split", "test" in dataset)
-    check("Train split not empty", len(dataset["train"]) > 0)
-    check("Test split not empty", len(dataset["test"]) > 0)
-    print(
-        f"     Train: {len(dataset['train'])} samples, Test: {len(dataset['test'])} samples"
-    )
-    return dataset
-
-
-def test_vocabulary(dataset) -> list[str]:
-    print("\n-- 2. Vocabulary --")
+def test_vocabulary(dataset):
+    """Vocabulary extraction, sorting, and save/load round-trip."""
     from src.datasets.aslg_dataset import (
         BOS_GLOSS,
         EOS_GLOSS,
@@ -65,28 +40,23 @@ def test_vocabulary(dataset) -> list[str]:
     )
 
     vocab = extract_gloss_vocabulary(dataset, split="train")
-    check("Vocab non-empty", len(vocab) > 0)
-    check("Vocab has > 100 tokens", len(vocab) > 100, f"{len(vocab)} tokens")
-    check(f"Starts with {BOS_GLOSS}", vocab[0] == BOS_GLOSS)
-    check(f"Contains {EOS_GLOSS}", EOS_GLOSS in vocab)
-    check(f"Contains {UNK_GLOSS}", UNK_GLOSS in vocab)
-    check(
-        "Vocab is sorted (after special tokens)",
-        all(vocab[i] <= vocab[i + 1] for i in range(3, len(vocab) - 1)),
-    )
+    assert len(vocab) > 0, "Vocab non-empty"
+    assert len(vocab) > 100, f"Vocab has > 100 tokens, got {len(vocab)}"
+    assert vocab[0] == BOS_GLOSS, f"Starts with {BOS_GLOSS}"
+    assert EOS_GLOSS in vocab, f"Contains {EOS_GLOSS}"
+    assert UNK_GLOSS in vocab, f"Contains {UNK_GLOSS}"
+    assert all(vocab[i] <= vocab[i + 1] for i in range(3, len(vocab) - 1)), "Sorted"
 
-    # Save/load round-trip
     with tempfile.TemporaryDirectory() as tmp:
         vpath = Path(tmp) / "test_vocab.txt"
         save_vocabulary(vocab, str(vpath))
         reloaded = load_vocabulary(str(vpath))
-        check("Vocab save/load round-trip", reloaded == vocab)
-
-    return vocab
+        assert reloaded == vocab, "Vocab save/load round-trip"
 
 
-def test_transition_matrix(dataset, vocab) -> None:
-    print("\n-- 3. Transition Matrix --")
+def test_transition_matrix(dataset):
+    """Bigram transition matrix shape, normalization, and scoring."""
+    from src.datasets.aslg_dataset import extract_gloss_vocabulary
     from src.datasets.transition_matrix import (
         compute_bigram_transitions,
         load_transition_matrix,
@@ -95,85 +65,43 @@ def test_transition_matrix(dataset, vocab) -> None:
         transition_score,
     )
 
+    vocab = extract_gloss_vocabulary(dataset, split="train")
     bigram = compute_bigram_transitions(dataset, vocab, split="train", smoothing=1.0)
     V = len(vocab)
-    check("Matrix shape is (V, V)", bigram.shape == (V, V), f"{bigram.shape}")
-    check("Matrix is float32", bigram.dtype == np.float32)
-    check("Rows sum to 1.0", np.allclose(bigram.sum(axis=1), 1.0, atol=1e-5))
+    assert bigram.shape == (V, V), f"Matrix shape is (V, V), got {bigram.shape}"
+    assert bigram.dtype == np.float32, "Matrix is float32"
+    assert np.allclose(bigram.sum(axis=1), 1.0, atol=1e-5), "Rows sum to 1.0"
 
-    # No zero rows (Laplace smoothing guarantees this)
     row_mins = bigram.min(axis=1)
-    check("All rows have non-zero minimum (smoothing active)", np.all(row_mins > 0))
+    assert np.all(row_mins > 0), "All rows have non-zero minimum (smoothing active)"
 
-    # Transition score
     score = transition_score(bigram, 0, 1)
-    check("Transition score in [0, 1]", 0.0 <= score <= 1.0, f"{score:.6f}")
-    check("Transition score > 0 (smoothed)", score > 0.0)
+    assert 0.0 <= score <= 1.0, f"Transition score in [0,1], got {score:.6f}"
+    assert score > 0.0, "Transition score > 0 (smoothed)"
 
-    # Save/load round-trip
     with tempfile.TemporaryDirectory() as tmp:
         mpath = str(Path(tmp) / "test_bigram.npy")
         save_transition_matrix(bigram, mpath)
         reloaded = load_transition_matrix(mpath)
-        check("Bigram save/load round-trip", np.allclose(bigram, reloaded))
+        assert np.allclose(bigram, reloaded), "Bigram save/load round-trip"
 
-    # Sequence scoring
-    indices = [0, 1, 2, 3, 4]  # BOS, 3 glosses, EOS
+    indices = [0, 1, 2, 3, 4]
     log_prob = sequence_score_bigram(bigram, indices)
-    check("Sequence log-prob is negative (valid)", log_prob < 0.0, f"{log_prob:.4f}")
-    check("Sequence log-prob is finite", np.isfinite(log_prob))
+    assert log_prob < 0.0, f"Sequence log-prob is negative, got {log_prob:.4f}"
+    assert np.isfinite(log_prob), "Sequence log-prob is finite"
 
 
-def test_t2g_dataset(dataset) -> None:
-    print("\n-- 4. T2G Dataset --")
+def test_t2g_dataset(dataset):
+    """T2G dataset format has correct columns and content."""
     from src.datasets.aslg_dataset import build_t2g_dataset
 
     t2g = build_t2g_dataset(dataset, split="train", max_samples=50)
-    check("T2G dataset has correct size", len(t2g) == 50)
-    check("Has 'prompt' column", "prompt" in t2g.column_names)
-    check("Has 'completion' column", "completion" in t2g.column_names)
-    check("Has 'difficulty' column", "difficulty" in t2g.column_names)
+    assert len(t2g) == 50, f"T2G dataset has correct size, got {len(t2g)}"
+    assert "prompt" in t2g.column_names, "Has 'prompt' column"
+    assert "completion" in t2g.column_names, "Has 'completion' column"
+    assert "difficulty" in t2g.column_names, "Has 'difficulty' column"
 
     sample = t2g[0]
-    check(
-        "Prompt is non-empty string",
-        isinstance(sample["prompt"], str) and len(sample["prompt"]) > 0,
-    )
-    check(
-        "Completion is non-empty string",
-        isinstance(sample["completion"], str) and len(sample["completion"]) > 0,
-    )
-    check(
-        "Difficulty is non-empty", sample["difficulty"] in ("simple", "medium", "hard")
-    )
-
-    print(f"     Sample prompt: {sample['prompt'][:60]}...")
-    print(f"     Sample completion: {sample['completion'][:60]}...")
-
-
-def main() -> None:
-    global PASS, FAIL
-    print("=" * 60)
-    print("TEST: Data Ingestion & Transition Matrix")
-    print("=" * 60)
-
-    try:
-        ds = test_dataset_download()
-        vocab = test_vocabulary(ds)
-        test_transition_matrix(ds, vocab)
-        test_t2g_dataset(ds)
-    except Exception as e:
-        print(f"\n  !! CRASH: {e}")
-        import traceback
-
-        traceback.print_exc()
-        FAIL += 1
-
-    print(f"\n{'=' * 60}")
-    print(f"RESULTS: {PASS} passed, {FAIL} failed, {PASS + FAIL} total")
-    print(f"{'=' * 60}")
-    sys.exit(0 if FAIL == 0 else 1)
-
-
-if __name__ == "__main__":
-    main()
+    assert isinstance(sample["prompt"], str) and len(sample["prompt"]) > 0
+    assert isinstance(sample["completion"], str) and len(sample["completion"]) > 0
+    assert sample["difficulty"] in ("simple", "medium", "hard")
