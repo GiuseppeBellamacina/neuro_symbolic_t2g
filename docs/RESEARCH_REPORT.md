@@ -127,7 +127,7 @@ Tutte le reward sono **deterministiche e rule-based** — nessun reward model ne
 | 2   | **Gold-Structure** ⭐   | exp(llm_avg - gold_avg)      | (0, 1]  | 0.20           |
 | 3   | **Structural Dense**    | softmax(avg_log_prob / T)    | (0, 1)  | 0.10           |
 | 4   | **Gloss Order**         | 1 - Levenshtein/max_len      | [0, 1]  | 0.10           |
-| 5   | **Verifier-Scaled**     | ROUGE × log1p(structural)    | [0, 1]  | 0.10           |
+| 5   | **Verifier-Scaled**     | ROUGE × gold_structure       | [0, 1]  | 0.10           |
 | 6   | **Soft-Viterbi**        | exp(llm - soft_viterbi)      | (0, 1]  | 0.05           |
 | 7   | **Viterbi**             | exp(llm - viterbi)           | (0, 1]  | 0.05           |
 | 8   | **Format**              | vocab membership ratio       | [0, 1]  | 0.05           |
@@ -157,8 +157,7 @@ di confidenza per la qualità di traduzione:
 - Alto ROUGE + bassa struttura → reward ridotto (match sospetto)
 - Bassa struttura → reward basso (implausibile)
 
-Usa `log1p(structural)` invece di `structural^gamma` per evitare il collasso a 0.
-`verifier_temperature` (default 5.0) è disaccoppiato da `verifier_gamma`.
+**Aggiornamento**: Per risolvere il tetto massimo di `~0.22` causato dal log-prob assoluto e dal sigmoide, la reward è stata riscritta per usare direttamente il valore di `gold_structure_reward(completion, gold_gloss, normalize=True)` come moltiplicatore di confidenza. Questo scala correttamente il moltiplicatore a `1.0` quando la struttura è perfetta rispetto alla reference, sbloccando l'intero intervallo di reward `[0, 1]`.
 
 **Soft-Viterbi**: Viterbi differentiable via forward-backward (log-partition).
 Ispirato a ViterbiPlanNet's DVL. Più smooth e tight del Viterbi hard.
@@ -265,6 +264,7 @@ e JSON report.
 | 8   | `grpo_pda`              | GRPO     | PDA LL(1)  | 4 reward           | GRPO + PDA                      |
 | 9   | `grpo_soft_viterbi`     | GRPO     | Vocab Mask | +soft_viterbi      | Soft Viterbi ablation           |
 | 10  | `grpo_verifier_scaled`  | GRPO     | Vocab Mask | +verifier_scaled   | Verifier ablation               |
+| 11  | `grpo_no_sft`           | GRPO     | Vocab Mask | 6 reward           | SFT ablation                    |
 
 ### 7.2 Config Optimal (`grpo_optimal.yaml`)
 
@@ -351,8 +351,9 @@ Il sistema è pronto per il deployment:
    verifier-scaled) che coprono aspetti complementari della qualità della gloss.
 
 3. **Verifier-Scaled Reward (RECIPE-inspired)**: Usa la plausibilità strutturale
-   come moltiplicatore di confidenza per la qualità di traduzione, con
-   `log1p` scaling per evitare collasso a 0.
+   come moltiplicatore di confidenza per la qualità di traduzione. Aggiornato per
+   usare `gold_structure_reward` come moltiplicatore relativo per evitare la compressione
+   del punteggio (risolto il cap a 0.22, permettendo al segnale di salire fino a 1.0).
 
 4. **Soft-Viterbi (Differentiable)**: Forward-backward log-partition come
    upper bound differentiable, ispirato a ViterbiPlanNet's DVL.

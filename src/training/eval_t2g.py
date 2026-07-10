@@ -130,23 +130,31 @@ def load_model_for_eval(
 
 
 # ---------------------------------------------------------------------------
-# Single generation helper
+# Batched generation helper
 # ---------------------------------------------------------------------------
 
 
-def _generate_one(
+def _generate_batch(
     model: Any,
     tokenizer: Any,
     prompt: str,
     logits_processor: Any,
+    num_return_sequences: int = 1,
     max_new_tokens: int = 256,
     do_sample: bool = False,
     temperature: float = 0.7,
-) -> str:
-    """Generate one completion, optionally with constrained decoding.
+) -> list[str]:
+    """Generate N completions in a single call via num_return_sequences.
+
+    Uses ``num_return_sequences`` to generate all completions for a prompt
+    in one ``model.generate()`` call, which is ~5x faster than calling
+    ``model.generate()`` N times separately.
 
     When ``logits_processor`` is ``None``, generation is unconstrained
     (used for ablation studies — base model zero-shot or GRPO without grammar).
+
+    Returns:
+        List of N decoded completion strings.
     """
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
     gen_kwargs: dict[str, Any] = {
@@ -154,16 +162,21 @@ def _generate_one(
         "do_sample": do_sample,
         "temperature": temperature,
         "pad_token_id": tokenizer.eos_token_id,
+        "num_return_sequences": num_return_sequences,
     }
     if logits_processor is not None:
         gen_kwargs["logits_processor"] = [logits_processor]
     with torch.no_grad():
-        output = model.generate(**inputs, **gen_kwargs)
+        outputs = model.generate(**inputs, **gen_kwargs)
     prompt_len = inputs["input_ids"].shape[1]
-    return tokenizer.decode(
-        output[0][prompt_len:],
-        skip_special_tokens=True,
-    ).strip()
+    completions: list[str] = []
+    for seq in outputs:
+        text = tokenizer.decode(
+            seq[prompt_len:],
+            skip_special_tokens=True,
+        ).strip()
+        completions.append(text)
+    return completions
 
 
 # ---------------------------------------------------------------------------
@@ -319,22 +332,20 @@ def evaluate_checkpoint(
         # Build prompt with centralized template (same as training)
         prompt = build_t2g_prompt(text, tokenizer)
 
-        # Generate N completions
-        completions: list[str] = []
-        for _ in range(num_samples):
-            temp = 0.7 if do_sample else 1.0  # greedy ignores temperature
-            gen = _generate_one(
-                model,
-                tokenizer,
-                prompt,
-                logits_processor,
-                max_new_tokens=gen_cfg.get("max_completion_length", 256),
-                do_sample=do_sample,
-                temperature=temp,
-            )
-            if logits_processor is not None:
-                logits_processor.reset()
-            completions.append(gen)
+        # Generate N completions in a single model.generate() call
+        temp = 0.7 if do_sample else 1.0  # greedy ignores temperature
+        completions = _generate_batch(
+            model,
+            tokenizer,
+            prompt,
+            logits_processor,
+            num_return_sequences=num_samples,
+            max_new_tokens=gen_cfg.get("max_completion_length", 256),
+            do_sample=do_sample,
+            temperature=temp,
+        )
+        if logits_processor is not None:
+            logits_processor.reset()
 
         # Store
         all_completions.append(completions)
@@ -430,7 +441,7 @@ def evaluate_checkpoint(
     error_counts = Counter(err for _, err in validity if err)
 
     # Pass@1
-    pass1 = compute_pass_at_1(flat_completions, all_references, threshold=0.3)
+    pass1 = compute_pass_at_1(flat_completions, flat_references, threshold=0.3)
 
     # Pass@k (multi-sample only — uses nested list)
     passk: dict[str, float] = {}
@@ -443,7 +454,7 @@ def evaluate_checkpoint(
         )
 
     # Detailed metrics
-    detailed = compute_detailed_metrics(flat_completions, all_references)
+    detailed = compute_detailed_metrics(flat_completions, flat_references)
 
     # Per-component reward breakdown (all completions with sample_ids)
     # Only compute components with weight > 0 to save computation
@@ -467,7 +478,7 @@ def evaluate_checkpoint(
 
     # ROUGE-L mean/std
     rouge_scores = [
-        rouge_l_score(c, r) for c, r in zip(flat_completions, all_references)
+        rouge_l_score(c, r) for c, r in zip(flat_completions, flat_references)
     ]
 
     # ── Per-completion generations log (stile grpo-strict-generation) ────
@@ -501,7 +512,7 @@ def evaluate_checkpoint(
     # ── Assemble results ─────────────────────────────────────────────────
     # Comprehensive evaluation report with BLEU + bootstrap CI (RECIPE-inspired)
     eval_report = compute_evaluation_report(
-        flat_completions, all_references, n_bootstrap=1000
+        flat_completions, flat_references, n_bootstrap=1000
     )
 
     results: dict[str, Any] = {
@@ -659,14 +670,46 @@ def main() -> None:
         torch.cuda.manual_seed_all(seed)
     logger.info(f"Reproducibility: seed={seed} (random, numpy, torch, cuda)")
 
+    # ── Resolve model_name, run_id, and directory paths ──────────────────
+    from datetime import datetime
+
+    run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
     if args.checkpoint is not None:
-        model_tag = (
-            Path(args.checkpoint).parent.name
-            if Path(args.checkpoint).name == "final"
-            else Path(args.checkpoint).name
-        )
+        checkpoint_path = Path(args.checkpoint).resolve()
+        parts = checkpoint_path.parts
+        if "checkpoints" in parts:
+            idx = parts.index("checkpoints")
+            if len(parts) > idx + 2:
+                model_name = parts[idx + 1]
+                run_id = parts[idx + 2]
+            else:
+                model_name = parts[idx + 1]
+                run_id = "default_run"
+        else:
+            model_name = config.get("wandb", {}).get("run_name", "t2g-model")
+            run_id = (
+                checkpoint_path.parent.name
+                if checkpoint_path.name in ["final", "checkpoint-*"]
+                else checkpoint_path.name
+            )
+
+        model_tag = run_id
     else:
-        model_tag = config.get("wandb", {}).get("run_name", "zero-shot")
+        raw_model_name = config["model"]["name"].split("/")[-1].lower()
+        model_name = raw_model_name.replace(".", "")
+        if "run_name" in config.get("wandb", {}):
+            model_name = config["wandb"]["run_name"]
+        run_id = f"zero_shot_{run_timestamp}"
+        model_tag = "zero-shot"
+
+    results_dir = Path("experiments/results") / model_name / run_id
+    figures_dir = Path("experiments/figures") / model_name / run_id
+    logs_dir = Path("experiments/logs") / model_name / run_id
+
+    results_dir.mkdir(parents=True, exist_ok=True)
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Determine eval mode ─────────────────────────────────────────────
     # Three modes:
@@ -714,6 +757,14 @@ def main() -> None:
             logger.info("=" * 60)
             logger.info("BASELINE EVALUATION (zero-shot base model)")
             logger.info("=" * 60)
+            # Baseline uses greedy decoding (num_samples=1) — generating
+            # multiple samples from an untrained model is not informative
+            # and wastes ~3h of compute time.
+            bl_num_samples = 1
+            logger.info(
+                "  Baseline forced to num_samples=%d (greedy) for speed.",
+                bl_num_samples,
+            )
             (
                 baseline_results,
                 _bl_comps,
@@ -725,16 +776,11 @@ def main() -> None:
                 config,
                 checkpoint_path=None,
                 max_samples=max_samples,
-                num_samples=num_samples,
-                best_of_n=best_of_n,
+                num_samples=bl_num_samples,
+                best_of_n=False,
             )
             # Save baseline results for future reuse
-            bl_out_dir = (
-                Path(args.checkpoint).parent
-                if args.checkpoint
-                else Path("experiments/eval")
-            )
-            bl_out_dir.mkdir(parents=True, exist_ok=True)
+            bl_out_dir = results_dir
             bl_path = bl_out_dir / "eval_baseline.json"
             bl_path.write_text(
                 json.dumps(baseline_results, indent=2, ensure_ascii=False),
@@ -869,13 +915,8 @@ def main() -> None:
     if args.output:
         out_path = Path(args.output)
     else:
-        ckpt_dir = (
-            Path(args.checkpoint).parent
-            if args.checkpoint
-            else Path("experiments/eval")
-        )
         ckpt_name = Path(args.checkpoint).name if args.checkpoint else "zero_shot"
-        out_path = ckpt_dir / f"eval_{ckpt_name}.json"
+        out_path = results_dir / f"eval_{ckpt_name}.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
         json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -887,9 +928,7 @@ def main() -> None:
     # rouge_l), utile per ispezione manuale e per costruire dataset di
     # analisi degli errori — analogo a completions_{name}.json in
     # grpo-strict-generation/src/evaluation/eval_grpo.py.
-    gen_path = (
-        out_path.parent / f"generations_{out_path.stem.removeprefix('eval_')}.json"
-    )
+    gen_path = results_dir / f"generations_{out_path.stem.removeprefix('eval_')}.json"
     gen_path.write_text(
         json.dumps(generations, indent=2, ensure_ascii=False), encoding="utf-8"
     )
@@ -911,8 +950,7 @@ def main() -> None:
             plot_validity_pie,
         )
 
-        figures_dir = Path(args.checkpoint).parent / "figures"
-        figures_dir.mkdir(parents=True, exist_ok=True)
+        # figures_dir is pre-resolved at the start of main()
         valid_mask = [v for v, _ in validity]
 
         logger.info("Generating evaluation figures...")
@@ -1120,12 +1158,7 @@ def main() -> None:
             wandb_tags = list(wandb_tags) + ["grpo"]
             wandb_run_name = f"eval-{base_run_name}-{model_tag}"
 
-        wandb_dir = (
-            Path(args.checkpoint).parent
-            if args.checkpoint
-            else Path("experiments/eval")
-        )
-        wandb_dir.mkdir(parents=True, exist_ok=True)
+        wandb_dir = logs_dir
 
         wandb.init(
             project=wandb_cfg.get("project", "neuro-symbolic-t2g"),
@@ -1167,11 +1200,7 @@ def main() -> None:
 
         # Log figures as images
         if args.plot:
-            figures_dir = (
-                Path(args.checkpoint).parent / "figures"
-                if args.checkpoint
-                else Path("experiments/eval/figures")
-            )
+            # figures_dir is pre-resolved
             for fig_file in figures_dir.glob("*.png"):
                 wandb.log({f"figures/{fig_file.stem}": wandb.Image(str(fig_file))})
 

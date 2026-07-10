@@ -813,33 +813,13 @@ def verifier_scaled_reward(
     """
     rouge = translation_quality_reward(completion, gold_gloss)
 
-    # Use softmax normalization with temperature to avoid the reward
-    # collapsing to 0 for low-probability sequences.
-    #   - Old behavior: structural^gamma → 0^1.5 = 0 (broken)
-    #   - New behavior: softmax(avg_log_prob / temperature) → always > 0
-    #
-    # NOTE: temperature is read from a DEDICATED "verifier_temperature" key
-    # (grammar.viterbi_diversity.verifier_temperature), decoupled from
-    # "verifier_gamma". Reusing verifier_gamma directly as temperature would
-    # silently reintroduce near-collapse behavior for existing configs that
-    # set gamma=1.5/2.0 (e.g. grpo_optimal.yaml, grpo_verifier_scaled.yaml) —
-    # those are much lower temperatures than the gentle default of 5.0 and
-    # would still heavily suppress structural for low-probability sequences.
-    temperature = float(_viterbi_diversity_params.get("verifier_temperature", 5.0))
-    if temperature <= 0.0:
-        temperature = 5.0
+    # Use gold_structure_reward (which compares the bigram log-probability
+    # of the completion against the gold reference as a baseline and caps at 1.0)
+    # as the verifier confidence multiplier. This maps the confidence range
+    # correctly to [0, 1], so that a structurally perfect completion gets a
+    # confidence of 1.0 and allows the final reward to scale up to 1.0.
+    verifier_confidence = gold_structure_reward(completion, gold_gloss, normalize=True)
 
-    structural = structural_dense_reward(
-        completion, normalize="softmax", temperature=temperature
-    )
-
-    # Use log1p scaling instead of power-gamma:
-    #   log(1 + structural) is a gentler concave function that:
-    #   - structural=0.05 → log(1.05) ≈ 0.049 (not 0!)
-    #   - structural=0.5  → log(1.5)  ≈ 0.405
-    #   - structural=1.0  → log(2.0)  ≈ 0.693
-    # This ensures the verifier never fully zeros out the reward.
-    verifier_confidence = float(np.log1p(structural))
     return float(rouge * verifier_confidence)
 
 

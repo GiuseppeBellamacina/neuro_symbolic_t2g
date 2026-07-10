@@ -107,8 +107,8 @@ training:
   logging_steps: 5
   save_steps: 100
   save_total_limit: 3
-  output_dir: "experiments/checkpoints/grpo/t2g/qwen25-05b-optimal"
-  log_dir: "experiments/logs/grpo/t2g/qwen25-05b-optimal"
+  output_dir: "experiments/checkpoints/qwen25-05b-optimal"
+  log_dir: "experiments/logs/qwen25-05b-optimal"
 
 # --- Parametri GRPO ---
 # num_generations=8 (più alto del default 4 per migliore stima del vantaggio)
@@ -188,7 +188,7 @@ evaluation:
   # Best-of-N selection: seleziona il miglior completamento per prompt
   # (ROUGE-L più alto tra i validi). Aiuta il modello piccolo a generalizzare.
   # Attivato anche via CLI con --best-of-n.
-  best_of_n: false # true per attivare di default, o usa --best-of-n
+  best_of_n: true # true per attivare di default, o usa --best-of-n
 
 # --- Weights & Biases ---
 wandb:

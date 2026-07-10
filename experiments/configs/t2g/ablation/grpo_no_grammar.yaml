@@ -75,8 +75,8 @@ training:
   logging_steps: 5
   save_steps: 100
   save_total_limit: 3
-  output_dir: "experiments/checkpoints/grpo/t2g/qwen25-05b-no-grammar"
-  log_dir: "experiments/logs/grpo/t2g/qwen25-05b-no-grammar"
+  output_dir: "experiments/checkpoints/qwen25-05b-no-grammar"
+  log_dir: "experiments/logs/qwen25-05b-no-grammar"
 
 # --- Parametri GRPO ---
 grpo:

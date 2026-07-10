@@ -64,8 +64,8 @@ training:
   save_steps: 200
   save_total_limit: 3
   max_seq_length: 768
-  output_dir: "experiments/checkpoints/sft/t2g/qwen25-05b"
-  log_dir: "experiments/logs/sft/t2g/qwen25-05b"
+  output_dir: "experiments/checkpoints/qwen25-05b-sft"
+  log_dir: "experiments/logs/qwen25-05b-sft"
 
 # --- Parametri di generazione (eval-only: usati da eval_t2g.py) ---
 generation:

@@ -58,18 +58,26 @@ cd "$HOME/neuro_symbolic_t2g"
 # Per config eval-only (senza training.output_dir) rimane in zero-shot.
 if [ -z "$CHECKPOINT" ]; then
     DETECTED=$(python3 -c "
-import yaml, os, sys
+import yaml, os, sys, glob
 try:
     cfg = yaml.safe_load(open('${CONFIG}'))
     out_dir = cfg.get('training', {}).get('output_dir', '')
     if out_dir:
+        run_folders = sorted(glob.glob(os.path.join(out_dir, 'run_*')))
+        if run_folders:
+            latest_run = run_folders[-1]
+            final_path = os.path.join(latest_run, 'final')
+            if os.path.isdir(final_path):
+                print(final_path)
+                sys.exit(0)
+            ckpts = sorted(glob.glob(os.path.join(latest_run, 'checkpoint-*')))
+            if ckpts:
+                print(ckpts[-1])
+                sys.exit(0)
         final_path = os.path.join(out_dir, 'final')
         if os.path.isdir(final_path):
             print(final_path)
             sys.exit(0)
-    # Fallback: cerca checkpoint-* più recente
-    if out_dir:
-        import glob
         ckpts = sorted(glob.glob(os.path.join(out_dir, 'checkpoint-*')))
         if ckpts:
             print(ckpts[-1])

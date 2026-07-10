@@ -241,17 +241,56 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     logger.info("STEP 4: SFT Configuration")
     logger.info("=" * 60)
 
+    from datetime import datetime
+
     training_cfg = config["training"]
-    output_dir = training_cfg["output_dir"]
-    log_dir = training_cfg["log_dir"]
+    base_output_dir = Path(training_cfg["output_dir"])
+    base_log_dir = Path(training_cfg["log_dir"])
+
+    # Check if a run_ directory is already in the parent paths (GRPO sub-phase)
+    is_subphase = any(part.startswith("run_") for part in base_output_dir.parts)
+
+    if is_subphase:
+        output_dir = base_output_dir
+        log_dir = base_log_dir
+        logger.info("SFT running as GRPO sub-phase. Using path: %s", output_dir)
+        run_timestamp = next(
+            (
+                part.removeprefix("run_")
+                for part in reversed(base_output_dir.parts)
+                if part.startswith("run_")
+            ),
+            datetime.now().strftime("%Y%m%d_%H%M%S"),
+        )
+    else:
+        run_timestamp = None
+        if resume:
+            run_folders = sorted(base_output_dir.glob("run_*"))
+            if run_folders:
+                output_dir = run_folders[-1]
+                run_timestamp = output_dir.name.removeprefix("run_")
+                log_dir = base_log_dir / f"run_{run_timestamp}"
+                logger.info("Resuming SFT in existing directory: %s", output_dir)
+            else:
+                logger.warning(
+                    "No existing run directory found in %s to resume. Creating a new run.",
+                    base_output_dir,
+                )
+
+        if run_timestamp is None:
+            run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir = base_output_dir / f"run_{run_timestamp}"
+            log_dir = base_log_dir / f"run_{run_timestamp}"
+            logger.info("Starting new SFT run. Output dir: %s", output_dir)
+
+    output_dir = str(output_dir)
+    log_dir = str(log_dir)
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     Path(log_dir).mkdir(parents=True, exist_ok=True)
 
     wandb_cfg = config.get("wandb", {})
-    from datetime import datetime
-
     base_name = wandb_cfg.get("run_name", "sft-t2g")
-    run_name = f"{base_name}-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    run_name = f"{base_name}-{run_timestamp}"
 
     # Set tensorboard logging dir via env var (logging_dir kwarg is deprecated
     # since transformers 5.2).
@@ -260,6 +299,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     sft_config = SFTConfig(
         output_dir=output_dir,
         run_name=run_name,
+        seed=training_cfg.get("seed", config["dataset"].get("seed", 42)),
         num_train_epochs=training_cfg.get("num_train_epochs", 3),
         per_device_train_batch_size=training_cfg.get("per_device_train_batch_size", 4),
         gradient_accumulation_steps=training_cfg.get("gradient_accumulation_steps", 4),
@@ -411,6 +451,17 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         trainer.save_model(str(final_path))
         tokenizer.save_pretrained(str(final_path))
         final_path_str = str(final_path)
+
+        # ── Clean up duplicate final step checkpoint ──────────────────────
+        global_step = trainer.state.global_step
+        last_ckpt = Path(output_dir) / f"checkpoint-{global_step}"
+        if last_ckpt.exists():
+            import shutil
+
+            logger.info(
+                "Cleaning up duplicate final step checkpoint folder: %s", last_ckpt
+            )
+            shutil.rmtree(last_ckpt, ignore_errors=True)
     finally:
         # ── Cleanup (aggressive: free VRAM for GRPO phase) ───────────────
         if wandb.run:

@@ -84,6 +84,7 @@ neuro_symbolic_t2g/
 │       ├── zero_shot.yaml
 │       ├── zero_shot_grammar.yaml
 │       ├── grpo_no_grammar.yaml
+│       ├── grpo_no_sft.yaml           # Ablation: GRPO directly on base model without SFT
 │       └── grpo_pda.yaml
 ├── src/
 │   ├── cluster/                       # SLURM scripts and cluster orchestration

@@ -15,11 +15,12 @@ Questa guida spiega le differenze tra i 9 config YAML disponibili in
 | 2   | `grpo_qwen05.yaml`                   | GRPO      |      ✅       |    Trie     | translation + gold_structure + gloss_order + format + repetition                   |    1.00    |
 | 3   | `sft.yaml`                           | SFT       |       —       | Trie (eval) | translation + gold_structure + gloss_order + format + repetition                   |    1.00    |
 | 4   | `ablation/grpo_no_grammar.yaml`      | GRPO      |      ❌       |     ❌      | translation + gold_structure + format + repetition                                 |    1.00    |
-| 5   | `ablation/grpo_pda.yaml`             | GRPO      |      ❌       |     PDA     | translation + gold_structure + format + repetition                                 |    1.00    |
-| 6   | `ablation/grpo_soft_viterbi.yaml`    | GRPO      |      ✅       |    Trie     | translation + soft_viterbi + gloss_order + format + repetition                     |    1.00    |
-| 7   | `ablation/grpo_verifier_scaled.yaml` | GRPO      |      ✅       |    Trie     | verifier_scaled + gloss_order + format + repetition                                |    1.00    |
-| 8   | `ablation/zero_shot.yaml`            | Eval-only |      ❌       |     ❌      | translation (1.0)                                                                  |    1.00    |
-| 9   | `ablation/zero_shot_grammar.yaml`    | Eval-only |      ❌       |    Trie     | translation (1.0)                                                                  |    1.00    |
+| 5   | `ablation/grpo_no_sft.yaml`          | GRPO      |      ❌       |    Trie     | translation + gold_structure + gloss_order + verifier_scaled + format + repetition |    1.00    |
+| 6   | `ablation/grpo_pda.yaml`             | GRPO      |      ❌       |     PDA     | translation + gold_structure + format + repetition                                 |    1.00    |
+| 7   | `ablation/grpo_soft_viterbi.yaml`    | GRPO      |      ✅       |    Trie     | translation + soft_viterbi + gloss_order + format + repetition                     |    1.00    |
+| 8   | `ablation/grpo_verifier_scaled.yaml` | GRPO      |      ✅       |    Trie     | verifier_scaled + gloss_order + format + repetition                                |    1.00    |
+| 9   | `ablation/zero_shot.yaml`            | Eval-only |      ❌       |     ❌      | translation (1.0)                                                                  |    1.00    |
+| 10  | `ablation/zero_shot_grammar.yaml`    | Eval-only |      ❌       |    Trie     | translation (1.0)                                                                  |    1.00    |
 
 ---
 
@@ -96,6 +97,15 @@ garbage tokens. Confrontare con `grpo_qwen05.yaml`.
 
 **Scopo**: confrontare Trie dual-root (veloce) vs PDA LL(1) (più espressivo
 ma più lento). Confrontare con `grpo_qwen05.yaml`.
+
+#### `ablation/grpo_no_sft.yaml` — GRPO senza SFT Pre-training
+
+- **Niente SFT pre-training** (`sft_pretrain.enabled=false`)
+- **Trie dual-root** abilitato
+- **6 reward** (stessi pesi del config `optimal`)
+- **output_dir** impostata su `qwen25-05b-no-sft`
+
+**Scopo**: valutare l'impatto della Phase 0 (SFT pre-training). Mostra come GRPO fatichi a convergere quando il modello base parte "cieco" sul formato glossa e deve imparare contemporaneamente la formattazione e la semantica.
 
 #### `ablation/grpo_soft_viterbi.yaml` — Soft Viterbi Reward
 

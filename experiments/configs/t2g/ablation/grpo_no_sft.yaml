@@ -1,0 +1,119 @@
+# ============================================================================
+# Ablation Config — GRPO without SFT Pre-training
+#
+# Tests GRPO training directly on the base model (Qwen2.5-0.5B-Instruct)
+# without the Phase 0 SFT pre-training step.
+# ============================================================================
+
+# --- Modello ---
+model:
+  name: "Qwen/Qwen2.5-0.5B-Instruct"
+  num_gpus: 1
+  quantization: "4bit"
+  dtype: "bfloat16"
+  use_unsloth: true
+  max_seq_length: 1024
+
+# --- LoRA adapters ---
+lora:
+  r: 32
+  lora_alpha: 64
+  lora_dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  task_type: "CAUSAL_LM"
+  random_state: 3407
+
+# --- Dataset ---
+dataset:
+  dataset_name: "achrafothman/aslg_pc12"
+  dataset_cache: "data/aslg_pc12"
+  vocab_path: "data/gloss_vocab.txt"
+  bigram_matrix_path: "data/bigram_transition.npy"
+  split: "train"
+  max_samples: null
+  seed: 42
+  thinking: false
+
+# --- SFT Pre-training DISABLED for Ablation ---
+sft_pretrain:
+  enabled: false
+
+# --- Iperparametri di training GRPO ---
+training:
+  max_steps: 2000
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 3.0e-6
+  lr_scheduler_type: "cosine"
+  warmup_steps: 200
+  optim: "paged_adamw_8bit"
+  weight_decay: 0.1
+  max_grad_norm: 0.05
+  bf16: true
+  logging_steps: 5
+  save_steps: 100
+  save_total_limit: 3
+  output_dir: "experiments/checkpoints/qwen25-05b-no-sft"
+  log_dir: "experiments/logs/qwen25-05b-no-sft"
+
+# --- Parametri GRPO ---
+grpo:
+  num_generations: 8
+  max_completion_length: 128
+  max_prompt_length: 256
+  beta: 0.02
+  temperature: 0.8
+
+# --- Pesi della reward function ---
+reward:
+  weight_translation: 0.25
+  weight_gold_structure: 0.25
+  weight_gloss_order: 0.15
+  weight_verifier_scaled: 0.15
+  weight_format: 0.10
+  weight_repetition: 0.10
+
+# --- Constrained Decoding ---
+grammar:
+  enabled: true
+  use_grammarllm_pda: false
+  viterbi_diversity:
+    self_loop_penalty: 0.5
+    max_occurrences: 2
+    diversity_threshold: 0.3
+    max_iters: 3
+    verifier_gamma: 1.5
+    verifier_temperature: 5.0
+
+# --- Curriculum Learning (disabled) ---
+curriculum:
+  enabled: false
+
+# --- Evaluation ---
+evaluation:
+  batch_size: 8
+  max_samples: 500
+  num_samples: 5
+  best_of_n: true
+
+# --- Weights & Biases ---
+wandb:
+  project: "neuro-symbolic-t2g"
+  run_name: "ablation-grpo-no-sft"
+  tags:
+    [
+      "ablation",
+      "grpo",
+      "no-sft",
+      "T2G",
+      "constrained-decoding",
+      "Qwen2.5-0.5B",
+      "ASL",
+    ]

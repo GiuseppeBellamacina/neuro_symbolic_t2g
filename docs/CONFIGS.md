@@ -16,6 +16,8 @@ Tutti usano **Qwen2.5-0.5B-Instruct** (4-bit, LoRA, 1500 step / 3 epoche).
 | 6   | `ablation/zero_shot_grammar.yaml` | ❌       | ✅ Vocab Mask | ✅   | Modello base + vincoli (no training)                 |
 | 7   | `ablation/grpo_no_grammar.yaml`   | ✅ GRPO  | ❌            | ✅   | GRPO senza constrained decoding                      |
 | 8   | `ablation/grpo_pda.yaml`          | ✅ GRPO  | ✅ PDA LL(1)  | ✅   | GRPO + Pushdown Automaton (grammatica completa)      |
+| 9   | `ablation/grpo_no_sft.yaml`       | ✅ GRPO  | ✅ Vocab Mask | ❌   | GRPO senza SFT pre-training (ablation dell'SFT)      |
+
 
 ## Ablation Matrix
 
@@ -280,3 +282,21 @@ il training rispetto alla config optimal (dove solo 4 moduli sono attivi).
 
 **Verifica moduli:** Tutti i 9 moduli sono stati verificati funzionanti
 via test suite (37/37 pytest pass).
+
+---
+
+### `ablation/grpo_no_sft.yaml` — **GRPO without SFT Pre-training**
+
+```
+training:     GRPO, 2000 step, lr=3e-6, batch=1, grad_accum=8
+lora:         r=32, lora_alpha=64
+sft_pretrain: enabled: false
+grammar:      enabled: true, use_grammarllm_pda: false
+reward:       weight_translation=0.25, weight_gold_structure=0.25,
+              weight_gloss_order=0.15, weight_verifier_scaled=0.15,
+              weight_format=0.10, weight_repetition=0.10
+evaluation:   max_samples=500, num_samples=5, best_of_n=false
+```
+
+**Cosa fa:** Config di ablation che disabilita interamente il pre-training supervisionato (Phase 0). Serve per valutare l'importanza dell'SFT nel guidare il modello nell'output space delle glosse prima dell'ottimizzazione tramite RL (GRPO).
+

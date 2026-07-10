@@ -125,7 +125,10 @@ def _build_grpo_config(
     from datetime import datetime
 
     base_name = wandb_cfg.get("run_name", "grpo-t2g")
-    run_name = f"{base_name}-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    run_timestamp = training_cfg.get("run_timestamp") or datetime.now().strftime(
+        "%Y%m%d_%H%M%S"
+    )
+    run_name = f"{base_name}-{run_timestamp}"
 
     # Set tensorboard logging dir via env var (logging_dir kwarg is deprecated
     # since transformers 5.2).
@@ -134,6 +137,9 @@ def _build_grpo_config(
     return GRPOConfig(
         output_dir=output_dir,
         run_name=run_name,
+        seed=training_cfg.get(
+            "seed", (full_config or {}).get("dataset", {}).get("seed", 42)
+        ),
         max_steps=training_cfg.get("max_steps", 1500),
         per_device_train_batch_size=training_cfg.get("per_device_train_batch_size", 1),
         gradient_accumulation_steps=training_cfg.get("gradient_accumulation_steps", 8),
@@ -276,6 +282,36 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(args.config)
+
+    # ── Resolve timestamped output/log directories and resume logic ──────
+    from datetime import datetime
+
+    training_cfg = config["training"]
+    base_output_dir = Path(training_cfg["output_dir"])
+    base_log_dir = Path(training_cfg["log_dir"])
+
+    run_timestamp = None
+    if args.resume:
+        run_folders = sorted(base_output_dir.glob("run_*"))
+        if run_folders:
+            output_dir = run_folders[-1]
+            run_timestamp = output_dir.name.removeprefix("run_")
+            log_dir = base_log_dir / f"run_{run_timestamp}"
+            print(f"[grpo] Resuming training in existing directory: {output_dir}")
+        else:
+            print(
+                f"[grpo] Warning: No existing run directory found in {base_output_dir} to resume. Creating a new run."
+            )
+
+    if run_timestamp is None:
+        run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = base_output_dir / f"run_{run_timestamp}"
+        log_dir = base_log_dir / f"run_{run_timestamp}"
+        print(f"[grpo] Starting new training run. Output dir: {output_dir}")
+
+    config["training"]["output_dir"] = str(output_dir)
+    config["training"]["log_dir"] = str(log_dir)
+    config["training"]["run_timestamp"] = run_timestamp
 
     # Safe config access: support both 'grpo' (GRPO) and 'generation' (SFT) keys
     grpo_cfg = config.get("generation", config.get("grpo", {}))
@@ -683,6 +719,17 @@ def main() -> None:
         print(f"\n[grpo] Saving final model to {final_path}...")
         trainer.save_model(str(final_path))
         tokenizer.save_pretrained(str(final_path))
+
+        # ── Clean up duplicate final step checkpoint ──────────────────────
+        global_step = trainer.state.global_step
+        last_ckpt = Path(grpo_config.output_dir) / f"checkpoint-{global_step}"
+        if last_ckpt.exists():
+            import shutil
+
+            print(
+                f"[grpo] Cleaning up duplicate final step checkpoint folder: {last_ckpt}"
+            )
+            shutil.rmtree(last_ckpt, ignore_errors=True)
     finally:
         # ── Cleanup ───────────────────────────────────────────────────────
         if wandb.run:

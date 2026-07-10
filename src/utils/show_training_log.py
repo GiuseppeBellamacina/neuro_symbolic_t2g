@@ -159,7 +159,14 @@ def plot_from_checkpoint(
     data = json.loads(ts_path.read_text(encoding="utf-8"))
 
     if output_dir is None:
-        output_dir = str(ts_path.parent.parent / "figures")
+        parts = ts_path.parts
+        if "checkpoints" in parts:
+            idx = parts.index("checkpoints")
+            # Map experiments/checkpoints/<model_name>/run_<timestamp> -> experiments/figures/<model_name>/run_<timestamp>
+            fig_parts = list(parts[:idx]) + ["figures"] + list(parts[idx + 1 : idx + 3])
+            output_dir = str(Path(*fig_parts))
+        else:
+            output_dir = str(ts_path.parent.parent / "figures")
 
     from .visualization import plot_training_curves
 
