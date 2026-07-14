@@ -1,17 +1,24 @@
 # ============================================================================
-# OPTIMAL Config — GRPO + Constrained Decoding + Paper-Inspired Rewards
+# OPTIMAL v2 Config — GRPO + Curriculum + Paper-Inspired Rewards
 #
-# Config ottimale per ottenere i migliori risultati su ASLG-PC12 T2G.
+# Novità rispetto alla v1:
+#   - Reward range [-1, 1] (symmetric) — gradiente più forte, meno reward hacking
+#   - BLEU-4 reward (T2G-Reasoner 2025) — complementare a ROUGE-L
+#   - Curriculum learning 3-stage (G²RPO-A 2026) — difficoltà progressiva
+#   - num_generations=16 — stima del vantaggio più stabile (GRPO standard per SLM)
+#   - beta=0 — DAPO-style (no KL penalty al reference, solo PPO clip)
+#   - temperature=0.9 — più esplorazione per G=16
+#
 # Combina:
 #   - SFT pre-training (Phase 0: impara il formato gloss)
-#   - GRPO con reward ottimizzate (translation + gold_structure + verifier)
-#   - Constrained decoding con Trie dual-root (no garbage tokens)
-#   - Viterbi diversity params ottimizzati
-#   - Evaluation completa con bootstrap CI
+#   - GRPO con 7 reward ottimizzate (range [-1, 1])
+#   - Curriculum learning 3-stage (simple→medium→hard)
+#   - Constrained decoding con Trie dual-root
+#   - Evaluation con bootstrap CI + HTML completion examples
 #
 # Pipeline:
-#   1. SFT pre-training (1 epoch, impara formato gloss)
-#   2. GRPO training (2000 step, reward shaping)
+#   1. SFT pre-training (1 epoch)
+#   2. GRPO training (2000 step, curriculum + reward shaping)
 #   3. Evaluation (ROUGE-L, BLEU, Pass@1, Pass@k, reward breakdown, CI 95%)
 #
 # Uso:
@@ -111,39 +118,44 @@ training:
   log_dir: "experiments/logs/qwen25-05b-optimal"
 
 # --- Parametri GRPO ---
-# num_generations=8 (più alto del default 4 per migliore stima del vantaggio)
-# max_completion_length=128 (sufficiente per gloss ASL, ~20-40 token)
-# beta=0.02 (KL penalty più basso per permettere più esplorazione)
-# temperature=0.8 (leggermente più alta per diversità nei rollout)
+# num_generations=16 — standard per SLM <1B (GRPO implementations survey)
+# max_completion_length=128 — sufficiente per gloss ASL (~20-40 token)
+# beta=0 — DAPO-style: no KL penalty al reference model. Solo PPO clip per
+#   stabilità. Paper GRPO dynamics (ACL 2025) mostra che Mirror GRPO (KL a
+#   policy precedente, non a reference) garantisce miglioramento monotonico.
+#   Con beta=0 e clip=0.2, l'update è vincolato solo dal clipping ratio.
+# temperature=0.9 — più esplorazione per compensare G=16 e beta=0
 grpo:
-  num_generations: 8
+  num_generations: 16
   max_completion_length: 128
   max_prompt_length: 256
-  beta: 0.02
-  temperature: 0.8
+  beta: 0.0
+  temperature: 0.9
 
-# --- Pesi della reward function (OTTIMIZZATO) ---
-# Combinazione ottimale basata su esperimenti e paper:
-#   - translation (ROUGE-L): segnale semantico primario
-#   - gold_structure: plausibilità strutturale vs gold reference
-#   - gloss_order: edit-distance per sensibilità all'ordine
-#   - verifier_scaled: RECIPE-inspired confidence gate (arXiv:2605.19976)
-#   - format: penalizza free text
-#   - repetition: penalizza loop degeneri
+# --- Pesi della reward function (v2: range [-1, 1] + BLEU-4) ---
+# Tutte le reward sono ora mappate su range simmetrico [-1, 1]:
+#   -1 = completamente sbagliato, 0 = neutro, 1 = perfetto.
+# I pesi sommano a 1.0 per interpretabilità.
+#
+# Rispetto alla v1:
+#   - Aggiunto BLEU-4 (T2G-Reasoner 2025: BLEU-4 batte ROUGE-L come reward)
+#   - Ribilanciato: semantic 40% (ROUGE + BLEU), structure 30% (gold + verifier),
+#     order 10%, format 10%, repetition 10%
 reward:
-  # Translation quality (ROUGE-L similarity with gold gloss)
-  weight_translation: 0.25
-  # Gold-structure reward: bigram score vs gold reference baseline
-  weight_gold_structure: 0.25
-  # Gloss-order reward: word-level edit-distance vs gold gloss
-  weight_gloss_order: 0.15
-  # Verifier-scaled reward (RECIPE-inspired, arXiv:2605.19976):
-  # usa structural plausibility come confidence multiplier per ROUGE-L.
-  # Più informativo di translation o structure da soli.
-  weight_verifier_scaled: 0.15
-  # Format reward: ensure gloss tokens only (no free text)
+  # ROUGE-L similarity with gold gloss — primary semantic signal
+  weight_translation: 0.20
+  # BLEU-4 precision with gold gloss — complementary to ROUGE-L (T2G-Reasoner)
+  weight_bleu: 0.20
+  # Gold-structure: bigram score vs gold reference baseline
+  weight_gold_structure: 0.20
+  # Gloss-order: word-level edit-distance vs gold gloss
+  weight_gloss_order: 0.10
+  # Verifier-scaled (RECIPE-inspired, arXiv:2605.19976):
+  # structural plausibility come confidence multiplier per translation quality
+  weight_verifier_scaled: 0.10
+  # Format: ensure gloss tokens only (no free text)
   weight_format: 0.10
-  # Repetition penalty
+  # Repetition: penalizza loop degeneri (già [-1, 1])
   weight_repetition: 0.10
 
   # ── Ablation modules (decommenta per testare) ──────────────────────
@@ -174,9 +186,16 @@ grammar:
     # di prima). temperature=5.0 = curva morbida raccomandata.
     verifier_temperature: 5.0
 
-# --- Curriculum Learning (disabled — GRPO gestisce da solo) ---
+# --- Curriculum Learning (G²RPO-A 2026) ---
+# 3-stage progressive difficulty: il modello inizia con esempi facili e
+# gradualmente affronta quelli più difficili. Essenziale per SLM.
+# Le proporzioni sono calibrate sulla distribuzione reale di ASLG-PC12:
+#   9.3% simple (1-5 token), 68.4% medium (6-15), 22.2% hard (16+).
+# Stage 1 (0-33%): 10% simple, 65% medium, 25% hard
+# Stage 2 (33-66%): 5% simple, 40% medium, 55% hard
+# Stage 3 (66-100%): 3% simple, 30% medium, 67% hard
 curriculum:
-  enabled: false
+  enabled: true
 
 # --- Evaluation ---
 # max_samples=null per valutare su tutto il test set (8771 samples)
@@ -199,9 +218,12 @@ wandb:
       "grpo",
       "T2G",
       "constrained-decoding",
-      "optimal",
-      "verifier-scaled",
-      "RECIPE",
+      "optimal-v2",
+      "curriculum",
+      "bleu-reward",
+      "symmetric-reward",
+      "beta-zero",
+      "G16",
       "Qwen2.5-0.5B",
       "ASL",
     ]

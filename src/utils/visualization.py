@@ -7,6 +7,7 @@ headless cluster environments.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -61,6 +62,7 @@ _PLOT_METRICS = [
     ("reward", "Mean Reward"),
     ("loss", "Loss"),
     ("rewards/translation_quality_reward/mean", "Translation Quality (ROUGE-L)"),
+    ("rewards/bleu_reward/mean", "BLEU-4"),
     ("rewards/gold_structure_reward/mean", "Gold Structure (Bigram vs Gold)"),
     ("rewards/structural_dense_reward/mean", "Structural (Bigram Proxy)"),
     ("rewards/viterbi_distance_reward/mean", "Viterbi Distance"),
@@ -198,6 +200,7 @@ def plot_training_curves(
 
 _COMPONENT_ORDER = [
     "translation_quality_reward",
+    "bleu_reward",
     "gold_structure_reward",
     "structural_dense_reward",
     "viterbi_distance_reward",
@@ -210,6 +213,7 @@ _COMPONENT_ORDER = [
 
 _COMPONENT_COLORS = {
     "translation_quality_reward": "#4C72B0",
+    "bleu_reward": "#3498DB",
     "gold_structure_reward": "#55A868",
     "structural_dense_reward": "#8172B3",
     "viterbi_distance_reward": "#937860",
@@ -222,6 +226,7 @@ _COMPONENT_COLORS = {
 
 _COMPONENT_LABELS = {
     "translation_quality_reward": "Translation (ROUGE-L)",
+    "bleu_reward": "BLEU-4",
     "gold_structure_reward": "Gold Structure",
     "structural_dense_reward": "Structure (Bigram)",
     "viterbi_distance_reward": "Viterbi",
@@ -695,6 +700,7 @@ def plot_reward_radar(
     # Short labels
     label_map = {
         "translation_quality_reward": "Translation",
+        "bleu_reward": "BLEU-4",
         "gold_structure_reward": "Gold Struct",
         "structural_dense_reward": "Struct Dense",
         "viterbi_distance_reward": "Viterbi",
@@ -721,7 +727,7 @@ def plot_reward_radar(
     )
     ax.set_xticks(angles)
     ax.set_xticklabels(labels, fontsize=9)
-    ax.set_ylim(0, 1.05)
+    ax.set_ylim(-1.05, 1.05)
     title = "Reward Component Radar"
     if model_name:
         title += f" — {model_name}"
@@ -824,6 +830,214 @@ def plot_completion_examples(
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved: {output_path}")
+
+
+def dump_completion_examples(
+    completions: list[str],
+    references: list[str],
+    rouge_scores: list[float],
+    prompts: list[str] | None = None,
+    n_examples: int = 10,
+    model_name: str = "",
+    output_dir: str = "experiments/figures",
+) -> str:
+    """Dump best/worst completion examples as JSON + self-contained HTML.
+
+    Unlike ``plot_completion_examples`` (PNG with text rendered as an image),
+    this produces a readable HTML table with sortable, searchable, color-coded
+    rows and a companion JSON file for programmatic consumption.
+
+    Args:
+        completions: Generated gloss sequences.
+        references: Gold reference glosses.
+        rouge_scores: ROUGE-L scores per completion.
+        prompts: English prompts (optional). If provided, shown in the table.
+        n_examples: Total examples (half best, half worst).
+        model_name: Short model name for the title.
+        output_dir: Directory for ``completion_examples.json`` and ``.html``.
+
+    Returns:
+        Path to the HTML file.
+    """
+    if not completions:
+        print("No completion examples to dump.")
+        return ""
+
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Select best + worst ─────────────────────────────────────────────
+    indexed = list(
+        zip(
+            range(len(rouge_scores)),
+            completions,
+            references,
+            rouge_scores,
+            strict=False,
+        )
+    )
+    indexed.sort(key=lambda x: x[3])  # sort by ROUGE-L ascending
+    n_half = n_examples // 2
+    worst = indexed[:n_half]
+    best = indexed[-n_half:]
+    # Reverse best so highest ROUGE-L is first
+    best = list(reversed(best))
+
+    # ── Build entries ───────────────────────────────────────────────────
+    def _build_entries(group: list, label: str) -> list[dict]:
+        entries: list[dict] = []
+        for orig_idx, comp, ref, rl in group:
+            trunc_comp = comp[:120] + "..." if len(comp) > 120 else comp
+            trunc_ref = ref[:120] + "..." if len(ref) > 120 else ref
+            entry: dict[str, Any] = {
+                "group": label,
+                "index": orig_idx,
+                "rouge_l": round(rl, 4),
+                "gold": trunc_ref,
+                "prediction": trunc_comp,
+            }
+            if prompts and orig_idx < len(prompts):
+                prompt = prompts[orig_idx]
+                entry["prompt"] = prompt[:200] + "..." if len(prompt) > 200 else prompt
+            entries.append(entry)
+        return entries
+
+    examples: list[dict[str, Any]] = []
+    examples.extend(_build_entries(best, "best"))
+    examples.extend(_build_entries(worst, "worst"))
+
+    # ── Write JSON ──────────────────────────────────────────────────────
+    json_path = out_dir / "completion_examples.json"
+    json_path.write_text(
+        json.dumps(
+            {"model": model_name, "n_examples": n_examples, "examples": examples},
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    print(f"Saved: {json_path}")
+
+    # ── Write self-contained HTML ───────────────────────────────────────
+    html_path = out_dir / "completion_examples.html"
+    html = _render_completion_html(model_name, examples)
+    html_path.write_text(html, encoding="utf-8")
+    print(f"Saved: {html_path}")
+
+    return str(html_path)
+
+
+def _render_completion_html(model_name: str, examples: list[dict[str, Any]]) -> str:
+    """Render best/worst completions as a self-contained HTML table."""
+
+    def _color_for(rl: float) -> str:
+        if rl >= 0.8:
+            return "#1a7a1a"
+        if rl >= 0.5:
+            return "#55A868"
+        if rl >= 0.3:
+            return "#DD8452"
+        return "#C44E52"
+
+    def _badge_for(group: str) -> str:
+        if group == "best":
+            return '<span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span>'
+        return '<span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span>'
+
+    rows_html: list[str] = []
+    for ex in examples:
+        rl = ex["rouge_l"]
+        color = _color_for(rl)
+        badge = _badge_for(ex["group"])
+        gold = ex["gold"]
+        pred = ex["prediction"]
+        prompt = ex.get("prompt", "")
+
+        # Highlight diffs: wrap mismatched words in spans
+        # Simple character-level diff for visual alignment
+        pred_highlighted = _highlight_diff(gold, pred)
+
+        prompt_cell = f'<td class="prompt">{prompt}</td>' if prompt else ""
+        rows_html.append(f"""<tr class="{ex['group']}">
+    {prompt_cell}
+    <td style="color:{color};font-weight:bold;text-align:center">{rl:.4f}</td>
+    <td>{badge}</td>
+    <td class="mono">{gold}</td>
+    <td class="mono">{pred_highlighted}</td>
+</tr>""")
+
+    has_prompt = any(ex.get("prompt") for ex in examples)
+    prompt_col = "<th>Prompt</th>" if has_prompt else ""
+
+    title = (
+        f"Completion Examples — {model_name}" if model_name else "Completion Examples"
+    )
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title}</title>
+<style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }}
+  h1 {{ color: #333; font-size: 1.4em; }}
+  table {{ width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }}
+  th {{ background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }}
+  td {{ padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }}
+  tr.best {{ background: #f9fdf9; }}
+  tr.worst {{ background: #fef9f9; }}
+  tr:hover {{ background: #eef6ff; }}
+  .mono {{ font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }}
+  .prompt {{ max-width: 300px; color: #555; font-style: italic; }}
+  .diff-del {{ color: #C44E52; text-decoration: line-through; }}
+  .diff-add {{ color: #1a7a1a; font-weight: bold; }}
+  .summary {{ color: #888; font-size: 0.85em; margin-bottom: 12px; }}
+</style>
+</head>
+<body>
+<h1>{title}</h1>
+<p class="summary">{len(examples)} examples ({len(examples)//2} best, {len(examples)//2} worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  {prompt_col}
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+{"".join(rows_html)}
+</tbody>
+</table>
+</body>
+</html>"""
+
+
+def _highlight_diff(gold: str, pred: str) -> str:
+    """Simple word-level diff: mark different words in prediction."""
+    g_words = gold.split()
+    p_words = pred.split()
+
+    if g_words == p_words:
+        return pred
+
+    result: list[str] = []
+    # Align by position; for now a simple zip comparison
+    max_len = max(len(g_words), len(p_words))
+    for i in range(max_len):
+        gw = g_words[i] if i < len(g_words) else ""
+        pw = p_words[i] if i < len(p_words) else ""
+        if gw == pw:
+            result.append(pw)
+        else:
+            if gw:
+                result.append(f'<span class="diff-del">{gw}</span>')
+            if pw:
+                result.append(f'<span class="diff-add">{pw}</span>')
+    return " ".join(result)
 
 
 def plot_baseline_vs_grpo_comparison(

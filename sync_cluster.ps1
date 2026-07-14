@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("upload", "download", "download-logs", "download-checkpoints", "download-wandb", "sync-wandb", "push", "pull")]
+    [ValidateSet("upload", "download", "download-logs", "download-checkpoints", "download-results", "download-figures", "download-wandb", "download-experiments", "sync-wandb", "push", "pull")]
     [string]$Action,
 
     [Parameter(Mandatory = $false)]
@@ -113,11 +113,17 @@ function Upload {
 function DownloadAll {
     Write-Host "Downloading all outputs from cluster..." -ForegroundColor Cyan
 
-    Write-Progress -Activity "Download" -Status "[1/2] experiments/logs..." -PercentComplete 0
+    Write-Progress -Activity "Download" -Status "[1/4] experiments/logs..." -PercentComplete 0
     DownloadLogs
 
-    Write-Progress -Activity "Download" -Status "[2/2] experiments/checkpoints..." -PercentComplete 50
+    Write-Progress -Activity "Download" -Status "[2/4] experiments/checkpoints..." -PercentComplete 25
     DownloadCheckpoints
+
+    Write-Progress -Activity "Download" -Status "[3/4] experiments/results..." -PercentComplete 50
+    DownloadResults
+
+    Write-Progress -Activity "Download" -Status "[4/4] experiments/figures..." -PercentComplete 75
+    DownloadFigures
 
     Write-Progress -Activity "Download" -Completed
     Write-Host "Download complete." -ForegroundColor Green
@@ -138,6 +144,51 @@ function DownloadCheckpoints {
     Download-RemoteDir "experiments/checkpoints" $dest
     Write-Progress -Activity "Download" -Completed
     Write-Host "  -> saved to experiments\checkpoints" -ForegroundColor Gray
+}
+
+function DownloadResults {
+    Write-Progress -Activity "Download" -Status "Downloading experiments/results..." -PercentComplete 0
+    $dest = Join-Path $LOCAL "experiments\results"
+    Download-RemoteDir "experiments/results" $dest
+    Write-Progress -Activity "Download" -Completed
+    Write-Host "  -> saved to experiments\results" -ForegroundColor Gray
+}
+
+function DownloadFigures {
+    Write-Progress -Activity "Download" -Status "Downloading experiments/figures..." -PercentComplete 0
+    $dest = Join-Path $LOCAL "experiments\figures"
+    Download-RemoteDir "experiments/figures" $dest
+    Write-Progress -Activity "Download" -Completed
+    Write-Host "  -> saved to experiments\figures" -ForegroundColor Gray
+}
+
+function DownloadExperiments {
+    Write-Host "Downloading entire experiments/ from cluster (excluding configs)..." -ForegroundColor Cyan
+    $remoteDirs = @(
+        @{ Remote = "experiments/checkpoints"; Local = "experiments\checkpoints" }
+        @{ Remote = "experiments/logs";       Local = "experiments\logs" }
+        @{ Remote = "experiments/results";    Local = "experiments\results" }
+        @{ Remote = "experiments/figures";    Local = "experiments\figures" }
+    )
+
+    $total = $remoteDirs.Count
+    for ($i = 0; $i -lt $total; $i++) {
+        $entry = $remoteDirs[$i]
+        $pct = [int](($i / $total) * 100)
+        $label = $entry.Remote
+        Write-Progress -Activity "Download experiments" `
+            -Status "[$($i + 1)/$total] $label..." `
+            -PercentComplete $pct
+
+        $localDest = Join-Path $LOCAL $entry.Local
+        New-Item -ItemType Directory -Force -Path $localDest | Out-Null
+        $excludeArgs = $TAR_EXCLUDES -join " "
+        ssh $SSH_TARGET "cd ~/neuro_symbolic_t2g && tar cf - $excludeArgs $($entry.Remote)" | tar xvf - -C "$LOCAL"
+        Write-Host "  -> saved to $($entry.Local)" -ForegroundColor Gray
+    }
+
+    Write-Progress -Activity "Download experiments" -Completed
+    Write-Host "Download complete." -ForegroundColor Green
 }
 
 function DownloadWandb {
@@ -270,7 +321,10 @@ switch ($Action) {
     "download"              { DownloadAll }
     "download-logs"         { DownloadLogs }
     "download-checkpoints"  { DownloadCheckpoints }
+    "download-results"      { DownloadResults }
+    "download-figures"      { DownloadFigures }
     "download-wandb"        { DownloadWandb }
+    "download-experiments"  { DownloadExperiments }
     "sync-wandb"            { SyncWandb }
     "push"                  { Push }
     "pull"                  { Pull }

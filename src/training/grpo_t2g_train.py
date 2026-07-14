@@ -34,6 +34,7 @@ import importlib
 import logging
 import os
 import random
+import sys
 import warnings
 from pathlib import Path
 from typing import Any
@@ -61,7 +62,13 @@ if isinstance(_trl_iu._llm_blender_available, tuple):
 import wandb
 from dotenv import load_dotenv
 from transformers.integrations.integration_utils import WandbCallback
-from transformers.trainer_callback import ProgressCallback
+from transformers.trainer_callback import (
+    ProgressCallback,
+    TrainerCallback,
+    TrainerControl,
+    TrainerState,
+)
+from transformers.training_args import TrainingArguments
 from trl import GRPOConfig, GRPOTrainer  # type: ignore[import]
 
 from datasets import Dataset
@@ -258,6 +265,188 @@ def _build_generation_kwargs(
         "max_new_tokens": grpo_cfg.get("max_completion_length", 128),
     }
     return kwargs
+
+
+# ---------------------------------------------------------------------------
+# Curriculum Learning (G²RPO-A, ACL 2026)
+# ---------------------------------------------------------------------------
+
+
+class CurriculumSchedule:
+    """Progressive difficulty curriculum for GRPO training.
+
+    Implements 3-stage curriculum based on G²RPO-A findings that sorting
+    training data by difficulty prevents small models from getting stuck
+    on hard examples early in training.
+
+    Stage 1 (0-33% steps): 10% simple, 65% medium, 25% hard
+    Stage 2 (33-66% steps): 5% simple, 40% medium, 55% hard
+    Stage 3 (66-100% steps): 3% simple, 30% medium, 67% hard
+    """
+
+    _STAGES: list[dict[str, float]] = [
+        # Stage 1: 10% simple (usa quasi tutti i disponibili, 9.3%), 65% medium, 25% hard
+        {"simple": 0.10, "medium": 0.65, "hard": 0.25},
+        # Stage 2: 5% simple, 40% medium, 55% hard
+        {"simple": 0.05, "medium": 0.40, "hard": 0.55},
+        # Stage 3: 3% simple, 30% medium, 67% hard
+        {"simple": 0.03, "medium": 0.30, "hard": 0.67},
+    ]
+
+    def __init__(self, max_steps: int) -> None:
+        self._max_steps = max(max_steps, 1)
+        self._stage_size = max(self._max_steps // 3, 1)
+
+    def get_stage(self, step: int) -> int:
+        """Return current curriculum stage (0, 1, or 2)."""
+        return min(step // self._stage_size, len(self._STAGES) - 1)
+
+    def get_distribution(self, step: int) -> dict[str, float]:
+        """Return difficulty distribution for the current step."""
+        return self._STAGES[self.get_stage(step)]
+
+    @property
+    def stage_size(self) -> int:
+        return self._stage_size
+
+
+class CurriculumFilteredDataset:
+    """Mutable dataset wrapper that filters by curriculum difficulty distribution.
+
+    Wraps a Hugging Face ``Dataset`` and maintains a shuffled index list
+    matching the current stage's target difficulty proportions.  The
+    dataset length is kept constant (padded/truncated) so DataLoader
+    samplers never go out of bounds on stage transitions.
+
+    The underlying data is NOT copied — only the index list is rebuilt.
+    """
+
+    def __init__(
+        self,
+        dataset: Dataset,
+        schedule: CurriculumSchedule,
+        stage: int,
+    ) -> None:
+        self._full_dataset = dataset
+        self._schedule = schedule
+        self._stage = stage
+        self._indices: list[int] = []
+        self.column_names = dataset.column_names
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        """Rebuild index list to match the current stage's difficulty distribution."""
+        distribution = self._schedule._STAGES[self._stage]
+
+        # Group indices by difficulty label
+        by_diff: dict[str, list[int]] = {"simple": [], "medium": [], "hard": []}
+        for i, row in enumerate(self._full_dataset):
+            diff = row.get("difficulty", "medium")
+            if diff not in by_diff:
+                diff = "medium"
+            by_diff[diff].append(i)
+
+        total = len(self._full_dataset)
+        indices: list[int] = []
+        for diff, target_pct in distribution.items():
+            count = min(int(total * target_pct), len(by_diff[diff]))
+            if count > 0 and by_diff[diff]:
+                indices.extend(random.sample(by_diff[diff], count))
+
+        if not indices:
+            indices = list(range(total))
+
+        # Shuffle so items are mixed, not grouped by difficulty
+        random.shuffle(indices)
+
+        # Pad/truncate to maintain constant length
+        # (prevents DataLoader sampler from generating out-of-bounds indices)
+        target_len = len(self._full_dataset)
+        if len(indices) < target_len:
+            indices.extend(random.choices(indices, k=target_len - len(indices)))
+        elif len(indices) > target_len:
+            indices = indices[:target_len]
+
+        self._indices = indices
+
+    def update_stage(self, stage: int) -> None:
+        """Transition to a new curriculum stage (rebuilds index list)."""
+        if stage != self._stage:
+            self._stage = stage
+            self._rebuild()
+
+    def __len__(self) -> int:
+        return len(self._indices)
+
+    def __getitem__(self, idx: int) -> dict[str, Any]:
+        return self._full_dataset[self._indices[idx]]
+
+    def __getattr__(self, name: str) -> Any:
+        # Forward attribute access to the underlying Dataset when
+        # the attribute isn't defined on the wrapper itself.
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return getattr(self._full_dataset, name)
+
+
+class CurriculumCallback(TrainerCallback):
+    """TrainerCallback that drives curriculum stage transitions during GRPO.
+
+    On each step, checks whether the global step has crossed a stage
+    boundary.  When a new stage begins, triggers a dataset rebuild and
+    logs the transition to stdout and wandb.
+    """
+
+    def __init__(
+        self,
+        schedule: CurriculumSchedule,
+        curriculum_dataset: CurriculumFilteredDataset,
+    ) -> None:
+        self._schedule = schedule
+        self._dataset = curriculum_dataset
+        self._last_stage = 0
+
+    def on_step_end(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs: Any,
+    ) -> None:
+        current_stage = self._schedule.get_stage(state.global_step)
+
+        if current_stage != self._last_stage:
+            self._last_stage = current_stage
+
+            # Rebuild the dataset index list for the new difficulty distribution
+            self._dataset.update_stage(current_stage)
+
+            distribution = self._schedule._STAGES[current_stage]
+
+            # Stage transition banner for stdout (parsed by chain_monitor)
+            print(f"\n{'=' * 60}")
+            print(f"  CURRICULUM STAGE {current_stage + 1}/3")
+            print(
+                f"  Distribution: simple={distribution['simple']:.0%} "
+                f"medium={distribution['medium']:.0%} "
+                f"hard={distribution['hard']:.0%}"
+            )
+            print(f"{'=' * 60}\n")
+
+            # Log curriculum metrics to wandb
+            try:
+                import wandb
+
+                if wandb.run:
+                    wandb.log(
+                        {
+                            "curriculum/stage": float(current_stage + 1),
+                            "curriculum/difficulty_distribution": distribution,
+                        },
+                        step=state.global_step,
+                    )
+            except Exception:
+                logger.debug("Failed to log curriculum metrics to wandb", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -501,6 +690,37 @@ def main() -> None:
         logits_processor=logits_processor_for_gen,
     )
 
+    # ── Curriculum Learning setup ────────────────────────────────────────
+    curriculum_cfg = config.get("curriculum", {})
+    curriculum_callback: CurriculumCallback | None = None
+
+    if curriculum_cfg.get("enabled", False):
+        print(f"\n{'─' * 60}")
+        print("CURRICULUM LEARNING: ENABLED")
+        print("  G²RPO-A 3-stage progressive difficulty curriculum")
+
+        max_steps = config["training"].get("max_steps", 1500)
+        curriculum_schedule = CurriculumSchedule(max_steps)
+
+        # Wrap the training dataset with curriculum filtering (Stage 1)
+        t2g_dataset = CurriculumFilteredDataset(
+            t2g_dataset, curriculum_schedule, stage=0
+        )
+
+        dist = curriculum_schedule.get_distribution(0)
+        print(
+            f"  Stage 1/3 — Distribution: simple={dist['simple']:.0%} "
+            f"medium={dist['medium']:.0%} hard={dist['hard']:.0%}"
+        )
+        print(
+            f"  Stage size: {curriculum_schedule.stage_size} steps × 3 "
+            f"= {curriculum_schedule.stage_size * 3}"
+        )
+        print(f"  Effective samples: {len(t2g_dataset)}")
+        print(f"{'─' * 60}")
+
+        curriculum_callback = CurriculumCallback(curriculum_schedule, t2g_dataset)
+
     # ── Step 6: GRPO configuration ───────────────────────────────────────
     print(f"\n{'=' * 60}")
     print("STEP 6: GRPO Configuration")
@@ -602,6 +822,25 @@ def main() -> None:
             ),
         )
 
+    # ── Tee stdout → output.log (sync_cluster download) ─────────────────
+    # console_multipart salva i log in chunk sotto wandb/run-*/files/logs/
+    # ma sync_cluster.ps1 si aspetta un singolo output.log.  Teeiamo stdout
+    # così abbiamo entrambi: crash safety (multipart) + comodità (file singolo).
+    _output_log_path = os.path.join(log_dir, "output.log")
+    _sys_stdout = sys.stdout
+    _output_log_fh = open(_output_log_path, "a", buffering=1)
+
+    class _Tee:
+        def write(self, data):
+            _sys_stdout.write(data)
+            _output_log_fh.write(data)
+
+        def flush(self):
+            _sys_stdout.flush()
+            _output_log_fh.flush()
+
+    sys.stdout = _Tee()
+
     # ── Step 7: Training ─────────────────────────────────────────────────
     print(f"\n{'=' * 60}")
     print("STEP 7: GRPO Training")
@@ -627,7 +866,11 @@ def main() -> None:
         train_dataset=t2g_dataset,
         reward_funcs=wrapped_reward_fns,
         processing_class=tokenizer,
-        callbacks=[sample_callback],
+        callbacks=(
+            [sample_callback]
+            if curriculum_callback is None
+            else [sample_callback, curriculum_callback]
+        ),
     )
 
     # ── Defensive: force unsloth-zoo's internal autocast dtype directly ──

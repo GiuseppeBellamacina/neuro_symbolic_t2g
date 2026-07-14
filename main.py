@@ -217,7 +217,7 @@ def test_reward_functions() -> None:
     gold = "IX MAN WALK HOUSE"
     generated = "IX MAN WALK HOUSE"
     score = translation_quality_reward(generated, gold)
-    assert 0.0 <= score <= 1.0, f"Score out of range: {score}"
+    assert -1.0 <= score <= 1.0, f"Score out of range: {score}"
     logger.info(f"✓ Translation quality (perfect match): {score:.4f}")
 
     generated_bad = "DOG CAT BIRD FISH"

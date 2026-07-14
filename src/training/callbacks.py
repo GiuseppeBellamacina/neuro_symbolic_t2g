@@ -125,6 +125,7 @@ class CompletionSampleLogger:
         from src.rewards.t2g_rewards import (
             _extract_sample_id,
             _lookup_gold_gloss,
+            bleu_reward,
             gloss_format_reward,
             gloss_order_reward,
             gloss_repetition_reward,
@@ -140,6 +141,11 @@ class CompletionSampleLogger:
             (
                 "translation_quality_reward",
                 translation_quality_reward,
+                {"gold_gloss": ""},
+            ),
+            (
+                "bleu_reward",
+                bleu_reward,
                 {"gold_gloss": ""},
             ),
             (
@@ -231,6 +237,7 @@ class CompletionSampleLogger:
                     # Dynamically look up the actual gold gloss
                     if name in (
                         "translation_quality_reward",
+                        "bleu_reward",
                         "gold_structure_reward",
                         "verifier_scaled_reward",
                         "gloss_order_reward",
@@ -327,6 +334,7 @@ class CompletionSampleCallback(TrainerCallback):
     # Reward component names (order determines legend order in W&B plot)
     _REWARD_COMPONENTS: tuple[str, ...] = (
         "translation_quality_reward",
+        "bleu_reward",
         "gold_structure_reward",
         "structural_dense_reward",
         "viterbi_distance_reward",

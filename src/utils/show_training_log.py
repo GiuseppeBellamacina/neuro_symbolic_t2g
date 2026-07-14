@@ -20,6 +20,7 @@ _DEFAULT_COLS = [
     "reward",
     "reward_std",
     "rewards/translation_quality_reward/mean",
+    "rewards/bleu_reward/mean",
     "rewards/gold_structure_reward/mean",
     "rewards/structural_dense_reward/mean",
     "rewards/viterbi_distance_reward/mean",
@@ -35,6 +36,7 @@ _DEFAULT_COLS = [
 
 _SHORT_NAMES = {
     "rewards/translation_quality_reward/mean": "translation",
+    "rewards/bleu_reward/mean": "bleu",
     "rewards/gold_structure_reward/mean": "gold_struct",
     "rewards/structural_dense_reward/mean": "structure",
     "rewards/viterbi_distance_reward/mean": "viterbi",

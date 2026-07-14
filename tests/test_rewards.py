@@ -3,14 +3,14 @@
 
 Validates:
   1. Translation quality (ROUGE-L): perfect match=1.0, bad match<perfect
-  2. Structural dense: range [0,1], plausible>implausible
+  2. Structural dense: range [-1,1], plausible>implausible
   3. Format: clean gloss=1.0, free text<1.0
   4. Repetition: normal=1.0, repetitive<1.0, severe=-1.0
   5. Gold-structure: perfect=1.0, partial<perfect, implausible<partial
-  6. Viterbi distance: range [0,1], plausible>bad
+  6. Viterbi distance: range [-1,1], plausible>bad
   7. build_t2g_reward_functions: correct count, weights sum to 1.0
-  8. Soft Viterbi: range [0,1], plausible>bad
-  9. Verifier-scaled: perfect>bad, empty=0.0
+  8. Soft Viterbi: range [-1,1], plausible>bad
+  9. Verifier-scaled: perfect>bad, empty=-1.0
 
 All tests use the ``reward_setup`` fixture from conftest.py.
 """
@@ -45,10 +45,10 @@ def test_translation_quality(reward_setup):
     assert (
         score_bad < score_partial
     ), f"Bad < partial: {score_bad:.4f} < {score_partial:.4f}"
-    assert score_bad >= 0.0
+    assert score_bad >= -1.0
 
-    assert translation_quality_reward("", gold) == 0.0, "Empty completion = 0.0"
-    assert translation_quality_reward(perfect, "") == 0.0, "Empty gold = 0.0"
+    assert translation_quality_reward("", gold) == -1.0, "Empty completion = -1.0"
+    assert translation_quality_reward(perfect, "") == -1.0, "Empty gold = -1.0"
 
 
 # ---------------------------------------------------------------------------
@@ -62,21 +62,21 @@ def test_structural_dense(reward_setup):
     plausible = "IX MAN WALK HOUSE"
     score_plausible = structural_dense_reward(plausible, normalize=True)
     assert (
-        0.0 <= score_plausible <= 1.0
-    ), f"Plausible in [0,1], got {score_plausible:.4f}"
+        -1.0 <= score_plausible <= 1.0
+    ), f"Plausible in [-1,1], got {score_plausible:.4f}"
     assert score_plausible > 0.0
 
     implausible = "DOG fs-JOHN BOOK CAN"
     score_implausible = structural_dense_reward(implausible, normalize=True)
     assert (
-        0.0 <= score_implausible <= 1.0
-    ), f"Implausible in [0,1], got {score_implausible:.4f}"
+        -1.0 <= score_implausible <= 1.0
+    ), f"Implausible in [-1,1], got {score_implausible:.4f}"
     assert (
         score_plausible > score_implausible
     ), f"Plausible > implausible: {score_plausible:.4f} vs {score_implausible:.4f}"
 
-    assert structural_dense_reward("IX", normalize=True) == 0.0, "Single token = 0.0"
-    assert structural_dense_reward("", normalize=True) == 0.0, "Empty = 0.0"
+    assert structural_dense_reward("IX", normalize=True) == -1.0, "Single token = -1.0"
+    assert structural_dense_reward("", normalize=True) == -1.0, "Empty = -1.0"
 
     raw = structural_dense_reward(plausible, normalize=False)
     assert raw < 0.0, f"Raw score < 0 (log-prob), got {raw:.4f}"
@@ -98,7 +98,7 @@ def test_format_reward(reward_setup):
     free_text = "The man walks to the house."
     assert gloss_format_reward(free_text) < 1.0, "Free text < 1.0"
 
-    assert gloss_format_reward("") == 0.0, "Empty = 0.0"
+    assert gloss_format_reward("") == -1.0, "Empty = -1.0"
 
     json_like = '{"gloss": "IX MAN"}'
     assert gloss_format_reward(json_like) < 1.0, "JSON-like < 1.0"
@@ -144,20 +144,22 @@ def test_gold_structure_reward(reward_setup):
 
     partial = "IX MAN GO HOUSE"
     score_partial = gold_structure_reward(partial, gold, normalize=True)
-    assert 0.0 <= score_partial <= 1.0, f"Partial in [0,1], got {score_partial:.4f}"
+    assert -1.0 <= score_partial <= 1.0, f"Partial in [-1,1], got {score_partial:.4f}"
     assert (
         score_partial < score_perfect
     ), f"Partial < perfect: {score_partial:.4f} < {score_perfect:.4f}"
 
     implausible = "DOG fs-JOHN BOOK CAN NOT"
     score_implausible = gold_structure_reward(implausible, gold, normalize=True)
-    assert 0.0 <= score_implausible <= 1.0
+    assert -1.0 <= score_implausible <= 1.0
     assert (
         score_implausible < score_partial
     ), f"Implausible < partial: {score_implausible:.4f} < {score_partial:.4f}"
 
-    assert gold_structure_reward("", gold, normalize=True) == 0.0, "Empty = 0.0"
-    assert gold_structure_reward(perfect, "", normalize=True) == 0.0, "Empty gold = 0.0"
+    assert gold_structure_reward("", gold, normalize=True) == -1.0, "Empty = -1.0"
+    assert (
+        gold_structure_reward(perfect, "", normalize=True) == -1.0
+    ), "Empty gold = -1.0"
 
     raw = gold_structure_reward(perfect, gold, normalize=False)
     assert abs(raw) < 0.5, f"Raw perfect ~= 0.0, got {raw:.4f}"
@@ -173,18 +175,18 @@ def test_viterbi_distance_reward(reward_setup):
 
     plausible = "IX MAN WALK HOUSE"
     score = viterbi_distance_reward(plausible, normalize=True)
-    assert 0.0 <= score <= 1.0, f"Viterbi distance in [0,1], got {score:.4f}"
+    assert -1.0 <= score <= 1.0, f"Viterbi distance in [-1,1], got {score:.4f}"
     assert score > 0.0
 
     assert (
-        viterbi_distance_reward("IX", normalize=True) == 0.0
-    ), "Short (<2 tokens) = 0.0"
-    assert viterbi_distance_reward("", normalize=True) == 0.0, "Empty = 0.0"
+        viterbi_distance_reward("IX", normalize=True) == -1.0
+    ), "Short (<2 tokens) = -1.0"
+    assert viterbi_distance_reward("", normalize=True) == -1.0, "Empty = -1.0"
 
     bad = "DOG fs-JOHN BOOK CAN NOT WANT"
     score_bad = viterbi_distance_reward(bad, normalize=True)
     assert score_bad < score, f"Bad < plausible: {score_bad:.4f} < {score:.4f}"
-    assert 0.0 <= score_bad <= 1.0
+    assert -1.0 <= score_bad <= 1.0
     assert score > 0.05, f"Plausible > 0.05 (diverse baseline), got {score:.4f}"
 
     raw = viterbi_distance_reward(plausible, normalize=False)
@@ -280,18 +282,18 @@ def test_soft_viterbi_distance_reward(reward_setup):
 
     plausible = "IX MAN WALK HOUSE"
     score = soft_viterbi_distance_reward(plausible, normalize=True)
-    assert 0.0 <= score <= 1.0, f"Soft Viterbi in [0,1], got {score:.4f}"
+    assert -1.0 <= score <= 1.0, f"Soft Viterbi in [-1,1], got {score:.4f}"
     assert score > 0.0
 
     assert (
-        soft_viterbi_distance_reward("IX", normalize=True) == 0.0
-    ), "Short (<2 tokens) = 0.0"
-    assert soft_viterbi_distance_reward("", normalize=True) == 0.0, "Empty = 0.0"
+        soft_viterbi_distance_reward("IX", normalize=True) == -1.0
+    ), "Short (<2 tokens) = -1.0"
+    assert soft_viterbi_distance_reward("", normalize=True) == -1.0, "Empty = -1.0"
 
     bad = "DOG fs-JOHN BOOK CAN NOT WANT"
     score_bad = soft_viterbi_distance_reward(bad, normalize=True)
     assert score_bad < score, f"Bad < plausible: {score_bad:.4f} < {score:.4f}"
-    assert 0.0 <= score_bad <= 1.0
+    assert -1.0 <= score_bad <= 1.0
 
     raw = soft_viterbi_distance_reward(plausible, normalize=False)
     assert raw <= 0.0, f"Soft Viterbi raw <= 0.0, got {raw:.4f}"
@@ -308,7 +310,7 @@ def test_verifier_scaled_reward(reward_setup):
     plausible = "IX MAN WALK HOUSE"
     gold = "IX MAN WALK HOUSE"
     score = verifier_scaled_reward(plausible, gold)
-    assert 0.0 <= score <= 1.0, f"Verifier-scaled perfect in [0,1], got {score:.4f}"
+    assert -1.0 <= score <= 1.0, f"Verifier-scaled perfect in [-1,1], got {score:.4f}"
     # With log1p(structural) scaling, perfect match gives ~0.40 (not >0.5
     # as in the old structural^gamma formula). The key property is that
     # it's positive and significantly higher than a bad match.
@@ -317,7 +319,7 @@ def test_verifier_scaled_reward(reward_setup):
     bad = "DOG fs-JOHN BOOK CAN NOT WANT"
     score_bad = verifier_scaled_reward(bad, gold)
     assert score_bad < score, f"Bad < perfect: {score_bad:.4f} < {score:.4f}"
-    assert 0.0 <= score_bad <= 1.0
+    assert -1.0 <= score_bad <= 1.0
 
-    assert verifier_scaled_reward("", gold) == 0.0, "Empty = 0.0"
-    assert verifier_scaled_reward(plausible, "") == 0.0, "Empty gold = 0.0"
+    assert verifier_scaled_reward("", gold) == -1.0, "Empty = -1.0"
+    assert verifier_scaled_reward(plausible, "") == -1.0, "Empty gold = -1.0"

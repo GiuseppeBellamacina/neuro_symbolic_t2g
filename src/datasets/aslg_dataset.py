@@ -148,7 +148,8 @@ def build_t2g_dataset(
     Each sample contains:
         - ``"prompt"``: The English source sentence.
         - ``"completion"``: The gold ASL gloss sequence.
-        - ``"difficulty"``: Placeholder for curriculum learning (default ``"medium"``).
+        - ``"difficulty"``: Heuristic based on gloss token count:
+          ``"simple"`` (1-5 tokens), ``"medium"`` (6-15), ``"hard"`` (16+).
 
     Args:
         dataset: The ASLG-PC12 ``DatasetDict``.
@@ -170,11 +171,19 @@ def build_t2g_dataset(
         if not text.strip() or not gloss.strip():
             continue
 
+        gloss_tokens = gloss.strip().split()
+        if len(gloss_tokens) <= 5:
+            difficulty = "simple"
+        elif len(gloss_tokens) <= 15:
+            difficulty = "medium"
+        else:
+            difficulty = "hard"
+
         rows.append(
             {
                 "prompt": text.strip(),
                 "completion": gloss.strip(),
-                "difficulty": "medium",  # placeholder
+                "difficulty": difficulty,
             }
         )
 

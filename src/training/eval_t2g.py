@@ -461,6 +461,7 @@ def evaluate_checkpoint(
     rewards_cfg = config.get("reward", {})
     reward_weight_map = {
         "translation_quality_reward": rewards_cfg.get("weight_translation", 0.0),
+        "bleu_reward": rewards_cfg.get("weight_bleu", 0.0),
         "structural_dense_reward": rewards_cfg.get("weight_structure", 0.0),
         "gold_structure_reward": rewards_cfg.get("weight_gold_structure", 0.0),
         "viterbi_distance_reward": rewards_cfg.get("weight_viterbi", 0.0),
@@ -938,9 +939,9 @@ def main() -> None:
     # ── Generate plots ───────────────────────────────────────────────────
     if args.plot:
         from src.utils.visualization import (
+            dump_completion_examples,
             plot_baseline_vs_grpo,
             plot_baseline_vs_grpo_comparison,
-            plot_completion_examples,
             plot_completion_length_distribution,
             plot_error_breakdown,
             plot_pass_at_k_curve,
@@ -1001,6 +1002,7 @@ def main() -> None:
         )
         weights = {
             "translation_quality_reward": rewards_cfg.get("weight_translation", 0.4),
+            "bleu_reward": rewards_cfg.get("weight_bleu", 0.0),
             "structural_dense_reward": structure_weight,
             "gold_structure_reward": structure_weight,
             "viterbi_distance_reward": rewards_cfg.get("weight_viterbi", 0.0),
@@ -1025,14 +1027,16 @@ def main() -> None:
             output_path=str(figures_dir / "reward_radar.png"),
         )
 
-        # 8. Completion examples (best & worst)
-        plot_completion_examples(
+        # 8. Completion examples (best & worst) — JSON + HTML
+        prompts = [g["text"] for g in generations]
+        dump_completion_examples(
             completions,
             all_references,
             rouge_scores,
+            prompts=prompts,
             n_examples=10,
             model_name=model_tag,
-            output_path=str(figures_dir / "completion_examples.png"),
+            output_dir=str(figures_dir),
         )
 
         # 9. Baseline vs GRPO (if baseline Pass@1 provided via CLI)

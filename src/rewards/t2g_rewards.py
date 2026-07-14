@@ -200,6 +200,24 @@ def _lookup_gold_gloss_by_id(sample_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Reward range helpers
+# ---------------------------------------------------------------------------
+
+
+def _to_symmetric(score: float) -> float:
+    """Map a score from ``[0, 1]`` to ``[-1, 1]``.
+
+    ``0 → -1``, ``0.5 → 0``, ``1 → 1``.
+    """
+    return 2.0 * score - 1.0
+
+
+def _clamp_symmetric(score: float) -> float:
+    """Clamp a raw (possibly unbounded) score to ``[-1, 1]``."""
+    return max(-1.0, min(1.0, score))
+
+
+# ---------------------------------------------------------------------------
 # Reward Component 1: Translation Quality (ROUGE-L)
 # ---------------------------------------------------------------------------
 
@@ -218,22 +236,23 @@ def translation_quality_reward(
         gold_gloss: Ground-truth gloss sequence.
 
     Returns:
-        ROUGE-L F1 score in ``[0, 1]``.
+        ROUGE-L F1 score mapped to ``[-1, 1]`` (symmetric range).
+        ``-1`` = no overlap, ``1`` = perfect match.
     """
     if _ROUGE_SCORER is None:
-        logger.warning("ROUGE scorer not initialized; returning 0.0")
-        return 0.0
+        logger.warning("ROUGE scorer not initialized; returning -1.0")
+        return -1.0
 
     generated = extract_gloss_text(completion)
     gold = gold_gloss.strip()
 
     if not generated:
-        return 0.0
+        return -1.0
     if not gold:
-        return 0.0
+        return -1.0
 
     scores = _ROUGE_SCORER.score(gold, generated)
-    return scores["rougeL"].fmeasure  # type: ignore[no-any-return]
+    return _to_symmetric(scores["rougeL"].fmeasure)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -253,12 +272,12 @@ def structural_dense_reward(
     N‑gram probabilities observed in real ASL data.
 
     The reward is the average log‑probability of bigram transitions
-    in the sequence, normalized to ``[0, 1]``.
+    in the sequence, mapped to ``[-1, 1]`` (symmetric range).
 
     Three normalization modes are supported:
 
     - ``normalize="exp"`` (default, backward-compatible with ``True``):
-      :math:`\\exp(\\text{avg\\_log\\_prob} / T)`
+      :math:`\\exp(\\text{avg\\_log\\_prob} / T)`, then mapped to ``[-1, 1]``.
       With temperature :math:`T=1` this is the classic formulation.
       **Problem**: for sequences with low bigram probability,
       :math:`\\text{avg\\_log\\_prob} \\approx -15`, so
@@ -266,12 +285,14 @@ def structural_dense_reward(
 
     - ``normalize="softmax"``:
       :math:`\\frac{\\exp(\\text{avg\\_log\\_prob} / T)}
-                 {1 + \\exp(\\text{avg\\_log\\_prob} / T)}`
+                 {1 + \\exp(\\text{avg\\_log\\_prob} / T)}`,
+      then mapped to ``[-1, 1]``.
       This is a sigmoid-softened version that maps any log-prob to
       :math:`(0, 1)` without collapsing to 0 for low-probability sequences.
 
     - ``normalize=False``:
-      Return the raw average log‑probability (can be negative).
+      Return the raw average log‑probability (can be negative),
+      clamped to ``[-1, 1]``.
 
     .. math::
 
@@ -293,17 +314,18 @@ def structural_dense_reward(
             instead of :math:`e^{-15} \\approx 0`.
 
     Returns:
-        Structural plausibility score.
+        Structural plausibility score in ``[-1, 1]`` (symmetric).
+        ``-1`` = worst structural quality, ``1`` = best structural quality.
     """
     if _bigram_matrix is None or not _gloss_vocab:
-        logger.warning("Transition matrix not initialized; returning 0.0")
-        return 0.0
+        logger.warning("Transition matrix not initialized; returning -1.0")
+        return -1.0
 
     text = extract_gloss_text(completion)
     tokens = text.strip().split()
 
     if len(tokens) < 2:
-        return 0.0
+        return -1.0
 
     # Wrap with BOS and EOS if they exist in the vocab
     bos_idx = _token_to_idx.get("<BOS>", -1)
@@ -331,13 +353,13 @@ def structural_dense_reward(
         count += 1
 
     if count == 0:
-        return 0.0
+        return -1.0
 
     avg_log_prob = log_sum / count
 
-    # Normalize to [0, 1]
+    # Normalize and map to [-1, 1]
     if normalize is False or normalize is None:
-        return avg_log_prob
+        return _clamp_symmetric(avg_log_prob)
 
     # Temperature-scaled exponentiation
     scaled = avg_log_prob / max(temperature, 1e-8)
@@ -348,11 +370,11 @@ def structural_dense_reward(
         # For x = -15/5 = -3 → sigmoid(-3) ≈ 0.047 (not 0!)
         # For x = 0 → sigmoid(0) = 0.5
         # For x = 2 → sigmoid(2) ≈ 0.88
-        return float(1.0 / (1.0 + np.exp(-scaled)))
+        return _to_symmetric(float(1.0 / (1.0 + np.exp(-scaled))))
 
     # Default: exp (backward-compatible with normalize=True)
     # e^0 = 1.0 (max), e^{-10} ≈ 0 (min)
-    return float(np.exp(scaled))
+    return _to_symmetric(float(np.exp(scaled)))
 
 
 # ---------------------------------------------------------------------------
@@ -381,9 +403,9 @@ def gold_structure_reward(
     where :math:`L` is the number of bigram transitions.
 
     - ``≈ 1.0`` → LLM sequence is structurally as good as (or better than)
-      the gold reference.
+      the gold reference (mapped to ``≈ 1.0`` in ``[-1, 1]``).
     - ``≪ 1.0`` → LLM sequence has much worse bigram transitions than the
-      gold reference.
+      gold reference (mapped toward ``-1``).
 
     .. note::
        This is the **recommended** structural reward for T2G GRPO.  It
@@ -393,21 +415,22 @@ def gold_structure_reward(
     Args:
         completion: Generated gloss sequence.
         gold_gloss: Ground-truth gold gloss sequence.
-        normalize: If ``True``, exponentiate to ``(0, ∞)`` range capped
-            at ``1.0``.  If ``False``, return raw log-prob difference.
+        normalize: If ``True``, exponentiate and cap at ``1.0``, then map
+            to ``[-1, 1]``.  If ``False``, return raw log-prob difference
+            clamped to ``[-1, 1]``.
 
     Returns:
-        Structural proximity reward.
+        Structural proximity reward in ``[-1, 1]`` (symmetric).
     """
     if _bigram_matrix is None or not _gloss_vocab:
-        logger.warning("Transition matrix not initialized; returning 0.0")
-        return 0.0
+        logger.warning("Transition matrix not initialized; returning -1.0")
+        return -1.0
 
     llm_text = extract_gloss_text(completion)
     gold_text = gold_gloss.strip()
 
     if not llm_text or not gold_text:
-        return 0.0
+        return -1.0
 
     # Map tokens to indices for both sequences
     bos_idx = _token_to_idx.get("<BOS>", -1)
@@ -446,10 +469,10 @@ def gold_structure_reward(
     # Number of transitions in the LLM path
     n_trans = len(llm_indices) - 1
     if n_trans <= 0:
-        return 0.0
+        return -1.0
     n_gold_trans = len(gold_indices) - 1
     if n_gold_trans <= 0:
-        return 0.0
+        return -1.0
 
     if normalize:
         # Compare average log-probs
@@ -464,9 +487,9 @@ def gold_structure_reward(
         if total_tokens > 0:
             oov_penalty = llm_oov / total_tokens
             reward *= 1.0 - oov_penalty
-        return reward
+        return _to_symmetric(reward)
 
-    return llm_log_prob - gold_log_prob
+    return _clamp_symmetric(llm_log_prob - gold_log_prob)
 
 
 # ---------------------------------------------------------------------------
@@ -533,32 +556,32 @@ def gloss_order_reward(
         \\text{reward} = 1 - \\frac{\\text{edit\\_distance}(a, b)}{\\max(|a|, |b|)}
 
     - ``1.0`` → identical gloss sequence (order and content match exactly).
-    - ``0.0`` → completely different sequence (no overlap after edits).
+    - ``-1.0`` → completely different sequence (no overlap after edits).
 
     Args:
         completion: Generated gloss sequence (model output).
         gold_gloss: Ground-truth gloss sequence.
 
     Returns:
-        Normalized similarity in ``[0, 1]``; ``0.0`` if either sequence
-        is empty.
+        Normalized similarity in ``[-1, 1]`` (symmetric); ``-1.0`` if
+        either sequence is empty.
     """
     generated = extract_gloss_text(completion).strip()
     gold = gold_gloss.strip()
 
     if not generated or not gold:
-        return 0.0
+        return -1.0
 
     gen_tokens = generated.split()
     gold_tokens = gold.split()
 
     if not gen_tokens or not gold_tokens:
-        return 0.0
+        return -1.0
 
     distance = _word_level_levenshtein(gen_tokens, gold_tokens)
     max_len = max(len(gen_tokens), len(gold_tokens))
 
-    return float(max(0.0, 1.0 - distance / max_len))
+    return _to_symmetric(float(max(0.0, 1.0 - distance / max_len)))
 
 
 # ---------------------------------------------------------------------------
@@ -587,7 +610,7 @@ def viterbi_distance_reward(
     where :math:`L` is the number of bigram transitions.
 
     - ``1.0`` → LLM path matches the Viterbi optimum exactly.
-    - ``≈ 0.0`` → LLM path is far from the Viterbi optimum.
+    - ``-1.0`` → LLM path is far from the Viterbi optimum.
 
     .. warning::
        **Path diversity**: This function now uses ``viterbi_optimal_score_diverse``
@@ -599,28 +622,29 @@ def viterbi_distance_reward(
 
     Args:
         completion: Generated gloss sequence.
-        normalize: If ``True``, exponentiate to ``(0, 1]`` range.
-            If ``False``, return raw average-log-prob difference.
+        normalize: If ``True``, exponentiate to ``(0, 1]`` range then map
+            to ``[-1, 1]``.  If ``False``, return raw average-log-prob
+            difference clamped to ``[-1, 1]``.
 
     Returns:
-        Viterbi proximity reward.
+        Viterbi proximity reward in ``[-1, 1]`` (symmetric).
     """
     if _bigram_matrix is None or not _gloss_vocab:
-        logger.warning("Transition matrix not initialized; returning 0.0")
-        return 0.0
+        logger.warning("Transition matrix not initialized; returning -1.0")
+        return -1.0
 
     text = extract_gloss_text(completion)
     tokens = text.strip().split()
 
     if len(tokens) < 2:
-        return 0.0
+        return -1.0
 
     bos_idx = _token_to_idx.get("<BOS>", -1)
     eos_idx = _token_to_idx.get("<EOS>", -1)
 
     if bos_idx < 0 or eos_idx < 0:
-        logger.warning("BOS/EOS not in vocabulary; returning 0.0")
-        return 0.0
+        logger.warning("BOS/EOS not in vocabulary; returning -1.0")
+        return -1.0
 
     # Build LLM path indices (BOS + tokens + EOS)
     llm_indices: list[int] = [bos_idx]
@@ -657,14 +681,14 @@ def viterbi_distance_reward(
 
     n_trans = path_length - 1  # number of transitions
     if n_trans <= 0:
-        return 0.0
+        return -1.0
 
     if normalize:
         llm_avg = llm_log_prob / n_trans
         viterbi_avg = viterbi_log_prob / n_trans
-        return float(np.exp(llm_avg - viterbi_avg))
+        return _to_symmetric(float(np.exp(llm_avg - viterbi_avg)))
 
-    return (llm_log_prob - viterbi_log_prob) / n_trans
+    return _clamp_symmetric((llm_log_prob - viterbi_log_prob) / n_trans)
 
 
 # ---------------------------------------------------------------------------
@@ -698,7 +722,7 @@ def soft_viterbi_distance_reward(
     log-partition function computed via forward-backward.
 
     - ``1.0`` → LLM path matches the soft Viterbi optimum.
-    - ``≈ 0.0`` → LLM path is far from the soft optimum.
+    - ``-1.0`` → LLM path is far from the soft optimum.
 
     .. note::
        The soft Viterbi score is always >= the hard Viterbi score
@@ -708,28 +732,29 @@ def soft_viterbi_distance_reward(
 
     Args:
         completion: Generated gloss sequence.
-        normalize: If ``True``, exponentiate to ``(0, 1]`` range.
-            If ``False``, return raw average-log-prob difference.
+        normalize: If ``True``, exponentiate to ``(0, 1]`` range then map
+            to ``[-1, 1]``.  If ``False``, return raw average-log-prob
+            difference clamped to ``[-1, 1]``.
 
     Returns:
-        Soft Viterbi proximity reward.
+        Soft Viterbi proximity reward in ``[-1, 1]`` (symmetric).
     """
     if _bigram_matrix is None or not _gloss_vocab:
-        logger.warning("Transition matrix not initialized; returning 0.0")
-        return 0.0
+        logger.warning("Transition matrix not initialized; returning -1.0")
+        return -1.0
 
     text = extract_gloss_text(completion)
     tokens = text.strip().split()
 
     if len(tokens) < 2:
-        return 0.0
+        return -1.0
 
     bos_idx = _token_to_idx.get("<BOS>", -1)
     eos_idx = _token_to_idx.get("<EOS>", -1)
 
     if bos_idx < 0 or eos_idx < 0:
-        logger.warning("BOS/EOS not in vocabulary; returning 0.0")
-        return 0.0
+        logger.warning("BOS/EOS not in vocabulary; returning -1.0")
+        return -1.0
 
     # Build LLM path indices (BOS + tokens + EOS)
     llm_indices: list[int] = [bos_idx]
@@ -755,14 +780,14 @@ def soft_viterbi_distance_reward(
 
     n_trans = path_length - 1
     if n_trans <= 0:
-        return 0.0
+        return -1.0
 
     if normalize:
         llm_avg = llm_log_prob / n_trans
         soft_viterbi_avg = soft_viterbi_log_prob / n_trans
-        return float(np.exp(llm_avg - soft_viterbi_avg))
+        return _to_symmetric(float(np.exp(llm_avg - soft_viterbi_avg)))
 
-    return (llm_log_prob - soft_viterbi_log_prob) / n_trans
+    return _clamp_symmetric((llm_log_prob - soft_viterbi_log_prob) / n_trans)
 
 
 # ---------------------------------------------------------------------------
@@ -797,7 +822,7 @@ def verifier_scaled_reward(
 
     where :math:`\\text{verifier\\_confidence} \\in [0, 1]` is the
     structural plausibility (normalized bigram score) of the generated
-    sequence.
+    sequence.  The final reward is mapped to ``[-1, 1]`` (symmetric).
 
     This is more informative than either reward alone: it penalizes
     sequences that happen to match the gold lexically but are structurally
@@ -809,18 +834,21 @@ def verifier_scaled_reward(
         gold_gloss: Ground-truth gloss sequence.
 
     Returns:
-        Verifier-scaled reward in ``[0, 1]``.
+        Verifier-scaled reward in ``[-1, 1]`` (symmetric).
     """
     rouge = translation_quality_reward(completion, gold_gloss)
 
     # Use gold_structure_reward (which compares the bigram log-probability
     # of the completion against the gold reference as a baseline and caps at 1.0)
-    # as the verifier confidence multiplier. This maps the confidence range
-    # correctly to [0, 1], so that a structurally perfect completion gets a
-    # confidence of 1.0 and allows the final reward to scale up to 1.0.
+    # as the verifier confidence multiplier.
     verifier_confidence = gold_structure_reward(completion, gold_gloss, normalize=True)
 
-    return float(rouge * verifier_confidence)
+    # Both sub-rewards now return [-1, 1].  Convert back to [0, 1] for the
+    # multiplicative verifier formula, then map the product to [-1, 1].
+    rouge_01 = (rouge + 1.0) / 2.0
+    confidence_01 = (verifier_confidence + 1.0) / 2.0
+
+    return _to_symmetric(rouge_01 * confidence_01)
 
 
 # ---------------------------------------------------------------------------
@@ -838,9 +866,12 @@ def gloss_format_reward(completion: str) -> float:
 
     Scoring:
     - ``1.0`` — all tokens are in the vocabulary.
-    - ``0.5`` — mixed: some tokens valid, some not.
-    - ``0.25`` — mostly garbage (>50% tokens out-of-vocab).
-    - ``0.0`` — empty output or all tokens out-of-vocab.
+    - ``0.0`` — mixed: some tokens valid, some not.
+    - ``-0.5`` — mostly garbage (>50% tokens out-of-vocab).
+    - ``-1.0`` — empty output or all tokens out-of-vocab.
+
+    All scores are in the symmetric ``[-1, 1]`` range via
+    ``_to_symmetric`` mapping of the original ``[0, 1]`` levels.
 
     Also penalizes concatenated subword garbage (tokens >25 chars) and
     severe numeric contamination (3+ consecutive digits).
@@ -849,11 +880,11 @@ def gloss_format_reward(completion: str) -> float:
         completion: Raw model completion.
 
     Returns:
-        Format reward in ``[0, 1]``.
+        Format reward in ``[-1, 1]`` (symmetric).
     """
     text = extract_gloss_text(completion)
     if not text:
-        return 0.0
+        return -1.0
 
     # Strip code blocks / JSON-like wrappers (residual from extract_gloss_text)
     if "```" in text or "{" in text or "}" in text:
@@ -862,7 +893,7 @@ def gloss_format_reward(completion: str) -> float:
 
     tokens = text.split()
     if not tokens:
-        return 0.0
+        return -1.0
 
     # ── Vocabulary membership check ───────────────────────────────
     # This is the primary signal: each token must be a valid gloss.
@@ -876,14 +907,16 @@ def gloss_format_reward(completion: str) -> float:
             # All tokens are valid glosses — check for garbage concatenation
             long_token_count = sum(1 for t in tokens if len(t) > 25)
             if long_token_count > 0:
-                return 0.5  # Suspicious: valid but abnormally long tokens
+                return _to_symmetric(
+                    0.5
+                )  # Suspicious: valid but abnormally long tokens
             return 1.0
         elif valid_ratio >= 0.5:
-            return 0.5  # Mixed: some valid, some not
+            return _to_symmetric(0.5)  # Mixed: some valid, some not
         elif valid_ratio > 0.0:
-            return 0.25  # Mostly garbage
+            return _to_symmetric(0.25)  # Mostly garbage
         else:
-            return 0.0  # All out-of-vocab
+            return -1.0  # All out-of-vocab
     else:
         # Fallback: vocabulary not initialized — use heuristic checks
         # (kept for safety, but should not happen in normal training)
@@ -891,12 +924,12 @@ def gloss_format_reward(completion: str) -> float:
         if digit_sequences:
             total_digit_chars = sum(len(s) for s in digit_sequences)
             if total_digit_chars > 20:
-                return 0.0
-            return 0.25
+                return -1.0
+            return _to_symmetric(0.25)
 
         long_token_count = sum(1 for t in tokens if len(t) > 25)
         if long_token_count > 0:
-            return 0.5
+            return _to_symmetric(0.5)
 
         return 1.0
 
@@ -936,8 +969,64 @@ def gloss_repetition_reward(completion: str) -> float:
     if ratio > 0.5:
         return 1.0
     if ratio > 0.3:
-        return 0.0
-    return -1.0
+        return -0.3  # moderate repetition → mild negative
+    return -1.0  # severe loops → full penalty
+
+
+# ---------------------------------------------------------------------------
+# BLEU-4 Reward: n-gram precision with sacrebleu
+# ---------------------------------------------------------------------------
+
+#: Module-level cache for sacrebleu availability check.
+_SACREBLEU_AVAILABLE: bool | None = None
+
+
+def bleu_reward(completion: str, gold_gloss: str) -> float:
+    """BLEU-4 reward using sacrebleu corpus/sentence BLEU.
+
+    T2G-Reasoner (2025) shows BLEU-4 outperforms ROUGE-L as a reward
+    signal for T2G GRPO training.
+
+    Args:
+        completion: Generated gloss sequence (model output).
+        gold_gloss: Ground-truth gold gloss sequence.
+
+    Returns:
+        BLEU-4 score mapped to ``[-1, 1]`` (symmetric).
+        ``-1`` = no overlap, ``1`` = perfect match.
+    """
+    global _SACREBLEU_AVAILABLE
+
+    generated = extract_gloss_text(completion)
+    gold = gold_gloss.strip()
+
+    if not generated or not gold:
+        return -1.0
+
+    if _SACREBLEU_AVAILABLE is None:
+        try:
+            import sacrebleu  # noqa: F811
+
+            _SACREBLEU_AVAILABLE = True
+        except ImportError:
+            _SACREBLEU_AVAILABLE = False
+            logger.warning("sacrebleu not installed; BLEU reward returning -1.0")
+            return -1.0
+
+    if not _SACREBLEU_AVAILABLE:
+        return -1.0
+
+    # Compute BLEU-4 via corpus_bleu (handles single-reference gracefully).
+    # sacrebleu returns a BLEUScore object; extract the .score attribute (0-100).
+    try:
+        import sacrebleu
+
+        bleu = sacrebleu.corpus_bleu([generated], [[gold]])
+        # Normalize to [0, 1] then map to [-1, 1]
+        return _to_symmetric(float(bleu.score / 100.0))
+    except Exception:
+        logger.warning("BLEU computation failed; returning -1.0", exc_info=True)
+        return -1.0
 
 
 # ---------------------------------------------------------------------------
@@ -1005,6 +1094,7 @@ def build_t2g_reward_functions(
     Supported weight keys:
 
     - ``weight_translation``: ROUGE-L similarity with gold gloss.
+    - ``weight_bleu``: BLEU-4 score via sacrebleu with gold gloss.
     - ``weight_structure``: Absolute bigram log-prob reward (no baseline).
     - ``weight_gold_structure``: Bigram score vs gold reference baseline
       **(recommended over weight_structure)**.
@@ -1051,6 +1141,12 @@ def build_t2g_reward_functions(
         funcs.append(
             _make_gloss_reward_fn(translation_quality_reward, needs_gold_gloss=True)
         )
+        weights.append(w)
+
+    # BLEU-4 reward (needs gold gloss)
+    w = reward_config.get("weight_bleu", 0.0)
+    if w > 0:
+        funcs.append(_make_gloss_reward_fn(bleu_reward, needs_gold_gloss=True))
         weights.append(w)
 
     # Structural dense reward (absolute bigram score — no baseline)

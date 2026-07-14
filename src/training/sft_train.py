@@ -17,6 +17,7 @@ import gc
 import logging
 import os
 import random
+import sys
 import warnings
 from pathlib import Path
 from typing import Any
@@ -390,6 +391,22 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
                 console_chunk_max_seconds=60,
             ),
         )
+
+    # ── Tee stdout → output.log (sync_cluster download) ─────────────────
+    _output_log_path = os.path.join(log_dir, "output.log")
+    _sys_stdout = sys.stdout
+    _output_log_fh = open(_output_log_path, "a", buffering=1)
+
+    class _Tee:
+        def write(self, data):
+            _sys_stdout.write(data)
+            _output_log_fh.write(data)
+
+        def flush(self):
+            _sys_stdout.flush()
+            _output_log_fh.flush()
+
+    sys.stdout = _Tee()
 
     # ── Step 5: Training ─────────────────────────────────────────────────
     logger.info("=" * 60)

@@ -55,7 +55,7 @@ def test_grammar_to_rewards_chain(dataset):
             assert isinstance(r, float), f"{fn.__name__} score is float"
 
     sd = structural_dense_reward("IX MAN WALK", normalize=True)
-    assert 0.0 <= sd <= 1.0, f"Structural dense in [0,1], got {sd:.4f}"
+    assert -1.0 <= sd <= 1.0, f"Structural dense in [-1,1], got {sd:.4f}"
 
 
 def test_rewards_to_metrics_chain(dataset):

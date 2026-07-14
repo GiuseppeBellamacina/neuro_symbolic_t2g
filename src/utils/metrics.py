@@ -237,6 +237,7 @@ def compute_reward_breakdown(
     from src.rewards.t2g_rewards import (
         _lookup_gold_gloss,
         _lookup_gold_gloss_by_id,
+        bleu_reward,
         gloss_format_reward,
         gloss_order_reward,
         gloss_repetition_reward,
@@ -260,6 +261,7 @@ def compute_reward_breakdown(
 
     sums = {
         "translation_quality_reward": 0.0,
+        "bleu_reward": 0.0,
         "structural_dense_reward": 0.0,
         "gold_structure_reward": 0.0,
         "viterbi_distance_reward": 0.0,
@@ -278,6 +280,8 @@ def compute_reward_breakdown(
             gold = _lookup_gold_gloss(prompts[i])
         if _is_active("translation_quality_reward"):
             sums["translation_quality_reward"] += translation_quality_reward(comp, gold)
+        if _is_active("bleu_reward"):
+            sums["bleu_reward"] += bleu_reward(comp, gold)
         if _is_active("structural_dense_reward"):
             sums["structural_dense_reward"] += structural_dense_reward(
                 comp, normalize=True
