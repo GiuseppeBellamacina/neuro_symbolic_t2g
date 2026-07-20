@@ -1,13 +1,19 @@
 # ============================================================================
-# OPTIMAL v2 Config — GRPO + Curriculum + Paper-Inspired Rewards
+# OPTIMAL v2.1 Config — GRPO + Curriculum + Paper-Inspired Rewards
 #
 # Novità rispetto alla v1:
 #   - Reward range [-1, 1] (symmetric) — gradiente più forte, meno reward hacking
 #   - BLEU-4 reward (T2G-Reasoner 2025) — complementare a ROUGE-L
 #   - Curriculum learning 3-stage (G²RPO-A 2026) — difficoltà progressiva
-#   - num_generations=16 — stima del vantaggio più stabile (GRPO standard per SLM)
+#   - num_generations=8 — stabile su GPU 22GB (G=16 causava OOM sul cluster)
 #   - beta=0 — DAPO-style (no KL penalty al reference, solo PPO clip)
-#   - temperature=0.9 — più esplorazione per G=16
+#   - temperature=0.9 — più esplorazione
+#   - gradient_checkpointing=true — risparmio VRAM nel backward (GRPOConfig)
+#
+# v2.1 (hotfix OOM): num_generations riportato a 8 (valore v1, provato sul
+#   cluster) + gradient_checkpointing abilitato esplicitamente in GRPOConfig.
+#   Tutte le altre migliorie v2 (curriculum, BLEU-4, beta=0, temp=0.9,
+#   reward simmetriche) sono mantenute.
 #
 # Combina:
 #   - SFT pre-training (Phase 0: impara il formato gloss)
@@ -100,6 +106,8 @@ sft_pretrain:
 # max_steps=2000 (più lungo del default 1500 per migliore convergenza)
 # learning_rate=3e-6 (leggermente più basso per stabilità con LoRA r=32)
 # max_grad_norm=0.05 (più stretto per stabilità GRPO)
+# gradient_checkpointing=true — riduce peak VRAM del backward pass, consente
+#   num_generations=8 con margine su GPU 22GB. Costo: ~20% più lento.
 training:
   max_steps: 2000
   per_device_train_batch_size: 1
@@ -111,6 +119,7 @@ training:
   weight_decay: 0.1
   max_grad_norm: 0.05
   bf16: true
+  gradient_checkpointing: true # OOM mitigation (forward activations recomputed in backward)
   logging_steps: 5
   save_steps: 100
   save_total_limit: 3
@@ -118,15 +127,17 @@ training:
   log_dir: "experiments/logs/qwen25-05b-optimal"
 
 # --- Parametri GRPO ---
-# num_generations=16 — standard per SLM <1B (GRPO implementations survey)
+# num_generations=8 — valore provato sul cluster (GPU 22GB). G=16 causava
+#   OOM: GRPO trattiene G completions in memoria attraverso generazione,
+#   recomputazione logprob e backward. Raddoppiare G raddoppia ~peak VRAM.
 # max_completion_length=128 — sufficiente per gloss ASL (~20-40 token)
 # beta=0 — DAPO-style: no KL penalty al reference model. Solo PPO clip per
 #   stabilità. Paper GRPO dynamics (ACL 2025) mostra che Mirror GRPO (KL a
 #   policy precedente, non a reference) garantisce miglioramento monotonico.
 #   Con beta=0 e clip=0.2, l'update è vincolato solo dal clipping ratio.
-# temperature=0.9 — più esplorazione per compensare G=16 e beta=0
+# temperature=0.9 — più esplorazione per compensare beta=0
 grpo:
-  num_generations: 16
+  num_generations: 8
   max_completion_length: 128
   max_prompt_length: 256
   beta: 0.0
@@ -223,7 +234,8 @@ wandb:
       "bleu-reward",
       "symmetric-reward",
       "beta-zero",
-      "G16",
+      "G8",
+      "grad-ckpt",
       "Qwen2.5-0.5B",
       "ASL",
     ]

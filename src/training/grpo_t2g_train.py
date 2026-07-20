@@ -157,6 +157,12 @@ def _build_grpo_config(
         weight_decay=training_cfg.get("weight_decay", 0.1),
         max_grad_norm=training_cfg.get("max_grad_norm", 0.1),
         bf16=training_cfg.get("bf16", True),
+        # Gradient checkpointing: recompute forward activations during backward
+        # to trade ~20% compute for substantial VRAM savings. Essential for
+        # num_generations=8 on 22GB GPUs (cluster). Reads from
+        # training.gradient_checkpointing in YAML; defaults to False to preserve
+        # behavior of other configs that don't set it.
+        gradient_checkpointing=training_cfg.get("gradient_checkpointing", False),
         logging_steps=training_cfg.get("logging_steps", 5),
         save_steps=training_cfg.get("save_steps", 100),
         save_total_limit=training_cfg.get("save_total_limit", 3),
