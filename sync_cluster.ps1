@@ -25,10 +25,18 @@ function Download-RemoteDir($remoteSubpath, $localDest) {
 function Upload {
     Write-Host "Uploading project to cluster..." -ForegroundColor Cyan
 
-    # Clean __pycache__ before upload
+    # Clean __pycache__ before upload — ONLY in directories that get uploaded.
+    # Do NOT recurse from $LOCAL root: that would traverse .venv/ (thousands
+    # of site-packages __pycache__ dirs, takes minutes and hangs).
     Write-Progress -Activity "Upload" -Status "Cleaning __pycache__..." -PercentComplete 0
-    Get-ChildItem -Path $LOCAL -Directory -Recurse -Filter "__pycache__" |
-        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    $uploadDirs = @("src", "cluster", "experiments/configs", "tests", "grammarllm")
+    foreach ($dir in $uploadDirs) {
+        $dirPath = Join-Path $LOCAL $dir
+        if (Test-Path $dirPath) {
+            Get-ChildItem -Path $dirPath -Directory -Recurse -Filter "__pycache__" -ErrorAction SilentlyContinue |
+                Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 
     # Ensure remote directory structure exists
     Write-Progress -Activity "Upload" -Status "Creating remote directories..." -PercentComplete 2
