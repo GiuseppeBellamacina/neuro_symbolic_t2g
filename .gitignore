@@ -37,3 +37,18 @@ experiments/results/
 
 # Unsloth compiled cache (auto-generated, must be cleared after version changes)
 unsloth_compiled_cache/
+
+# grammarllm: old vendored copy (replaced by v0.5.0 — kept locally as backup
+# but not tracked in git to avoid confusion with the active grammarllm/)
+grammarllm_old/
+
+# grammarllm: generated parsing tables and debug logs (created at runtime by
+# parsing_table() and setup_logging())
+grammarllm/temp/
+
+# grammarllm: test artifacts (conftest fixtures not included, tests run from
+# the original repo root)
+grammarllm/tests/__pycache__/
+
+# Backup configs (replaced by active versions — kept locally for reference)
+experiments/configs/t2g/grpo_optimal_old.yaml

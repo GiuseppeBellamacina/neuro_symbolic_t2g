@@ -633,16 +633,27 @@ def main() -> None:
 
         if use_pda:
             print("  Using FULL grammarllm PDA pipeline for constrained decoding")
-            logit_processor, streamer, pda = create_grammarllm_pipeline(
+            # grammarllm v0.5.0: create_grammarllm_pipeline returns
+            # (pdas: list[PushdownAutomaton], streamer, pda) — the first
+            # element is now a list of base PDA templates, not a logit_processor.
+            # token_lookahead=True (default) enables native BPE token emission
+            # across grammar boundaries — a key v0.5.0 improvement.
+            grammar_cfg = config.get("grammar", {})
+            pdas, streamer, pda = create_grammarllm_pipeline(
                 vocab,
                 tokenizer,
                 temperature=grpo_cfg.get("temperature", 0.7),
+                num_return_sequences=1,  # GRPO: 1 sequence per prompt during rollouts
+                token_lookahead=grammar_cfg.get("token_lookahead", True),
             )
-            # Wrap in GrammarPDALogitsProcessor for consistent interface
+            # Pass the full pdas list (not just pda=pdas[0]) and
+            # track_score_history from config so the StatelessLogitsProcessor
+            # can optionally accumulate logit history for debugging.
             grammar_lp = GrammarPDALogitsProcessor(
                 tokenizer,
-                pda,
+                pdas,
                 temperature=grpo_cfg.get("temperature", 0.7),
+                track_score_history=grammar_cfg.get("track_score_history", False),
             )
             logits_processor_for_gen = grammar_lp
             print("  GrammarLLM PDA pipeline ready")

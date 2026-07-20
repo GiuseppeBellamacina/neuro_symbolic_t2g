@@ -377,6 +377,11 @@ monitor() {
     cd "$PROJ_DIR" && python3 -u -m src.utils.chain_monitor "$@"
 }
 
+# Genera tabella + grafico cross-config dopo l'ablation (uso: ablation-summary)
+ablation-summary() {
+    cd "$PROJ_DIR" && python3 -u -m src.utils.ablation_summary "$@"
+}
+
 # ── Pip / Environment ────────────────────────────────────────────────────────
 
 # Pulisci tutti i pacchetti --user
@@ -401,7 +406,7 @@ pip-reset() {
 
 # ── Meta ─────────────────────────────────────────────────────────────────────
 
-_DIEGO_ALIASES="myjobs jobinfo killjob killalljobs trainlog evallog lastlog tree gpu quota proj ckpts train run-eval run-all watcher-status watcher-kill clean clean-model chain-add chain-remove chain-stop chain-start chain-show monitor pip-clean pip-setup pip-reset unload-aliases install-aliases uninstall-aliases"
+_DIEGO_ALIASES="myjobs jobinfo killjob killalljobs trainlog evallog lastlog tree gpu quota proj ckpts train run-eval run-all watcher-status watcher-kill clean clean-model chain-add chain-remove chain-stop chain-start chain-show monitor ablation-summary pip-clean pip-setup pip-reset unload-aliases install-aliases uninstall-aliases"
 
 # Mostra i comandi disponibili
 diego() {
@@ -423,8 +428,22 @@ diego() {
     echo "                     — lancia training (default: experiments/configs/t2g/grpo_qwen05.yaml)"
     echo "   run-eval [--config PATH] [--checkpoint PATH]"
     echo "                     — lancia evaluation"
-    echo "   run-all [--resume]"
+    echo "   run-all [config_name] [--ablation|--train-only|--eval-only|--resume]"
     echo "                     — lancia pipeline train+eval"
+    echo ""
+    echo "   Config disponibili (passa il nome senza .yaml):"
+    echo "     grpo_optimal            GRPO v2.1 (default, post-OOM-fix)"
+    echo "     grpo_qwen05             GRPO base"
+    echo "     sft                     SFT baseline"
+    echo "     grpo_experimental_all   GRPO + all 9 reward modules"
+    echo "     grpo_pda                Ablation: GRPO + PDA"
+    echo "     grpo_pda_lookahead      Ablation: GRPO + PDA + token-boundary lookahead (v0.5.0)"
+    echo "     grpo_no_grammar         Ablation: GRPO senza grammar"
+    echo "     grpo_no_sft             Ablation: GRPO senza SFT"
+    echo "     grpo_soft_viterbi       Ablation: GRPO + Soft Viterbi"
+    echo "     grpo_verifier_scaled    Ablation: GRPO + Verifier-Scaled"
+    echo "     zero_shot               Ablation: zero-shot"
+    echo "     zero_shot_grammar       Ablation: zero-shot + grammar"
     echo ""
     echo "── Pipeline ──"
     echo "   chain-show   — mostra stato pipeline + job in coda"
@@ -439,6 +458,7 @@ diego() {
     echo "── Monitor ──"
     echo "   monitor [--poll N] [--tab] [--samples [N]] [--metrics] [--all [N]]"
     echo "                    — monitor live della pipeline"
+    echo "   ablation-summary  — genera tabella + grafico cross-config dopo l'ablation"
     echo ""
     echo "── Utilità ──"
     echo "   proj         — cd al progetto"

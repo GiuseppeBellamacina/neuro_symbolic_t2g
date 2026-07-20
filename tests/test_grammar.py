@@ -102,7 +102,12 @@ def test_decode_to_glosses(tokenizer):
 
 
 def test_grammar_build(tokenizer):
-    """Build LL(1) grammar and PDA via create_grammarllm_pipeline."""
+    """Build LL(1) grammar and PDA via create_grammarllm_pipeline.
+
+    grammarllm v0.5.0 migration: ``create_grammarllm_pipeline`` now returns
+    ``(pdas, streamer, pda)`` where ``pdas`` is a list of base PDA templates
+    (was ``(logit_processor, streamer, pda)`` in v0.4.x).
+    """
     from src.grammar.gloss_grammar import create_grammarllm_pipeline
 
     test_vocab = [
@@ -117,10 +122,12 @@ def test_grammar_build(tokenizer):
         "DOG",
         "CAT",
     ]
-    logit_processor, streamer, pda = create_grammarllm_pipeline(test_vocab, tokenizer)
+    pdas, streamer, pda = create_grammarllm_pipeline(test_vocab, tokenizer)
 
     assert pda is not None, "PDA created"
-    assert logit_processor is not None, "LogitsProcessor created"
+    assert isinstance(pdas, list), f"pdas is a list, got {type(pdas)}"
+    assert len(pdas) > 0, "pdas list non-empty"
+    assert pdas[0] is pda, "pda is pdas[0] (primary PDA)"
     assert streamer is not None, "Streamer created"
 
 

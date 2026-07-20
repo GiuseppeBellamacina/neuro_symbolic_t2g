@@ -78,6 +78,7 @@ training:
   weight_decay: 0.1
   max_grad_norm: 0.1
   bf16: true
+  gradient_checkpointing: true # OOM mitigation
   logging_steps: 5
   save_steps: 100
   save_total_limit: 3
@@ -122,6 +123,8 @@ reward:
 grammar:
   enabled: true
   use_grammarllm_pda: false
+  token_lookahead: false      # grammarllm v0.5.0: native BPE token emission (only with use_grammarllm_pda: true)
+  track_score_history: false  # grammarllm v0.5.0: accumulate per-step logit history for debug (memory cost)
   # Viterbi diversity penalty params (for viterbi_distance_reward)
   viterbi_diversity:
     self_loop_penalty: 0.5

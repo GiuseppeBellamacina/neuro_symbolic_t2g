@@ -27,12 +27,15 @@
 #   1. Base Model Zero-shot (senza grammar)              [eval only]
 #   2. Base Model + GRAMMAR-LLM (con grammar, no training) [eval only]
 #   3. GRPO senza grammar (train + eval)
-#   4. GRPO + GRAMMAR-LLM (train + eval — metodo base)
-#   5. SFT (train + eval — baseline supervisionata)
-#   6. GRPO + GrammarLLM PDA (train + eval — LL(1) constrained)
-#   7. GRPO + Soft Viterbi (train + eval — DVL differentiable)
-#   8. GRPO + Verifier-Scaled (train + eval — RECIPE-inspired)
-#   9. GRPO + Optimal (train + eval — tutti i moduli combinati)
+#   4. GRPO senza SFT pre-training (train + eval)
+#   5. GRPO + GRAMMAR-LLM (train + eval — metodo base)
+#   6. SFT (train + eval — baseline supervisionata)
+#   7. GRPO + GrammarLLM PDA (train + eval — LL(1) constrained)
+#   8. GRPO + PDA + Token-Boundary Lookahead (train + eval — grammarllm v0.5.0)
+#   9. GRPO + Soft Viterbi (train + eval — DVL differentiable)
+#  10. GRPO + Verifier-Scaled (train + eval — RECIPE-inspired)
+#  11. GRPO + Experimental All Modules (train + eval — tutti i 9 moduli)
+#  12. GRPO + Optimal (train + eval — config ottimale v2.1)
 #
 # Monitorare:
 #   tail -f logs/chain_watcher.log           # log del watcher
@@ -68,7 +71,7 @@ for arg in "$@"; do
             echo "Opzioni:"
             echo "  (nessun argomento)  Default: grpo_optimal (train + eval)"
             echo "  config_name         Nome del config senza .yaml (es. grpo_qwen05)"
-            echo "  --ablation          Ablation study completo (9 varianti)"
+            echo "  --ablation          Ablation study completo (12 varianti)"
             echo "  --eval-only         Solo evaluation (skip training)"
             echo "  --train-only        Solo training (skip eval)"
             echo "  --resume            Riprendi pipeline da dove si era fermata"
@@ -76,21 +79,23 @@ for arg in "$@"; do
             echo "  --remove            Rimuovi job dalla pipeline attiva"
             echo ""
             echo "Config disponibili (passa il nome senza .yaml):"
-            echo "  grpo_optimal        GRPO + tutti i moduli (default)"
-            echo "  grpo_qwen05         GRPO + grammar (config base)"
-            echo "  sft                 SFT supervised baseline"
-            echo "  grpo_no_grammar     Ablation: GRPO senza grammar"
-            echo "  grpo_no_sft         Ablation: GRPO senza SFT pre-training"
-            echo "  grpo_pda            Ablation: GRPO + PDA"
-            echo "  grpo_soft_viterbi   Ablation: GRPO + Soft Viterbi"
-            echo "  grpo_verifier_scaled Ablation: GRPO + Verifier-Scaled"
-            echo "  zero_shot           Ablation: zero-shot senza grammar"
-            echo "  zero_shot_grammar   Ablation: zero-shot con grammar"
+            echo "  grpo_optimal           GRPO + tutti i moduli v2.1 (default, post-OOM-fix)"
+            echo "  grpo_qwen05            GRPO + grammar (config base)"
+            echo "  sft                    SFT supervised baseline"
+            echo "  grpo_experimental_all  GRPO + tutti i 9 moduli reward (experimental)"
+            echo "  grpo_no_grammar        Ablation: GRPO senza grammar"
+            echo "  grpo_no_sft            Ablation: GRPO senza SFT pre-training"
+            echo "  grpo_pda               Ablation: GRPO + PDA (LL(1) baseline)"
+            echo "  grpo_pda_lookahead     Ablation: GRPO + PDA + token-boundary lookahead (v0.5.0)"
+            echo "  grpo_soft_viterbi      Ablation: GRPO + Soft Viterbi"
+            echo "  grpo_verifier_scaled   Ablation: GRPO + Verifier-Scaled"
+            echo "  zero_shot              Ablation: zero-shot senza grammar"
+            echo "  zero_shot_grammar      Ablation: zero-shot con grammar"
             echo ""
             echo "Esempi:"
             echo "  bash cluster/run_all.sh grpo_qwen05              # train + eval con config base"
             echo "  bash cluster/run_all.sh grpo_qwen05 --train-only  # solo training"
-            echo "  bash cluster/run_all.sh --ablation               # tutti i 9 config"
+            echo "  bash cluster/run_all.sh --ablation               # tutti i 12 config"
             exit 0
             ;;
         -*)  # ignora flag non riconosciuti
@@ -117,8 +122,10 @@ if [ "$ABLATION" -eq 1 ]; then
         "grpo-grammar:experiments/configs/t2g/grpo_qwen05.yaml:te"
         "sft:experiments/configs/t2g/sft.yaml:te"
         "grpo-pda:experiments/configs/t2g/ablation/grpo_pda.yaml:te"
+        "grpo-pda-lookahead:experiments/configs/t2g/ablation/grpo_pda_lookahead.yaml:te"
         "grpo-soft-viterbi:experiments/configs/t2g/ablation/grpo_soft_viterbi.yaml:te"
         "grpo-verifier:experiments/configs/t2g/ablation/grpo_verifier_scaled.yaml:te"
+        "grpo-experimental-all:experiments/configs/t2g/grpo_experimental_all.yaml:te"
         "grpo-optimal:experiments/configs/t2g/grpo_optimal.yaml:te"
     )
 elif [ -n "$CONFIG_NAME" ]; then

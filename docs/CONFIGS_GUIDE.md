@@ -17,10 +17,11 @@ Questa guida spiega le differenze tra i 9 config YAML disponibili in
 | 4   | `ablation/grpo_no_grammar.yaml`      | GRPO      |      ❌       |     ❌      | translation + gold_structure + format + repetition                                 |    1.00    |
 | 5   | `ablation/grpo_no_sft.yaml`          | GRPO      |      ❌       |    Trie     | translation + gold_structure + gloss_order + verifier_scaled + format + repetition |    1.00    |
 | 6   | `ablation/grpo_pda.yaml`             | GRPO      |      ❌       |     PDA     | translation + gold_structure + format + repetition                                 |    1.00    |
-| 7   | `ablation/grpo_soft_viterbi.yaml`    | GRPO      |      ✅       |    Trie     | translation + soft_viterbi + gloss_order + format + repetition                     |    1.00    |
-| 8   | `ablation/grpo_verifier_scaled.yaml` | GRPO      |      ✅       |    Trie     | verifier_scaled + gloss_order + format + repetition                                |    1.00    |
-| 9   | `ablation/zero_shot.yaml`            | Eval-only |      ❌       |     ❌      | translation (1.0)                                                                  |    1.00    |
-| 10  | `ablation/zero_shot_grammar.yaml`    | Eval-only |      ❌       |    Trie     | translation (1.0)                                                                  |    1.00    |
+| 7   | `ablation/grpo_pda_lookahead.yaml`   | GRPO      |      ✅       | PDA+lookahead | translation + bleu + gold_structure + gloss_order + verifier_scaled + format + repetition | 1.00 |
+| 8   | `ablation/grpo_soft_viterbi.yaml`    | GRPO      |      ✅       |    Trie     | translation + soft_viterbi + gloss_order + format + repetition                     |    1.00    |
+| 9   | `ablation/grpo_verifier_scaled.yaml` | GRPO      |      ✅       |    Trie     | verifier_scaled + gloss_order + format + repetition                                |    1.00    |
+| 10  | `ablation/zero_shot.yaml`            | Eval-only |      ❌       |     ❌      | translation (1.0)                                                                  |    1.00    |
+| 11  | `ablation/zero_shot_grammar.yaml`    | Eval-only |      ❌       |    Trie     | translation (1.0)                                                                  |    1.00    |
 
 ---
 
@@ -97,6 +98,30 @@ garbage tokens. Confrontare con `grpo_qwen05.yaml`.
 
 **Scopo**: confrontare Trie dual-root (veloce) vs PDA LL(1) (più espressivo
 ma più lento). Confrontare con `grpo_qwen05.yaml`.
+
+#### `ablation/grpo_pda_lookahead.yaml` — GRPO + PDA + Token-Boundary Lookahead ⭐ (grammarllm v0.5.0)
+
+Nuovo config che sfrutta le capacità di **grammarllm v0.5.0** non disponibili
+nella vecchia versione vendored:
+
+- **`use_grammarllm_pda: true`** (PDA completo invece del Trie dual-root)
+- **`token_lookahead: true`** (NUOVO) — il modello può emettere **token BPE
+  nativi** che attraversano i boundary grammaticali. Qwen2.5 usa BPE subword
+  tokenization: senza lookahead, il Trie forza emissioni single-BPE-token,
+  frammentando gloss come `"DESC-NUMEROUS"` in `["DESC", "-", "NUMEROUS"]`.
+  Con lookahead, il modello può emettere `["DESC-NUMEROUS"]` come singolo
+  BPE token, allineandosi alla tokenizzazione di pre-training.
+- **`StatelessLogitsProcessor`** — cache LRU + re-simulation (beam-search safe)
+- **`track_score_history: false`** (configurable) — opzionale per debug
+- Allineato a `grpo_optimal.yaml` per tutti gli altri parametri (G=8,
+  curriculum, BLEU reward, beta=0, gradient_checkpointing)
+
+**Differenze da `grpo_optimal.yaml`**: `use_grammarllm_pda: false → true`,
+`token_lookahead: true` (nuovo).
+
+**Scopo**: misurare il delta del token-boundary lookahead sulla qualità delle
+glosse generate. Confrontare con `grpo_optimal.yaml` (Trie) e
+`ablation/grpo_pda.yaml` (PDA senza lookahead/curriculum/SFT).
 
 #### `ablation/grpo_no_sft.yaml` — GRPO senza SFT Pre-training
 

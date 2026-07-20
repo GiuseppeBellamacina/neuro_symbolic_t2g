@@ -243,11 +243,10 @@ while true; do
                 is_cuda_transient_failure "$LAST_JOB_ID" "$EXIT_CODE" "$STATE" "$FINAL_TAG" 2>/dev/null && _ERR_TYPE="CUDA_ERROR"
                 log_job_error "$LAST_JOB_ID" "$FINAL_TYPE" "$FINAL_CFG" "$FINAL_TAG" "$STATE" "$EXIT_CODE" "$_ERR_TYPE" "0" "false"
 
-                echo "[chain] ❌ Ultimo job $LAST_JOB_ID ($LAST_JOB_DESC) FALLITO (state=$STATE exit=$EXIT_CODE) — $(date)"
-                echo "${LAST_JOB_DESC}" > "$FAILED_FILE"
-                echo "[chain] Pipeline interrotta. Usa: bash cluster/run_all.sh --resume"
+                echo "[chain] ⚠️  Ultimo job $LAST_JOB_ID ($LAST_JOB_DESC) FALLITO (state=$STATE exit=$EXIT_CODE) — pipeline completata con errori — $(date)"
+                echo "[chain] Vedi .chain_state/chain_errors per i dettagli dei fallimenti"
                 rm -f "$CHAIN_PID_FILE"
-                exit 1
+                exit 0
             fi
         fi
         echo "[chain] ✅ Pipeline completata! — $(date)"
@@ -354,6 +353,7 @@ while true; do
             is_cuda_transient_failure "$LAST_JOB_ID" "$EXIT_CODE" "$STATE" "$FAILED_TAG" 2>/dev/null && _ERR_TYPE="CUDA_ERROR"
             log_job_error "$LAST_JOB_ID" "$FAILED_TYPE" "$FAILED_CFG" "$FAILED_TAG" "$STATE" "$EXIT_CODE" "$_ERR_TYPE" "0" "false"
 
+            # If train failed, remove the matching eval from the chain
             if [ "$FAILED_TYPE" = "train" ] && [ -f "$CHAIN_FILE" ] && [ -s "$CHAIN_FILE" ]; then
                 NEXT_IN_CHAIN=$(head -1 "$CHAIN_FILE")
                 NEXT_TYPE=$(echo "$NEXT_IN_CHAIN" | cut -d: -f1)
@@ -365,12 +365,15 @@ while true; do
                 fi
             fi
 
-            echo "${LAST_JOB_DESC}" > "$FAILED_FILE"
+            # Don't stop the pipeline on non-retryable failure — the failure
+            # is already logged in chain_errors (JSONL, line 355 above) for
+            # post-hoc analysis. Continue with the next config in the chain.
+            # This allows the ablation study to complete even if one config
+            # fails (e.g., grammar bug, config error, Python exception).
             REMAINING=$([ -f "$CHAIN_FILE" ] && wc -l < "$CHAIN_FILE" || echo 0)
-            echo "[chain] Pipeline interrotta. Rimanenti: $REMAINING job"
-            echo "[chain] Per riprendere: bash cluster/run_all.sh --resume"
-            rm -f "$CHAIN_PID_FILE"
-            exit 1
+            echo "[chain] ⏭  Job $LAST_JOB_ID ($FAILED_TAG) fallito ($STATE) — logged in chain_errors — continuo con i restanti $REMAINING job — $(date)"
+            LAST_JOB_ID=""
+            continue
         fi
         echo "[chain] ✓ Job $LAST_JOB_ID ($LAST_JOB_DESC) completato — state=$STATE — $(date)"
 

@@ -21,7 +21,7 @@ from grammarllm import (
     get_parsing_table_and_map_tt,
     setup_logging,
 )
-from grammarllm.modules.PushdownAutomaton import PushdownAutomaton
+from grammarllm.modules.automaton import PushdownAutomaton
 
 logger = logging.getLogger(__name__)
 
@@ -97,38 +97,62 @@ def create_grammarllm_pipeline(
     tokenizer: Any,
     temperature: float = 1.0,
     enable_logging: bool = False,
-) -> tuple[Any, Any, PushdownAutomaton]:
+    num_return_sequences: int = 1,
+    token_lookahead: bool = True,
+) -> tuple[list, Any, PushdownAutomaton]:
     """*EXPERIMENTAL* — Build a complete grammarllm pipeline.
 
     This is the **full neuro-symbolic path**: grammar → LL(1) parsing table
-    → Pushdown Automaton → LogitsProcessor + Streamer.
+    → Pushdown Automaton → (base PDAs + Streamer).
 
     .. warning::
-       This path is experimental and untested in production.
-       The default training path uses ``GlossVocabularyMask`` instead
-       (lightweight vocabulary restriction, no full PDA overhead).
+        This path is experimental. The default training path uses
+        ``GlossVocabularyMask`` instead (lightweight vocabulary restriction,
+        no full PDA overhead). The returned ``pdas`` list and ``streamer``
+        are intended for use with ``GrammarPDALogitsProcessor`` (see
+        ``grammar_logits_processor.py``), which instantiates a
+        ``StatelessLogitsProcessor`` internally.
+
+    .. note::
+        Migration to grammarllm v0.5.0: ``generate_grammar_parameters`` now
+        returns ``(list[PushdownAutomaton], BaseStreamer)`` instead of
+        ``(MaskLogitsProcessor, BaseStreamer)``. The PDA is ``pdas[0]``.
+        Temperature is no longer set on a processor object — it is passed
+        to ``StatelessLogitsProcessor`` at construction time (though the
+        new processor ignores it; temperature is handled by HF
+        ``generate()``).
 
     Args:
         vocab: Sorted gloss vocabulary.
         tokenizer: Hugging Face tokenizer.
-        temperature: Temperature for the logits processor (default 1.0).
+        temperature: Temperature (kept for API compat; the new
+            ``StatelessLogitsProcessor`` does not apply it — HF
+            ``generate()`` does).
         enable_logging: If ``True``, enable grammarllm debug logging.
+        num_return_sequences: Number of independent base PDA templates to
+            create. For batched eval with ``batch_size=N``, pass
+            ``num_return_sequences=N`` so each prompt gets its own PDA
+            template (the ``GrammarPDALogitsProcessor`` will also auto-expand
+            if fewer are provided). Default 1 (single-prompt training).
+        token_lookahead: If ``True`` (default), enable the token-boundary
+            lookahead engine — allows the model to emit native BPE merged
+            tokens that span grammar terminal boundaries (e.g. Qwen can
+            emit ``"IX-me"`` as one BPE token instead of ``["IX", "-me"]``).
+            Set ``False`` for the legacy boundary-strict engine (A/B baseline).
 
     Returns:
-        A tuple ``(logit_processor, streamer, pda)`` where:
-            - ``logit_processor`` is a ``MaskLogitsProcessor`` instance
+        A tuple ``(pdas, streamer, pda)`` where:
+            - ``pdas`` is a ``list[PushdownAutomaton]`` (base templates)
             - ``streamer`` is a ``BaseStreamer`` instance
-            - ``pda`` is the ``PushdownAutomaton`` instance
+            - ``pda`` is ``pdas[0]`` (the primary PDA, for convenience)
 
     Example::
 
         >>> from transformers import AutoTokenizer
         >>> tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct")
         >>> vocab = ["<BOS>", "<EOS>", "<UNK>", "IX", "MAN", "WALK"]
-        >>> lp, streamer, pda = create_grammarllm_pipeline(vocab, tokenizer)
-        >>> output = model.generate(
-        ...     logits_processor=[lp], streamer=streamer, ...
-        ... )
+        >>> pdas, streamer, pda = create_grammarllm_pipeline(vocab, tokenizer)
+        >>> # Use with GrammarPDALogitsProcessor(tokenizer, pdas)
     """
     if enable_logging:
         setup_logging()
@@ -142,25 +166,37 @@ def create_grammarllm_pipeline(
         productions=grammar,
     )
 
-    # Create PDA + LogitsProcessor + Streamer
-    logit_processor, streamer = generate_grammar_parameters(
-        tokenizer, pars_table, map_terminal_tokens
+    # Create base PDAs + Streamer.
+    # In grammarllm v0.5.0, generate_grammar_parameters returns
+    # (list[PushdownAutomaton], BaseStreamer) — NOT (logit_processor, streamer).
+    # The PDA list holds independent templates (one per num_return_sequences,
+    # default 1). StatelessLogitsProcessor clones them per beam/step.
+    pdas, streamer = generate_grammar_parameters(
+        tokenizer,
+        pars_table,
+        map_terminal_tokens,
+        num_return_sequences=num_return_sequences,
+        token_lookahead=token_lookahead,
     )
 
-    # The PDA is already created inside generate_grammar_parameters
-    # and stored as an attribute on the logit_processor.
-    pda: PushdownAutomaton = logit_processor.pda
+    # Primary PDA for convenience (compat with old callers that expect a pda)
+    pda: PushdownAutomaton = pdas[0]
 
-    # Set temperature
-    logit_processor.temperature = temperature
+    # Note: temperature is no longer set on a processor here — it is passed
+    # to StatelessLogitsProcessor (which ignores it; HF generate() applies it).
+    # Kept as a no-op for API compatibility with old callers.
+    _ = temperature
 
     logger.info(
-        "GrammarLLM pipeline ready: %d gloss tokens, PDA stack=%s",
+        "GrammarLLM pipeline ready: %d gloss tokens, PDA stack=%s, "
+        "num_base_pdas=%d, lookahead=%s",
         len(vocab),
         pda.stack,
+        len(pdas),
+        token_lookahead,
     )
 
-    return logit_processor, streamer, pda
+    return pdas, streamer, pda
 
 
 # ---------------------------------------------------------------------------

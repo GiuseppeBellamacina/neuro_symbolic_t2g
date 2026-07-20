@@ -28,6 +28,8 @@ grpo:
 
 grammar:
   enabled: false
+  token_lookahead: false      # grammarllm v0.5.0: native BPE token emission (only with use_grammarllm_pda: true)
+  track_score_history: false  # grammarllm v0.5.0: accumulate per-step logit history for debug (memory cost)
   # Viterbi diversity params (eval-only, for viterbi_distance_reward)
   viterbi_diversity:
     self_loop_penalty: 0.5

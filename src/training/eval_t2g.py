@@ -275,17 +275,29 @@ def evaluate_checkpoint(
             from src.grammar.gloss_grammar import create_grammarllm_pipeline
 
             logger.info("Using GrammarLLM PDA for constrained decoding (eval)")
-            _, _, pda = create_grammarllm_pipeline(
+            # grammarllm v0.5.0: create_grammarllm_pipeline returns
+            # (pdas: list[PushdownAutomaton], streamer, pda) — first element
+            # is now a list of base PDA templates, not a logit_processor.
+            # Pass num_return_sequences=batch_size so each prompt in the
+            # batch gets its own PDA template (GrammarPDALogitsProcessor also
+            # auto-expands if fewer are provided).
+            grammar_cfg = config.get("grammar", {})
+            eval_cfg = config.get("evaluation", {})
+            eval_batch_size = eval_cfg.get("batch_size", 8)
+            pdas, streamer, pda = create_grammarllm_pipeline(
                 vocab,
                 tokenizer,
                 temperature=gen_cfg.get("temperature", 0.7),
+                num_return_sequences=eval_batch_size,
+                token_lookahead=grammar_cfg.get("token_lookahead", True),
             )
             logits_processor = GrammarPDALogitsProcessor(
                 tokenizer,
-                pda,
+                pdas,
                 temperature=float(
                     config.get("grammar", {}).get("pda_temperature", 1.0)
                 ),
+                track_score_history=grammar_cfg.get("track_score_history", False),
             )
         else:
             gloss_mask = GlossVocabularyMask(vocab, tokenizer)

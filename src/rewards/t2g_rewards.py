@@ -978,14 +978,102 @@ def gloss_repetition_reward(completion: str) -> float:
 # ---------------------------------------------------------------------------
 
 #: Module-level cache for sacrebleu availability check.
+#  None  = not yet checked
+#  True  = sacrebleu imported successfully
+#  False = import failed (do NOT retry — see _get_sacrebleu_metric which
+#          raises ImportError loudly instead of silently caching -1.0)
 _SACREBLEU_AVAILABLE: bool | None = None
+
+#: Reusable BLEU metric instance (configured once at first use).
+#  effective_order=True lets BLEU score sequences shorter than 4 tokens
+#  (BLEU-4 normally requires 4-grams → returns 0 → maps to -1.0 for every
+#  short sequence, killing the gradient signal on common short glosses).
+#  smooth_method="floor" prevents the geometric mean from collapsing to
+#  exactly 0 when one n-gram order has zero matches, giving a smoother
+#  gradient for near-miss completions.
+_SACREBLEU_METRIC: Any = None
+
+
+def _check_sacrebleu_available() -> None:
+    """Verify sacrebleu is importable; raise ImportError with actionable message.
+
+    Called eagerly from ``build_t2g_reward_functions`` when
+    ``weight_bleu > 0`` so a missing dependency crashes training at config
+    time — before any reward is computed — with a clear message, rather than
+    silently returning -1.0 for every sample during the entire run (which
+    previously left 20% of the reward signal dead with no visible warning
+    in output.log, since the logger.warning went to stderr, not the tee'd
+    stdout).
+
+    Raises:
+        ImportError: If sacrebleu is not installed.
+    """
+    try:
+        import sacrebleu  # noqa: F401
+    except ImportError as e:
+        raise ImportError(
+            "sacrebleu is not installed but weight_bleu > 0 in the config. "
+            "BLEU reward requires sacrebleu. Install it with: pip install sacrebleu "
+            "(or uv pip install sacrebleu). On the cluster, ensure the Apptainer "
+            "image includes it — see cluster/setup.sh (pip install --user -e . "
+            "from pyproject.toml which declares sacrebleu>=2.0.0)."
+        ) from e
+
+
+def _get_sacrebleu_metric() -> Any:
+    """Lazily import sacrebleu and build a reusable BLEU metric.
+
+    Called on the first ``bleu_reward`` invocation.  Should never raise
+    ImportError in practice because ``_check_sacrebleu_available`` is
+    called eagerly at config time when ``weight_bleu > 0``.
+
+    Returns:
+        A configured ``sacrebleu.BLEU`` instance.
+
+    Raises:
+        ImportError: If sacrebleu is not installed (caller bypassed init check).
+    """
+    global _SACREBLEU_AVAILABLE, _SACREBLEU_METRIC
+
+    if _SACREBLEU_METRIC is not None:
+        return _SACREBLEU_METRIC
+
+    try:
+        import sacrebleu
+    except ImportError as e:
+        _SACREBLEU_AVAILABLE = False
+        raise ImportError(
+            "sacrebleu is not installed but weight_bleu > 0 in the config. "
+            "BLEU reward requires sacrebleu. Install it with: pip install sacrebleu "
+            "(or uv pip install sacrebleu). On the cluster, ensure the Apptainer "
+            "image includes it — see cluster/setup.sh (pip install --user -e . "
+            "from pyproject.toml which declares sacrebleu>=2.0.0)."
+        ) from e
+
+    _SACREBLEU_AVAILABLE = True
+    _SACREBLEU_METRIC = sacrebleu.BLEU(
+        effective_order=True,
+        smooth_method="floor",
+        smooth_value=0.1,
+    )
+    return _SACREBLEU_METRIC
 
 
 def bleu_reward(completion: str, gold_gloss: str) -> float:
-    """BLEU-4 reward using sacrebleu corpus/sentence BLEU.
+    """BLEU-4 reward using sacrebleu sentence BLEU.
 
     T2G-Reasoner (2025) shows BLEU-4 outperforms ROUGE-L as a reward
     signal for T2G GRPO training.
+
+    Uses ``effective_order=True`` so short gloss sequences (1–3 tokens,
+    common in ASL: ``"IX-1p"``, ``"WALK HOUSE"``) are scored against the
+    available n-gram orders instead of being forced to BLEU-4 (which
+    requires 4-grams and would return 0 → mapped to -1.0 for every short
+    sequence, killing the gradient signal).
+
+    A small ``floor`` smoothing (0.1) prevents the geometric mean from
+    collapsing to exactly 0 when one n-gram order has zero matches,
+    giving a smoother gradient for near-miss completions.
 
     Args:
         completion: Generated gloss sequence (model output).
@@ -995,35 +1083,25 @@ def bleu_reward(completion: str, gold_gloss: str) -> float:
         BLEU-4 score mapped to ``[-1, 1]`` (symmetric).
         ``-1`` = no overlap, ``1`` = perfect match.
     """
-    global _SACREBLEU_AVAILABLE
-
     generated = extract_gloss_text(completion)
     gold = gold_gloss.strip()
 
     if not generated or not gold:
         return -1.0
 
-    if _SACREBLEU_AVAILABLE is None:
-        try:
-            import sacrebleu  # noqa: F811
-
-            _SACREBLEU_AVAILABLE = True
-        except ImportError:
-            _SACREBLEU_AVAILABLE = False
-            logger.warning("sacrebleu not installed; BLEU reward returning -1.0")
-            return -1.0
-
-    if not _SACREBLEU_AVAILABLE:
-        return -1.0
-
-    # Compute BLEU-4 via corpus_bleu (handles single-reference gracefully).
-    # sacrebleu returns a BLEUScore object; extract the .score attribute (0-100).
     try:
-        import sacrebleu
-
-        bleu = sacrebleu.corpus_bleu([generated], [[gold]])
+        metric = _get_sacrebleu_metric()
+        # sentence_score returns BLEUScore with .score in [0, 100]
+        bleu_score = metric.sentence_score(generated, [gold]).score
         # Normalize to [0, 1] then map to [-1, 1]
-        return _to_symmetric(float(bleu.score / 100.0))
+        return _to_symmetric(float(bleu_score) / 100.0)
+    except ImportError:
+        # Should never reach here — _check_sacrebleu_available() is called
+        # eagerly in build_t2g_reward_functions() when weight_bleu > 0, so a
+        # missing sacrebleu crashes training at config time with a clear
+        # message BEFORE any reward is computed.  If we reach here, the caller
+        # bypassed the init check — re-raise to surface the misconfiguration.
+        raise
     except Exception:
         logger.warning("BLEU computation failed; returning -1.0", exc_info=True)
         return -1.0
@@ -1146,6 +1224,13 @@ def build_t2g_reward_functions(
     # BLEU-4 reward (needs gold gloss)
     w = reward_config.get("weight_bleu", 0.0)
     if w > 0:
+        # Eagerly verify sacrebleu is importable so a missing dependency
+        # crashes here (before training starts) with a clear message,
+        # rather than silently returning -1.0 for every sample during the
+        # entire run — which previously left 20% of the reward signal dead
+        # with no visible warning (the logger.warning went to stderr, not
+        # the tee'd output.log, so it was invisible on the cluster).
+        _check_sacrebleu_available()
         funcs.append(_make_gloss_reward_fn(bleu_reward, needs_gold_gloss=True))
         weights.append(w)
 

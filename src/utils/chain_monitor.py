@@ -343,47 +343,60 @@ def _extract_completion_samples(
     lines: list[str],
     max_lines: int = 0,
 ) -> list[str]:
-    """Extract a compact view of the last sample from the log."""
+    """Extract compact views of ALL samples from the LATEST completion block.
+
+    Previously this only extracted the FIRST sample, which meant the user
+    always saw Sample 1 even when Samples 2 and 3 had different outputs.
+    Now extracts all 3 samples from the last COMPLETION SAMPLES block.
+
+    Also handles the case where the log tail (3000 lines) contains multiple
+    blocks — it always takes the LAST (most recent) one.
+    """
+    # Find the LAST COMPLETION SAMPLES block in the tail
+    last_block_start = -1
+    for i, line in enumerate(lines):
+        if "COMPLETION SAMPLES" in line.strip():
+            last_block_start = i
+
+    if last_block_start < 0:
+        return []
+
+    # Extract the block from last_block_start to the next ═ separator
     block: list[str] = []
     in_block = False
-    for line in lines:
+    for line in lines[last_block_start:]:
         stripped = line.strip()
         if "COMPLETION SAMPLES" in stripped:
             in_block = True
-            block = []
             continue
         if in_block:
-            block.append(stripped)
             if stripped.startswith("\u2550" * 10) and len(block) > 3:
-                in_block = False
+                break
+            block.append(stripped)
 
     if not block:
         return []
 
-    prompt_text = ""
-    think_lines: list[str] = []
-    output_lines: list[str] = []
-    gold_lines: list[str] = []
-    rewards_line = ""
-    total_line = ""
-    difficulty = ""
+    # Parse ALL samples in the block (not just the first)
+    samples: list[dict] = []  # list of sample dicts
+    current: dict[str, Any] = {}
     section = ""
-    found_first = False
-    match_indicator = ""
+
     for line in block:
-        if line.startswith("Sample ") and found_first:
-            break
         if line.startswith("Sample "):
-            found_first = True
+            # Save previous sample if it has output
+            if current.get("output_lines") or current.get("rewards_line"):
+                samples.append(current)
+            current = {}
             dm = re.search(r"\[difficulty=(\w+)\]", line)
             if dm:
-                difficulty = dm.group(1)
+                current["difficulty"] = dm.group(1)
             mm = re.search(r"\[([✓✗])\]", line)
             if mm:
-                match_indicator = mm.group(1)
+                current["match_indicator"] = mm.group(1)
             continue
         if line.startswith("PROMPT:"):
-            prompt_text = line[len("PROMPT:") :].strip()
+            current["prompt_text"] = line[len("PROMPT:") :].strip()
             section = "prompt"
             continue
         if line == "THINK:":
@@ -396,97 +409,112 @@ def _extract_completion_samples(
             section = "gold"
             continue
         if line.startswith("REWARDS:"):
-            rewards_line = line
+            current["rewards_line"] = line
             section = "rewards"
             continue
         if line.startswith("TOTAL:"):
-            total_line = line
+            current["total_line"] = line
             section = ""
             continue
         if section == "rewards":
             if re.search(r"\w+=[\+\-]?\d+\.\d+", line):
-                rewards_line += "  " + line
+                current.setdefault("rewards_line", "")
+                current["rewards_line"] += "  " + line
                 continue
             section = ""
         if section == "prompt":
-            prompt_text += " " + line
+            current["prompt_text"] = current.get("prompt_text", "") + " " + line
         elif section == "think":
-            think_lines.append(line)
+            current.setdefault("think_lines", []).append(line)
         elif section == "output":
-            output_lines.append(line)
+            current.setdefault("output_lines", []).append(line)
         elif section == "gold":
-            gold_lines.append(line)
+            current.setdefault("gold_lines", []).append(line)
 
-    if not output_lines and not rewards_line:
+    # Don't forget the last sample
+    if current.get("output_lines") or current.get("rewards_line"):
+        samples.append(current)
+
+    if not samples:
         return []
 
+    # Format all samples (limit to last 3 to keep display compact)
+    result: list[str] = []
     diff_colors = {"simple": _GREEN, "medium": _YELLOW, "hard": _RED}
-    diff_color = diff_colors.get(difficulty, _DIM)
-    diff_badge = f" {diff_color}[{difficulty}]{_RST}" if difficulty else ""
-    match_badge = ""
-    if match_indicator == "✓":
-        match_badge = f" {_GREEN}[✓ match]{_RST}"
-    elif match_indicator == "✗":
-        match_badge = f" {_RED}[✗ mismatch]{_RST}"
 
-    result = [
-        f"{_DIM}─── Last completion{_RST}{diff_badge}{match_badge} {_DIM}───{_RST}"
-    ]
+    for idx, s in enumerate(samples[-3:]):
+        difficulty = s.get("difficulty", "")
+        match_indicator = s.get("match_indicator", "")
+        diff_color = diff_colors.get(difficulty, _DIM)
+        diff_badge = f" {diff_color}[{difficulty}]{_RST}" if difficulty else ""
+        match_badge = ""
+        if match_indicator == "✓":
+            match_badge = f" {_GREEN}[✓ match]{_RST}"
+        elif match_indicator == "✗":
+            match_badge = f" {_RED}[✗ mismatch]{_RST}"
 
-    if prompt_text:
-        result.append(f"  {_CYAN}PROMPT:{_RST} {prompt_text.strip()}")
+        result.append(
+            f"{_DIM}─── Sample {idx + 1}{diff_badge}{match_badge} {_DIM}───{_RST}"
+        )
 
-    if think_lines:
-        think_text = " ".join(tl.strip() for tl in think_lines).strip()
-        if max_lines > 0 and len(think_text) > 80:
-            think_text = think_text[:80] + "..."
-        result.append(f"  {_MAGENTA}<think>{_RST} {_MAGENTA}{think_text}{_RST}")
+        prompt_text = s.get("prompt_text", "")
+        if prompt_text:
+            result.append(f"  {_CYAN}PROMPT:{_RST} {prompt_text.strip()}")
 
-    if output_lines:
-        limit = max_lines if max_lines > 0 else len(output_lines)
-        display = output_lines[:limit]
-        if len(output_lines) > limit:
-            display.append("[...]")
-        for dl in display:
-            result.append(f"  {_DIM}{dl}{_RST}")
+        think_lines = s.get("think_lines", [])
+        if think_lines:
+            think_text = " ".join(tl.strip() for tl in think_lines).strip()
+            if max_lines > 0 and len(think_text) > 80:
+                think_text = think_text[:80] + "..."
+            result.append(f"  {_MAGENTA}Mi{_RST} {_MAGENTA}{think_text}{_RST}")
 
-    if gold_lines:
-        gold_text = " ".join(gl.strip() for gl in gold_lines).strip()
-        if max_lines > 0 and len(gold_text) > 80:
-            gold_text = gold_text[:80] + "..."
-        result.append(f"  {_YELLOW}✓ GOLD:{_RST} {_YELLOW}{gold_text}{_RST}")
+        output_lines = s.get("output_lines", [])
+        if output_lines:
+            limit = max_lines if max_lines > 0 else len(output_lines)
+            display = output_lines[:limit]
+            if len(output_lines) > limit:
+                display.append("[...]")
+            for dl in display:
+                result.append(f"  {_DIM}{dl}{_RST}")
 
-    if rewards_line:
-        parts = re.findall(r"(\w+)=([+-]?\d+\.\d+)", rewards_line)
-        if parts:
-            col_w = 17
-            colored_parts: list[str] = []
-            for name, val_str in parts:
-                v = float(val_str)
-                raw = f"{name}={val_str}"
-                pad = " " * max(0, col_w - len(raw))
-                if v > 0:
-                    colored_parts.append(f"{_GREEN}{raw}{_RST}{pad}")
-                elif v < 0:
-                    colored_parts.append(f"{_RED}{raw}{_RST}{pad}")
-                else:
-                    colored_parts.append(f"{_GRAY}{raw}{_RST}{pad}")
-            has_reasoning = any(n == "reasoning" for n, _ in parts)
-            split = 4 if has_reasoning else 3
-            row1 = colored_parts[:split]
-            row2 = colored_parts[split:]
-            result.append(f"  REWARDS: {''.join(row1)}")
-            if row2:
-                result.append(f"           {''.join(row2)}")
-        else:
-            result.append(f"  {_CYAN}{rewards_line}{_RST}")
+        gold_lines = s.get("gold_lines", [])
+        if gold_lines:
+            gold_text = " ".join(gl.strip() for gl in gold_lines).strip()
+            if max_lines > 0 and len(gold_text) > 80:
+                gold_text = gold_text[:80] + "..."
+            result.append(f"  {_YELLOW}✓ GOLD:{_RST} {_YELLOW}{gold_text}{_RST}")
 
-    if total_line:
-        tm = re.search(r"([+-]?\d+\.\d+)", total_line)
-        if tm:
-            tv = float(tm.group(1))
-            tc = _GREEN if tv > 0 else (_RED if tv < 0 else _GRAY)
-            result.append(f"  {tc}{total_line.strip()}{_RST}")
+        rewards_line = s.get("rewards_line", "")
+        if rewards_line:
+            # Tabulate rewards: one per line, aligned columns
+            parts = re.findall(r"(\w+)=([+-]?\d+\.\d+)", rewards_line)
+            if parts:
+                result.append(f"  {_BOLD}REWARDS:{_RST}")
+                # Calculate max name width for alignment
+                max_name_w = max(len(name) for name, _ in parts)
+                for name, val_str in parts:
+                    v = float(val_str)
+                    if v > 0:
+                        color = _GREEN
+                    elif v < 0:
+                        color = _RED
+                    else:
+                        color = _GRAY
+                    # Pad name to max_name_w + 2, format value right-aligned
+                    val_padded = f"{val_str:>8s}"
+                    result.append(
+                        f"    {color}{name:<{max_name_w}s}{_RST}  = {val_padded}{_RST}"
+                    )
+            else:
+                result.append(f"  {_CYAN}{rewards_line}{_RST}")
+
+        total_line = s.get("total_line", "")
+        if total_line:
+            tm = re.search(r"([+-]?\d+\.\d+)", total_line)
+            if tm:
+                tv = float(tm.group(1))
+                tc = _GREEN if tv > 0 else (_RED if tv < 0 else _GRAY)
+                result.append(f"  {tc}{total_line.strip()}{_RST}")
 
     return result
 
@@ -543,7 +571,7 @@ def _parse_training_log(log_path: Path, job: JobInfo) -> None:
         if m:
             pass  # stage completion handled elsewhere
 
-    tail = _tail_lines(log_path, n=1500)
+    tail = _tail_lines(log_path, n=3000)
 
     if job.stage_total == 0:
         max_steps_lines = _grep_lines(log_path, r"max_steps=", max_count=1)
@@ -553,7 +581,7 @@ def _parse_training_log(log_path: Path, job: JobInfo) -> None:
                 job.stage_total = int(ms.group(1))
                 break
 
-    sample_tail = _tail_lines(log_path, n=1500)
+    sample_tail = _tail_lines(log_path, n=3000)
     samples = _extract_completion_samples(sample_tail, max_lines=_SAMPLE_MAX_LINES)
     if samples:
         job.completion_samples = samples
@@ -1206,10 +1234,32 @@ def _display(
                 watcher_alive = bool(result)
             except Exception:
                 pass
+
+        # Check if a job was recently submitted (within last 2 min).
+        # If so, don't show "Waiting" — the job is probably still
+        # transitioning from PENDING to RUNNING in SLURM. This prevents
+        # the premature "waiting for next job" flash between steps.
+        recently_submitted = False
+        if CHAIN_LOG.exists():
+            try:
+                import os as _os
+
+                mtime = _os.path.getmtime(str(CHAIN_LOG))
+                age = time.time() - mtime
+                if age < 120:  # log modified in last 2 min
+                    recently_submitted = True
+            except OSError:
+                pass
+
         if watcher_alive:
-            print(
-                f"  {_YELLOW}⏳ Waiting for next job... ({remaining} remaining){_RST}"
-            )
+            if recently_submitted:
+                print(
+                    f"  {_YELLOW}⏳ Job transitioning... ({remaining} remaining){_RST}"
+                )
+            else:
+                print(
+                    f"  {_YELLOW}⏳ Waiting for next job... ({remaining} remaining){_RST}"
+                )
         else:
             print(
                 f"  {_RED}⚠ Pipeline stalled{_RST} — {remaining} jobs pending but watcher is dead"

@@ -95,6 +95,7 @@ training:
   weight_decay: 0.1
   max_grad_norm: 0.05
   bf16: true
+  gradient_checkpointing: true # OOM mitigation
   logging_steps: 5
   save_steps: 100
   save_total_limit: 3
@@ -115,7 +116,8 @@ grpo:
 # L'idea è vedere se più segnali aiutano o se creano conflitto.
 reward:
   # ── Translation & structure (core) ────────────────────────────────
-  weight_translation: 0.15 # ROUGE-L
+  weight_translation: 0.25 # ROUGE-L (primary signal, bumped to reach sum=1.0)
+  weight_bleu: 0.10 # BLEU-4 (T2G-Reasoner 2025)
   weight_gold_structure: 0.15 # bigram vs gold baseline
   weight_gloss_order: 0.10 # edit-distance vs gold
 
@@ -128,13 +130,15 @@ reward:
   weight_structure: 0.05 # absolute bigram score (no baseline)
 
   # ── Format & regularization ───────────────────────────────────────
-  weight_format: 0.10
-  weight_repetition: 0.10
+  weight_format: 0.05
+  weight_repetition: 0.05
 
 # --- Constrained Decoding ---
 grammar:
   enabled: true
   use_grammarllm_pda: false # Trie dual-root
+  token_lookahead: false      # grammarllm v0.5.0: native BPE token emission (only with use_grammarllm_pda: true)
+  track_score_history: false  # grammarllm v0.5.0: accumulate per-step logit history for debug (memory cost)
   viterbi_diversity:
     self_loop_penalty: 0.5
     max_occurrences: 2
