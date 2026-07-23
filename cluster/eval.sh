@@ -91,26 +91,55 @@ sys.exit(1)
     fi
 fi
 
-# Prepara dataset eval se mancante — usa Apptainer se disponibile
-# (il login node / compute node non ha le dipendenze Python installate)
-if [ ! -d "data/aslg_pc12_test" ]; then
-    echo "Dataset test non trovato, download in corso..."
+# Prepara dataset test + vocabolario + bigram matrix se mancanti
+# (i config zero-shot girano prima di qualsiasi training, quindi questi
+# file potrebbero non esistere ancora)
+DATASET_CMD=""
+if [ ! -d "data/aslg_pc12_test" ] || [ ! -f "data/gloss_vocab.txt" ] || [ ! -f "data/bigram_transition.npy" ]; then
+    echo "Preparazione dati mancanti (dataset/vocab/bigram)..."
+
+    # Dataset test
+    DATASET_PREP=""
+    if [ ! -d "data/aslg_pc12_test" ]; then
+        DATASET_PREP="
+from src.datasets.aslg_dataset import download_aslg_dataset, build_t2g_dataset
+dataset = download_aslg_dataset()
+test_ds = build_t2g_dataset(dataset, split='test')
+test_ds.save_to_disk('data/aslg_pc12_test')
+"
+    fi
+
+    # Vocabolario
+    VOCAB_PREP=""
+    if [ ! -f "data/gloss_vocab.txt" ]; then
+        VOCAB_PREP="
+from src.datasets.aslg_dataset import download_aslg_dataset, extract_gloss_vocabulary, save_vocabulary
+dataset = download_aslg_dataset()
+vocab = extract_gloss_vocabulary(dataset, split='train')
+save_vocabulary(vocab, 'data/gloss_vocab.txt')
+"
+    fi
+
+    # Bigram matrix
+    BIGRAM_PREP=""
+    if [ ! -f "data/bigram_transition.npy" ]; then
+        BIGRAM_PREP="
+from src.datasets.aslg_dataset import download_aslg_dataset, load_vocabulary
+from src.datasets.transition_matrix import compute_bigram_transitions, save_transition_matrix
+dataset = download_aslg_dataset()
+vocab = load_vocabulary('data/gloss_vocab.txt')
+bigram = compute_bigram_transitions(dataset, vocab, split='train', smoothing=1.0)
+save_transition_matrix(bigram, 'data/bigram_transition.npy')
+"
+    fi
+
+    FULL_PREP="${DATASET_PREP}${VOCAB_PREP}${BIGRAM_PREP}
+print('Dati preparati (dataset/vocab/bigram).')
+"
     if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
-        apptainer run --nv /shared/sifs/latest.sif python3 -c "
-from src.datasets.aslg_dataset import download_aslg_dataset, build_t2g_dataset
-dataset = download_aslg_dataset()
-test_ds = build_t2g_dataset(dataset, split='test')
-test_ds.save_to_disk('data/aslg_pc12_test')
-print('Dataset salvato.')
-"
+        apptainer run --nv /shared/sifs/latest.sif python3 -c "$FULL_PREP"
     else
-        python3 -c "
-from src.datasets.aslg_dataset import download_aslg_dataset, build_t2g_dataset
-dataset = download_aslg_dataset()
-test_ds = build_t2g_dataset(dataset, split='test')
-test_ds.save_to_disk('data/aslg_pc12_test')
-print('Dataset salvato.')
-"
+        python3 -c "$FULL_PREP"
     fi
 fi
 EVAL_ARGS="--config ${CONFIG} --plot --compare"
