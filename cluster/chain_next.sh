@@ -190,6 +190,17 @@ while true; do
             EXIT_CODE="$_SACCT_EXIT_CODE"
             STATE="$_SACCT_STATE"
 
+            # CRITICAL FIX: if the job is still RUNNING/PENDING, the chain
+            # file being empty doesn't mean the pipeline is done — the job
+            # is still executing. Go back to sleep and re-check.
+            # This was the root cause of "✅ Pipeline completata!" being
+            # printed when only 1 of 22 jobs had been submitted.
+            if [ "$STATE" = "RUNNING" ] || [ "$STATE" = "PENDING" ]; then
+                echo "[chain] ⏳ Last job $LAST_JOB_ID still $STATE — chain empty but job active — back to sleep — $(date)"
+                sleep "$POLL_INTERVAL"
+                continue
+            fi
+
             FINAL_FAILED=0
             if [ "$STATE" = "TIMEOUT" ] || [ "$STATE" = "CANCELLED" ] || [ "$STATE" = "CANCELLED+" ] || [ "$STATE" = "UNKNOWN" ]; then
                 FINAL_FAILED=1
@@ -278,6 +289,18 @@ while true; do
         query_sacct_with_retry "$LAST_JOB_ID"
         EXIT_CODE="$_SACCT_EXIT_CODE"
         STATE="$_SACCT_STATE"
+
+        # CRITICAL FIX: if sacct says RUNNING or PENDING, the job is STILL
+        # ACTIVE — squeue just didn't show it (SLURM latency, cache, etc.).
+        # Do NOT treat it as completed — go back to sleep and re-check.
+        # This was the root cause of the watcher declaring "Pipeline
+        # completata!" after 36 seconds when only 1 of 22 jobs had been
+        # submitted. RUNNING != completed, even though it's not "failed".
+        if [ "$STATE" = "RUNNING" ] || [ "$STATE" = "PENDING" ]; then
+            echo "[chain] ⏳ Job $LAST_JOB_ID still $STATE (squeue missed it) — back to sleep — $(date)"
+            sleep "$POLL_INTERVAL"
+            continue
+        fi
 
         JOB_FAILED=0
         IS_TIMEOUT=0
