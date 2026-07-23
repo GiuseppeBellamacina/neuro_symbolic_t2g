@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 # Metrics to extract (key in eval JSON → display label)
 METRICS = [
     ("rouge_l_mean", "ROUGE-L"),
+    ("valid_rouge_l_mean", "Valid ROUGE-L ⭐"),
     ("pass_at_1", "Pass@1"),
     ("exact_match", "Exact Match"),
     ("validity_rate", "Validity"),
@@ -42,6 +43,7 @@ METRICS = [
 # Also extract delta metrics from comparison.json
 DELTA_METRICS = [
     ("rouge_l_mean", "Δ ROUGE-L"),
+    ("valid_rouge_l_mean", "Δ Valid ROUGE-L"),
     ("pass_at_1", "Δ Pass@1"),
     ("exact_match", "Δ Exact Match"),
     ("validity_rate", "Δ Validity"),

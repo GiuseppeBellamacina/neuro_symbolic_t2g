@@ -1058,6 +1058,7 @@ def plot_baseline_vs_grpo_comparison(
 
     metrics_to_compare = [
         ("rouge_l", "ROUGE-L"),
+        ("valid_rouge_l_mean", "Valid ROUGE-L ⭐"),
         ("pass_at_1", "Pass@1"),
         ("exact_match", "Exact Match"),
         ("validity_rate", "Validity Rate"),

@@ -539,13 +539,25 @@ def evaluate_checkpoint(
         flat_completions, flat_references, n_bootstrap=1000
     )
 
+    rouge_l_mean_val = float(np.mean(rouge_scores)) if rouge_scores else 0.0
+    validity_rate_val = valid_count / max(len(flat_completions), 1)
+
     results: dict[str, Any] = {
         "num_samples_evaluated": len(all_references),
         "num_completions_per_prompt": num_samples,
         "best_of_n": best_of_n,
-        "rouge_l_mean": float(np.mean(rouge_scores)) if rouge_scores else 0.0,
+        "rouge_l_mean": rouge_l_mean_val,
         "rouge_l_std": float(np.std(rouge_scores)) if rouge_scores else 0.0,
         "rouge_l_median": float(np.median(rouge_scores)) if rouge_scores else 0.0,
+        # Valid ROUGE-L: rouge_l_mean × validity_rate. Penalizes outputs
+        # that are invalid (English free text, garbage, code blocks).
+        # Without grammar, ROUGE-L is artificially high (English-gloss
+        # lexical overlap) but validity is ~4% → valid_rouge_l ≈ 0.014.
+        # With grammar, ROUGE-L is lower (model doesn't know gloss format
+        # yet) but validity is ~89% → valid_rouge_l ≈ 0.122.
+        # This metric shows the TRUE quality gap, not the misleading raw
+        # ROUGE-L that makes no-grammar look "better".
+        "valid_rouge_l_mean": rouge_l_mean_val * validity_rate_val,
         "pass_at_1": pass1,
         "bigram_log_prob_mean": (
             float(np.mean(all_bigram_scores)) if all_bigram_scores else 0.0
@@ -554,7 +566,7 @@ def evaluate_checkpoint(
             float(np.std(all_bigram_scores)) if all_bigram_scores else 0.0
         ),
         "exact_match": float(np.mean(all_exact_matches)) if all_exact_matches else 0.0,
-        "validity_rate": valid_count / max(len(flat_completions), 1),
+        "validity_rate": validity_rate_val,
         "valid_count": valid_count,
         "invalid_count": len(flat_completions) - valid_count,
         "error_distribution": dict(error_counts.most_common(20)),
@@ -890,6 +902,10 @@ def main() -> None:
     print(
         f"  ROUGE-L (mean ± std):    {results['rouge_l_mean']:.4f} ± {results['rouge_l_std']:.4f}"
     )
+    print(
+        f"  Valid ROUGE-L:           {results['valid_rouge_l_mean']:.4f}  "
+        f"(rouge_l × validity = {results['rouge_l_mean']:.4f} × {results['validity_rate']:.4f})"
+    )
     print(f"  Pass@1:                  {results['pass_at_1']:.4f}")
     if "pass_at_k" in results:
         for k, v in results["pass_at_k"].items():
@@ -1096,6 +1112,7 @@ def main() -> None:
             print("=" * 60)
             for metric_key, metric_label in [
                 ("rouge_l_mean", "ROUGE-L mean"),
+                ("valid_rouge_l_mean", "Valid ROUGE-L ⭐"),
                 ("pass_at_1", "Pass@1"),
                 ("exact_match", "Exact Match"),
                 ("validity_rate", "Validity Rate"),
@@ -1117,6 +1134,7 @@ def main() -> None:
                     k: comparison_metrics.get(k, 0.0)
                     for k in [
                         "rouge_l_mean",
+                        "valid_rouge_l_mean",
                         "pass_at_1",
                         "exact_match",
                         "validity_rate",
@@ -1127,6 +1145,7 @@ def main() -> None:
                     k: results.get(k, 0.0)
                     for k in [
                         "rouge_l_mean",
+                        "valid_rouge_l_mean",
                         "pass_at_1",
                         "exact_match",
                         "validity_rate",
@@ -1137,6 +1156,7 @@ def main() -> None:
                     k: results.get(k, 0.0) - comparison_metrics.get(k, 0.0)
                     for k in [
                         "rouge_l_mean",
+                        "valid_rouge_l_mean",
                         "pass_at_1",
                         "exact_match",
                         "validity_rate",
@@ -1209,6 +1229,9 @@ def main() -> None:
             wandb.log(
                 {
                     "baseline/rouge_l_mean": baseline_results.get("rouge_l_mean", 0.0),
+                    "baseline/valid_rouge_l_mean": baseline_results.get(
+                        "valid_rouge_l_mean", 0.0
+                    ),
                     "baseline/pass_at_1": baseline_results.get("pass_at_1", 0.0),
                     "baseline/exact_match": baseline_results.get("exact_match", 0.0),
                     "baseline/validity_rate": baseline_results.get(
@@ -1216,6 +1239,8 @@ def main() -> None:
                     ),
                     "delta/rouge_l_mean": results.get("rouge_l_mean", 0.0)
                     - baseline_results.get("rouge_l_mean", 0.0),
+                    "delta/valid_rouge_l_mean": results.get("valid_rouge_l_mean", 0.0)
+                    - baseline_results.get("valid_rouge_l_mean", 0.0),
                     "delta/pass_at_1": results.get("pass_at_1", 0.0)
                     - baseline_results.get("pass_at_1", 0.0),
                     "delta/exact_match": results.get("exact_match", 0.0)
