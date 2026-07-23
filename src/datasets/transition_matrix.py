@@ -19,7 +19,15 @@ from collections import Counter
 from pathlib import Path
 
 import numpy as np
-from tqdm import tqdm
+
+# tqdm fallback for Apptainer containers without tqdm installed
+try:
+    from tqdm import tqdm
+except ImportError:
+
+    def tqdm(iterable=None, **kwargs):
+        return iterable if iterable is not None else iter(())
+
 
 from datasets import DatasetDict
 

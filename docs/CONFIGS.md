@@ -1,22 +1,25 @@
 # T2G Config Matrix — Ablation Study
 
-8 config YAML che coprono il piano di ablation **Training × Grammar** per Text-to-Gloss (T2G),
-più una config **optimal** e una **experimental** con tutti i 9 moduli reward attivi.
-Tutti usano **Qwen2.5-0.5B-Instruct** (4-bit, LoRA, 1500 step / 3 epoche).
+12 config YAML che coprono il piano di ablation **Training × Grammar × Reward** per
+Text-to-Gloss (T2G), più una config **optimal** e una **experimental** con tutti i
+moduli reward attivi. Tutti usano **Qwen2.5-0.5B-Instruct** (4-bit, LoRA, gradient_checkpointing).
 
 **Quick reference:**
 
-| #   | Config                            | Training | Grammar       | Eval | Cosa testa                                           |
-| --- | --------------------------------- | -------- | ------------- | ---- | ---------------------------------------------------- |
-| 1   | `t2g/grpo_optimal.yaml`           | ✅ GRPO  | ✅ Vocab Mask | ✅   | **Optimal** — LoRA r=32, 9 reward weights bilanciati |
-| 2   | `t2g/grpo_experimental_all.yaml`  | ✅ GRPO  | ✅ Vocab Mask | ✅   | **Experimental** — tutti i 9 moduli reward attivi    |
-| 3   | `t2g/grpo_qwen05.yaml`            | ✅ GRPO  | ✅ Vocab Mask | ✅   | **Main training** — GRPO + gloss vocabulary mask     |
-| 4   | `t2g/sft.yaml`                    | ✅ SFT   | ✅ Vocab Mask | ✅   | Baseline supervisionata via teacher forcing          |
-| 5   | `ablation/zero_shot.yaml`         | ❌       | ❌            | ✅   | Modello base grezzo (nessun vincolo)                 |
-| 6   | `ablation/zero_shot_grammar.yaml` | ❌       | ✅ Vocab Mask | ✅   | Modello base + vincoli (no training)                 |
-| 7   | `ablation/grpo_no_grammar.yaml`   | ✅ GRPO  | ❌            | ✅   | GRPO senza constrained decoding                      |
-| 8   | `ablation/grpo_pda.yaml`          | ✅ GRPO  | ✅ PDA LL(1)  | ✅   | GRPO + Pushdown Automaton (grammatica completa)      |
-| 9   | `ablation/grpo_no_sft.yaml`       | ✅ GRPO  | ✅ Vocab Mask | ❌   | GRPO senza SFT pre-training (ablation dell'SFT)      |
+| #   | Config                            | Training | Grammar          | Eval | Cosa testa                                           |
+| --- | --------------------------------- | -------- | ---------------- | ---- | ---------------------------------------------------- |
+| 1   | `t2g/grpo_optimal.yaml`           | ✅ GRPO+SFT | Trie (dual-root)| ✅   | **Optimal v2.1** — G=8, beta=0, 7 reward [-1,1]+BLEU, curriculum, grad-ckpt |
+| 2   | `t2g/grpo_experimental_all.yaml`  | ✅ GRPO+SFT | Trie             | ✅   | **Experimental** — tutti i 10 moduli reward attivi    |
+| 3   | `t2g/grpo_qwen05.yaml`            | ✅ GRPO+SFT | Trie             | ✅   | **Main training** — GRPO + gloss vocabulary mask      |
+| 4   | `t2g/sft.yaml`                    | ✅ SFT   | Trie (eval)      | ✅   | Baseline supervisionata via teacher forcing          |
+| 5   | `ablation/zero_shot.yaml`         | ❌       | ❌                | ✅   | Modello base grezzo (nessun vincolo)                  |
+| 6   | `ablation/zero_shot_grammar.yaml` | ❌       | Trie             | ✅   | Modello base + vincoli (no training)                  |
+| 7   | `ablation/grpo_no_grammar.yaml`   | ✅ GRPO  | ❌                | ✅   | GRPO senza constrained decoding                      |
+| 8   | `ablation/grpo_pda.yaml`          | ✅ GRPO  | PDA LL(1)        | ✅   | GRPO + PDA baseline (senza lookahead)                 |
+| 9   | `ablation/grpo_pda_lookahead.yaml`| ✅ GRPO+SFT | PDA + lookahead  | ✅   | **NUOVO** — GRPO + native BPE token emission (v0.5.0) |
+| 10  | `ablation/grpo_no_sft.yaml`       | ✅ GRPO  | Trie             | ❌   | GRPO senza SFT pre-training                          |
+| 11  | `ablation/grpo_soft_viterbi.yaml` | ✅ GRPO+SFT | Trie             | ✅   | GRPO + Soft Viterbi reward                           |
+| 12  | `ablation/grpo_verifier_scaled.yaml`| ✅ GRPO+SFT | Trie           | ✅   | GRPO + Verifier-Scaled reward                        |
 
 
 ## Ablation Matrix
@@ -33,12 +36,13 @@ SFT Baseline                       sft
 
 | Sezione      | Contenuto                                                                                                                                | Note                                                               |
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `model`      | `name`, `num_gpus`, `quantization`, `dtype`, `use_unsloth`, `fast_inference`, `max_seq_length`, `gpu_memory_utilization`, `vllm_standby` | `fast_inference: false` sempre (incompatibile con LogitsProcessor) |
-| `dataset`    | `dataset_name`, `dataset_cache`, `vocab_path`, `bigram_matrix_path`, `split`, `max_samples`, `seed`, `thinking: false`                   | T2G non usa `<think>` blocks                                       |
-| `wandb`      | `project`, `run_name`, `tags`                                                                                                            | `neuro-symbolic-t2g`                                               |
-| `lora`       | `r: 16`, `lora_alpha: 32`, `lora_dropout: 0`, `target_modules`, `task_type`, `random_state: 3407`                                        | Solo training configs; eval-only ne sono privi                     |
-| `curriculum` | `enabled: false`                                                                                                                         | Disabilitato per Phase 1                                           |
-| `evaluation` | `batch_size: 8`                                                                                                                          | Solo training configs                                              |
+| `model`      | `name`, `num_gpus`, `quantization`, `dtype`, `use_unsloth`, `max_seq_length` | `fast_inference: false` sempre (incompatibile con LogitsProcessor) |
+| `dataset`    | `dataset_name`, `dataset_cache`, `vocab_path`, `bigram_matrix_path`, `split`, `max_samples`, `seed`, `thinking: false` | T2G non usa `ti` blocks |
+| `wandb`      | `project`, `run_name`, `tags`                                                                                                           | `neuro-symbolic-t2g`                                              |
+| `lora`       | `r: 32`, `lora_alpha: 64`, `lora_dropout: 0.05`, `target_modules`, `task_type`, `random_state: 3407`                                  | Solo training configs; eval-only ne sono privi                     |
+| `curriculum` | `enabled: true/false`                                                                                                                   | Attivo in optimal e pda_lookahead; disabilitato negli altri      |
+| `grammar`    | `enabled`, `use_grammarllm_pda`, `token_lookahead`, `track_score_history`, `viterbi_diversity.*`                                     | `token_lookahead` + `track_score_history` = NUOVO grammarllm v0.5.0 |
+| `evaluation` | `batch_size: 8`, `max_samples`, `num_samples`, `best_of_n`                                                                              | Solo training configs                                              |
 
 ---
 
@@ -226,14 +230,43 @@ visibile nelle metriche di repetition e validità.
 
 ---
 
+### `ablation/grpo_pda_lookahead.yaml` — **GRPO + PDA + Token-Boundary Lookahead ⭐**
+
+```
+training:     GRPO, 2000 step, lr=3e-6, batch=1, grad_accum=8, grad_ckpt=true
+lora:         r=32, lora_alpha=64
+grammar:      enabled: true, use_grammarllm_pda: true, token_lookahead: true
+reward:       7 reward [-1,1] + BLEU-4 (allineato a grpo_optimal)
+grpo:         num_generations=8, beta=0.0, temperature=0.9
+curriculum:   enabled: true
+```
+
+**Differenze da `grpo_optimal`:** `use_grammarllm_pda: false → true`,
+`token_lookahead: true` (NUOVO grammarllm v0.5.0).
+
+**Cosa fa — il token-boundary lookahead spiegato:**
+Qwen2.5 usa BPE subword tokenization. Senza lookahead, il PDA forza
+emissioni single-BPE-token, frammentando gloss come `"DESC-NUMEROUS"` in
+`["DESC", "-", "NUMEROUS"]`. Con il motore lookahead (`VocabTrie`), il
+modello può emettere `["DESC-NUMEROUS"]` come singolo BPE token, allineandosi
+alla tokenizzazione di pre-training.
+
+**Ipotesi:** Il lookahead dovrebbe migliorare la qualità della generazione
+permettendo tokenizzazione nativa. Confrontare con `grpo_optimal` (Trie)
+per misurare il delta.
+
+---
+
 ## Cosa manca / Prossimi passi
 
 | Variante                 | Stato           | Note                                                                |
 | ------------------------ | --------------- | ------------------------------------------------------------------- |
-| `notthink` vs `think`    | Non applicabile | T2G non usa `<think>` blocks                                        |
-| Curriculum learning      | Rimandato       | Tutti `curriculum.enabled: false`                                   |
+| `notthink` vs `think`    | Non applicabile | T2G non usa `ti` blocks                                       |
+| Curriculum learning      | ✅ Attivo       | `grpo_optimal` e `grpo_pda_lookahead` hanno `curriculum.enabled: true` |
 | Multi-modello            | Da aggiungere   | Altri modelli oltre Qwen2.5-0.5B                                    |
 | Viterbi diversity tuning | Esplorato       | `verifier_temperature` in `grammar.viterbi_diversity` (default 5.0) |
+| Token-boundary lookahead | ✅ Attivo       | `grpo_pda_lookahead.yaml` — grammarllm v0.5.0                       |
+| gradient_checkpointing   | ✅ Attivo       | Tutti i config con training hanno `gradient_checkpointing: true`    |
 
 ---
 
@@ -242,37 +275,36 @@ visibile nelle metriche di repetition e validità.
 ### `t2g/grpo_optimal.yaml` — **Optimal Config**
 
 ```
-training:     GRPO, 1500 step, lr=5e-6, batch=1, grad_accum=8
-lora:         r=32, lora_alpha=64 (vs r=16 default)
-grammar:      enabled: true, use_grammarllm_pda: false
-reward:       weight_translation=0.30, weight_gold_structure=0.20,
-              weight_structure=0.10, weight_gloss_order=0.10,
-              weight_verifier_scaled=0.10, weight_soft_viterbi=0.05,
-              weight_viterbi=0.05, weight_format=0.05, weight_repetition=0.05
-evaluation:   max_samples=500, num_samples=5, best_of_n=false
-grpo:         num_generations=4, beta=0.04, temperature=0.7
+training:     GRPO, 2000 step, lr=3e-6, batch=1, grad_accum=8, grad_ckpt=true
+lora:         r=32, lora_alpha=64
+grammar:      enabled: true, use_grammarllm_pda: false, token_lookahead: false, track_score_history: false
+reward:       weight_translation=0.20, weight_bleu=0.20, weight_gold_structure=0.20,
+              weight_gloss_order=0.10, weight_verifier_scaled=0.10,
+              weight_format=0.10, weight_repetition=0.10 (sum=1.0, range [-1,1])
+evaluation:   max_samples=500, num_samples=5, best_of_n=true
+grpo:         num_generations=8, beta=0.0, temperature=0.9
+curriculum:   enabled: true
 ```
 
-**Cosa fa:** Config "ottimale" con LoRA r=32 (doppio del default) e tutti i 9
-moduli reward attivi con pesi bilanciati. Il peso maggiore va a translation
-(ROUGE-L) e gold-structure, con contributi minori dai moduli strutturali
-e di alignment.
+**Cosa fa:** Config "ottimale" v2.1 con LoRA r=32, reward simmetriche [-1, 1] +
+BLEU-4, curriculum learning 3-stage, beta=0 (DAPO-style), gradient_checkpointing
+per OOM-safe training su GPU 22GB. Post-fix OOM: G ridotto da 16 a 8.
 
 ---
 
 ### `t2g/grpo_experimental_all.yaml` — **Experimental Config (All 9 Modules)**
 
 ```
-training:     GRPO, 1500 step, lr=5e-6, batch=1, grad_accum=8
+training:     GRPO, 2000 step, lr=3e-6, batch=1, grad_accum=8, grad_ckpt=true
 lora:         r=32, lora_alpha=64
 grammar:      enabled: true, use_grammarllm_pda: false
-reward:       weight_translation=0.15, weight_gold_structure=0.15,
+reward:       weight_translation=0.25, weight_bleu=0.10, weight_gold_structure=0.15,
               weight_gloss_order=0.10, weight_verifier_scaled=0.10,
               weight_soft_viterbi=0.10, weight_viterbi=0.05,
-              weight_structure=0.05, weight_format=0.10, weight_repetition=0.10
+              weight_structure=0.05, weight_format=0.05, weight_repetition=0.05
               (sum=1.0)
 evaluation:   max_samples=500, num_samples=5, best_of_n=false
-grpo:         num_generations=4, beta=0.04, temperature=0.7
+grpo:         num_generations=8, beta=0.02, temperature=0.8
 ```
 
 **Cosa fa:** Config sperimentale che attiva TUTTI i 9 moduli reward con pesi

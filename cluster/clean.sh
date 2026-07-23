@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# Pulizia workspace sul cluster
+# Pulizia workspace sul cluster — rimuove tutti gli artifact generati.
 #
 # Uso:
 #   bash cluster/clean.sh          # dry-run (mostra cosa cancellerebbe)
@@ -9,7 +9,6 @@
 
 set -e
 cd "$HOME/neuro_symbolic_t2g"
-STATE_DIR="$HOME/neuro_symbolic_t2g/.chain_state"
 
 FORCE=0
 if [ "$1" = "--force" ]; then
@@ -27,20 +26,20 @@ fi
 echo "Pulizia workspace: $PWD"
 echo ""
 
-# ── Svuota data/ (dataset scaricato, verrà riscaricato) ──────────────────
-echo "[1/7] data/ (dataset ASLG-PC12)"
+# ── 1. data/ (dataset scaricato, verrà riscaricato) ──────────────────────
+echo "[1/10] data/ (dataset ASLG-PC12)"
 if [ -d "data" ]; then
     $CMD data/*
 fi
 
-# ── Checkpoints ───────────────────────────────────────────────────
-echo "[2/7] experiments/checkpoints/"
+# ── 2. Checkpoints ────────────────────────────────────────────────────────
+echo "[2/10] experiments/checkpoints/"
 if [ -d "experiments/checkpoints" ]; then
     $CMD experiments/checkpoints/*
 fi
 
-# ── Logs ───────────────────────────────────────────────────────────
-echo "[3/7] logs/ (SLURM output) + experiments/logs/"
+# ── 3. Logs SLURM + experiments/logs/ ──────────────────────────────────────
+echo "[3/10] logs/ (SLURM) + experiments/logs/ (training+eval)"
 if [ -d "logs" ]; then
     $CMD logs/*
 fi
@@ -48,29 +47,51 @@ if [ -d "experiments/logs" ]; then
     $CMD experiments/logs/*
 fi
 
-# ── Cache Python ─────────────────────────────────────────────────────────
-echo "[4/7] __pycache__/"
+# ── 4. Results (eval JSON: eval_*.json, comparison.json, generations) ───
+echo "[4/10] experiments/results/ (eval JSON + comparison)"
+if [ -d "experiments/results" ]; then
+    $CMD experiments/results/*
+fi
+
+# ── 5. Figures (plot, chart, ablation summary) ───────────────────────────
+echo "[5/10] experiments/figures/ (plot + ablation_summary)"
+if [ -d "experiments/figures" ]; then
+    $CMD experiments/figures/*
+fi
+
+# ── 6. Cache Python __pycache__ ───────────────────────────────────────────
+echo "[6/10] __pycache__/ (Python bytecode)"
 find . -type d -name "__pycache__" -print -exec $CMD {} + 2>/dev/null || true
 
-# ── Artifact LoRA del GRPOTrainer ────────────────────────────────────────
-echo "[5/7] grpo_trainer_lora_model_*/"
+# ── 7. Artifact LoRA del GRPOTrainer ──────────────────────────────────────
+echo "[7/10] grpo_trainer_lora_model_*/"
 for d in grpo_trainer_lora_model_*; do
     [ -d "$d" ] && $CMD "$d"
 done
 
-# ── Unsloth compiled cache ───────────────────────────────────────────────
-echo "[6/7] unsloth_compiled_cache/"
+# ── 8. Unsloth compiled cache ─────────────────────────────────────────────
+echo "[8/10] unsloth_compiled_cache/"
 if [ -d "unsloth_compiled_cache" ]; then
     $CMD unsloth_compiled_cache
 fi
 
-# ── Stato pipeline ─────────────────────────────────────────────────────
-echo "[7/7] .chain_state/ (stato pipeline)"
+# ── 9. grammarllm temp (parsing tables, debug logs) ──────────────────────
+echo "[9/10] grammarllm/temp/ (parsing tables + debug logs)"
+if [ -d "grammarllm/temp" ]; then
+    $CMD grammarllm/temp
+fi
+
+# ── 10. Stato pipeline + wandb local + egg-info ──────────────────────────
+echo "[10/10] .chain_state/ + wandb/ + *.egg-info/"
 [ -d ".chain_state" ] && $CMD .chain_state
+[ -d "wandb" ] && $CMD wandb
+for d in *.egg-info; do
+    [ -d "$d" ] && $CMD "$d"
+done
 
 echo ""
 if [ "$FORCE" = "0" ]; then
     echo "=== Nessun file cancellato (dry-run). Usa: bash cluster/clean.sh --force ==="
 else
-    echo "Pulizia completata."
+    echo "✅ Pulizia completata (10 step)."
 fi

@@ -210,7 +210,8 @@ if [ "$RESUME" -eq 1 ]; then
         rm -f "$STATE_DIR/chain_pid"
     fi
 
-    nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
+    setsid nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
+    disown
 
     # Attendi che il watcher scriva il suo PID, poi leggilo
     sleep 2
@@ -384,7 +385,14 @@ echo "Catena:"
 cat -n "$CHAIN_FILE"
 echo ""
 
-# ── Avvia il watcher in background (nohup) ────────────────────────────────────
+# ── Avvia il watcher in background ────────────────────────────────────────────
+# setsid: crea una nuova session, staccando dal gruppo della sessione SSH.
+#   Questo previene SIGHUP (disconnect SSH) E SIGTERM (process reaper del
+#   login node). nohup da solo gestisce SIGHUP ma non SIGTERM.
+# disown: rimuove il job dalla job table della shell, così la shell non
+#   gli invia segnali al logout.
+# Questo è fondamentale per l'ablation study (12 config × ~2h = 24h+):
+# il watcher deve sopravvivere alla disconnect SSH e al reaper del login node.
 mkdir -p logs
 
 if [ -f "$STATE_DIR/chain_pid" ]; then
@@ -393,7 +401,8 @@ if [ -f "$STATE_DIR/chain_pid" ]; then
     rm -f "$STATE_DIR/chain_pid"
 fi
 
-nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
+setsid nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
+disown
 
 # Attendi che il watcher scriva il suo PID, poi leggilo
 sleep 2

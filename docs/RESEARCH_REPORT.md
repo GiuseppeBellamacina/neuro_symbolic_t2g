@@ -2,7 +2,7 @@
 
 **Progetto**: Neuro-Symbolic Text-to-Gloss Translation via Constrained Decoding + GRPO
 **Data**: Luglio 2026
-**Modello**: Qwen2.5-0.5B-Instruct (4-bit QLoRA, LoRA)
+**Modello**: Qwen2.5-0.5B-Instruct (4-bit QLoRA, LoRA r=32)
 **Dataset**: ASLG-PC12 (87K coppie English→ASL Gloss)
 **Codice**: `neuro_symbolic_t2g/`
 
@@ -10,18 +10,21 @@
 
 ## 1. Obiettivo del Progetto
 
-Il progetto mira a dimostrare che un **LLM di piccola dimensione** (0.5B parametri)
-può essere fine-tunato per tradurre testo inglese in **gloss ASL** (American Sign Language)
-combinando tre paradigmi:
+Il progetto dimostra che un **LLM di piccola dimensione** (0.5B parametri)
+può essere fine-tunato per tradurre testo inglese in **gloss ASL** (American Sign
+Language) combinando tre paradigmi:
 
 1. **Reinforcement Learning (GRPO)** — Group Relative Policy Optimization, che
-   genera multiple completions per prompt e le confronta relazionalmente.
+   genera multiple completions per prompt e le confronta relazionalmente,
+   eliminando la necessità di un critic separato (a differenza di PPO).
 2. **Constrained Decoding Neurale** — un `LogitsProcessor` maschera a ogni step
    di generazione tutti i token al di fuori del vocabolario ASL (~15K token),
-   garantendo output sintatticamente valido.
-3. **Reward Symboliche Deterministiche** — 9 funzioni di reward basate su regole
-   (ROUGE-L, bigrammi, Viterbi, edit-distance, formato, ripetizione) che
-   sostituiscono un reward model neurale, eliminando overhead e bias.
+   garantendo output sintatticamente valido. Due strategie: **Trie dual-root**
+   (default, leggero) o **PDA LL(1)** con token-boundary lookahead (grammarllm v0.5.0).
+3. **Reward Symboliche Deterministiche** — 8 funzioni di reward basate su regole
+   (ROUGE-L, BLEU-4, bigrammi, edit-distance, verifier-scaled, formato,
+   ripetizione) mappate su range simmetrico [-1, 1], che sostituiscono un reward
+   model neurale eliminando overhead e bias.
 
 L'architettura **neuro-symbolica** combina l'apprendimento distribuito del modello
 neurale con la garanzia formale del decoding vincolato e le reward simboliche.
@@ -33,28 +36,28 @@ neurale con la garanzia formale del decoding vincolato e le reward simboliche.
 ### 2.1 Pipeline End-to-End
 
 ```text
-┌──────────────┐    ┌──────────────────┐    ┌──────────────────────┐
+┌──────────────┐    ┌──────────────────┮    ┌──────────────────────┐
 │ English text │ →  │ Qwen2.5-0.5B     │ →  │ Constrained Decoder  │
-│ "The man     │    │ + LoRA (QLoRA)   │    │ (vocabulary mask)    │
-│  walks home" │    │ + GRPO training  │    │ only ASL gloss tokens │
+│ "The man     │    │ + LoRA r=32      │    │ (Trie dual-root or  │
+│  walks home" │    │ + GRPO training  │    │  PDA + lookahead)   │
 └──────────────┘    └──────────────────┘    └──────────────────────┘
-                                                      ↓
-                                            ┌──────────────────────┐
-                                            │ IX MAN WALK HOUSE    │
-                                            │ (ASL gloss sequence) │
-                                            └──────────────────────┘
+                                                       ↓
+                                             ┌──────────────────────┐
+                                             │ IX MAN WALK HOUSE    │
+                                             │ (ASL gloss sequence) │
+                                             └──────────────────────┘
 ```
 
-### 2.2 7 Step della Pipeline
+### 2.2 Pipeline in 7 Step
 
 | Step | Cosa                                                           | File                             |
 | ---- | -------------------------------------------------------------- | -------------------------------- |
 | 1    | **Data**: Download ASLG-PC12 (87K coppie) da HuggingFace       | `src/datasets/aslg_dataset.py`   |
-| 2    | **Model**: Load Qwen2.5-0.5B + LoRA + 4-bit QLoRA via Unsloth  | `src/models/model_loader.py`     |
-| 3    | **Constrained Decoding**: `GlossVocabularyMask` o PDA LL(1)    | `src/grammar/gloss_grammar.py`   |
+| 2    | **Model**: Load Qwen2.5-0.5B + LoRA r=32 + 4-bit QLoRA via Unsloth | `src/models/model_loader.py`  |
+| 3    | **Constrained Decoding**: Trie dual-root o PDA LL(1) + lookahead | `src/grammar/gloss_grammar.py`  |
 | 4    | **Dataset**: Formattazione prompt-completion con chat template | `src/datasets/aslg_dataset.py`   |
-| 5    | **Reward**: 9 reward deterministiche                           | `src/rewards/t2g_rewards.py`     |
-| 6    | **GRPO Training**: TRL `GRPOTrainer`, G=4 completions/prompt   | `src/training/grpo_t2g_train.py` |
+| 5    | **Reward**: 8 reward simmetriche [-1, 1]                       | `src/rewards/t2g_rewards.py`      |
+| 6    | **GRPO Training**: TRL `GRPOTrainer`, G=8 completions/prompt   | `src/training/grpo_t2g_train.py` |
 | 7    | **Save**: Checkpoint ogni 100 step + modello finale            | Auto                             |
 
 ### 2.3 Struttura del Codice
@@ -63,39 +66,38 @@ neurale con la garanzia formale del decoding vincolato e le reward simboliche.
 neuro_symbolic_t2g/
 ├── src/
 │   ├── datasets/          # ASLG-PC12 loader, bigram transition matrix
-│   ├── grammar/           # GlossVocabularyMask, LogitsProcessor, PDA
+│   ├── grammar/           # Trie mask, PDA logits processor, MaskedMassTracker
 │   ├── models/            # Model loader (Unsloth + LoRA)
-│   ├── rewards/           # 9 reward functions
+│   ├── rewards/           # 8 reward functions [-1, 1] symmetric
 │   ├── training/          # GRPO trainer, SFT trainer, eval, callbacks
-│   └── utils/             # Metrics, prompting, visualization, monitor
-├── experiments/configs/   # 8+ YAML configs (optimal, experimental, ablation)
-├── tests/                 # 37 pytest tests (conftest.py fixtures)
-├── grammarllm/            # Vendored PDA library
-└── cluster/               # SLURM scripts
+│   └── utils/             # Metrics, prompting, visualization, chain_monitor,
+│       │                  #   ablation_summary (cross-config table + chart)
+│       └── ...
+├── experiments/configs/   # 12 YAML configs (optimal, experimental, 10 ablation)
+├── tests/                 # 21 pytest tests
+├── grammarllm/            # grammarllm v0.5.0 (PDA + lookahead + beam search)
+├── cluster/               # SLURM scripts, chain watcher, aliases, monitor
+└── docs/                  # Documentation
 ```
 
 ---
 
 ## 3. Constrained Decoding
 
-### 3.1 Vocabulary Mask (Default)
+### 3.1 Trie Dual-Root (Default)
 
-Il `GlossVocabularyLogitsProcessor` maschera a ogni step di generazione tutti i
-token al di fuori del vocabolario ASL. Il modello può produrre **solo** token
-del glossario (più EOS).
+Il `GlossVocabularyLogitsProcessor` usa un **Trie a due radici**:
+- **Root**: token senza leading-space (primo token della generazione)
+- **Space-root**: token con leading-space (inizio di una nuova gloss dopo uno spazio)
 
-```python
-# A ogni step:
-logits[token_id] = -inf  # per tutti i token non nel vocabolario ASL
-```
+Questo enforce i boundary di whitespace tra le glosse, prevenendo la
+concatenazione arbitraria di single-BPE-token (es. "DE"+"B"+"RE"+"CH"+"T" →
+"DEBUTRECHT" invece di "DEBUTRECHT" come singolo token).
 
-**Diagnostica W&B**: `MaskedMassTracker` traccia:
+**Diagnostica W&B**: `MaskedMassTracker` traccia probabilità massicciata
+mascherata ed entropia a ogni step.
 
-- `grammar/masked_mass_avg` — probabilità massicciata mascherata
-- `grammar/full_entropy_avg` — entropia della distribuzione completa
-- `grammar/allowed_entropy_avg` — entropia dei soli token permessi
-
-### 3.2 PDA LL(1) (Sperimentale)
+### 3.2 PDA LL(1) + Token-Boundary Lookahead (grammarllm v0.5.0)
 
 Il Pushdown Automaton mantiene uno **stack** che traccia lo stato corrente
 nella grammatica LL(1). A ogni token:
@@ -104,111 +106,123 @@ nella grammatica LL(1). A ogni token:
 2. Aggiorna lo stack (push/pop)
 3. Restituisce i token validi per il prossimo step
 
-```text
-Vocab Mask                    PDA LL(1)
-─────────────────────          ────────────────────────
-Blocca TUTTI i token           Blocca SOLO token che violano
-non nel glossario ASL          la grammatica LL(1) corrente
+**Token-boundary lookahead** (NUOVO in grammarllm v0.5.0): un `VocabTrie` sul
+vocabolario del tokenizer permette al modello di emettere **token BPE nativi**
+che attraversano i boundary grammaticali. Senza lookahead, il PDA forzava
+emissioni single-BPE-token, frammentando gloss come `"DESC-NUMEROUS"` in
+`["DESC", "-", "NUMEROUS"]`. Con lookahead, Qwen può emettere `["DESC-NUMEROUS"]`
+come singolo BPE token, allineandosi alla tokenizzazione di pre-training.
 
-"WALK HOUSE BOOK"  → ✅        "WALK HOUSE BOOK"  → ✅
-"the cat sleeps"   → ❌        "the cat sleeps"   → ❌
-"IX IX IX IX"      → ✅ (!)    "IX IX IX IX"      → ❌ (rileva loop)
+**StatelessLogitsProcessor**: deriva lo stato del PDA dalla history dei token
+(`input_ids`) ad ogni step (con cache LRU per O(1) amortized). Beam-search safe.
+
+```text
+Trie Dual-Root (default)        PDA + Lookahead (grammarllm v0.5.0)
+─────────────────────          ─────────────────────────────────────
+Blocca token non nel vocab      Blocca token che violano la grammatica
+Whitespace boundary enforced    Native BPE token emission
+Veloce, sufficiente per gloss   Più espressivo, beam search supportato
 ```
 
 ---
 
-## 4. Sistema di Reward (9 Moduli)
+## 4. Sistema di Reward (8 Moduli, range [-1, 1])
 
-Tutte le reward sono **deterministiche e rule-based** — nessun reward model neurale.
+Tutte le reward sono **deterministiche e rule-based** e mappate su range
+**simmetrico [-1, 1]** (dove -1 = completamente sbagliato, 0 = neutro,
+1 = perfetto). Nessun reward model neurale.
 
-| #   | Reward                  | Formula                      | Range   | Peso (optimal) |
-| --- | ----------------------- | ---------------------------- | ------- | -------------- |
-| 1   | **Translation Quality** | ROUGE-L F1 vs gold gloss     | [0, 1]  | 0.30           |
-| 2   | **Gold-Structure** ⭐   | exp(llm_avg - gold_avg)      | (0, 1]  | 0.20           |
-| 3   | **Structural Dense**    | softmax(avg_log_prob / T)    | (0, 1)  | 0.10           |
-| 4   | **Gloss Order**         | 1 - Levenshtein/max_len      | [0, 1]  | 0.10           |
-| 5   | **Verifier-Scaled**     | ROUGE × gold_structure       | [0, 1]  | 0.10           |
-| 6   | **Soft-Viterbi**        | exp(llm - soft_viterbi)      | (0, 1]  | 0.05           |
-| 7   | **Viterbi**             | exp(llm - viterbi)           | (0, 1]  | 0.05           |
-| 8   | **Format**              | vocab membership ratio       | [0, 1]  | 0.05           |
-| 9   | **Repetition**          | unique_ratio / trigram_ratio | [-1, 1] | 0.05           |
+| #   | Reward                  | Formula                      | Peso (optimal v2.1) |
+| --- | ----------------------- | ---------------------------- | ------------------- |
+| 1   | **Translation Quality** | ROUGE-L F1 vs gold gloss     | 0.20                |
+| 2   | **BLEU-4** ⭐ (NUOVO)   | sacrebleu sentence BLEU (effective_order + smoothing) | 0.20 |
+| 3   | **Gold-Structure**      | exp(llm_avg - gold_avg)      | 0.20                |
+| 4   | **Gloss Order**         | 1 - Levenshtein/max_len      | 0.10                |
+| 5   | **Verifier-Scaled**     | ROUGE × gold_structure       | 0.10                |
+| 6   | **Format**              | vocab membership ratio       | 0.10                |
+| 7   | **Repetition**          | unique_ratio / trigram_ratio | 0.10                |
+| 8   | (Ablation modules)      | soft_viterbi, viterbi, structure | 0.0 (commented) |
 
-### 4.1 Dettagli delle Reward
+### 4.1 BLEU-4 Reward (T2G-Reasoner 2025)
 
-**Translation Quality (ROUGE-L)**: Misura la similarità lessicale F1 tra la gloss
-generata e la gold reference. È il segnale semantico primario.
+Ispirata a T2G-Reasoner (2025) che mostra BLEU-4 superiore a ROUGE-L come segnale
+reward per T2G GRPO. Usa `sacrebleu.BLEU` con:
+- **`effective_order=True`**: le sequenze corte (1-3 token, comuni in ASL)
+  vengono valutate sugli n-grammi disponibili invece di richiedere 4-grammi
+  (che restituirebbero 0 → mapped a -1.0)
+- **`smooth_method="floor"`**: previene il collasso del geometric mean a 0
+  quando un ordine di n-grammi ha zero match
 
-**Gold-Structure**: Confronta il bigram log-probability della sequenza generata
-con quello della gold reference. Reward ≈ 1.0 → strutturalmente buono quanto
-l'umano. Include OOV penalty per token fuori vocabolario.
-
-**Structural Dense**: Bigram log-probability assoluto, normalizzato via softmax
-con temperatura. Usa `normalize="softmax"` per evitare il collasso a 0 per
-sequenze a bassa probabilità (problema della vecchia `exp` normalization).
-
-**Gloss Order**: Distanza di Levenshtein word-level normalizzata. Complementa
-ROUGE-L (che è un proxy di overlap lessicale) con un segnale sensibile
-all'**ordine** dei token.
-
-**Verifier-Scaled (RECIPE)**: Usa la plausibilità strutturale come moltiplicatore
-di confidenza per la qualità di traduzione:
-
-- Alto ROUGE + alta struttura → alto reward (match confidente)
-- Alto ROUGE + bassa struttura → reward ridotto (match sospetto)
-- Bassa struttura → reward basso (implausibile)
-
-**Aggiornamento**: Per risolvere il tetto massimo di `~0.22` causato dal log-prob assoluto e dal sigmoide, la reward è stata riscritta per usare direttamente il valore di `gold_structure_reward(completion, gold_gloss, normalize=True)` come moltiplicatore di confidenza. Questo scala correttamente il moltiplicatore a `1.0` quando la struttura è perfetta rispetto alla reference, sbloccando l'intero intervallo di reward `[0, 1]`.
-
-**Soft-Viterbi**: Viterbi differentiable via forward-backward (log-partition).
-Ispirato a ViterbiPlanNet's DVL. Più smooth e tight del Viterbi hard.
-
-**Viterbi (Hard)**: Confronta il path LLM con il Viterbi optimum (con diversity
-constraints: self-loop penalty + iterative token ban per evitare loop degenerativi).
-
-**Format**: Verifica che ogni token sia nel vocabolario ASL. Penalizza free text,
-JSON, token concatenati >25 caratteri.
-
-**Repetition**: Penalizza loop degenerativi (unique_ratio < 0.3 → -1.0).
+**Bug fix**: la versione precedente cachiava `_SACREBLEU_AVAILABLE=False` se
+l'import falliva una volta (es. container Apptainer senza sacrebleu), uccidendo
+silenziosamente il 20% del reward signal per l'intero run. Ora:
+- Check eager in `build_t2g_reward_functions`: crash al config time con
+  messaggio actionable se sacrebleu manca
+- Import con try/except fallback in `eval_t2g.py`, `aslg_dataset.py`,
+  `transition_matrix.py` per tolleranza container
 
 ### 4.2 Combinazione
 
-$$R_{total} = \sum_{i=1}^{9} w_i \cdot R_i$$
+$$R_{total} = \sum_{i=1}^{8} w_i \cdot R_i, \quad \sum w_i = 1.0$$
 
-I pesi sono configurabili via YAML. La config `grpo_experimental_all.yaml`
-attiva tutti i 9 moduli con pesi bilanciati (somma = 1.0).
+I pesi sono configurabili via YAML. La somma deve essere 1.0 (validato
+automaticamente).
 
 ---
 
 ## 5. Training
 
-### 5.1 GRPO
+### 5.1 GRPO (Config Optimal v2.1)
 
-- **Algoritmo**: Group Relative Policy Optimization (TRL 0.24.0)
-- **Generations**: G=4 completions per prompt
-- **KL penalty**: beta=0.04
-- **Temperature**: 0.7 (exploration)
-- **LoRA**: r=32 (optimal) o r=16 (default), alpha=64/32
-- **Quantization**: 4-bit QLoRA
-- **Batch**: 1 × grad_accum=8 (effective batch=8)
-- **Learning rate**: 5e-6
-- **Steps**: 1500 (~2-3 ore su L40S)
+| Parametro | Valore | Note |
+| --- | --- | --- |
+| **Algoritmo** | GRPO (TRL 0.24.0) | Group Relative Policy Optimization |
+| **Generations** | G=8 completions/prompt | Post-fix OOM (era 16, causava OOM su 22GB GPU) |
+| **KL penalty** | beta=0.0 | DAPO-style: no KL al reference, solo PPO clip |
+| **Temperature** | 0.9 | Più esplorazione per compensare beta=0 |
+| **LoRA** | r=32, alpha=64 | Doppio del default r=16 |
+| **Quantization** | 4-bit QLoRA | Via Unsloth |
+| **Batch** | 1 × grad_accum=8 | Effective batch=8 |
+| **Learning rate** | 3e-6 | Più basso per stabilità con LoRA r=32 |
+| **Steps** | 2000 | Più lungo del default 1500 |
+| **gradient_checkpointing** | true | OOM mitigation: ricomputa forward nel backward (~20% più lento) |
+| **Curriculum** | 3-stage (G²RPO-A 2026) | Simple→medium→hard difficoltà progressiva |
 
-### 5.2 SFT (Baseline)
+### 5.2 OOM Fix
+
+Il config optimal v2 raddoppiava `num_generations` da 8 a 16, causando OOM sul
+cluster (GPU 22GB). Root cause: GRPO trattiene G completions in VRAM attraverso
+generazione → recomputazione logprob → backward. Raddoppiare G raddoppia ~peak VRAM.
+
+Fix (v2.1):
+- `num_generations: 16 → 8` (valore provato sul cluster)
+- `gradient_checkpointing: true` (extra safety margin nel backward)
+- Tutte le altre migliorie v2 mantenute (curriculum, BLEU-4, beta=0, temp=0.9)
+
+### 5.3 SFT Pre-training (Phase 0)
 
 - **Algoritmo**: Supervised Fine-Tuning (teacher forcing)
-- **Epoche**: 3
+- **Epoche**: 1 (sufficiente per imparare il formato gloss)
 - **Learning rate**: 2e-5
-- **Batch**: 4 × grad_accum=4
-- **Scopo**: Baseline supervisionata per misurare il guadagno del RL
+- **Scopo**: Insegnare al modello il formato gloss prima del GRPO
 
-### 5.3 W&B Integration
+### 5.4 Curriculum Learning (G²RPO-A 2026)
+
+3-stage progressive difficulty basata sulla distribuzione reale di ASLG-PC12:
+- **Stage 1** (0-33%): 10% simple, 65% medium, 25% hard
+- **Stage 2** (33-66%): 5% simple, 40% medium, 55% hard
+- **Stage 3** (66-100%): 3% simple, 30% medium, 67% hard
+
+Implementato come `CurriculumFilteredDataset` (wrapper che reshuffle gli indici
+senza copiare i dati) + `CurriculumCallback` (transizione stage ogni max_steps/3).
+
+### 5.5 W&B Integration
 
 - **Modalità**: Offline (cluster senza internet)
-- **console_multipart**: True (log output.log come artifact)
-- **Crash safety**: try/finally around training
-- **Tags**: per run (es. `grpo`, `optimal`, `ablation`)
-- **Comparison plots**: baseline vs GRPO
-- **JSON artifacts**: `comparison.json` con metriche comparative
+- **console_multipart**: True (log output.log in chunk, crash-safe)
+- **Crash safety**: try/finally around training (wandb.finish sempre chiamato)
+- **Comparison plots**: baseline vs GRPO per ogni config
+- **JSON artifacts**: `comparison.json` con delta metriche
 
 ---
 
@@ -217,7 +231,7 @@ attiva tutti i 9 moduli con pesi bilanciati (somma = 1.0).
 ### 6.1 Metriche
 
 - **ROUGE-L F1**: Similarità lessicale con gold gloss
-- **BLEU**: N-gram precision
+- **BLEU-4**: N-gram precision (con effective_order + smoothing)
 - **Pass@1**: Rate di match esatto
 - **Pass@K**: Rate di match con K campioni
 - **Validity**: Percentuale di output con solo token validi
@@ -225,173 +239,165 @@ attiva tutti i 9 moduli con pesi bilanciati (somma = 1.0).
 
 ### 6.2 Best-of-N Selection
 
-```bash
-uv run python -m src.training.eval_t2g \
-    --config experiments/configs/t2g/grpo_optimal.yaml \
-    --checkpoint experiments/checkpoints/grpo/t2g/qwen05/final \
-    --best-of-n --num-samples 5
-```
-
-Genera N campioni per prompt e seleziona il migliore per reward.
+Genera N campioni per prompt e seleziona il migliore (ROUGE-L più alto tra i validi).
+Trasforma Pass@N in un Pass@1 più forte senza ulteriore training.
 
 ### 6.3 Comparison Mode
 
-```bash
-uv run python -m src.training.eval_t2g \
-    --config experiments/configs/t2g/grpo_optimal.yaml \
-    --checkpoint experiments/checkpoints/grpo/t2g/qwen05/final \
-    --compare
-```
+Valuta automaticamente baseline (zero-shot) e GRPO checkpoint, genera:
+- `baseline_vs_grpo_comparison.png` — bar chart per config
+- `comparison.json` — delta ROUGE-L, Pass@1, Exact Match, Validity
 
-Valuta automaticamente baseline (modello base) e GRPO, genera plot comparativi
-e JSON report.
+### 6.4 Ablation Summary (NUOVO)
+
+Dopo l'ablation study completa, `ablation_summary.py` aggrega tutti i risultati:
+- `ablation_summary.csv` — tabella machine-readable
+- `ablation_summary.md` — tabella Markdown
+- `ablation_comparison.png` — grafico a barre raggruppato cross-config
+
+```bash
+ablation-summary  # alias dopo source cluster/aliases.sh
+```
 
 ---
 
-## 7. Configurazioni Sperimentali
+## 7. Configurazioni Sperimentali (12 Config)
 
 ### 7.1 Ablation Matrix
 
-| #   | Config                  | Training | Grammar    | Reward             | Scopo                           |
-| --- | ----------------------- | -------- | ---------- | ------------------ | ------------------------------- |
-| 1   | `grpo_optimal`          | GRPO     | Vocab Mask | 9 reward           | Config ottimale                 |
-| 2   | `grpo_experimental_all` | GRPO     | Vocab Mask | 9 reward (uniform) | Full reward ablation            |
-| 3   | `grpo_qwen05`           | GRPO     | Vocab Mask | 4 reward           | Main training                   |
-| 4   | `sft`                   | SFT      | Vocab Mask | —                  | Baseline supervisionata         |
-| 5   | `zero_shot`             | ❌       | ❌         | —                  | Lower bound                     |
-| 6   | `zero_shot_grammar`     | ❌       | Vocab Mask | —                  | Grammar senza training          |
-| 7   | `grpo_no_grammar`       | GRPO     | ❌         | 4 reward           | GRPO senza constrained decoding |
-| 8   | `grpo_pda`              | GRPO     | PDA LL(1)  | 4 reward           | GRPO + PDA                      |
-| 9   | `grpo_soft_viterbi`     | GRPO     | Vocab Mask | +soft_viterbi      | Soft Viterbi ablation           |
-| 10  | `grpo_verifier_scaled`  | GRPO     | Vocab Mask | +verifier_scaled   | Verifier ablation               |
-| 11  | `grpo_no_sft`           | GRPO     | Vocab Mask | 6 reward           | SFT ablation                    |
+| #   | Config                    | Training | Grammar          | Reward                          | Scopo                         |
+| --- | ------------------------- | -------- | ---------------- | ------------------------------- | ----------------------------- |
+| 1   | `grpo_optimal`            | GRPO+SFT | Trie             | 7 reward [-1,1] + BLEU-4       | Config ottimale v2.1          |
+| 2   | `grpo_experimental_all`   | GRPO+SFT | Trie             | 10 reward (all modules)        | Full reward ablation          |
+| 3   | `grpo_qwen05`             | GRPO+SFT | Trie             | 4 reward                       | Config base                   |
+| 4   | `sft`                     | SFT      | Trie (eval)      | —                               | Baseline supervisionata       |
+| 5   | `zero_shot`               | ❌       | ❌               | translation (1.0)              | Lower bound                   |
+| 6   | `zero_shot_grammar`       | ❌       | Trie             | translation (1.0)              | Grammar senza training        |
+| 7   | `grpo_no_grammar`         | GRPO     | ❌               | 4 reward                       | GRPO senza constrained dec.   |
+| 8   | `grpo_no_sft`             | GRPO     | Trie             | 6 reward                       | SFT ablation                  |
+| 9   | `grpo_pda`                | GRPO     | PDA LL(1)        | 4 reward                       | GRPO + PDA baseline           |
+| 10  | `grpo_pda_lookahead` ⭐   | GRPO+SFT | PDA + lookahead  | 7 reward + BLEU-4              | GRPO + native BPE emission    |
+| 11  | `grpo_soft_viterbi`       | GRPO+SFT | Trie             | +soft_viterbi                   | Soft Viterbi ablation         |
+| 12  | `grpo_verifier_scaled`    | GRPO+SFT | Trie             | +verifier_scaled               | Verifier ablation             |
 
-### 7.2 Config Optimal (`grpo_optimal.yaml`)
+### 7.2 Config Optimal v2.1 (`grpo_optimal.yaml`)
 
-- LoRA r=32 (doppio del default)
-- 9 reward weights bilanciati
-- `evaluation.max_samples: 500`
-- `evaluation.num_samples: 5`
-- `verifier_temperature: 5.0`
+- LoRA r=32, alpha=64
+- 7 reward simmetriche [-1, 1] + BLEU-4 (somma=1.0)
+- beta=0.0 (DAPO-style), temperature=0.9
+- Curriculum learning 3-stage enabled
+- gradient_checkpointing=true (OOM mitigation)
+- num_generations=8 (post-OOM-fix)
 
-### 7.3 Config Experimental (`grpo_experimental_all.yaml`)
+### 7.3 Config PDA + Lookahead (`grpo_pda_lookahead.yaml`) ⭐ NUOVO
 
-- Tutti i 9 moduli reward attivi
-- Pesi uniformi (~0.10-0.15)
-- Scopo: verificare se combinare tutti i segnali migliora o confonde il training
-
----
-
-## 8. Test Suite
-
-### 8.1 Risultati
-
-| Test File             | Tests  | Status   |
-| --------------------- | ------ | -------- |
-| `test_data.py`        | 4      | ✅       |
-| `test_grammar.py`     | 7      | ✅       |
-| `test_rewards.py`     | 9      | ✅       |
-| `test_metrics.py`     | 6      | ✅       |
-| `test_monitor.py`     | 6      | ✅       |
-| `test_integration.py` | 5      | ✅       |
-| **TOTAL**             | **37** | **100%** |
-
-### 8.2 Infrastruttura
-
-- **Framework**: pytest con `conftest.py` fixtures condivise
-- **Fixtures**: `reward_setup` (mini vocab+bigram), `dataset` (ASLG-PC12),
-  `tokenizer` (Qwen o gpt2 fallback)
-- **Runner**: `uv run python -m pytest tests/ -v`
-- **Skip offline**: `bash tests/run_all_tests.sh --skip-data`
+- use_grammarllm_pda=true + token_lookahead=true
+- Sfrutta grammarllm v0.5.0: StatelessLogitsProcessor + VocabTrie lookahead
+- Il modello emette token BPE nativi invece di spelling
+- Confrontare con grpo_optimal (Trie) per misurare il delta del lookahead
 
 ---
 
-## 9. Risultati Attesi
+## 8. grammarllm v0.5.0 (Migrazione)
 
-### 9.1 Training Progress
+Il progetto usa la libreria `grammarllm` per il constrained decoding via PDA.
+Versione precedente: snapshot pre-release vendored (v0.4.x). Versione attuale:
+**v0.5.0** con:
 
-| Fase       | Steps    | ROUGE-L | Comportamento                                                 |
-| ---------- | -------- | ------- | ------------------------------------------------------------- |
-| Iniziale   | 0–200    | 0.0–0.1 | Random/copying — decoder vincola i token ma output è nonsense |
-| Intermedio | 200–800  | 0.2–0.4 | Associa gloss token a significato. Struttura bigram migliora. |
-| Avanzato   | 800–1500 | 0.5–0.7 | Traduzioni ragionevolmente accurate. Pattern ASL appresi.     |
+- **StatelessLogitsProcessor** (784 righe): cache LRU + re-simulation, beam-search safe
+- **Token-boundary lookahead** (`lookahead.py`): VocabTrie per native BPE token emission
+- **Beam search support**: `num_beams > 1` con re-simulation
+- **5 bug fix** (BUG-13 start_symbol configurable, BUG-17 cross-row conflict check,
+  BUG-20 clone() invece di deepcopy, BUG-4/19 EOS validation, BUG-16 duplicate-key assert)
+- **6 file di test** (16+ test di regressione)
+- **Bound check** per token IDs fuori range (Qwen eos_token_id=151643 ≥ vocab_size=151643)
 
-### 9.2 Ablation Hypotheses
-
-| Config                  | Ipotesi                                                                        |
-| ----------------------- | ------------------------------------------------------------------------------ |
-| `zero_shot`             | Lower bound — modello base senza vincoli produce free text                     |
-| `zero_shot_grammar`     | Il solo constrained decoding migliora validità ma non ROUGE-L                  |
-| `grpo_no_grammar`       | GRPO senza vincoli: il modello può divergere o produrre output non strutturati |
-| `grpo_pda`              | PDA produce sequenze più strutturate della vocab mask, meno ripetizioni        |
-| `sft`                   | Baseline supervisionata — teacher forcing impara a replicare gold              |
-| `grpo_optimal`          | Config ottimale con tutti i segnali reward bilanciati                          |
-| `grpo_experimental_all` | Full reward ablation — verifica se 9 segnali aiutano o confondono              |
-
-### 9.3 Risultati Ottenuti
-
-I risultati completi saranno disponibili dopo l'esecuzione sul cluster.
-Il sistema è pronto per il deployment:
-
-- ✅ Tutti i 9 moduli reward verificati funzionanti
-- ✅ 37/37 test passano
-- ✅ 8+ config YAML pronte
-- ✅ Pipeline cluster (SLURM) configurata
-- ✅ W&B integration con crash safety
-- ✅ Evaluation con best-of-N e comparison mode
+Documentazione completa in `docs/GRAMMARLLM_CONFRONTO.md` e
+`docs/GRAMMARLLM_MIGRAZIONE.md`.
 
 ---
 
-## 10. Innovazioni Chiave
+## 9. Cluster Pipeline
+
+### 9.1 Architettura
+
+```text
+run_all.sh --ablation
+    ↓
+chain_next.sh (watcher, login node, setsid+disown)
+    ↓ (sottomette un job alla volta)
+train.sh / eval.sh (SLURM, Apptainer)
+    ↓
+chain_monitor (login node, monitor live)
+    ↓
+ablation_summary (post-pipeline, tabella + grafico cross-config)
+```
+
+### 9.2 Resilienza
+
+- **Watcher**: `setsid nohup ... & disown` — sopravvive a SIGHUP (disconnect SSH)
+  e SIGTERM (process reaper del login node)
+- **Signal trap**: logga la causa della morte prima di uscire
+- **Chain failure**: se un config fallisce, il suo eval viene saltato ma i
+  restanti **continuano** (non stoppia la pipeline)
+- **OOM/TIMEOUT/CUDA retry**: auto-resume con --resume (max 2 retry ciascuno)
+- **Monitor auto-restart**: se il watcher muore, il monitor lo riavvia
+- **Stale RUNNING check**: il monitor fa `sacct` per i job cached come RUNNING
+
+### 9.3 Comandi
+
+```bash
+source cluster/aliases.sh
+run-all --ablation          # 12 config train+eval (~24h)
+monitor --all               # live dashboard
+ablation-summary            # tabella + grafico cross-config
+```
+
+---
+
+## 10. Test Suite
+
+| Test File             | Tests | Status |
+| --------------------- | ----- | ------ |
+| `test_grammar.py`     | 7     | ✅     |
+| `test_rewards.py`     | 9     | ✅     |
+| `test_integration.py` | 5     | ✅     |
+| **TOTAL**             | **21** | **100%** |
+
+---
+
+## 11. Innovazioni Chiave
 
 1. **Neuro-Symbolic Architecture**: Constrained decoding + reward simboliche
    eliminano la necessità di un reward model neurale.
 
-2. **9 Reward Modules**: Diversi segnali strutturali (bigram, Viterbi, edit-distance,
-   verifier-scaled) che coprono aspetti complementari della qualità della gloss.
+2. **8 Reward Modules [-1, 1]**: Range simmetrico per gradiente più forte e
+   meno reward hacking. BLEU-4 aggiunto (T2G-Reasoner 2025) complementare a ROUGE-L.
 
-3. **Verifier-Scaled Reward (RECIPE-inspired)**: Usa la plausibilità strutturale
-   come moltiplicatore di confidenza per la qualità di traduzione. Aggiornato per
-   usare `gold_structure_reward` come moltiplicatore relativo per evitare la compressione
-   del punteggio (risolto il cap a 0.22, permettendo al segnale di salire fino a 1.0).
+3. **BLEU-4 con effective_order + smoothing**: Sequenze corte (1-3 token, comuni
+   in ASL) non collassano a -1.0. Bug del caching silenzioso fixato con check eager.
 
-4. **Soft-Viterbi (Differentiable)**: Forward-backward log-partition come
-   upper bound differentiable, ispirato a ViterbiPlanNet's DVL.
+4. **Curriculum Learning (G²RPO-A 2026)**: Difficoltà progressiva 3-stage calibrata
+   sulla distribuzione reale di ASLG-PC12 (9.3% simple, 68.4% medium, 22.2% hard).
 
-5. **Viterbi Diversity**: Self-loop penalty + iterative token ban per evitare
-   che il Viterbi optimum degeneri in loop ripetitivi.
+5. **Token-Boundary Lookahead (grammarllm v0.5.0)**: Il modello emette token BPE
+   nativi invece di essere forzato a spelling — alignment alla tokenizzazione di
+   pre-training.
 
-6. **Robust Gold Gloss Lookup**: SHA256 hashing delle user instructions per
-   lookup format-agnostic, indipendente dal formato del prompt di TRL.
+6. **StatelessLogitsProcessor**: Cache LRU + re-simulation dallo stato PDA —
+   beam-search safe, O(1) amortized.
 
-7. **Centralized Prompting**: `build_t2g_prompt()` garantisce prompt
-   byte-identici tra training, eval e test.
+7. **OOM Mitigation**: gradient_checkpointing + G=8 (dal OOM-causante G=16) su
+   GPU 22GB, mantenendo tutte le migliorie v2 (curriculum, BLEU, beta=0).
 
-8. **Best-of-N + Comparison Eval**: Evaluation mode che genera N campioni
-   e confronta baseline vs GRPO con plot e JSON report.
+8. **Ablation Summary**: Script che aggrega tutti i risultati eval in tabella
+   CSV + Markdown + grafico a barre cross-config.
 
----
+9. **Cluster Resilienza**: Watcher con setsid+disown sopravvive a disconnect SSH,
+   chain continua su failure, monitor auto-restart, sacct stale check.
 
-## 11. Dipendenze e Ambiente
-
-### 11.1 Core
-
-- Python 3.10+
-- PyTorch (CUDA 12.1+)
-- Transformers + TRL 0.24.0
-- Unsloth (GPU acceleration)
-- rouge-score, numpy, pandas, plotnine
-
-### 11.2 GPU
-
-- L40S (8.9): ✅ Ideal
-- V100 (7.0): ✅ No bf16
-- K80 (3.7): ❌ fp16 only
-
-### 11.3 Package Manager
-
-- `uv` per gestione dipendenze e virtual environment
-- `pyproject.toml` con optional GPU extras (`unsloth`, `vllm`)
+10. **Robust Gold Gloss Lookup**: SHA256 hashing delle user instructions per
+    lookup format-agnostic, indipendente dal formato del prompt di TRL.
 
 ---
 
@@ -400,32 +406,26 @@ Il sistema è pronto per il deployment:
 | Componente           | Stato       | Note                                                         |
 | -------------------- | ----------- | ------------------------------------------------------------ |
 | Data pipeline        | ✅ Completo | ASLG-PC12 loader, bigram matrix, vocab extraction            |
-| Constrained decoding | ✅ Completo | Vocab mask + PDA (sperimentale)                              |
-| Reward system        | ✅ Completo | 9 moduli, tutti verificati                                   |
-| GRPO training        | ✅ Completo | TRL integration, crash-safe W&B                              |
-| SFT baseline         | ✅ Completo | Teacher forcing baseline                                     |
-| Evaluation           | ✅ Completo | ROUGE-L, BLEU, Pass@K, best-of-N, --compare                  |
-| Test suite           | ✅ Completo | 37/37 pytest pass                                            |
-| Config system        | ✅ Completo | 8+ YAML, ablation matrix                                     |
-| Cluster pipeline     | ✅ Completo | SLURM scripts, monitor, aliases                              |
-| Documentation        | ✅ Completo | README, REWARDS.md, METRICS.md, CONFIGS.md, CONFIGS_GUIDE.md |
+| Constrained decoding | ✅ Completo | Trie dual-root + PDA v0.5.0 + lookahead                     |
+| Reward system        | ✅ Completo | 8 moduli [-1, 1], BLEU-4 con effective_order                 |
+| GRPO training        | ✅ Completo | G=8, beta=0, curriculum, gradient_checkpointing, OOM-safe    |
+| SFT baseline         | ✅ Completo | Teacher forcing, 1 epoch                                     |
+| Evaluation           | ✅ Completo | ROUGE-L, BLEU, Pass@K, best-of-N, --compare, ablation_summary |
+| Test suite           | ✅ Completo | 21/21 pytest pass                                            |
+| Config system        | ✅ Completo | 12 YAML, 12-config ablation matrix                           |
+| Cluster pipeline     | ✅ Completo | SLURM, setsid+disown watcher, auto-restart, chain-failure-safe |
+| Documentation        | ✅ Completo | README, REWARDS, METRICS, CONFIGS, GRAMMARLLM_CONFRONTO/MIGRAZIONE |
 
 ### 12.1 Pronto per Cluster
 
-Il sistema è pronto per l'esecuzione sul cluster:
-
 ```bash
-# Upload
 .\sync_cluster.ps1 -Action upload
-
-# Setup
 ssh user@gcluster.dmi.unict.it
 cd ~/neuro_symbolic_t2g && bash cluster/setup.sh
-
-# Run
 source cluster/aliases.sh
-t2g-run-all    # Train → Eval pipeline
-t2g-monitor    # Live dashboard
+run-all --ablation          # 12 config
+monitor --all               # live dashboard
+ablation-summary            # tabella + grafico
 ```
 
 ---
@@ -435,26 +435,25 @@ t2g-monitor    # Live dashboard
 Il progetto **neuro_symbolic_t2g** implementa un'architettura neuro-symbolica
 completa per la traduzione Text-to-Gloss ASL, combinando:
 
-- **GRPO** per reinforcement learning on-policy
-- **Constrained decoding** per garantire output sintatticamente validi
-- **9 reward simboliche deterministiche** che coprono qualità di traduzione,
-  struttura, ordine, formato, e ripetizione
+- **GRPO** con G=8, beta=0 (DAPO-style), temperature=0.9, curriculum 3-stage
+- **Constrained decoding** con Trie dual-root (default) o PDA + lookahead (grammarllm v0.5.0)
+- **8 reward simboliche** [-1, 1] incl. BLEU-4 con effective_order + smoothing
+- **gradient_checkpointing** per OOM-safe training su GPU 22GB
 
-Tutti i componenti sono implementati, testati (37/37 pytest pass), e pronti
-per l'esecuzione su cluster. Il sistema supporta ablation study completa con
-8+ configurazioni, evaluation con best-of-N e comparison mode, e logging
-W&B crash-safe.
-
-Il prossimo step è l'esecuzione sul cluster per ottenere risultati quantitativi
-e confrontare le configurazioni ablation.
+Tutti i componenti sono implementati, testati (21/21 pytest pass), e pronti
+per l'esecuzione su cluster con 12 configurazioni ablation. Il cluster pipeline
+include watcher resiliente (setsid+disown), chain-failure-safe (continua su
+failure), monitor con auto-restart, e ablation summary per analisi cross-config.
 
 ---
 
 ## Riferimenti
 
 - **ASLG-PC12**: Othman & Jemni (2012), English-ASL Gloss Parallel Corpus
-- **GRPO**: TRL GRPOTrainer (HuggingFace)
+- **GRPO**: TRL GRPOTrainer 0.24.0 (HuggingFace)
 - **Unsloth**: FastLanguageModel per QLoRA acceleration
+- **T2G-Reasoner 2025**: BLEU-4 outperforms ROUGE-L as reward signal for T2G
+- **G²RPO-A 2026**: Curriculum learning for GRPO on small models
 - **RECIPE**: arXiv:2605.19976 — Verifier-scaled reward
 - **ViterbiPlanNet DVL**: arXiv:2603.04265 — Differentiable Viterbi
-- **grammarllm**: Vendored PDA-based constrained decoding library
+- **grammarllm v0.5.0**: PDA-based constrained decoding with token-boundary lookahead

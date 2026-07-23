@@ -196,17 +196,60 @@ def _cache_update_job(job: JobInfo) -> None:
 
 
 def _cache_enrich_job(job: JobInfo) -> None:
-    """Fill in missing fields on a job from cached data."""
+    """Fill in missing fields on a job from cached data.
+
+    Also checks sacct for stale RUNNING jobs — if the cache says RUNNING
+    but the job is no longer in squeue and sacct shows a terminal state,
+    update the job state accordingly. This prevents the monitor from
+    showing stale RUNNING data when the watcher died mid-job.
+    """
     cache = _load_cache()
     key = f"{job.job_type}-{job.tag}"
     entry = cache["jobs"].get(key)
     if not entry:
         return
 
-    if job.state == "PENDING" and entry.get("state") in ("COMPLETED", "FAILED"):
-        job.state = entry["state"]
-    if not job.slurm_id and entry.get("slurm_id"):
-        job.slurm_id = entry["slurm_id"]
+    # ── Stale RUNNING check ───────────────────────────────────────────
+    # If cache says RUNNING but the job has a slurm_id, check sacct to see
+    # if the job is still actually running. This catches the case where the
+    # watcher died and the job finished (or was killed) while the cache
+    # still shows RUNNING from hours ago.
+    cached_state = entry.get("state", "")
+    cached_slurm_id = entry.get("slurm_id", "")
+    if cached_state == "RUNNING" and cached_slurm_id and job.state == "PENDING":
+        # Check sacct for the actual job state
+        sacct_out = _run(
+            f"sacct -j {cached_slurm_id} --format=State --noheader --parsable2 2>/dev/null | head -1"
+        )
+        sacct_state = sacct_out.strip() if sacct_out else ""
+        if sacct_state in (
+            "COMPLETED",
+            "FAILED",
+            "CANCELLED",
+            "CANCELLED+",
+            "TIMEOUT",
+            "OUT_OF_MEMORY",
+            "NODE_FAIL",
+        ):
+            if sacct_state == "COMPLETED":
+                job.state = "COMPLETED"
+            else:
+                job.state = "FAILED"
+            # Update cache too
+            entry["state"] = job.state
+            _save_cache(cache)
+        elif sacct_state in ("RUNNING", "PENDING"):
+            # Job is actually still running — restore from cache
+            job.state = "RUNNING"
+            job.slurm_id = cached_slurm_id
+            if entry.get("last_reward"):
+                job.last_reward = entry["last_reward"]
+        # If sacct_state is empty, we can't tell — leave as PENDING
+
+    if job.state == "PENDING" and cached_state in ("COMPLETED", "FAILED"):
+        job.state = cached_state
+    if not job.slurm_id and cached_slurm_id:
+        job.slurm_id = cached_slurm_id
     if not job.eval_pass and entry.get("eval_pass"):
         job.eval_pass = entry["eval_pass"]
     if entry.get("eval_stages"):
@@ -1261,12 +1304,26 @@ def _display(
                     f"  {_YELLOW}⏳ Waiting for next job... ({remaining} remaining){_RST}"
                 )
         else:
+            # Auto-restart the dead watcher if there are pending jobs.
+            # The login node may have killed the watcher process (SIGHUP on
+            # session disconnect, SIGTERM from process reaper). Restarting
+            # here keeps the pipeline going without manual intervention.
             print(
-                f"  {_RED}⚠ Pipeline stalled{_RST} — {remaining} jobs pending but watcher is dead"
+                f"  {_YELLOW}⚠ Watcher dead — auto-restarting... ({remaining} jobs pending){_RST}"
             )
-            print(
-                f"  {_DIM}Restart: bash cluster/run_all.sh   |   Clean: rm -rf .chain_state{_RST}"
-            )
+            import subprocess as _sp
+
+            try:
+                _sp.Popen(
+                    ["bash", "cluster/chain_next.sh"],
+                    stdout=_sp.DEVNULL,
+                    stderr=_sp.DEVNULL,
+                    cwd=str(PROJ_DIR),
+                )
+                print(f"  {_GREEN}✓ Watcher restarted{_RST}")
+            except Exception as e:
+                print(f"  {_RED}⚠ Could not restart watcher: {e}{_RST}")
+                print(f"  {_DIM}Manual restart: bash cluster/run_all.sh --resume{_RST}")
     elif not jobs:
         print(f"  {_DIM}No jobs found.{_RST}")
     else:

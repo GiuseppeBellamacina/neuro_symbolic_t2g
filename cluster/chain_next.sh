@@ -155,6 +155,11 @@ query_sacct_with_retry() {
 
 echo $$ > "$STATE_DIR/chain_pid"
 
+# Trap signals from the login node (SIGHUP on session disconnect,
+# SIGTERM from process reaper). Save state and log before dying so the
+# user knows WHY the watcher stopped and can resume cleanly.
+trap 'echo "[chain] ⚠️ Watcher killed by signal at $(date) — state preserved in .chain_state/ — resume with: bash cluster/run_all.sh --resume"; rm -f "$STATE_DIR/chain_pid"; exit 1' SIGHUP SIGTERM
+
 echo "[chain] Watcher avviato (PID $$) — $(date)"
 echo "[chain] File catena: $CHAIN_FILE"
 

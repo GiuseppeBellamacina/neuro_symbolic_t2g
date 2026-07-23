@@ -340,7 +340,8 @@ chain-start() {
     fi
 
     mkdir -p logs
-    nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
+    setsid nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
+    disown
 
     # Attendi che il watcher scriva il suo PID
     sleep 2

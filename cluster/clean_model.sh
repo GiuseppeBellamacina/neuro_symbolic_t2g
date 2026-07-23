@@ -1,16 +1,25 @@
 #!/bin/bash
 # ============================================================================
-# Pulizia selettiva — rimuove checkpoints e logs di un modello specifico.
+# Pulizia selettiva — rimuove checkpoints, logs, results, figures di un
+# modello specifico (per tag).
+#
+# Cerca in:
+#   experiments/checkpoints/qwen25-05b-*/  (struttura flat, config v2+)
+#   experiments/checkpoints/grpo/t2g/*/    (struttura vecchia, retrocompat)
+#   experiments/logs/qwen25-05b-*/         (log training/eval)
+#   experiments/results/*/                (eval JSON)
+#   experiments/figures/                   (plot, ablation_summary)
+#   logs/slurm-*-${TAG}*.log              (log SLURM)
 #
 # Uso:
-#   bash cluster/clean_model.sh qwen05    # dry-run
-#   bash cluster/clean_model.sh qwen05 --all  # cancella tutto
+#   bash cluster/clean_model.sh grpo-optimal           # dry-run
+#   bash cluster/c_clean_model.sh grpo-optimal --all   # cancella tutto
+#   bash cluster/clean_model.sh                        # lista tutti i tag
 # ============================================================================
 
 set -e
 cd "$HOME/neuro_symbolic_t2g"
 
-VALID_MODELS=("qwen05")
 MODEL=""
 FORCE=0
 
@@ -18,10 +27,10 @@ for arg in "$@"; do
     case "$arg" in
         --all) FORCE=1 ;;
         --help|-h)
-            echo "Uso: bash cluster/clean_model.sh <MODEL_TAG> [--all]"
+            echo "Uso: bash cluster/clean_model.sh <TAG> [--all]"
             echo ""
-            echo "Modelli disponibili:"
-            for m in "${VALID_MODELS[@]}"; do echo "  $m"; done
+            echo "TAG = il tag del config (es. grpo-optimal, grpo-pda, sft, ...)"
+            echo "Senza argomenti: lista tutti i tag trovati"
             exit 0
             ;;
         *)
@@ -35,60 +44,136 @@ for arg in "$@"; do
     esac
 done
 
+# ── Nessun modello specificato: lista tutti i tag trovati ─────────────────
 if [ -z "$MODEL" ]; then
-    echo "=== DRY RUN — mostra cosa esiste ==="
+    echo "=== Modelli trovati (dry-run) ==="
     echo ""
-    for m in "${VALID_MODELS[@]}"; do
-        DIRS_FOUND=()
-        [ -d "experiments/checkpoints/grpo/t2g/$m" ] && DIRS_FOUND+=("experiments/checkpoints/grpo/t2g/$m")
-        [ -d "logs" ] && ls logs/slurm-*-${m}*.log 2>/dev/null | while read f; do echo "  $f ($(du -sh "$f" | cut -f1))"; done
 
-        if [ ${#DIRS_FOUND[@]} -gt 0 ]; then
-            echo "  $m:"
-            for d in "${DIRS_FOUND[@]}"; do
-                SIZE=$(du -sh "$d" 2>/dev/null | cut -f1)
-                echo "    $d ($SIZE)"
-            done
-        else
-            echo "  $m: (niente)"
-        fi
+    # Checkpoints (struttura flat)
+    for d in experiments/checkpoints/*/; do
+        [ -d "$d" ] || continue
+        name=$(basename "$d")
+        SIZE=$(du -sh "$d" 2>/dev/null | cut -f1)
+        echo "  $name ($SIZE)"
     done
+
+    # Checkpoints (struttura vecchia grpo/t2g/)
+    for d in experiments/checkpoints/grpo/t2g/*/ 2>/dev/null; do
+        [ -d "$d" ] || continue
+        name=$(basename "$d")
+        SIZE=$(du -sh "$d" 2>/dev/null | cut -f1)
+        echo "  grpo/t2g/$name ($SIZE)"
+    done
+
+    # Results
+    if [ -d "experiments/results" ]; then
+        for d in experiments/results/*/; do
+            [ -d "$d" ] || continue
+            name=$(basename "$d")
+            SIZE=$(du -sh "$d" 2>/dev/null | cut -f1)
+            echo "  results/$name ($SIZE)"
+        done
+    fi
+
     echo ""
-    echo "Per cancellare: bash cluster/clean_model.sh <MODEL_TAG> --all"
+    echo "Per cancellare: bash cluster/clean_model.sh <TAG> --all"
     exit 0
 fi
 
-FOUND=0
-for m in "${VALID_MODELS[@]}"; do
-    [ "$m" = "$MODEL" ] && FOUND=1
-done
-if [ $FOUND -eq 0 ]; then
-    echo "⚠️  '$MODEL' non è un modello noto. Procedo comunque..."
-fi
-
-if [ "$FORCE" -eq 0 ]; then
-    echo "=== DRY RUN per $MODEL — aggiungi --all per cancellare ==="
+# ── Dry-run per il modello specificato ────────────────────────────────────
+if [ "$FORCE" = "0" ]; then
+    echo "=== DRY RUN per '$MODEL' — aggiungi --all per cancellare ==="
     echo ""
-    [ -d "experiments/checkpoints/grpo/t2g/$MODEL" ] && echo "  experiments/checkpoints/grpo/t2g/$MODEL ($(du -sh experiments/checkpoints/grpo/t2g/$MODEL 2>/dev/null | cut -f1))"
-    echo "  logs/slurm-*-${MODEL}*:"
-    ls logs/slurm-*-${MODEL}*.log 2>/dev/null | while read f; do echo "    $f"; done
+    FOUND=0
+
+    # Checkpoints (flat)
+    for d in experiments/checkpoints/*${MODEL}*/; do
+        [ -d "$d" ] || continue
+        SIZE=$(du -sh "$d" 2>/dev/null | cut -f1)
+        echo "  [CHECKPOINTS] $d ($SIZE)"
+        FOUND=1
+    done
+
+    # Checkpoints (vecchia struttura)
+    DIR="experiments/checkpoints/grpo/t2g/$MODEL"
+    if [ -d "$DIR" ]; then
+        SIZE=$(du -sh "$DIR" 2>/dev/null | cut -f1)
+        echo "  [CHECKPOINTS] $DIR ($SIZE)"
+        FOUND=1
+    fi
+
+    # Logs
+    for d in experiments/logs/*${MODEL}*/; do
+        [ -d "$d" ] || continue
+        SIZE=$(du -sh "$d" 2>/dev/null | cut -f1)
+        echo "  [LOGS] $d ($SIZE)"
+        FOUND=1
+    done
+
+    # Results
+    for d in experiments/results/*${MODEL}*/; do
+        [ -d "$d" ] || continue
+        SIZE=$(du -sh "$d" 2>/dev/null | cut -f1)
+        echo "  [RESULTS] $d ($SIZE)"
+        FOUND=1
+    done
+
+    # SLURM logs
+    ls logs/slurm-*-${MODEL}*.log 2>/dev/null | while read f; do
+        echo "  [SLURM] $f"
+        FOUND=1
+    done
+
+    if [ $FOUND -eq 0 ]; then
+        echo "  (niente trovato per '$MODEL')"
+    fi
+    echo ""
+    echo "Per cancellare: bash cluster/clean_model.sh $MODEL --all"
     exit 0
 fi
 
+# ── Cancella ───────────────────────────────────────────────────────────────
 echo "Pulizia modello: $MODEL"
 CLEANED=0
 
-# Checkpoints
+# Checkpoints (flat — es. experiments/checkpoints/qwen25-05b-optimal/)
+for d in experiments/checkpoints/*${MODEL}*/; do
+    [ -d "$d" ] || continue
+    echo "  [CHECKPOINTS] $d"
+    rm -rf "$d"
+    CLEANED=1
+done
+
+# Checkpoints (vecchia struttura grpo/t2g/)
 DIR="experiments/checkpoints/grpo/t2g/$MODEL"
 if [ -d "$DIR" ]; then
-    echo "[CHECKPOINTS] $DIR"
+    echo "  [CHECKPOINTS] $DIR"
     rm -rf "$DIR"
     CLEANED=1
 fi
 
-# Logs
+# Logs (experiments/logs/*${MODEL}*/)
+for d in experiments/logs/*${MODEL}*/; do
+    [ -d "$d" ] || continue
+    echo "  [LOGS] $d"
+    rm -rf "$d"
+    CLEANED=1
+done
+
+# Results (experiments/results/*${MODEL}*/)
+for d in experiments/results/*${MODEL}*/; do
+    [ -d "$d" ] || continue
+    echo "  [RESULTS] $d"
+    rm -rf "$d"
+    CLEANED=1
+done
+
+# SLURM logs
 for f in logs/slurm-*-${MODEL}*.log; do
-    [ -f "$f" ] && echo "[LOG] $f" && rm -f "$f" && CLEANED=1
+    [ -f "$f" ] || continue
+    echo "  [SLURM] $f"
+    rm -f "$f"
+    CLEANED=1
 done
 
 echo ""

@@ -16,7 +16,14 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from tqdm import tqdm
+# tqdm fallback for Apptainer containers without tqdm installed
+try:
+    from tqdm import tqdm
+except ImportError:
+
+    def tqdm(iterable=None, **kwargs):
+        return iterable if iterable is not None else iter(())
+
 
 from datasets import Dataset, DatasetDict, load_dataset
 

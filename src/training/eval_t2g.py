@@ -43,7 +43,18 @@ from typing import Any
 
 import numpy as np
 import torch
-from tqdm import tqdm
+
+# tqdm may not be available in all Apptainer containers on the cluster.
+# Provide a no-op fallback so eval doesn't crash at import time —
+# progress bars are a convenience, not a requirement.
+try:
+    from tqdm import tqdm
+except ImportError:
+
+    def tqdm(iterable=None, **kwargs):
+        """No-op fallback when tqdm is not installed."""
+        return iterable if iterable is not None else iter(())
+
 
 # Silence noisy transformers FutureWarnings (AttentionMaskConverter deprecation)
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
