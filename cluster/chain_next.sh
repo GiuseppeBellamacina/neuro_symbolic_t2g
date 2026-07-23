@@ -155,10 +155,18 @@ query_sacct_with_retry() {
 
 echo $$ > "$STATE_DIR/chain_pid"
 
-# Trap signals from the login node (SIGHUP on session disconnect,
-# SIGTERM from process reaper). Save state and log before dying so the
-# user knows WHY the watcher stopped and can resume cleanly.
-trap 'echo "[chain] ⚠️ Watcher killed by signal at $(date) — state preserved in .chain_state/ — resume with: bash cluster/run_all.sh --resume"; rm -f "$STATE_DIR/chain_pid"; exit 1' SIGHUP SIGTERM
+# Ignore SIGHUP and SIGTERM completely. nohup already ignores SIGHUP, but
+# we set it explicitly here too (belt + suspenders) in case the shell
+# resets handlers. SIGTERM from the login node's process reaper is also
+# ignored — the watcher will only die on SIGKILL (uncatchable).
+# 
+# CRITICAL: do NOT use `trap '... exit 1' SIGHUP` — that would OVERRIDE
+# nohup's SIG_IGN and actually KILL the watcher on SIGHUP (the opposite
+# of what we want). The empty trap '' sets the signal to SIG_IGN.
+# 
+# This is why grpo-strict-generation's watcher survived for days: it had
+# NO trap at all, so nohup's SIGHUP ignore was never overridden.
+trap '' SIGHUP SIGTERM
 
 echo "[chain] Watcher avviato (PID $$) — $(date)"
 echo "[chain] File catena: $CHAIN_FILE"
