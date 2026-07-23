@@ -91,16 +91,27 @@ sys.exit(1)
     fi
 fi
 
-# Prepara dataset eval se mancante
+# Prepara dataset eval se mancante — usa Apptainer se disponibile
+# (il login node / compute node non ha le dipendenze Python installate)
 if [ ! -d "data/aslg_pc12_test" ]; then
     echo "Dataset test non trovato, download in corso..."
-    python3 -c "
+    if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
+        apptainer run --nv /shared/sifs/latest.sif python3 -c "
 from src.datasets.aslg_dataset import download_aslg_dataset, build_t2g_dataset
 dataset = download_aslg_dataset()
 test_ds = build_t2g_dataset(dataset, split='test')
 test_ds.save_to_disk('data/aslg_pc12_test')
 print('Dataset salvato.')
 "
+    else
+        python3 -c "
+from src.datasets.aslg_dataset import download_aslg_dataset, build_t2g_dataset
+dataset = download_aslg_dataset()
+test_ds = build_t2g_dataset(dataset, split='test')
+test_ds.save_to_disk('data/aslg_pc12_test')
+print('Dataset salvato.')
+"
+    fi
 fi
 EVAL_ARGS="--config ${CONFIG} --plot --compare"
 if [ -n "$CHECKPOINT" ]; then
