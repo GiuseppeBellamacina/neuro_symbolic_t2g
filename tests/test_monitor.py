@@ -9,9 +9,16 @@ Validates:
   5. Eval log parsing (Pass@1)
   6. Total ETA estimation
   7. JobInfo dataclass
+  8. Eval "Evaluating" tqdm bar (C1), label-less Pass@1 (C2),
+     seeded-sample progress line (C3), last-marker SFT phase detection (C4),
+     SFT eval_loss KV + best (C5), eval_*.json loading (C6),
+     long-prompt truncation (C7)
+  9. live_training_table KV parsing + sample-block skipping (L1/L2)
 """
 
 from __future__ import annotations
+
+import re
 
 
 def test_completion_sample_extraction():
@@ -223,3 +230,254 @@ def test_estimate_total_eta():
     job3 = JobInfo(job_type="train", config="", tag="qwen05", step=0, stage_total=1500)
     eta3 = _estimate_total_eta(job3)
     assert eta3 == "", "Total ETA without elapsed = empty"
+
+
+# ---------------------------------------------------------------------------
+# C1–C7: audit fixes for chain_monitor
+# ---------------------------------------------------------------------------
+
+
+def test_eval_generating_bar_c1(tmp_path):
+    """C1: the 'Evaluating' tqdm bar is recognized (was: only 'Generating')."""
+    from src.utils import chain_monitor as cm
+
+    log = tmp_path / "eval.log"
+    log.write_text(
+        "some line\n"
+        "Evaluating:  45%|████▍| 17/38 [00:30<00:40,  0.75s/it]\n"
+        "Evaluation complete\n",
+        encoding="utf-8",
+    )
+    job = cm.JobInfo(job_type="eval", config="", tag="qwen05")
+    cm._parse_eval_log(log, job)
+    assert job.step == 17, f"step from Evaluating bar: {job.step}"
+    assert job.eval_step_total == 38, f"total from Evaluating bar: {job.eval_step_total}"
+    assert job.tqdm_elapsed == "00:30", f"elapsed: {job.tqdm_elapsed}"
+    assert job.tqdm_eta == "00:40", f"eta: {job.tqdm_eta}"
+
+
+def test_eval_pass_no_label_c2(tmp_path):
+    """C2: label-less '  Pass@1: 0.1234' populates stage 'latest' + metrics."""
+    from src.utils import chain_monitor as cm
+
+    log = tmp_path / "eval.log"
+    log.write_text(
+        "Evaluating 17/38 samples (seeded sample)\n"
+        "  Pass@1: 0.1234\n"
+        "  ROUGE-L mean: 0.4321 ± 0.0567\n"
+        "  BLEU (sentence mean / corpus): 0.1234 / 0.1111\n"
+        "  chrF2 (sentence mean / corpus): 23.45 / 22.22\n"
+        "  Gloss F1 (sentence mean / micro): 0.3456 / 0.3333\n"
+        "  Validity rate: 0.9000\n"
+        "Evaluation complete\n",
+        encoding="utf-8",
+    )
+    job = cm.JobInfo(job_type="eval", config="", tag="qwen05")
+    cm._parse_eval_log(log, job)
+    assert job.eval_stages.get("latest") == "0.1234", f"latest stage: {job.eval_stages}"
+    assert job.eval_metrics.get("pass_at_1") == "0.1234"
+    assert job.eval_metrics.get("rouge_l_mean") == "0.4321"
+    assert job.eval_metrics.get("bleu_sentence_mean") == "0.1234"
+    assert job.eval_metrics.get("bleu_corpus") == "0.1111"
+    assert job.eval_metrics.get("chrf_sentence_mean") == "23.45"
+    assert job.eval_metrics.get("gloss_f1_micro") == "0.3333"
+    assert job.eval_metrics.get("validity_rate") == "0.9000"
+    assert job.eval_label == "COMPLETE", f"label: {job.eval_label}"
+
+
+def test_eval_checkpoint_seeded_sample_c3():
+    """C3: 'Evaluating 17/38 samples (seeded sample)' sets the eval label."""
+    from src.utils.chain_monitor import _EVAL_PROGRESS_LINE
+
+    line = "Evaluating 17/38 samples (seeded sample)"
+    m = _EVAL_PROGRESS_LINE.search(line)
+    assert m is not None, "seeded-sample progress line matched"
+    assert int(m.group(1)) == 17
+    assert int(m.group(2)) == 38
+
+
+def test_sft_phase_last_marker_c4(tmp_path):
+    """C4: the LAST phase marker in the tail decides sft_active.
+
+    Regression: with both 'STEP 1.5: SFT Pre-training' and
+    'STEP 7: GRPO Training' in the window, GRPO must win (the old code
+    broke on the FIRST match and left sft_active=True during GRPO).
+    """
+    from src.utils import chain_monitor as cm
+
+    log = tmp_path / "train.log"
+    log.write_text(
+        "STEP 1.5: SFT Pre-training\n"
+        "  [sft] step=50/200 (25.0%)  loss=2.345678  avg=2.5  min=2.1  lr=1.5e-05  epoch=0.5\n"
+        "STEP 7: GRPO Training\n"
+        "  step=100  loss=0.005  reward=0.350\n",
+        encoding="utf-8",
+    )
+    job = cm.JobInfo(job_type="train", config="", tag="qwen05")
+    cm._parse_training_log(log, job)
+    assert job.sft_active is False, "GRPO marker after SFT marker -> not SFT"
+    assert job.step == 100, f"GRPO step parsed: {job.step}"
+    assert job.last_reward == "0.350", f"GRPO reward: {job.last_reward}"
+
+    log2 = tmp_path / "sft_only.log"
+    log2.write_text(
+        "STEP 1.5: SFT Pre-training\n"
+        "  [sft] step=50/200 (25.0%)  loss=2.345678  avg=2.5  min=2.1  lr=1.5e-05  epoch=0.5\n",
+        encoding="utf-8",
+    )
+    job2 = cm.JobInfo(job_type="train", config="", tag="qwen05")
+    cm._parse_training_log(log2, job2)
+    assert job2.sft_active is True, "SFT marker last -> SFT active"
+    assert job2.sft_step == 50, f"sft step: {job2.sft_step}"
+    assert job2.sft_loss == "2.345678", f"sft loss: {job2.sft_loss}"
+
+
+def test_sft_eval_loss_c5(tmp_path):
+    """C5: SFT eval_loss KV lines and '[sft] Best eval_loss=' are parsed."""
+    from src.utils import chain_monitor as cm
+
+    log = tmp_path / "train.log"
+    log.write_text(
+        "STEP 1.5: SFT Pre-training\n"
+        "  [sft] step=50/200 (25.0%)  loss=2.345678  avg=2.5  min=2.1  lr=1.5e-05  epoch=0.5\n"
+        "  step=100  eval_loss=1.23456789  epoch=0.50000000\n"
+        "  step=101  eval_loss=1.11111111  epoch=0.51000000\n"
+        "[sft] Best eval_loss=0.987654 (best checkpoint=/tmp/out/checkpoint-500)\n",
+        encoding="utf-8",
+    )
+    job = cm.JobInfo(job_type="train", config="", tag="qwen05")
+    cm._parse_training_log(log, job)
+    assert job.sft_eval_loss == "1.11111111", f"last eval_loss: {job.sft_eval_loss}"
+    assert job.sft_eval_loss_best == "0.987654", f"best eval_loss: {job.sft_eval_loss_best}"
+
+
+def test_eval_results_json_c6(tmp_path):
+    """C6: after completion, metrics are loaded from the eval_*.json."""
+    import json
+
+    from src.utils import chain_monitor as cm
+
+    json_path = tmp_path / "eval_final.json"
+    json_path.write_text(
+        json.dumps(
+            {
+                "rouge_l_mean": 0.4321,
+                "pass_at_1": 0.1234,
+                "bleu_sentence_mean": 0.2222,
+                "chrf_sentence_mean": 20.5,
+                "gloss_f1_micro": 0.3333,
+                "validity_rate": 0.9,
+                "exact_match": 0.05,
+            }
+        ),
+        encoding="utf-8",
+    )
+    log = tmp_path / "eval.log"
+    log.write_text(
+        "Evaluating 17/38 samples (seeded sample)\n"
+        "  Pass@1: 0.1234\n"
+        "Evaluation complete\n"
+        f"Results saved to {json_path}\n",
+        encoding="utf-8",
+    )
+    job = cm.JobInfo(job_type="eval", config="", tag="qwen05")
+    cm._parse_eval_log(log, job)
+    assert job.eval_metrics.get("rouge_l_mean") == "0.4321", job.eval_metrics
+    assert job.eval_metrics.get("bleu_sentence_mean") == "0.2222"
+    assert job.eval_metrics.get("exact_match") == "0.0500"
+    assert job.eval_stages.get("latest") == "0.1234", job.eval_stages
+
+
+def test_completion_prompt_truncation_c7():
+    """C7: long few-shot prompts are truncated to ~200 chars in the panel."""
+    from src.utils.chain_monitor import _extract_completion_samples
+
+    long_prompt = "The cat sleeps on the sofa. " * 20  # ~480 chars
+    log_lines = [
+        "================================================================",
+        "  COMPLETION SAMPLES",
+        "================================================================",
+        "-------------------------------------------------------------------",
+        "  Sample 1",
+        "-------------------------------------------------------------------",
+        f"  PROMPT: {long_prompt}",
+        "  OUTPUT:",
+        "    IX MAN WALK HOUSE",
+        "  GOLD:",
+        "    IX MAN WALK ENTER HOUSE",
+        "  REWARDS: translation_quality_reward=+0.80",
+        "  TOTAL:   +0.80",
+        "================================================================",
+    ]
+    samples = _extract_completion_samples(log_lines)
+    prompt_line = [line for line in samples if "PROMPT:" in line]
+    assert prompt_line, "prompt shown in panel"
+    visible = re.sub(r"\033\[[0-9;]*m", "", prompt_line[0])
+    assert visible.endswith("..."), "truncation marker present"
+    # 2 leading spaces + "PROMPT:" + 2 spaces + <=200 chars + "..."
+    assert len(visible) <= 214, f"prompt truncated to ~200: {len(visible)}"
+
+
+# ---------------------------------------------------------------------------
+# live_training_table (L1/L2)
+# ---------------------------------------------------------------------------
+
+
+def test_live_table_kv_parser():
+    """L1: live_training_table parses HighPrecisionLogCallback KV lines."""
+    from src.utils.live_training_table import _parse_kv_line
+
+    entry = _parse_kv_line(
+        "step=5  loss=1.23456789  reward=0.50258335  completion_length=10"
+        "  learning_rate=0.00000100  kl=0.12345678"
+    )
+    assert entry is not None
+    assert entry["step"] == 5, f"step: {entry['step']}"
+    assert abs(float(entry["loss"]) - 1.23456789) < 1e-8
+    assert abs(float(entry["reward"]) - 0.50258335) < 1e-8
+    assert float(entry["completion_length"]) == 10.0
+    assert abs(float(entry["learning_rate"]) - 1e-6) < 1e-12
+    assert abs(float(entry["kl"]) - 0.12345678) < 1e-8
+
+    # Lines that don't start with step= are not metric lines
+    assert _parse_kv_line("some log line step=5 loss=1.0") is None
+    assert _parse_kv_line("") is None
+
+
+def test_live_table_skips_sample_blocks(monkeypatch, capsys):
+    """L2: SFT SAMPLE PREDICTIONS and COMPLETION SAMPLES blocks are skipped."""
+    import io
+    import sys
+
+    from src.utils import live_training_table as ltt
+
+    sep = "═" * 70
+    stream = io.StringIO(
+        f"{sep}\n"
+        "  SFT SAMPLE PREDICTIONS (step 100)\n"
+        f"{sep}\n"
+        "  PROMPT: foo\n"
+        "  GOLD:   BAR\n"
+        "  PRED:   BAZ\n"
+        f"{sep}\n"
+        "  step=5  loss=1.23456789  reward=0.50258335\n"
+        f"{sep}\n"
+        "  COMPLETION SAMPLES\n"
+        f"{sep}\n"
+        "  Sample 1\n"
+        "  OUTPUT:\n"
+        "    IX MAN WALK\n"
+        f"{sep}\n"
+        "  step=6  loss=1.11111111  reward=0.60258335\n"
+    )
+    monkeypatch.setattr(sys, "stdin", stream)
+    monkeypatch.setattr(
+        sys, "argv", ["live_training_table", "--cols", "step,loss,reward"]
+    )
+    monkeypatch.setattr(ltt.os, "system", lambda *a, **k: None)
+    ltt.main()
+    out = capsys.readouterr().out
+    assert "SFT SAMPLE PREDICTIONS" not in out, "SFT block skipped"
+    assert "COMPLETION SAMPLES" not in out, "COMPLETION block skipped"
+    assert "1.2346" in out, "first KV row rendered"
+    assert "1.1111" in out, "second KV row rendered"

@@ -1,275 +1,98 @@
 #!/bin/bash
 # ============================================================================
-# Watcher — Esegue i job dalla catena .job_chain uno alla volta.
+# chain_next.sh — Watcher FALLBACK per la pipeline T2G (non più primario).
 #
-# Gira sul login node (NON dentro un job SLURM). Controlla ogni 60s
-# se la coda è vuota e sottomette il prossimo job.
+# La modalità primaria è il tick one-shot (chain_tick.sh) schedulato via
+# `at` (chain_tick.sh --schedule) o dal bashrc-hook (chain-hook-install).
+# Questo watcher resta come fallback quando `at` non è disponibile.
 #
-# PID guard: esci se esiste già un watcher attivo
-PROJ_DIR="$HOME/neuro_symbolic_t2g"
-STATE_DIR="$PROJ_DIR/.chain_state"
-mkdir -p "$STATE_DIR"
-
-CHAIN_PID_FILE="$STATE_DIR/chain_pid"
-if [ -f "$CHAIN_PID_FILE" ]; then
-    OLD_PID=$(cat "$CHAIN_PID_FILE")
-    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
-        echo "[chain] ❌ Watcher già attivo con PID $OLD_PID — esco."
-        exit 1
-    fi
-    # PID file exists but process is dead — remove stale file
-    rm -f "$CHAIN_PID_FILE"
-fi
-
+# VINCOLO REAPER: il login node uccide i processi long-lived (ipotesi
+# principale: systemd KillUserProcesses al logout — setsid/nohup/trap '' non
+# sopravvivono a SIGKILL). Quindi il watcher è BEST-EFFORT: se muore, la coda
+# resta su disco (.chain_state/job_chain) e chain-resume la riprende.
 #
-# Se un job SLURM fallisce (exit code != 0, CANCELLED), il watcher si
-# blocca, scrive .chain_failed con le info del job, e NON sottomette
-# altri job. Usare run_all.sh --resume per riprendere.
-#
-# Se un job di TRAINING va in TIMEOUT (tempo limite superato), il watcher
-# lo rilancia automaticamente con --resume (max 2 tentativi). Se anche
-# il retry va in timeout, la pipeline si ferma normalmente.
+# PID guard: esce se esiste già un watcher attivo.
+# Poll adattivo: 60s per i primi 10 minuti dopo una sottomissione, poi 300s
+# (meno CPU → minor probabilità di reaping per uso risorse).
+# nice -n 19: priorità minima, stesso motivo.
+# Retry: TIMEOUT/OOM/CUDA su train auto-ripresi (max 2), continue-on-failure
+# per errori non retryable (vedi _lib.sh::chain_handle_failure).
 #
 # Uso:
-#   nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
-#
-# Per interrompere: kill $(cat .chain_pid), oppure cancella .job_chain
+#   setsid nohup nice -n 19 bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
 # ============================================================================
 
-PROJ_DIR="$HOME/neuro_symbolic_t2g"
-STATE_DIR="$PROJ_DIR/.chain_state"
-mkdir -p "$STATE_DIR"
+set -uo pipefail  # NO set -e: loop con error handling esplicito
 
-CHAIN_FILE="$STATE_DIR/job_chain"
-FAILED_FILE="$STATE_DIR/chain_failed"
-ERRORS_FILE="$STATE_DIR/chain_errors"
-POLL_INTERVAL=60  # secondi tra un check e l'altro
-MAX_TIMEOUT_RETRIES=2  # max auto-resume per TIMEOUT sullo stesso job
-MAX_OOM_RETRIES=2      # max auto-resume per OOM sullo stesso job
-MAX_CUDA_RETRIES=2     # max auto-resume per CUDA transient errors
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=cluster/_lib.sh
+source "$SCRIPT_DIR/_lib.sh"
+
+# ── nice: priorità minima (minor profilo risorse → meno reaping) ──
+if [ -z "${_CHAIN_NEXT_NICED:-}" ]; then
+    export _CHAIN_NEXT_NICED=1
+    exec nice -n 19 bash "$SCRIPT_DIR/chain_next.sh" "$@"
+fi
 
 cd "$PROJ_DIR"
+mkdir -p "$STATE_DIR" logs
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── PID guard ──
+if ! pid_guard; then
+    exit 1
+fi
+echo $$ > "$CHAIN_PID_FILE"
 
-# Rileva OOM dal log SLURM di un job di training
-is_oom_failure() {
-    local job_id="$1" exit_code="$2" state="$3" tag="$4"
-    [ "$state" = "OUT_OF_MEMORY" ] && return 0
-    [ "$exit_code" = "137" ] && return 0
-    local logfile="$PROJ_DIR/logs/slurm-train-${job_id}.log"
-    if [ -f "$logfile" ]; then
-        if tail -200 "$logfile" | grep -qiE 'out.of.memory|OutOfMemoryError|CUDA out of memory|oom-kill|OOM|torch.cuda.OutOfMemoryError|std::bad_alloc|excessive GPU RAM|GPU RAM usage'; then
-            return 0
-        fi
-    fi
-    return 1
-}
-
-# Rileva CUDA errors transitori
-is_cuda_transient_failure() {
-    local job_id="$1" exit_code="$2" state="$3" tag="$4"
-    local logfile="$PROJ_DIR/logs/slurm-train-${job_id}.log"
-    if [ -f "$logfile" ]; then
-        if tail -200 "$logfile" | grep -qiE 'cudaErrorIllegalAddress|illegal memory access|cudaErrorLaunchFailure|device-side assert|AcceleratorError.*CUDA error'; then
-            return 0
-        fi
-    fi
-    return 1
-}
-
-# Logga un errore nel file persistente chain_errors (formato JSONL)
-log_job_error() {
-    local job_id="$1" job_type="$2" config="$3" tag="$4"
-    local state="$5" exit_code="$6" error_type="$7"
-    local retry_num="${8:-0}" resolved="${9:-false}"
-    local logfile="$PROJ_DIR/logs/slurm-${job_type}-${job_id}.log"
-
-    python3 -c "
-import json, datetime, os, re
-logfile = '${logfile}'
-snippet = ''
-if os.path.isfile(logfile):
-    with open(logfile, errors='replace') as f:
-        lines = f.readlines()
-    tail = lines[-200:]
-    keywords = ['error', 'cuda', 'oom', 'traceback', 'exception',
-                'illegal', 'killed', 'out of memory', 'sigkill',
-                'acceleratorerror', 'device-side assert']
-    err_lines = [l.strip() for l in tail
-                 if any(w in l.lower() for w in keywords)]
-    snippet = ' | '.join(err_lines[-5:])[:800]
-
-entry = {
-    'tag': '${tag}',
-    'job_type': '${job_type}',
-    'slurm_id': '${job_id}',
-    'config': '${config}',
-    'error_type': '${error_type}',
-    'slurm_state': '${state}',
-    'exit_code': '${exit_code}',
-    'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-    'error_snippet': snippet,
-    'retry_num': int('${retry_num}' or '0'),
-    'resolved': '${resolved}' == 'true'
-}
-with open('${ERRORS_FILE}', 'a') as f:
-    f.write(json.dumps(entry, ensure_ascii=False) + '\n')
-" 2>/dev/null
-    echo "[chain] 📝 Errore registrato in .chain_state/chain_errors (${error_type}, ${tag}, job ${job_id})"
-}
-
-# Query sacct con retry
-query_sacct_with_retry() {
-    local job_id="$1"
-    local max_attempts=6
-    local wait_secs=5
-    _SACCT_STATE=""
-    _SACCT_EXIT_CODE=""
-
-    for attempt in $(seq 1 $max_attempts); do
-        _SACCT_EXIT_CODE=$(sacct -j "$job_id" --format=ExitCode --noheader --parsable2 2>/dev/null | head -1 | cut -d: -f1)
-        _SACCT_STATE=$(sacct -j "$job_id" --format=State --noheader --parsable2 2>/dev/null | head -1)
-        _SACCT_STATE=$(echo "$_SACCT_STATE" | tr -d '[:space:]')
-        _SACCT_EXIT_CODE=$(echo "$_SACCT_EXIT_CODE" | tr -d '[:space:]')
-
-        case "$_SACCT_STATE" in
-            COMPLETED|FAILED|CANCELLED|CANCELLED+|TIMEOUT|OUT_OF_MEMORY|NODE_FAIL)
-                return 0
-                ;;
-        esac
-
-        if [ "$attempt" -lt "$max_attempts" ]; then
-            echo "[chain] ⏳ sacct per job $job_id: stato='$_SACCT_STATE' — attendo ${wait_secs}s (tentativo $attempt/$max_attempts)"
-            sleep "$wait_secs"
-        fi
-    done
-
-    if [ -z "$_SACCT_STATE" ]; then
-        echo "[chain] ⚠️  sacct non ha restituito stato per job $job_id dopo $max_attempts tentativi"
-        _SACCT_STATE="UNKNOWN"
-        return 1
-    fi
-    return 0
-}
-
-echo $$ > "$STATE_DIR/chain_pid"
-
-# Ignore SIGHUP and SIGTERM completely. nohup already ignores SIGHUP, but
-# we set it explicitly here too (belt + suspenders) in case the shell
-# resets handlers. SIGTERM from the login node's process reaper is also
-# ignored — the watcher will only die on SIGKILL (uncatchable).
-# 
-# CRITICAL: do NOT use `trap '... exit 1' SIGHUP` — that would OVERRIDE
-# nohup's SIG_IGN and actually KILL the watcher on SIGHUP (the opposite
-# of what we want). The empty trap '' sets the signal to SIG_IGN.
-# 
-# This is why grpo-strict-generation's watcher survived for days: it had
-# NO trap at all, so nohup's SIGHUP ignore was never overridden.
+# Ignore SIGHUP/SIGTERM (best effort — il reaper può comunque SIGKILL).
 trap '' SIGHUP SIGTERM
 
-echo "[chain] Watcher avviato (PID $$) — $(date)"
-echo "[chain] File catena: $CHAIN_FILE"
+echo "[chain] Watcher FALLBACK avviato (PID $$) — $(date)"
+echo "[chain] Coda: $CHAIN_FILE"
+echo "[chain] Modalità: watcher (at non disponibile). Suggerimento: chain-hook-install"
 
-LAST_JOB_ID=""
-LAST_JOB_DESC=""
-TIMEOUT_RETRIES=0
-LAST_RETRY_TAG=""
-OOM_RETRIES=0
-LAST_OOM_TAG=""
-CUDA_RETRIES=0
-LAST_CUDA_TAG=""
-SBATCH_RETRIES=0
+POLL_FAST=60
+POLL_SLOW=300
+POLL_FAST_WINDOW=600   # 10 minuti dopo una sottomissione
+POLL_INTERVAL=$POLL_FAST
 MAX_SBATCH_RETRIES=5
+SBATCH_RETRIES=0
 SBATCH_RETRY_WAIT=60
+LAST_SUBMIT_TS=0
 
 while true; do
-    if [ ! -f "$CHAIN_FILE" ] || [ ! -s "$CHAIN_FILE" ]; then
-        if [ -n "$LAST_JOB_ID" ]; then
-            query_sacct_with_retry "$LAST_JOB_ID"
-            EXIT_CODE="$_SACCT_EXIT_CODE"
-            STATE="$_SACCT_STATE"
+    touch "$HEARTBEAT_FILE"
 
-            # CRITICAL FIX: if the job is still RUNNING/PENDING, the chain
-            # file being empty doesn't mean the pipeline is done — the job
-            # is still executing. Go back to sleep and re-check.
-            # This was the root cause of "✅ Pipeline completata!" being
-            # printed when only 1 of 22 jobs had been submitted.
-            if [ "$STATE" = "RUNNING" ] || [ "$STATE" = "PENDING" ]; then
-                echo "[chain] ⏳ Last job $LAST_JOB_ID still $STATE — chain empty but job active — back to sleep — $(date)"
+    # Pausa?
+    if [ -f "$STOPPED_FILE" ]; then
+        echo "[chain] chain_stopped presente — watcher esce — $(date)"
+        rm -f "$CHAIN_PID_FILE"
+        exit 0
+    fi
+
+    chain_read_last_job
+
+    # ── Coda vuota → verifica finale sull'ultimo job ──
+    if [ ! -s "$CHAIN_FILE" ]; then
+        if [ -n "$LAST_JOB_ID" ]; then
+            query_sacct_with_retry "$LAST_JOB_ID" 6 5 || true
+            if last_job_still_active; then
+                echo "[chain] ⏳ ultimo job $LAST_JOB_ID ancora $_SACCT_STATE — back to sleep — $(date)"
                 sleep "$POLL_INTERVAL"
                 continue
             fi
-
-            FINAL_FAILED=0
-            if [ "$STATE" = "TIMEOUT" ] || [ "$STATE" = "CANCELLED" ] || [ "$STATE" = "CANCELLED+" ] || [ "$STATE" = "UNKNOWN" ]; then
-                FINAL_FAILED=1
-            elif [ -n "$EXIT_CODE" ] && [ "$EXIT_CODE" != "0" ]; then
-                FINAL_FAILED=1
-            fi
-
-            if [ "$FINAL_FAILED" -eq 1 ]; then
-                FINAL_TYPE=$(echo "$LAST_JOB_DESC" | cut -d: -f1)
-                FINAL_CFG=$(echo "$LAST_JOB_DESC" | cut -d: -f2)
-                FINAL_TAG=$(echo "$LAST_JOB_DESC" | cut -d: -f3)
-
-                if [ "$STATE" = "TIMEOUT" ] && [ "$FINAL_TYPE" = "train" ]; then
-                    if [ "$FINAL_TAG" = "$LAST_RETRY_TAG" ]; then
-                        TIMEOUT_RETRIES=$((TIMEOUT_RETRIES + 1))
-                    else
-                        TIMEOUT_RETRIES=1
-                        LAST_RETRY_TAG="$FINAL_TAG"
-                    fi
-                    if [ "$TIMEOUT_RETRIES" -le "$MAX_TIMEOUT_RETRIES" ]; then
-                        echo "[chain] ⏰ Ultimo job $LAST_JOB_ID ($FINAL_TAG) TIMEOUT — auto-resume ($TIMEOUT_RETRIES/$MAX_TIMEOUT_RETRIES) — $(date)"
-                        log_job_error "$LAST_JOB_ID" "$FINAL_TYPE" "$FINAL_CFG" "$FINAL_TAG" "$STATE" "$EXIT_CODE" "TIMEOUT" "$TIMEOUT_RETRIES" "true"
-                        echo "train:${FINAL_CFG}:${FINAL_TAG}:--resume" > "$CHAIN_FILE"
-                        LAST_JOB_ID=""
-                        sleep 5
+            if ! job_succeeded; then
+                if chain_handle_failure; then
+                    # retry reinserito in coda → sottometti subito
+                    if chain_submit_next; then
+                        LAST_SUBMIT_TS=$(date +%s)
+                        sleep 10
                         continue
                     fi
-                elif is_oom_failure "$LAST_JOB_ID" "$EXIT_CODE" "$STATE" "$FINAL_TAG" && [ "$FINAL_TYPE" = "train" ]; then
-                    if [ "$FINAL_TAG" = "$LAST_OOM_TAG" ]; then
-                        OOM_RETRIES=$((OOM_RETRIES + 1))
-                    else
-                        OOM_RETRIES=1
-                        LAST_OOM_TAG="$FINAL_TAG"
-                    fi
-                    if [ "$OOM_RETRIES" -le "$MAX_OOM_RETRIES" ]; then
-                        echo "[chain] 💥 Ultimo job $LAST_JOB_ID ($FINAL_TAG) OOM — retry ($OOM_RETRIES/$MAX_OOM_RETRIES) — $(date)"
-                        log_job_error "$LAST_JOB_ID" "$FINAL_TYPE" "$FINAL_CFG" "$FINAL_TAG" "$STATE" "$EXIT_CODE" "OOM" "$OOM_RETRIES" "true"
-                        echo "train:${FINAL_CFG}:${FINAL_TAG}:--resume" > "$CHAIN_FILE"
-                        LAST_JOB_ID=""
-                        sleep 5
-                        continue
-                    fi
-                elif is_cuda_transient_failure "$LAST_JOB_ID" "$EXIT_CODE" "$STATE" "$FINAL_TAG" && [ "$FINAL_TYPE" = "train" ]; then
-                    if [ "$FINAL_TAG" = "$LAST_CUDA_TAG" ]; then
-                        CUDA_RETRIES=$((CUDA_RETRIES + 1))
-                    else
-                        CUDA_RETRIES=1
-                        LAST_CUDA_TAG="$FINAL_TAG"
-                    fi
-                    if [ "$CUDA_RETRIES" -le "$MAX_CUDA_RETRIES" ]; then
-                        echo "[chain] ⚡ Ultimo job $LAST_JOB_ID ($FINAL_TAG) CUDA transient error — auto-resume ($CUDA_RETRIES/$MAX_CUDA_RETRIES) — $(date)"
-                        log_job_error "$LAST_JOB_ID" "$FINAL_TYPE" "$FINAL_CFG" "$FINAL_TAG" "$STATE" "$EXIT_CODE" "CUDA_ERROR" "$CUDA_RETRIES" "true"
-                        echo "train:${FINAL_CFG}:${FINAL_TAG}:--resume" > "$CHAIN_FILE"
-                        LAST_JOB_ID=""
-                        sleep 5
-                        continue
-                    fi
+                    sleep "$SBATCH_RETRY_WAIT"
+                    continue
                 fi
-
-                _ERR_TYPE="UNKNOWN"
-                [ "$STATE" = "TIMEOUT" ] && _ERR_TYPE="TIMEOUT"
-                [ "$STATE" = "CANCELLED" ] || [ "$STATE" = "CANCELLED+" ] && _ERR_TYPE="CANCELLED"
-                is_oom_failure "$LAST_JOB_ID" "$EXIT_CODE" "$STATE" "$FINAL_TAG" 2>/dev/null && _ERR_TYPE="OOM"
-                is_cuda_transient_failure "$LAST_JOB_ID" "$EXIT_CODE" "$STATE" "$FINAL_TAG" 2>/dev/null && _ERR_TYPE="CUDA_ERROR"
-                log_job_error "$LAST_JOB_ID" "$FINAL_TYPE" "$FINAL_CFG" "$FINAL_TAG" "$STATE" "$EXIT_CODE" "$_ERR_TYPE" "0" "false"
-
-                echo "[chain] ⚠️  Ultimo job $LAST_JOB_ID ($LAST_JOB_DESC) FALLITO (state=$STATE exit=$EXIT_CODE) — pipeline completata con errori — $(date)"
-                echo "[chain] Vedi .chain_state/chain_errors per i dettagli dei fallimenti"
-                rm -f "$CHAIN_PID_FILE"
+                echo "[chain] ⚠️  Pipeline completata CON ERRORI — vedi .chain_state/chain_errors — $(date)"
+                rm -f "$CHAIN_FILE" "$CHAIN_PID_FILE" "$FAILED_FILE"
                 exit 0
             fi
         fi
@@ -278,213 +101,54 @@ while true; do
         exit 0
     fi
 
-    ACTIVE=$(squeue --me --noheader 2>/dev/null | wc -l)
-    if [ "$ACTIVE" -gt 0 ]; then
+    # ── Job attivo? → dormi ──
+    if [ -n "$(active_job_id)" ]; then
         sleep "$POLL_INTERVAL"
         continue
     fi
 
-    # ── Coda vuota: controlla se l'ultimo job è fallito ───────────────────
+    # ── Ultimo job fallito? → retry o log-and-skip (poi si sottomette) ──
     if [ -n "$LAST_JOB_ID" ]; then
-        query_sacct_with_retry "$LAST_JOB_ID"
-        EXIT_CODE="$_SACCT_EXIT_CODE"
-        STATE="$_SACCT_STATE"
-
-        # CRITICAL FIX: if sacct says RUNNING or PENDING, the job is STILL
-        # ACTIVE — squeue just didn't show it (SLURM latency, cache, etc.).
-        # Do NOT treat it as completed — go back to sleep and re-check.
-        # This was the root cause of the watcher declaring "Pipeline
-        # completata!" after 36 seconds when only 1 of 22 jobs had been
-        # submitted. RUNNING != completed, even though it's not "failed".
-        if [ "$STATE" = "RUNNING" ] || [ "$STATE" = "PENDING" ]; then
-            echo "[chain] ⏳ Job $LAST_JOB_ID still $STATE (squeue missed it) — back to sleep — $(date)"
+        query_sacct_with_retry "$LAST_JOB_ID" 6 5 || true
+        if last_job_still_active; then
+            echo "[chain] ⏳ job $LAST_JOB_ID ancora $_SACCT_STATE (squeue non lo vede) — $(date)"
             sleep "$POLL_INTERVAL"
             continue
         fi
-
-        JOB_FAILED=0
-        IS_TIMEOUT=0
-        if [ "$STATE" = "TIMEOUT" ]; then
-            JOB_FAILED=1
-            IS_TIMEOUT=1
-        elif [ "$STATE" = "CANCELLED" ] || [ "$STATE" = "CANCELLED+" ] || [ "$STATE" = "UNKNOWN" ]; then
-            JOB_FAILED=1
-        elif [ -n "$EXIT_CODE" ] && [ "$EXIT_CODE" != "0" ]; then
-            JOB_FAILED=1
+        if ! job_succeeded; then
+            if ! chain_handle_failure; then
+                echo "[chain] ⚠️  coda svuotata dopo gestione errore — completata con errori — $(date)"
+                rm -f "$CHAIN_FILE" "$CHAIN_PID_FILE" "$FAILED_FILE"
+                exit 0
+            fi
+            # fall-through: retry reinserito o eval saltato → sottometti
         fi
-
-        if [ "$JOB_FAILED" -eq 1 ]; then
-            FAILED_TYPE=$(echo "$LAST_JOB_DESC" | cut -d: -f1)
-            FAILED_CFG=$(echo "$LAST_JOB_DESC" | cut -d: -f2)
-            FAILED_TAG=$(echo "$LAST_JOB_DESC" | cut -d: -f3)
-
-            if [ "$IS_TIMEOUT" -eq 1 ] && [ "$FAILED_TYPE" = "train" ]; then
-                if [ "$FAILED_TAG" = "$LAST_RETRY_TAG" ]; then
-                    TIMEOUT_RETRIES=$((TIMEOUT_RETRIES + 1))
-                else
-                    TIMEOUT_RETRIES=1
-                    LAST_RETRY_TAG="$FAILED_TAG"
-                fi
-                if [ "$TIMEOUT_RETRIES" -le "$MAX_TIMEOUT_RETRIES" ]; then
-                    echo "[chain] ⏰ Job $LAST_JOB_ID ($FAILED_TAG) TIMEOUT — auto-resume ($TIMEOUT_RETRIES/$MAX_TIMEOUT_RETRIES) — $(date)"
-                    log_job_error "$LAST_JOB_ID" "$FAILED_TYPE" "$FAILED_CFG" "$FAILED_TAG" "$STATE" "$EXIT_CODE" "TIMEOUT" "$TIMEOUT_RETRIES" "true"
-                    RESUME_CHAIN=$(mktemp)
-                    echo "train:${FAILED_CFG}:${FAILED_TAG}:--resume" > "$RESUME_CHAIN"
-                    [ -f "$CHAIN_FILE" ] && [ -s "$CHAIN_FILE" ] && cat "$CHAIN_FILE" >> "$RESUME_CHAIN"
-                    mv "$RESUME_CHAIN" "$CHAIN_FILE"
-                    LAST_JOB_ID=""
-                    sleep 5
-                    continue
-                else
-                    echo "[chain] ❌ Job $LAST_JOB_ID ($FAILED_TAG) TIMEOUT — max retry ($MAX_TIMEOUT_RETRIES) raggiunto — $(date)"
-                fi
-            elif is_oom_failure "$LAST_JOB_ID" "$EXIT_CODE" "$STATE" "$FAILED_TAG" && [ "$FAILED_TYPE" = "train" ]; then
-                if [ "$FAILED_TAG" = "$LAST_OOM_TAG" ]; then
-                    OOM_RETRIES=$((OOM_RETRIES + 1))
-                else
-                    OOM_RETRIES=1
-                    LAST_OOM_TAG="$FAILED_TAG"
-                fi
-                if [ "$OOM_RETRIES" -le "$MAX_OOM_RETRIES" ]; then
-                    echo "[chain] 💥 Job $LAST_JOB_ID ($FAILED_TAG) OOM — retry ($OOM_RETRIES/$MAX_OOM_RETRIES) — $(date)"
-                    log_job_error "$LAST_JOB_ID" "$FAILED_TYPE" "$FAILED_CFG" "$FAILED_TAG" "$STATE" "$EXIT_CODE" "OOM" "$OOM_RETRIES" "true"
-                    RESUME_CHAIN=$(mktemp)
-                    echo "train:${FAILED_CFG}:${FAILED_TAG}:--resume" > "$RESUME_CHAIN"
-                    [ -f "$CHAIN_FILE" ] && [ -s "$CHAIN_FILE" ] && cat "$CHAIN_FILE" >> "$RESUME_CHAIN"
-                    mv "$RESUME_CHAIN" "$CHAIN_FILE"
-                    LAST_JOB_ID=""
-                    sleep 5
-                    continue
-                else
-                    echo "[chain] ❌ Job $LAST_JOB_ID ($FAILED_TAG) OOM — max retry ($MAX_OOM_RETRIES) raggiunto — $(date)"
-                fi
-            elif is_cuda_transient_failure "$LAST_JOB_ID" "$EXIT_CODE" "$STATE" "$FAILED_TAG" && [ "$FAILED_TYPE" = "train" ]; then
-                if [ "$FAILED_TAG" = "$LAST_CUDA_TAG" ]; then
-                    CUDA_RETRIES=$((CUDA_RETRIES + 1))
-                else
-                    CUDA_RETRIES=1
-                    LAST_CUDA_TAG="$FAILED_TAG"
-                fi
-                if [ "$CUDA_RETRIES" -le "$MAX_CUDA_RETRIES" ]; then
-                    echo "[chain] ⚡ Job $LAST_JOB_ID ($FAILED_TAG) CUDA transient error — auto-resume ($CUDA_RETRIES/$MAX_CUDA_RETRIES) — $(date)"
-                    log_job_error "$LAST_JOB_ID" "$FAILED_TYPE" "$FAILED_CFG" "$FAILED_TAG" "$STATE" "$EXIT_CODE" "CUDA_ERROR" "$CUDA_RETRIES" "true"
-                    RESUME_CHAIN=$(mktemp)
-                    echo "train:${FAILED_CFG}:${FAILED_TAG}:--resume" > "$RESUME_CHAIN"
-                    [ -f "$CHAIN_FILE" ] && [ -s "$CHAIN_FILE" ] && cat "$CHAIN_FILE" >> "$RESUME_CHAIN"
-                    mv "$RESUME_CHAIN" "$CHAIN_FILE"
-                    LAST_JOB_ID=""
-                    sleep 5
-                    continue
-                else
-                    echo "[chain] ❌ Job $LAST_JOB_ID ($FAILED_TAG) CUDA error — max retry ($MAX_CUDA_RETRIES) raggiunto — $(date)"
-                fi
-            else
-                echo "[chain] ❌ Job $LAST_JOB_ID ($LAST_JOB_DESC) FALLITO — state=$STATE exit=$EXIT_CODE — $(date)"
-            fi
-
-            _ERR_TYPE="UNKNOWN"
-            [ "$STATE" = "TIMEOUT" ] && _ERR_TYPE="TIMEOUT"
-            if [ "$STATE" = "CANCELLED" ] || [ "$STATE" = "CANCELLED+" ]; then _ERR_TYPE="CANCELLED"; fi
-            is_oom_failure "$LAST_JOB_ID" "$EXIT_CODE" "$STATE" "$FAILED_TAG" 2>/dev/null && _ERR_TYPE="OOM"
-            is_cuda_transient_failure "$LAST_JOB_ID" "$EXIT_CODE" "$STATE" "$FAILED_TAG" 2>/dev/null && _ERR_TYPE="CUDA_ERROR"
-            log_job_error "$LAST_JOB_ID" "$FAILED_TYPE" "$FAILED_CFG" "$FAILED_TAG" "$STATE" "$EXIT_CODE" "$_ERR_TYPE" "0" "false"
-
-            # If train failed, remove the matching eval from the chain
-            if [ "$FAILED_TYPE" = "train" ] && [ -f "$CHAIN_FILE" ] && [ -s "$CHAIN_FILE" ]; then
-                NEXT_IN_CHAIN=$(head -1 "$CHAIN_FILE")
-                NEXT_TYPE=$(echo "$NEXT_IN_CHAIN" | cut -d: -f1)
-                NEXT_TAG=$(echo "$NEXT_IN_CHAIN" | cut -d: -f3)
-                if [ "$NEXT_TYPE" = "eval" ] && [ "$NEXT_TAG" = "$FAILED_TAG" ]; then
-                    echo "[chain] ⏭  Rimosso eval di $FAILED_TAG dalla catena (train fallito)"
-                    tail -n +2 "$CHAIN_FILE" > "$CHAIN_FILE.tmp" && mv "$CHAIN_FILE.tmp" "$CHAIN_FILE"
-                    [ ! -s "$CHAIN_FILE" ] && rm -f "$CHAIN_FILE"
-                fi
-            fi
-
-            # Don't stop the pipeline on non-retryable failure — the failure
-            # is already logged in chain_errors (JSONL, line 355 above) for
-            # post-hoc analysis. Continue with the next config in the chain.
-            # This allows the ablation study to complete even if one config
-            # fails (e.g., grammar bug, config error, Python exception).
-            REMAINING=$([ -f "$CHAIN_FILE" ] && wc -l < "$CHAIN_FILE" || echo 0)
-            echo "[chain] ⏭  Job $LAST_JOB_ID ($FAILED_TAG) fallito ($STATE) — logged in chain_errors — continuo con i restanti $REMAINING job — $(date)"
-            LAST_JOB_ID=""
-            continue
-        fi
-        echo "[chain] ✓ Job $LAST_JOB_ID ($LAST_JOB_DESC) completato — state=$STATE — $(date)"
-
-        TIMEOUT_RETRIES=0
-        LAST_RETRY_TAG=""
-        OOM_RETRIES=0
-        LAST_OOM_TAG=""
-        CUDA_RETRIES=0
-        LAST_CUDA_TAG=""
     fi
 
-    # ── Sottometti il prossimo job ────────────────────────────────────────
-    NEXT=$(head -1 "$CHAIN_FILE")
-    tail -n +2 "$CHAIN_FILE" > "$CHAIN_FILE.tmp" && mv "$CHAIN_FILE.tmp" "$CHAIN_FILE"
-    if [ ! -s "$CHAIN_FILE" ]; then
-        rm -f "$CHAIN_FILE"
-    fi
-
-    TYPE=$(echo "$NEXT" | cut -d: -f1)
-    CFG=$(echo "$NEXT" | cut -d: -f2)
-    TAG=$(echo "$NEXT" | cut -d: -f3)
-    EXTRA=$(echo "$NEXT" | cut -d: -f4-)
-
-    if [ -z "$CFG" ]; then
-        echo "[chain] ❌ Config vuoto per $TYPE $TAG — catena corrotta"
-        echo "${NEXT}" > "$FAILED_FILE"
-        echo "[chain] Pipeline interrotta. Per riprendere: bash cluster/run_all.sh --resume"
-        rm -f "$CHAIN_PID_FILE"
-        exit 1
-    fi
-
-    REMAINING=$([ -f "$CHAIN_FILE" ] && wc -l < "$CHAIN_FILE" || echo 0)
-    echo "[chain] Sottometto: $TYPE $TAG ($CFG) extra='$EXTRA' — $REMAINING rimanenti — $(date)"
-
-    LAST_JOB_DESC="$NEXT"
-
-    case "$TYPE" in
-        train)
-            LAST_JOB_ID=$(CONFIG="$CFG" EXTRA_ARGS="$EXTRA" sbatch --job-name="train-${TAG}" --parsable cluster/train.sh 2>&1 | grep -oP '^\d+$')
-            ;;
-        eval)
-            SKIP_N=0
-            if echo "$EXTRA" | grep -qP '^--skip-stages=\d+$'; then
-                SKIP_N=$(echo "$EXTRA" | grep -oP '\d+')
-            fi
-            LAST_JOB_ID=$(CONFIG="$CFG" SKIP_STAGES="$SKIP_N" sbatch --job-name="eval-${TAG}" --parsable cluster/eval.sh 2>&1 | grep -oP '^\d+$')
-            ;;
-        *)
-            echo "[chain] ❌ Tipo sconosciuto: $TYPE — skip"
-            LAST_JOB_ID=""
-            continue
-            ;;
-    esac
-
-    if [ -z "$LAST_JOB_ID" ]; then
+    # ── Sottometti il prossimo ──
+    if ! chain_submit_next; then
         SBATCH_RETRIES=$((SBATCH_RETRIES + 1))
-        echo "[chain] ⚠️  sbatch non ha restituito un job ID per $TYPE $TAG — retry $SBATCH_RETRIES/$MAX_SBATCH_RETRIES — $(date)"
+        echo "[chain] ⚠️  sbatch fallito — retry $SBATCH_RETRIES/$MAX_SBATCH_RETRIES — $(date)"
         if [ "$SBATCH_RETRIES" -gt "$MAX_SBATCH_RETRIES" ]; then
-            echo "[chain] ❌ sbatch fallito $MAX_SBATCH_RETRIES volte consecutive — pipeline interrotta"
-            echo "${NEXT}" > "$FAILED_FILE"
-            echo "[chain] Per riprendere: bash cluster/run_all.sh --resume"
+            next_entry=$(head -1 "$CHAIN_FILE" 2>/dev/null || true)
+            [ -n "$next_entry" ] && echo "$next_entry" > "$FAILED_FILE"
+            echo "[chain] ❌ sbatch fallito $MAX_SBATCH_RETRIES volte consecutive — pipeline interrotta — $(date)"
+            echo "[chain] Per riprendere: chain-resume"
             rm -f "$CHAIN_PID_FILE"
             exit 1
         fi
-        REINSERTION=$(mktemp)
-        echo "$NEXT" > "$REINSERTION"
-        [ -f "$CHAIN_FILE" ] && [ -s "$CHAIN_FILE" ] && cat "$CHAIN_FILE" >> "$REINSERTION"
-        mv "$REINSERTION" "$CHAIN_FILE"
-        LAST_JOB_ID=""
-        echo "[chain] ⏳ Entry reinserita in catena, riprovo tra ${SBATCH_RETRY_WAIT}s"
         sleep "$SBATCH_RETRY_WAIT"
         continue
     fi
-
     SBATCH_RETRIES=0
-    echo "[chain] Job ID: $LAST_JOB_ID"
+    LAST_SUBMIT_TS=$(date +%s)
+
+    # Poll adattivo: veloce per 10 min dopo la sottomissione, poi lento
+    if [ $(( $(date +%s) - LAST_SUBMIT_TS )) -lt "$POLL_FAST_WINDOW" ]; then
+        POLL_INTERVAL=$POLL_FAST
+    else
+        POLL_INTERVAL=$POLL_SLOW
+    fi
+    echo "[chain] ✓ sottoposto job $LAST_JOB_ID — prossimo poll tra ${POLL_INTERVAL}s — $(date)"
     sleep 10
 done

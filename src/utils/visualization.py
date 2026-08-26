@@ -61,6 +61,7 @@ def _get_theme():
 _PLOT_METRICS = [
     ("reward", "Mean Reward"),
     ("loss", "Loss"),
+    ("eval_loss", "Eval Loss"),
     ("rewards/translation_quality_reward/mean", "Translation Quality (ROUGE-L)"),
     ("rewards/bleu_reward/mean", "BLEU-4"),
     ("rewards/gold_structure_reward/mean", "Gold Structure (Bigram vs Gold)"),
@@ -93,7 +94,9 @@ def plot_training_curves(
         degree: Polynomial regression degree for trend lines.
     """
     log_history = trainer_state.get("log_history", [])
-    train_logs = [e for e in log_history if "loss" in e or "reward" in e]
+    train_logs = [
+        e for e in log_history if "loss" in e or "eval_loss" in e or "reward" in e
+    ]
     if not train_logs:
         print("No training log entries found.")
         return
@@ -114,7 +117,7 @@ def plot_training_curves(
             if key in entry:
                 rows.append(
                     {
-                        "step": entry["step"],
+                        "step": entry.get("step", 0),
                         "value": entry[key],
                         "metric": label,
                     }
@@ -739,99 +742,6 @@ def plot_reward_radar(
     print(f"Saved: {output_path}")
 
 
-def plot_completion_examples(
-    completions: list[str],
-    references: list[str],
-    rouge_scores: list[float],
-    n_examples: int = 10,
-    model_name: str = "",
-    output_path: str = "experiments/logs/figures/completion_examples.png",
-) -> None:
-    """Table-like figure showing example completions vs gold references.
-
-    Shows the top N examples sorted by ROUGE-L (best and worst).
-
-    Args:
-        completions: Generated gloss sequences.
-        references: Gold reference glosses.
-        rouge_scores: ROUGE-L scores per completion.
-        n_examples: Number of examples to show (half best, half worst).
-        model_name: Short model name for the title.
-        output_path: Where to save the figure.
-    """
-    import matplotlib.pyplot as plt
-
-    if not completions:
-        print("No completion examples to plot.")
-        return
-
-    # Sort by ROUGE-L and pick best/worst
-    sorted_idx = sorted(range(len(rouge_scores)), key=lambda i: rouge_scores[i])
-    n_half = n_examples // 2
-    selected = sorted_idx[:n_half] + sorted_idx[-n_half:]
-    # Reverse so best is at top
-    selected = list(reversed(selected))
-
-    fig, axes = plt.subplots(
-        len(selected), 1, figsize=(12, max(6, len(selected) * 1.5))
-    )
-    if len(selected) == 1:
-        axes = [axes]
-
-    for ax, idx in zip(axes, selected):
-        comp = (
-            completions[idx][:80] + "..."
-            if len(completions[idx]) > 80
-            else completions[idx]
-        )
-        ref = (
-            references[idx][:80] + "..."
-            if len(references[idx]) > 80
-            else references[idx]
-        )
-        rl = rouge_scores[idx]
-        color = "#55A868" if rl >= 0.5 else "#DD8452" if rl >= 0.2 else "#C44E52"
-        ax.text(
-            0.01,
-            0.7,
-            f"ROUGE-L: {rl:.3f}",
-            fontsize=9,
-            color=color,
-            fontweight="bold",
-            transform=ax.transAxes,
-        )
-        ax.text(
-            0.01,
-            0.4,
-            f"GOLD:  {ref}",
-            fontsize=8,
-            fontfamily="monospace",
-            transform=ax.transAxes,
-        )
-        ax.text(
-            0.01,
-            0.1,
-            f"PRED:  {comp}",
-            fontsize=8,
-            fontfamily="monospace",
-            transform=ax.transAxes,
-        )
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        ax.axis("off")
-        ax.axhline(y=0.0, color="#CCCCCC", linewidth=0.5)
-
-    title = "Completion Examples (Best & Worst)"
-    if model_name:
-        title += f" — {model_name}"
-    fig.suptitle(title, fontsize=13, fontweight="bold")
-    plt.tight_layout()
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Saved: {output_path}")
-
-
 def dump_completion_examples(
     completions: list[str],
     references: list[str],
@@ -843,8 +753,7 @@ def dump_completion_examples(
 ) -> str:
     """Dump best/worst completion examples as JSON + self-contained HTML.
 
-    Unlike ``plot_completion_examples`` (PNG with text rendered as an image),
-    this produces a readable HTML table with sortable, searchable, color-coded
+    Produces a readable HTML table with sortable, searchable, color-coded
     rows and a companion JSON file for programmatic consumption.
 
     Args:
@@ -1044,42 +953,48 @@ def plot_baseline_vs_grpo_comparison(
     baseline_metrics: dict[str, float],
     grpo_metrics: dict[str, float],
     model_name: str = "",
+    label: str = "GRPO",
     output_path: str = "experiments/logs/figures/baseline_vs_grpo.png",
 ) -> None:
-    """Grouped bar chart comparing baseline vs GRPO on key metrics.
+    """Grouped bar chart comparing baseline vs a checkpoint on key metrics.
+
+    Only metrics present in BOTH dicts are plotted, so older eval JSONs
+    that lack the newer keys (BLEU/chrF/gloss F1) render gracefully.
 
     Args:
-        baseline_metrics: Dict with keys like rouge_l, pass_at_1, validity_rate, etc.
-        grpo_metrics: Same keys for the GRPO model.
+        baseline_metrics: Dict with keys like rouge_l_mean, pass_at_1,
+            validity_rate, bleu_sentence_mean, chrf_sentence_mean, etc.
+        grpo_metrics: Same keys for the checkpoint model.
         model_name: Short model name for the title.
+        label: Display name for the checkpoint series (e.g. the eval file
+            stem — "GRPO" for GRPO checkpoints, the checkpoint name for SFT).
         output_path: Where to save the figure.
     """
     import matplotlib.pyplot as plt
 
     metrics_to_compare = [
-        ("rouge_l", "ROUGE-L"),
-        ("valid_rouge_l_mean", "Valid ROUGE-L ⭐"),
+        ("rouge_l_mean", "ROUGE-L"),
+        ("valid_rouge_l_mean", "Valid ROUGE-L"),
         ("pass_at_1", "Pass@1"),
         ("exact_match", "Exact Match"),
         ("validity_rate", "Validity Rate"),
+        ("bleu_sentence_mean", "BLEU (sent)"),
+        ("bleu_corpus", "BLEU (corpus)"),
+        ("chrf_sentence_mean", "chrF2 (sent)"),
+        ("chrf_corpus", "chrF2 (corpus)"),
+        ("gloss_f1_sentence_mean", "Gloss F1 (sent)"),
+        ("gloss_f1_micro", "Gloss F1 (micro)"),
         ("gloss_validity_rate", "Gloss Validity"),
     ]
 
-    labels = [
-        m[1]
+    present = [
+        m
         for m in metrics_to_compare
         if m[0] in baseline_metrics and m[0] in grpo_metrics
     ]
-    baseline_vals = [
-        baseline_metrics[m[0]]
-        for m in metrics_to_compare
-        if m[0] in baseline_metrics and m[0] in grpo_metrics
-    ]
-    grpo_vals = [
-        grpo_metrics[m[0]]
-        for m in metrics_to_compare
-        if m[0] in baseline_metrics and m[0] in grpo_metrics
-    ]
+    labels = [m[1] for m in present]
+    baseline_vals = [baseline_metrics[m[0]] for m in present]
+    grpo_vals = [grpo_metrics[m[0]] for m in present]
 
     if not labels:
         print("No overlapping metrics to compare.")
@@ -1088,7 +1003,7 @@ def plot_baseline_vs_grpo_comparison(
     x = np.arange(len(labels))
     width = 0.35
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=(max(10, len(labels) * 1.3), 6))
     bars1 = ax.bar(
         x - width / 2,
         baseline_vals,
@@ -1098,7 +1013,7 @@ def plot_baseline_vs_grpo_comparison(
         alpha=0.85,
     )
     bars2 = ax.bar(
-        x + width / 2, grpo_vals, width, label="GRPO", color="#4C72B0", alpha=0.85
+        x + width / 2, grpo_vals, width, label=label, color="#4C72B0", alpha=0.85
     )
 
     for bars in [bars1, bars2]:
@@ -1117,7 +1032,7 @@ def plot_baseline_vs_grpo_comparison(
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=10)
     ax.set_ylim(0, max(max(baseline_vals), max(grpo_vals)) * 1.2)
-    title = "Baseline vs GRPO Comparison"
+    title = f"Baseline vs {label} Comparison"
     if model_name:
         title += f" — {model_name}"
     ax.set_title(title, fontsize=13, fontweight="bold")

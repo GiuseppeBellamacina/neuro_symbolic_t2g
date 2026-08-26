@@ -1,56 +1,44 @@
 # ============================================================================
 # Ablation Study — Base Model + GRAMMAR-LLM (Zero-Shot with Grammar)
 #
-# Esegue solo evaluation sul modello base Qwen2.5-0.5B-Instruct
-# CON constrained decoding (vocabulary mask) ma SENZA training.
+# Esegue solo evaluation sul modello base Qwen2.5-0.5B-Instruct CON
+# constrained decoding (vocabulary mask) ma SENZA training. Eredita da
+# base.yaml; unica differenza da zero_shot.yaml: grammar.enabled: true.
 #
 # Usato da:
 #   python -m src.training.eval_t2g --config experiments/configs/t2g/ablation/zero_shot_grammar.yaml
 # ============================================================================
 
-model:
-  name: "Qwen/Qwen2.5-0.5B-Instruct"
-  num_gpus: 1
+extends: ../base.yaml
 
-dataset:
-  dataset_name: "achrafothman/aslg_pc12"
-  dataset_cache: "data/aslg_pc12"
-  vocab_path: "data/gloss_vocab.txt"
-  bigram_matrix_path: "data/bigram_transition.npy"
-  split: "train"
-  seed: 42
-  thinking: false
-
+# --- Parametri di generazione (eval-only) ---
 grpo:
   max_completion_length: 256
   max_prompt_length: 256
   temperature: 0.7
 
+# --- Grammar ENABLED (Trie dual-root dalla base) ---
 grammar:
   enabled: true
-  use_grammarllm_pda: false
-  token_lookahead: false      # grammarllm v0.5.0: native BPE token emission (only with use_grammarllm_pda: true)
-  track_score_history: false  # grammarllm v0.5.0: accumulate per-step logit history for debug (memory cost)
-  # Viterbi diversity params (eval-only, for viterbi_distance_reward)
-  viterbi_diversity:
-    self_loop_penalty: 0.5
-    max_occurrences: 2
-    diversity_threshold: 0.3
-    max_iters: 3
-    verifier_gamma: 1.0
-    verifier_temperature: 5.0
 
+# --- Reward: solo ROUGE-L (chiavi base azzerate, somma = 1.0) ---
 reward:
   weight_translation: 1.0
+  weight_bleu: 0.0
+  weight_gold_structure: 0.0
+  weight_gloss_order: 0.0
+  weight_verifier_scaled: 0.0
+  weight_format: 0.0
+  weight_repetition: 0.0
 
+# --- Evaluation ---
 evaluation:
-  batch_size: 8
   max_samples: 500
   num_samples: 1 # zero-shot usa greedy
   best_of_n: false
 
+# --- Weights & Biases ---
 wandb:
-  project: "neuro-symbolic-t2g"
   run_name: "ablation-zero-shot-grammar"
   tags:
     ["ablation", "zero-shot", "grammar", "constrained-decoding", "T2G", "ASL"]

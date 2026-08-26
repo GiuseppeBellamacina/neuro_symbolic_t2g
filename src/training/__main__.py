@@ -29,9 +29,25 @@ import yaml
 
 
 def _peek_config(config_path: str) -> dict:
-    """Lightweight config read without importing torch."""
+    """Lightweight config read without importing torch.
+
+    Resolves ``extends`` chains via ``src.utils.config.resolve_config`` so the
+    bootstrap sees the same merged values as the trainers (e.g.
+    ``model.use_unsloth`` inherited from ``base.yaml``). ``src.utils.config``
+    is import-safe here: it only pulls in yaml + os (no torch/transformers).
+
+    On any resolution failure it falls back to a plain YAML read, then to
+    ``{}`` (historical behavior — the trainer's own ``load_config`` will
+    surface real errors later).
+    """
     try:
-        with open(config_path) as f:
+        from src.utils.config import resolve_config
+
+        return resolve_config(config_path) or {}
+    except Exception:
+        pass
+    try:
+        with open(config_path, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     except Exception:
         return {}

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 from collections import deque
@@ -86,12 +85,77 @@ def _split_think(text: str) -> tuple[str, str]:
     return "", text.strip()
 
 
+def _first_assistant_content(completion: Any) -> str | None:
+    """Extract the first assistant message content from a completion.
+
+    Supports the trl 0.24 conversational SFT format (``completion`` is a
+    list of ``{"role": "assistant", "content": ...}`` messages) as well as
+    plain gold-gloss strings.
+
+    Args:
+        completion: The completion column value, in either format.
+
+    Returns:
+        The assistant content string, or ``None`` if unavailable.
+    """
+    if isinstance(completion, list):
+        for msg in completion:
+            if isinstance(msg, dict) and msg.get("role") == "assistant":
+                content = str(msg.get("content", "")).strip()
+                return content or None
+    if isinstance(completion, str):
+        content = completion.strip()
+        return content or None
+    return None
+
+
+def _render_generation_prompt(tokenizer: Any, prompt: Any) -> str:
+    """Render a prompt for model generation in any supported format.
+
+    Conversational message lists (trl 0.24 SFT ``prompt`` column) are
+    rendered via the tokenizer chat template with the generation prompt —
+    the same path as ``build_t2g_prompt`` — so the model sees byte-identical
+    input to training.  Plain strings (GRPO-style preformatted prompts) are
+    returned unchanged.  Falls back to concatenating message contents when
+    the tokenizer has no chat template.
+
+    Args:
+        tokenizer: A Hugging Face tokenizer.
+        prompt: The prompt column value (message list or string).
+
+    Returns:
+        The rendered prompt string (possibly empty).
+    """
+    if isinstance(prompt, list):
+        if hasattr(tokenizer, "apply_chat_template") and getattr(
+            tokenizer, "chat_template", None
+        ) is not None:
+            try:
+                return tokenizer.apply_chat_template(
+                    prompt,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            except Exception:
+                pass
+        return "\n".join(
+            f"<|im_start|>{msg.get('role', 'user')}\n{msg.get('content', '')}"
+            f"<|im_end|>"
+            for msg in prompt
+            if isinstance(msg, dict)
+        )
+    return str(prompt or "")
+
+
 class CompletionSampleLogger:
     """Wraps reward functions to capture (prompt, completion, rewards) samples.
 
     The first reward function is wrapped with an interceptor that stores
-    the last batch of completions and prompts.  The callback reads from
-    this buffer and prints periodically to the training log so
+    the last batch of completions, prompts, and gold references.  The gold
+    reference is read from the ``gold_gloss`` kwarg that TRL 0.24 forwards
+    to every reward function call (the dataset's ``gold_gloss`` column),
+    replacing the removed global registry.  The callback reads from this
+    buffer and prints periodically to the training log so
     ``chain_monitor.py`` can display them in real time.
 
     Usage::
@@ -123,8 +187,6 @@ class CompletionSampleLogger:
 
         # Component functions for per-sample breakdown (from t2g_rewards)
         from src.rewards.t2g_rewards import (
-            _extract_sample_id,
-            _lookup_gold_gloss,
             bleu_reward,
             gloss_format_reward,
             gloss_order_reward,
@@ -169,9 +231,6 @@ class CompletionSampleLogger:
             ("gloss_format_reward", gloss_format_reward, {}),
             ("gloss_repetition_reward", gloss_repetition_reward, {}),
         ]
-        self._extract_sample_id = _extract_sample_id
-        self._lookup_gold_gloss = _lookup_gold_gloss
-
         # Guard: no reward functions to wrap
         if not self._reward_fns:
             logger.error(
@@ -180,7 +239,11 @@ class CompletionSampleLogger:
             )
             return
 
-        # Wrap the first reward function to intercept
+        # Wrap the first reward function to intercept.  TRL 0.24 forwards
+        # every extra dataset column (including ``gold_gloss``) to each
+        # reward function call as a kwarg, so the interceptor reads the
+        # per-batch gold reference straight out of ``**kwargs`` instead of
+        # the removed global registry.
         original_fn = self._reward_fns[0]
 
         def _interceptor(
@@ -188,7 +251,11 @@ class CompletionSampleLogger:
             prompts: list[Any] | None = None,
             **kwargs: Any,
         ) -> list[float]:
-            self._capture(completions, prompts)
+            self._capture(
+                completions,
+                prompts,
+                gold_gloss=kwargs.get("gold_gloss"),
+            )
             return original_fn(completions, prompts=prompts, **kwargs)
 
         _interceptor.__name__ = original_fn.__name__
@@ -197,22 +264,34 @@ class CompletionSampleLogger:
     def set_difficulty_map(self, dataset: Any) -> None:
         """Build a prompt→difficulty lookup from the training dataset.
 
-        Uses the stable sample ID (SHA256 of user instruction) as key
-        for format-agnostic matching, same as the gold gloss registry.
+        The ``prompt`` column may be a plain string or a conversational
+        message list (trl 0.24 SFT); ``extract_user_text`` normalizes both
+        to the user instruction, which is used as the lookup key — matching
+        the instruction the GRPO rollout prompt yields, without any registry.
         """
         for row in dataset:
             if not isinstance(row, dict):
                 continue
-            user_text = row.get("prompt", "")
+            user_text = extract_user_text(row.get("prompt", ""))
             diff = row.get("difficulty", "")
             if user_text and diff:
-                sample_id = hashlib.sha256(
-                    str(user_text).encode("utf-8", errors="replace")
-                ).hexdigest()
-                self._difficulty_map[sample_id] = diff
+                self._difficulty_map[user_text] = str(diff)
 
-    def _capture(self, completions: list[Any], prompts: list[Any] | None) -> None:
-        """Store the first N samples from this batch."""
+    def _capture(
+        self,
+        completions: list[Any],
+        prompts: list[Any] | None,
+        gold_gloss: list[str] | None = None,
+    ) -> None:
+        """Store the first N samples from this batch.
+
+        Args:
+            completions: The batch of model completions.
+            prompts: The batch of prompts (``None`` in tests).
+            gold_gloss: Per-sample gold glosses delivered by TRL 0.24 as a
+                kwarg (the dataset ``gold_gloss`` column), aligned with
+                ``completions``.  ``None`` when the column is missing.
+        """
         if not self._reward_fns:
             return
         self._buffer.clear()
@@ -223,9 +302,12 @@ class CompletionSampleLogger:
             prompt = prompts[i] if prompts else None
             instruction = extract_user_text(prompt)
 
-            # Use stable sample ID for format-agnostic lookup
-            sample_id = self._extract_sample_id(prompt) if prompt is not None else ""
-            difficulty = self._difficulty_map.get(sample_id, "?")
+            difficulty = self._difficulty_map.get(instruction, "?")
+
+            # Per-sample gold reference from the current batch's kwargs
+            gold: str = ""
+            if gold_gloss is not None and i < len(gold_gloss):
+                gold = str(gold_gloss[i] or "")
 
             breakdown: dict[str, float] = {}
             for name, fn, kwargs in self._component_fns:
@@ -234,25 +316,12 @@ class CompletionSampleLogger:
                     continue
                 try:
                     kwargs_call = dict(kwargs)
-                    # Dynamically look up the actual gold gloss
-                    if name in (
-                        "translation_quality_reward",
-                        "bleu_reward",
-                        "gold_structure_reward",
-                        "verifier_scaled_reward",
-                        "gloss_order_reward",
-                    ):
-                        kwargs_call["gold_gloss"] = (
-                            self._lookup_gold_gloss(prompt)
-                            if prompt is not None
-                            else ""
-                        )
+                    # Components that need gold read it from the batch kwarg
+                    if "gold_gloss" in kwargs_call:
+                        kwargs_call["gold_gloss"] = gold
                     breakdown[name] = fn(text, **kwargs_call)
                 except Exception:
                     breakdown[name] = 0.0
-
-            # Look up the gold reference gloss for display
-            gold_gloss = self._lookup_gold_gloss(prompt) if prompt is not None else ""
 
             self._buffer.append(
                 {
@@ -260,7 +329,7 @@ class CompletionSampleLogger:
                     "completion": text,
                     "difficulty": difficulty,
                     "breakdown": breakdown,
-                    "gold": gold_gloss,
+                    "gold": gold,
                 }
             )
 
@@ -307,11 +376,14 @@ class CompletionSampleLogger:
             lines.append("  OUTPUT:")
             for cl in output.splitlines():
                 lines.append(f"    {cl}")
-            # Gold reference gloss (correct answer) for quick comparison
+            # Gold reference gloss (correct answer) for quick comparison.
+            # Graceful marker when the gold_gloss kwarg was unavailable.
             if gold:
                 lines.append("  GOLD:")
                 for cl in gold.splitlines():
                     lines.append(f"    {cl}")
+            else:
+                lines.append("  GOLD: (gold non disponibile)")
             lines.append(f"  REWARDS: {row1}")
             total = sum(self._weight_map.get(k, 0.0) * v for k, v in bd.items())
             lines.append(f"  TOTAL:   {total:+.4f}")
@@ -564,7 +636,9 @@ class SFTSampleCallback(TrainerCallback):
     Args:
         tokenizer: Tokenizer used for decoding sample predictions.
         model: The model being trained (used for generate() on samples).
-        dataset: The SFT dataset (list of dicts with ``"text"`` key).
+        dataset: The SFT dataset (list of dicts with ``"prompt"`` message
+            list and ``"completion"`` message list keys — trl 0.24
+            conversational format).
         every_n_steps: Print a progress summary every N steps.
         sample_every_n_steps: Generate a sample prediction every N steps.
         n_samples: Number of dataset samples to show per prediction round.
@@ -679,27 +753,28 @@ class SFTSampleCallback(TrainerCallback):
 
             for idx in indices:
                 sample = self._dataset[idx]
-                full_text = sample["text"] if isinstance(sample, dict) else str(sample)
+                if not isinstance(sample, dict):
+                    sample = {"prompt": str(sample), "completion": ""}
 
-                # Split into prompt (system+user) and gold (assistant)
-                # ChatML format: ...<|im_start|>assistant\n{gold}<|im_end|>
-                assistant_marker = "<|im_start|>assistant\n"
-                if assistant_marker in full_text:
-                    prompt_part = (
-                        full_text.split(assistant_marker)[0] + assistant_marker
-                    )
-                    gold_part = (
-                        full_text.split(assistant_marker)[1]
-                        .replace("<|im_end|>", "")
-                        .strip()
-                    )
-                else:
-                    prompt_part = full_text
+                # trl 0.24 conversational format: prompt = [system, user]
+                # message list, completion = [assistant] gold-gloss message.
+                # Graceful fallbacks keep the display working for datasets
+                # still in transition to the new schema.
+                prompt = sample.get("prompt", "")
+                completion = sample.get("completion", "")
+                user_text = extract_user_text(prompt)
+                gold_part = _first_assistant_content(completion)
+                if gold_part is None:
                     gold_part = "(unknown)"
 
-                # Tokenize prompt and generate
+                # Render the generation prompt via the chat template (or
+                # pass preformatted strings through untouched)
+                prompt_text = _render_generation_prompt(self._tokenizer, prompt)
+                if not prompt_text.strip():
+                    continue
+
                 inputs = self._tokenizer(
-                    prompt_part, return_tensors="pt", truncation=True, max_length=512
+                    prompt_text, return_tensors="pt", truncation=True, max_length=512
                 )
                 device = next(self._model.parameters()).device
                 inputs = {k: v.to(device) for k, v in inputs.items()}
@@ -716,14 +791,6 @@ class SFTSampleCallback(TrainerCallback):
                     out[0][inputs["input_ids"].shape[1] :],
                     skip_special_tokens=True,
                 ).strip()
-
-                # Extract user instruction for compact display
-                user_text = ""
-                user_marker = "<|im_start|>user\n"
-                if user_marker in prompt_part:
-                    user_text = (
-                        prompt_part.split(user_marker)[1].split("<|im_end|>")[0].strip()
-                    )
 
                 print(f"\n{_SEPARATOR}")
                 print(f"  PROMPT: {user_text[:120]}")

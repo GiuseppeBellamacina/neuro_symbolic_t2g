@@ -143,10 +143,12 @@ Tutte le reward sono **deterministiche e rule-based** e mappate su range
 | 7   | **Repetition**          | unique_ratio / trigram_ratio | 0.10                |
 | 8   | (Ablation modules)      | soft_viterbi, viterbi, structure | 0.0 (commented) |
 
-### 4.1 BLEU-4 Reward (T2G-Reasoner 2025)
+### 4.1 BLEU-4 Reward (RVLF 2025)
 
-Ispirata a T2G-Reasoner (2025) che mostra BLEU-4 superiore a ROUGE-L come segnale
-reward per T2G GRPO. Usa `sacrebleu.BLEU` con:
+Ispirata a RVLF (Rao et al., 2025, arXiv:2512.07273 — GRPO con reward BLEU+ROUGE
+nella sign language translation) e a Mosquera et al., 2025 (arXiv:2508.19481 —
+GRPO con reward di similarità BLEU su Qwen2.5-0.5B), che validano il BLEU come
+segnale reward per GRPO su traduzione con modelli piccoli. Usa `sacrebleu.BLEU` con:
 - **`effective_order=True`**: le sequenze corte (1-3 token, comuni in ASL)
   vengono valutate sugli n-grammi disponibili invece di richiedere 4-grammi
   (che restituirebbero 0 → mapped a -1.0)
@@ -186,7 +188,7 @@ automaticamente).
 | **Learning rate** | 3e-6 | Più basso per stabilità con LoRA r=32 |
 | **Steps** | 2000 | Più lungo del default 1500 |
 | **gradient_checkpointing** | true | OOM mitigation: ricomputa forward nel backward (~20% più lento) |
-| **Curriculum** | 3-stage (G²RPO-A 2026) | Simple→medium→hard difficoltà progressiva |
+| **Curriculum** | 3-stage (project-original) | Simple→medium→hard difficoltà progressiva |
 
 ### 5.2 OOM Fix
 
@@ -206,7 +208,7 @@ Fix (v2.1):
 - **Learning rate**: 2e-5
 - **Scopo**: Insegnare al modello il formato gloss prima del GRPO
 
-### 5.4 Curriculum Learning (G²RPO-A 2026)
+### 5.4 Curriculum Learning (project-original, 3-stage)
 
 3-stage progressive difficulty basata sulla distribuzione reale di ASLG-PC12:
 - **Stage 1** (0-33%): 10% simple, 65% medium, 25% hard
@@ -372,13 +374,14 @@ ablation-summary            # tabella + grafico cross-config
    eliminano la necessità di un reward model neurale.
 
 2. **8 Reward Modules [-1, 1]**: Range simmetrico per gradiente più forte e
-   meno reward hacking. BLEU-4 aggiunto (T2G-Reasoner 2025) complementare a ROUGE-L.
+   meno reward hacking. BLEU-4 aggiunto (RVLF 2025) complementare a ROUGE-L.
 
 3. **BLEU-4 con effective_order + smoothing**: Sequenze corte (1-3 token, comuni
    in ASL) non collassano a -1.0. Bug del caching silenzioso fixato con check eager.
 
-4. **Curriculum Learning (G²RPO-A 2026)**: Difficoltà progressiva 3-stage calibrata
-   sulla distribuzione reale di ASLG-PC12 (9.3% simple, 68.4% medium, 22.2% hard).
+4. **Curriculum Learning (project-original, 3-stage)**: Difficoltà progressiva calibrata
+   sulla distribuzione reale di ASLG-PC12 post-dedup (4.9% simple, 71.2% medium,
+   23.9% hard).
 
 5. **Token-Boundary Lookahead (grammarllm v0.5.0)**: Il modello emette token BPE
    nativi invece di essere forzato a spelling — alignment alla tokenizzazione di
@@ -452,8 +455,12 @@ failure), monitor con auto-restart, e ablation summary per analisi cross-config.
 - **ASLG-PC12**: Othman & Jemni (2012), English-ASL Gloss Parallel Corpus
 - **GRPO**: TRL GRPOTrainer 0.24.0 (HuggingFace)
 - **Unsloth**: FastLanguageModel per QLoRA acceleration
-- **T2G-Reasoner 2025**: BLEU-4 outperforms ROUGE-L as reward signal for T2G
-- **G²RPO-A 2026**: Curriculum learning for GRPO on small models
+- **RVLF (Rao et al., 2025)**: GRPO con reward BLEU+ROUGE per sign language
+  translation — arXiv:2512.07273
+- **Mosquera et al., 2025**: GRPO con reward BLEU su Qwen2.5-0.5B (dizionario-guidato
+  MT low-resource) — arXiv:2508.19481
+- **Curriculum 3-stage**: project-original, calibrato sulla distribuzione difficoltà
+  post-dedup di ASLG-PC12 (vedi docs/SOURCES.md)
 - **RECIPE**: arXiv:2605.19976 — Verifier-scaled reward
 - **ViterbiPlanNet DVL**: arXiv:2603.04265 — Differentiable Viterbi
 - **grammarllm v0.5.0**: PDA-based constrained decoding with token-boundary lookahead

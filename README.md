@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![TRL](https://img.shields.io/badge/TRL-GRPO-red.svg)](https://huggingface.co/docs/trl/)
-[![Tests](https://img.shields.io/badge/Tests-37%2F37%20pytest-green.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-96%2F96%20pytest-green.svg)](tests/)
 [![Docs](https://img.shields.io/badge/Docs-REWARDS%20%7C%20METRICS-purple.svg)](docs/)
 [![Ablation](https://img.shields.io/badge/Ablation-8%2B%20variants-orange.svg)](experiments/configs/t2g/)
 
@@ -15,7 +15,8 @@ English sentences into **ASL (American Sign Language) gloss sequences**.
 
 The key innovation is the **neuro-symbolic architecture**: a **constrained decoder** forces
 every generated token to belong to the ASL gloss vocabulary (~15K tokens), while **GRPO**
-optimizes the model through reinforcement learning with **9 rule-based reward functions**.
+optimizes the model through reinforcement learning with **7 rule-based reward functions**
+active in the optimal config (plus 3 ablation-only modules) and **10 in total**.
 
 > **No neural reward model needed** — the reward is purely deterministic, computed from
 > ROUGE-L similarity, bigram transition probabilities (softmax-normalized), Viterbi alignment,
@@ -41,10 +42,11 @@ optimizes the model through reinforcement learning with **9 rule-based reward fu
   vocabulary mask and a full grammarllm LL(1) PDA pipeline (_experimental_).
   W&B-tracked diagnostics (`MaskedMassTracker` mixin) monitor masked probability mass,
   full-distribution entropy, and allowed-token entropy.
-- **9 Deterministic Rewards**: Translation quality (ROUGE-L), gold-structure (⭐
-  recommended), structural dense (softmax+temperature), gloss-order (edit-distance),
-  verifier-scaled (RECIPE-inspired, log1p+softmax), soft-Viterbi (differentiable),
-  Viterbi (hard alignment), format, and repetition penalty — no neural reward model overhead.
+- **7 Active Rewards (v2.1)**: Translation quality (ROUGE-L), BLEU-4,
+  gold-structure (⭐ recommended), gloss-order (edit-distance),
+  verifier-scaled (RECIPE-inspired), format, and repetition penalty — plus 3
+  ablation-only modules (structural dense, soft-Viterbi, hard Viterbi) in
+  `grpo_experimental_all.yaml`. No neural reward model overhead.
 - **Best-of-N Selection**: Evaluation supports `best_of_n` mode — generates N samples
   per prompt and selects the best by reward, with `--compare` flag for automatic
   baseline-vs-GRPO comparison plots and JSON reports.
@@ -55,19 +57,22 @@ optimizes the model through reinforcement learning with **9 rule-based reward fu
   ROUGE-L=0 failures during training.
 - **Centralized Prompting**: Single `build_t2g_prompt()` in `src/utils/prompting.py`
   ensures identical byte streams across training, evaluation, and ad-hoc generation.
-- **GRPO Training**: On-policy reinforcement learning with G=4 completions per prompt,
-  LoRA (r=16), and 4-bit QLoRA quantization — fits in ~11 GB VRAM.
+- **GRPO Training**: On-policy reinforcement learning with G=4–8 completions
+  per prompt (dipende dal config), LoRA (r=16–32), and 4-bit QLoRA
+  quantization — fits in ~11 GB VRAM.
 - **Full Cluster Pipeline**: SLURM scripts, watcher daemon, live monitoring dashboard
   (`t2g-monitor`), wandb logging, checkpoint management, and evaluation suite.
-- **Ablation Study Ready**: 6 config variants (zero-shot, grammar-only, GRPO variants,
-  SFT, PDA) launchable via `--ablation` flag in `cluster/run_all.sh`.
+- **Ablation Study Ready**: 12 config variants (zero-shot, grammar-only, GRPO
+  variants, SFT, PDA, reward-module ablations) launchable via `--ablation` flag
+  in `cluster/run_all.sh` — tutte ereditate da `base.yaml`.
 - **All params configurable via YAML**: Viterbi diversity penalties, PDA temperature,
   reward weights, grammar toggle — no hardcoded values.
 - **Efficient**: ~2-3 hours for 1500 steps on a single NVIDIA L40S.
-- **Comprehensive Test Suite**: 37/37 pytest tests passing (data, grammar, rewards,
-  metrics, monitor, integration) with shared `conftest.py` fixtures.
-- **Experimental Config**: `grpo_experimental_all.yaml` activates all 9 reward modules
-  simultaneously for ablation of the full reward space.
+- **Comprehensive Test Suite**: 96/96 pytest tests passing (data, grammar,
+  rewards, metrics, monitor, config-inheritance, integration) with shared
+  `conftest.py` fixtures.
+- **Experimental Config**: `grpo_experimental_all.yaml` activates all 10
+  reward weight keys simultaneously for ablation of the full reward space.
 
 ---
 
@@ -76,10 +81,11 @@ optimizes the model through reinforcement learning with **9 rule-based reward fu
 ```text
 neuro_symbolic_t2g/
 ├── experiments/configs/t2g/
-│   ├── grpo_optimal.yaml              # Optimal config (LoRA r=32, all key rewards)
-│   ├── grpo_experimental_all.yaml     # Experimental: all 9 reward modules active
-│   ├── grpo_qwen05.yaml               # Main training config
-│   ├── sft.yaml                       # SFT baseline config
+│   ├── base.yaml                  # Template ereditato (extends) — parti comuni
+│   ├── grpo_optimal.yaml          # Optimal config (extends base, LoRA r=32, 7 reward)
+│   ├── grpo_experimental_all.yaml # Experimental: tutti i 10 pesi reward attivi
+│   ├── grpo_qwen05.yaml           # Main training config (extends base)
+│   ├── sft.yaml                   # SFT baseline config (extends base)
 │   └── ablation/                      # Ablation study variants
 │       ├── zero_shot.yaml
 │       ├── zero_shot_grammar.yaml
@@ -101,7 +107,7 @@ neuro_symbolic_t2g/
 │   │   ├── gloss_grammar.py           # GlossVocabularyMask + grammarllm pipeline factory
 │   │   └── grammar_logits_processor.py # HF LogitsProcessor (vocab mask + PDA variants)
 │   ├── rewards/
-│   │   └── t2g_rewards.py             # 9 reward functions for GRPO
+│   │   └── t2g_rewards.py             # 10 reward functions (7 attive + 3 ablation)
 │   ├── training/
 │   │   ├── grpo_t2g_train.py          # Main GRPO training loop (7-step pipeline)
 │   │   ├── eval_t2g.py                # Checkpoint eval (ROUGE-L, BLEU, best-of-N, --compare)
@@ -113,8 +119,9 @@ neuro_symbolic_t2g/
 │       ├── prompting.py               # Centralized T2G prompt builder
 │       ├── show_training_log.py       # Post-hoc log viewer + training curve plots
 │       └── visualization.py           # Reward breakdown plots, baseline comparison
-├── tests/                             # Test suite (37/37 pytest pass)
+├── tests/                             # Test suite (96/96 pytest pass)
 │   ├── conftest.py                    # Shared fixtures (reward_setup, dataset, tokenizer)
+│   ├── test_config.py                 # Config inheritance (extends) resolution
 │   ├── test_data.py                   # Dataset loader + transition matrix
 │   ├── test_grammar.py                # Vocabulary mask + logits processor
 │   ├── test_rewards.py                # All 9 reward functions
@@ -131,6 +138,8 @@ neuro_symbolic_t2g/
 ├── docs/
 │   ├── REWARDS.md                     # Detailed reward function documentation (9 rewards)
 │   ├── METRICS.md                     # W&B grammar metric documentation (masked mass, entropy)
+│   ├── SOURCES.md                     # Verified bibliography: how each source is used
+│   └── EVALUATION.md                  # Evaluation protocol (metrics, splits, honest reporting)
 │   ├── CONFIGS.md                     # Config matrix and ablation study documentation
 │   ├── CONFIGS_GUIDE.md               # Detailed config field reference
 │   ├── DOCUMENTAZIONE.md              # grammarllm library documentation (Italian)
@@ -148,7 +157,7 @@ neuro_symbolic_t2g/
 | 2    | **Model**: Load Qwen2.5-0.5B-Instruct with LoRA (r=16) + 4-bit QLoRA via Unsloth                                                                                                                                       | `src/training/grpo_t2g_train.py` |
 | 3    | **Constrained Decoding**: Build `GlossVocabularyMask` (or full grammarllm PDA) — model can only output ASL gloss tokens                                                                                                | `src/grammar/gloss_grammar.py`   |
 | 4    | **Dataset**: Format prompt-completion pairs with chat template                                                                                                                                                         | `src/data/aslg_dataset.py`       |
-| 5    | **Reward Functions**: 9 deterministic rewards — translation quality, gold-structure (⭐), structural dense (softmax), gloss-order (edit-distance), verifier-scaled (RECIPE), soft-Viterbi, Viterbi, format, repetition | `src/rewards/t2g_rewards.py`     |
+| 5    | **Reward Functions**: 10 deterministic rewards — translation quality, BLEU-4, gold-structure (⭐), structural dense (softmax), gloss-order (edit-distance), verifier-scaled (RECIPE), soft-Viterbi, Viterbi, format, repetition (7 attive nel config optimal) | `src/rewards/t2g_rewards.py`     |
 | 6    | **GRPO Training**: `trl.GRPOTrainer` generates G=4 completions per prompt, computes rewards, updates LoRA weights                                                                                                      | `src/training/grpo_t2g_train.py` |
 | 7    | **Save**: Checkpoint every 100 steps + final model in `experiments/checkpoints/grpo/t2g/qwen05/final/`                                                                                                                 | Auto                             |
 
@@ -156,21 +165,20 @@ neuro_symbolic_t2g/
 
 ## Reward Functions
 
-| Component                             | Weight (optimal) | What it measures                                                             |
-| ------------------------------------- | ---------------- | ---------------------------------------------------------------------------- |
-| **Translation Quality** (ROUGE-L)     | 0.30             | Lexical similarity between generated and gold gloss sequence                 |
-| **Gold-Structure** (Gold Baseline) ⭐ | 0.20             | Bigram score vs the gold reference gloss — "as good as the human?"           |
-| **Structural Dense** (Softmax)        | 0.10             | Bigram probability with softmax normalization + temperature scaling          |
-| **Gloss Order** (Edit-Distance)       | 0.10             | Normalized Levenshtein distance between generated and gold token order       |
-| **Verifier-Scaled** (RECIPE)          | 0.10             | log1p(structural) with softmax + verifier_temperature decoupled from gamma   |
-| **Soft-Viterbi** (Differentiable)     | 0.05             | Differentiable Viterbi alignment score                                       |
-| **Viterbi** (Hard)                    | 0.05             | Hard Viterbi alignment upper bound                                           |
-| **Format**                            | 0.05             | Ensures output is only gloss tokens (penalizes free text, punctuation, JSON) |
-| **Repetition**                        | 0.05             | Penalizes degenerate loops (token/trigram repetition > 50%)                  |
+| Component                             | Weight (optimal v2.1) | What it measures                                                             |
+| ------------------------------------- | --------------------- | ---------------------------------------------------------------------------- |
+| **Translation Quality** (ROUGE-L)     | 0.20                  | Lexical similarity between generated and gold gloss sequence                 |
+| **BLEU-4**                            | 0.20                  | BLEU-4 precision vs gold gloss (RVLF 2025)                                     |
+| **Gold-Structure** (Gold Baseline) ⭐ | 0.20                  | Bigram score vs the gold reference gloss — "as good as the human?"           |
+| **Gloss Order** (Edit-Distance)       | 0.10                  | Normalized Levenshtein distance between generated and gold token order       |
+| **Verifier-Scaled** (RECIPE)          | 0.10                  | log1p(structural) used as confidence multiplier for translation quality      |
+| **Format**                            | 0.10                  | Ensures output is only gloss tokens (penalizes free text, punctuation, JSON) |
+| **Repetition**                        | 0.05                  | Penalizes degenerate loops (token/trigram repetition > 50%)                  |
+| — *ablation-only:* Structural Dense / Soft-Viterbi / Viterbi | 0 (off) | Attivati solo da `grpo_experimental_all.yaml` e dai config di ablation |
 
 All rewards are **deterministic and rule-based** — no neural reward model, no
-human feedback required. The `grpo_experimental_all.yaml` config activates all 9
-modules simultaneously for full reward-space ablation.
+human feedback required. The `grpo_experimental_all.yaml` config activates all
+10 weight keys simultaneously for full reward-space ablation.
 
 See [docs/REWARDS.md](docs/REWARDS.md) for full details.
 
@@ -186,16 +194,19 @@ See [docs/REWARDS.md](docs/REWARDS.md) for full details.
 git clone <repo-url>
 cd neuro_symbolic_t2g
 
-# CPU / development — core dependencies only
+# Core install — all training deps (incl. scikit-learn for tfidf retrieval)
 pip install -e .
 
-# GPU training — includes Unsloth and vLLM accelerators
-pip install -e ".[gpu]"
+# Dev tools (pytest, ruff, black, isort)
+pip install -e ".[dev]"
+
+# Optional: minilm retrieval backend (heavy — downloads HF models)
+pip install -e ".[retrieval]"
 
 # For cluster: torch built for your CUDA version
 # Example — CUDA 12.1:
 pip install torch --index-url https://download.pytorch.org/whl/cu121
-pip install -e ".[gpu]"
+pip install -e .
 ```
 
 ### Test components locally
@@ -227,7 +238,7 @@ See the complete [**CLUSTER.md**](CLUSTER.md) guide. Quick start:
 ssh <user>@gcluster.dmi.unict.it
 
 # 3. Setup (downloads dataset, installs deps, computes transitions)
-srun --account <queue> --partition <queue> --qos gpu-medium --gres=gpu:1 --pty bash
+srun --account <queue> --partition <queue> --qos gpu-xlarge --gres=gpu:1 --pty bash
 cd ~/neuro_symbolic_t2g && bash cluster/setup.sh
 
 # 4. Load aliases and launch pipeline
@@ -354,7 +365,28 @@ For K80 or CPU-only, set `use_unsloth: false` and `quantization: null` in the co
 
 ## Configuration
 
-Key parameters in `experiments/configs/t2g/grpo_qwen05.yaml`:
+I config YAML in `experiments/configs/t2g/` usano **ereditarietà**: le parti
+comuni (modello, LoRA, dataset, training, GRPO, reward, grammar, evaluation,
+wandb) vivono in `base.yaml` e ogni config specifico la estende con `extends`
+sovrascrivendo **solo le proprie differenze**. La resolution (deep merge
+ricorsivo: dict fusi, liste/scalari sostituiti) avviene in
+`src/utils/config.py::resolve_config` — il dict risultante è identico a prima
+per i trainer, che non vedono mai la chiave `extends`.
+
+```yaml
+# experiments/configs/t2g/grpo_optimal.yaml
+extends: base.yaml                 # eredita modello/LoRA/dataset/reward/grammar…
+
+training:
+  max_steps: 2000                  # sovrascrive SOLO ciò che cambia
+  output_dir: "experiments/checkpoints/qwen25-05b-optimal"
+  log_dir: "experiments/logs/qwen25-05b-optimal"
+
+curriculum:
+  enabled: true
+```
+
+Le chiavi di esempio (dal config `grpo_qwen05.yaml` / `base.yaml`):
 
 ```yaml
 model:
@@ -369,20 +401,18 @@ training:
   gradient_accumulation_steps: 8
 
 grpo:
-  num_generations: 4 # G = completions per prompt
+  num_generations: 4 # G = completions per prompt (dipende dal config)
   beta: 0.04 # KL penalty
   temperature: 0.7 # Exploration temperature
 
 reward:
-  weight_translation: 0.30 # ROUGE-L similarity
+  weight_translation: 0.20 # ROUGE-L similarity
+  weight_bleu: 0.20 # BLEU-4 (RVLF 2025)
   weight_gold_structure: 0.20 # Gold baseline (⭐ recommended)
-  weight_structure: 0.10 # Softmax bigram (temperature-scaled)
   weight_gloss_order: 0.10 # Edit-distance ordering
   weight_verifier_scaled: 0.10 # RECIPE-inspired (log1p + softmax)
-  weight_soft_viterbi: 0.05 # Differentiable Viterbi
-  weight_viterbi: 0.05 # Hard Viterbi alignment
-  weight_format: 0.05 # Gloss-only check
-  weight_repetition: 0.05 # Repetition penalty
+  weight_format: 0.10 # Gloss-only check
+  weight_repetition: 0.10 # Repetition penalty
 
 evaluation:
   max_samples: 500 # Eval subset size
@@ -397,8 +427,14 @@ grammar:
     max_occurrences: 2
     diversity_threshold: 0.3
     max_iters: 3
-    verifier_temperature: 5.0 # Decoupled from verifier_gamma
 ```
+
+> **Riallineamento iperparametri (base.yaml)**: i valori di riferimento GRPO
+> sono stati allineati al config che converge (beta=0.04, temperature=0.7,
+> max_grad_norm=0.1). Nei config che non li sovrascrivono esplicitamente
+> (es. `grpo_optimal`) questo è un cambio intenzionale rispetto a beta=0.0 /
+> temperature=0.9 / max_grad_norm=0.05 — beta=0 causava kl=0 e drift del
+> policy senza ancora. Vedi il commento in `base.yaml`.
 
 ---
 
@@ -432,4 +468,4 @@ logs/
 - **Unsloth** _(optional GPU extra)_: [FastLanguageModel](https://docs.unsloth.ai/)
 - **vLLM** _(optional GPU extra)_: [Inference engine](https://docs.vllm.ai/)
 - **grammarllm**: Vendored constrained decoding library (PDA + LogitsProcessor)
-- **Test Suite**: 37/37 pytest tests — see [tests/REPORT.md](tests/REPORT.md) for full test inventory
+- **Test Suite**: 96/96 pytest tests — see [tests/REPORT.md](tests/REPORT.md) for full test inventory

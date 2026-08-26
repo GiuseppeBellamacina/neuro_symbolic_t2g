@@ -123,8 +123,10 @@ def test_repetition_reward(reward_setup):
     severe = "IX IX IX IX IX IX IX IX IX IX"
     assert gloss_repetition_reward(severe) == -1.0, "Severe = -1.0"
 
-    assert gloss_repetition_reward("IX MAN") == 1.0, "Short (<4 tokens) = 1.0"
-    assert gloss_repetition_reward("") == 1.0, "Empty = 1.0"
+    # Anti-reward-hacking: sequences < 4 tokens (and empty outputs) return a
+    # NEUTRAL 0.0 — the old +1.0 rewarded short outputs unconditionally.
+    assert gloss_repetition_reward("IX MAN") == 0.0, "Short (<4 tokens) = 0.0"
+    assert gloss_repetition_reward("") == 0.0, "Empty = 0.0"
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +165,85 @@ def test_gold_structure_reward(reward_setup):
 
     raw = gold_structure_reward(perfect, gold, normalize=False)
     assert abs(raw) < 0.5, f"Raw perfect ~= 0.0, got {raw:.4f}"
+
+
+def test_gold_structure_reward_anti_hacking(reward_setup):
+    """Anti reward-hacking guards in gold_structure_reward."""
+    from src.rewards.t2g_rewards import gold_structure_reward
+
+    gold = "IX MAN WALK HOUSE"
+
+    # < 2 in-vocab tokens → hard -1.0 (was: gliding on BOS→EOS uniform edge).
+    assert gold_structure_reward("IX", gold, normalize=True) == -1.0, (
+        "Single in-vocab token = -1.0"
+    )
+    # All-OOV garbage → 0 in-vocab tokens → -1.0.
+    assert gold_structure_reward("ZZZ QQQ RRR", gold, normalize=True) == -1.0, (
+        "All-OOV completion = -1.0"
+    )
+
+    # Length-mismatch penalty: a 2-token completion against a 4-token gold
+    # gets factor min(2,4)/max(2,4)=0.5, so its score cannot reach the
+    # full-length perfect match and is pushed to <= 0.
+    short = "IX MAN"
+    full = "IX MAN WALK HOUSE"
+    score_short = gold_structure_reward(short, gold, normalize=True)
+    score_full = gold_structure_reward(full, gold, normalize=True)
+    assert score_full > 0.9, f"Full perfect ~= 1.0, got {score_full:.4f}"
+    assert score_short < score_full, "Short path < full-length match"
+    assert score_short <= 0.0, f"Short path penalized to <= 0, got {score_short:.4f}"
+
+
+# ---------------------------------------------------------------------------
+# 5b. GRPOTrainer wrapper: gold gloss via kwargs (no global registry)
+# ---------------------------------------------------------------------------
+
+
+def test_reward_wrapper_receives_gold_via_kwargs(reward_setup):
+    """Reward wrapper reads gold_gloss from kwargs, aligned with completions."""
+    from src.rewards.t2g_rewards import (
+        _make_gloss_reward_fn,
+        translation_quality_reward,
+    )
+
+    fn = _make_gloss_reward_fn(translation_quality_reward, needs_gold_gloss=True)
+
+    completions = ["IX MAN WALK HOUSE", "DOG CAT BIRD FISH"]
+    gold_gloss = ["IX MAN WALK HOUSE", "IX MAN WALK HOUSE"]
+    scores = fn(
+        completions,
+        prompts=["p1", "p2"],
+        gold_gloss=gold_gloss,
+    )
+
+    assert len(scores) == 2
+    assert scores[0] > 0.8, f"Perfect match via kwargs > 0.8, got {scores[0]:.4f}"
+    assert scores[1] < scores[0], "Bad match via kwargs < perfect"
+
+
+def test_reward_wrapper_missing_gold_is_neutral(reward_setup, caplog):
+    """Missing/None gold_gloss → neutral 0.0 (never -1.0), warn once."""
+    from src.rewards.t2g_rewards import (
+        _make_gloss_reward_fn,
+        translation_quality_reward,
+    )
+
+    fn = _make_gloss_reward_fn(translation_quality_reward, needs_gold_gloss=True)
+
+    # gold_gloss kwarg absent entirely.
+    assert fn(["IX MAN WALK HOUSE"], prompts=["p1"]) == [0.0]
+
+    # gold_gloss present but shorter than completions → missing for the tail.
+    with caplog.at_level("WARNING", logger="src.rewards.t2g_rewards"):
+        assert fn(
+            ["IX MAN WALK HOUSE", "DOG CAT"], prompts=["p1", "p2"], gold_gloss=["IX MAN WALK HOUSE"]
+        ) == [1.0, 0.0]
+
+    # Warning is logged at most once across all calls.
+    with caplog.at_level("WARNING", logger="src.rewards.t2g_rewards"):
+        fn(["A B C D"], prompts=["p"], gold_gloss=[])
+    warn_count = sum(1 for r in caplog.records if "gold_gloss" in r.message)
+    assert warn_count == 1, f"Warned exactly once, got {warn_count}"
 
 
 # ---------------------------------------------------------------------------

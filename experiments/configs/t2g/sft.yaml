@@ -1,57 +1,36 @@
 # ============================================================================
 # SFT Training Config — Qwen2.5-0.5B-Instruct — Text-to-Gloss (T2G)
 #
-# Supervised Fine-Tuning baseline per confronto con GRPO nel ablation study.
+# Supervised Fine-Tuning baseline per confronto con GRPO nell'ablation study.
 # L'SFT addestra il modello via teacher forcing sulle gloss di riferimento,
 # senza reward shaping né constrained decoding durante il training.
+#
+# Eredita da base.yaml, ma sovrascrive `training` con i parametri SFT
+# (trainer: sft, epoche, eval holdout + early stopping, max_seq_length 768).
+# Le chiavi reward non sono usate in training (solo in eval).
 #
 # Usato da:
 #   CONFIG=experiments/configs/t2g/sft.yaml sbatch cluster/train.sh
 #   python -m src.training.sft_train --config experiments/configs/t2g/sft.yaml
 # ============================================================================
 
-# --- Modello ---
-model:
-  name: "Qwen/Qwen2.5-0.5B-Instruct"
-  num_gpus: 1
-  quantization: "4bit"
-  dtype: "bfloat16"
-  use_unsloth: true
-  max_seq_length: 1024
+extends: base.yaml
 
-# --- LoRA adapters ---
+# --- LoRA adattatori (leggeri, come il config GRPO base) ---
 lora:
   r: 16
   lora_alpha: 32
   lora_dropout: 0
-  target_modules:
-    - q_proj
-    - k_proj
-    - v_proj
-    - o_proj
-    - gate_proj
-    - up_proj
-    - down_proj
-  task_type: "CAUSAL_LM"
-  random_state: 3407
 
-# --- Dataset ---
-dataset:
-  dataset_name: "achrafothman/aslg_pc12"
-  dataset_cache: "data/aslg_pc12"
-  vocab_path: "data/gloss_vocab.txt"
-  bigram_matrix_path: "data/bigram_transition.npy"
-  split: "train"
-  max_samples: null
-  seed: 42
-  thinking: false
-
-# --- Iperparametri di training SFT ---
+# --- Iperparametri di training SFT (sovrascrive completamente la base) ---
 training:
   trainer: sft # Auto-detection key for __main__.py bootstrap
-  # SFT usa epoche invece di max_steps (supervised, non RL)
+  # SFT usa epoche invece di max_steps (supervised, non RL). 3 epoche sono
+  # ora sicure: un eval holdout + early stopping fermano il training se
+  # eval_loss smette di migliorare (anti-overfitting sui ~78K sample).
   num_train_epochs: 3
   per_device_train_batch_size: 4
+  per_device_eval_batch_size: 8
   gradient_accumulation_steps: 4
   learning_rate: 2.0e-5
   lr_scheduler_type: "cosine"
@@ -63,8 +42,16 @@ training:
   gradient_checkpointing: true # OOM mitigation
   logging_steps: 10
   save_steps: 200
-  save_total_limit: 3
+  save_total_limit: 2 # meno checkpoint: load_best_model_at_end conserva il best
   max_seq_length: 768
+  # --- Held-out eval + early stopping (anti-overfitting) ---
+  # Viene ricavato dal TRAIN split un eval set (eval_fraction, seed =
+  # dataset.seed). Il training monitora eval_loss: si ferma dopo
+  # early_stopping_patience valutazioni senza miglioramenti e a fine run
+  # viene ricaricato/salvato il checkpoint con eval_loss migliore.
+  eval_fraction: 0.02 # 2% del train (~1.6K campioni su ~78K)
+  eval_steps: 200 # valutazione ogni 200 update steps
+  early_stopping_patience: 3
   output_dir: "experiments/checkpoints/qwen25-05b-sft"
   log_dir: "experiments/logs/qwen25-05b-sft"
 
@@ -75,48 +62,24 @@ generation:
   temperature: 0.7
 
 # --- Pesi della reward function (eval-only per SFT) ---
+# Le chiavi della base non usate qui (weight_bleu, weight_verifier_scaled)
+# vengono azzerate esplicitamente così il dict fuso mantiene somma = 1.0.
 reward:
-  # Translation quality (ROUGE-L similarity with gold gloss)
   weight_translation: 0.30
-  # Gold-structure reward: bigram score vs gold reference baseline
+  weight_bleu: 0.0 # non usato da questo config
   weight_gold_structure: 0.35
-  # Gloss-order reward: word-level edit-distance vs gold gloss (§5.3)
   weight_gloss_order: 0.15
-  # Format reward: ensure gloss tokens only (no free text)
+  weight_verifier_scaled: 0.0 # non usato da questo config
   weight_format: 0.10
-  # Repetition penalty
   weight_repetition: 0.10
-
-# --- Constrained Decoding ---
-grammar:
-  enabled: true
-  use_grammarllm_pda: false
-  token_lookahead: false      # grammarllm v0.5.0: native BPE token emission (only with use_grammarllm_pda: true)
-  track_score_history: false  # grammarllm v0.5.0: accumulate per-step logit history for debug (memory cost)
-  # Viterbi diversity penalty params (for viterbi_distance_reward eval)
-  viterbi_diversity:
-    self_loop_penalty: 0.5
-    max_occurrences: 2
-    diversity_threshold: 0.3
-    max_iters: 3
-    verifier_gamma: 1.0
-    # Verifier temperature: scala avg_log_prob prima del sigmoid/softmax in
-    # structural_dense_reward. Disaccoppiato da verifier_gamma.
-    verifier_temperature: 5.0
-
-# --- Curriculum Learning (disabled) ---
-curriculum:
-  enabled: false
 
 # --- Evaluation ---
 evaluation:
-  batch_size: 8
   max_samples: 500 # 500 campioni per evaluation rapida, null per tutto il test set
   num_samples: 1 # SFT usa greedy (1 completion per prompt)
   best_of_n: false
 
 # --- Weights & Biases ---
 wandb:
-  project: "neuro-symbolic-t2g"
   run_name: "ablation-sft-baseline"
   tags: ["ablation", "SFT", "supervised", "T2G", "Qwen2.5-0.5B", "ASL"]

@@ -31,7 +31,12 @@ def test_difficulty_labels(dataset):
 
 
 def test_difficulty_distribution(dataset):
-    """Full dataset distribution is roughly ~9/68/22% (simple/medium/hard)."""
+    """Full dataset distribution is roughly ~5/71/24% (simple/medium/hard).
+
+    Post-dedup ASLG-PC12 (normalized-text duplicates removed before the
+    90/10 split): the removed rows were mostly short sentences, so the
+    "simple" share dropped from the pre-dedup ~9% to ~4.9%.
+    """
     from src.datasets.aslg_dataset import build_t2g_dataset
 
     t2g = build_t2g_dataset(dataset, split="train", max_samples=2000)
@@ -41,9 +46,9 @@ def test_difficulty_distribution(dataset):
 
     total = sum(counts.values())
     for label, expected_min, expected_max in [
-        ("simple", 0.06, 0.15),
-        ("medium", 0.55, 0.75),
-        ("hard", 0.15, 0.30),
+        ("simple", 0.03, 0.10),
+        ("medium", 0.60, 0.80),
+        ("hard", 0.17, 0.32),
     ]:
         pct = counts[label] / total
         assert (
@@ -123,8 +128,10 @@ def test_curriculum_filtered_dataset(dataset):
 
     s1_diffs = [stage1[i]["difficulty"] for i in range(min(100, len(stage1)))]
     s1_simple_pct = sum(1 for d in s1_diffs if d == "simple") / len(s1_diffs)
-    # Stage 1 should have some simple examples (target 10%, actual ~9%)
-    assert s1_simple_pct > 0.05, f"Stage 1 has too few simple: {s1_simple_pct:.2%}"
+    # Stage 1 targets 10% simple, but post-dedup availability is ~4.9%
+    # (removed duplicates were mostly short sentences) — the filter caps
+    # at availability, so expect "some" simple, close to the pool share.
+    assert s1_simple_pct > 0.02, f"Stage 1 has too few simple: {s1_simple_pct:.2%}"
     # Stage 1 should be mostly medium
     s1_medium_pct = sum(1 for d in s1_diffs if d == "medium") / len(s1_diffs)
     assert s1_medium_pct > 0.40, f"Stage 1 has too few medium: {s1_medium_pct:.2%}"

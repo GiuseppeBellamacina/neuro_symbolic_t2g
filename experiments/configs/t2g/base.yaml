@@ -1,0 +1,179 @@
+# ============================================================================
+# BASE CONFIG — Parti comuni a tutti i config T2G (ereditata via `extends`)
+#
+# Ogni config specifico inizia con `extends: base.yaml` (o `../base.yaml`
+# dagli ablation/) e sovrascrive SOLO le proprie differenze. La resolution
+# avviene in src/utils/config.py::resolve_config (deep merge: i dict annidati
+# vengono fusi ricorsivamente, liste e scalari vengono sostituiti).
+#
+# RIALLINEAMENTO IPERPARAMETRI (reference GRPO che converge):
+#   - grpo.beta            = 0.04  (era 0.0 nei config "optimal"/"pda_lookahead")
+#   - grpo.temperature     = 0.7   (era 0.9)
+#   - training.max_grad_norm = 0.1 (era 0.05)
+#   - learning_rate        = 3e-6  (invariato)
+#   - warmup_steps         = 200   (invariato)
+#   Motivazione: i valori provengono dal config di riferimento GRPO
+#   convergente (grpo_qwen05). Con beta=0 la KL verso il reference model
+#   restava a 0 e il policy driftava senza ancora; temperature=0.9 rendeva i
+#   rollout troppo rumorosi e max_grad_norm=0.05 troppo conservativo.
+#   I config che vogliono valori diversi li sovrascrivono esplicitamente.
+#
+# NOTA: `extends` viene rimosso dal dict fuso — i trainer non lo vedono mai.
+#
+# NOTA SFT pre-training (Phase 0): i config con `sft_pretrain.enabled: true`
+# (es. grpo_optimal.yaml) attivano l'SFT prima del GRPO. Il riuso
+# dell'adapter SFT è ATTIVO di default (`sft_pretrain.reuse_adapter: true`):
+# se sul cluster esiste già un adapter SFT con la stessa fingerprint (stessa
+# config SFT: modello/lora/dataset/prompt/iperparametri), viene riusato senza
+# ricalcolare SFT. `sft_pretrain.adapter_path` forza un adapter esplicito;
+# `--force-sft` forza il retrain.
+# ============================================================================
+
+# --- Modello ---
+model:
+  name: "Qwen/Qwen2.5-0.5B-Instruct"
+  num_gpus: 1
+  quantization: "4bit"
+  dtype: "bfloat16"
+  use_unsloth: true
+  max_seq_length: 1024
+
+# --- LoRA adapters ---
+# r=32/alpha=64/dropout 0.05 = profilo "optimal". I config più leggeri
+# (es. grpo_qwen05) sovrascrivono r/lora_alpha/lora_dropout.
+lora:
+  r: 32
+  lora_alpha: 64
+  lora_dropout: 0.05 # leggero dropout per regolarizzazione
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  task_type: "CAUSAL_LM"
+  random_state: 3407
+
+# --- Dataset ---
+dataset:
+  dataset_name: "achrafothman/aslg_pc12"
+  dataset_cache: "data/aslg_pc12"
+  vocab_path: "data/gloss_vocab.txt"
+  bigram_matrix_path: "data/bigram_transition.npy"
+  split: "train"
+  max_samples: null # usa tutto il dataset (78939 samples) — override nei config parziali
+  seed: 42
+  thinking: false # T2G non usa <think> blocks
+
+# --- Iperparametri comuni di training GRPO ---
+# max_steps, output_dir/log_dir e learning_rate/warmup_steps variano per
+# config e vanno sovrascritti nel file specifico.
+training:
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  lr_scheduler_type: "cosine"
+  optim: "paged_adamw_8bit"
+  weight_decay: 0.1
+  max_grad_norm: 0.1 # riallineato al reference GRPO convergente (era 0.05)
+  bf16: true
+  gradient_checkpointing: true # OOM mitigation (forward activations recomputed in backward)
+  logging_steps: 5
+  save_steps: 100
+  save_total_limit: 3
+
+# --- Parametri GRPO ---
+# beta/temperature riallineati al reference convergente (vedi header).
+grpo:
+  num_generations: 8
+  max_completion_length: 128 # sufficiente per gloss ASL (~20-40 token)
+  max_prompt_length: 256
+  beta: 0.04 # KL penalty al reference model — beta=0 causava kl=0 e drift senza ancora
+  temperature: 0.7 # esplorazione nei rollout (era 0.9)
+
+# --- Pesi della reward function (v2.1: range [-1, 1] + BLEU-4) ---
+# Tutte le reward sono mappate su range simmetrico [-1, 1]:
+#   -1 = completamente sbagliato, 0 = neutro, 1 = perfetto.
+# I pesi sommano a 1.0 per interpretabilità.
+# I config che usano set diversi (es. ablation) sovrascrivono le chiavi
+# necessarie, azzerando esplicitamente quelle della base che non attivano
+# (weight_bleu/weight_verifier_scaled/... → 0.0).
+reward:
+  # ROUGE-L similarity with gold gloss — primary semantic signal
+  weight_translation: 0.20
+  # BLEU-4 precision with gold gloss — complementare a ROUGE-L (RVLF 2025)
+  weight_bleu: 0.20
+  # Gold-structure: bigram score vs gold reference baseline
+  weight_gold_structure: 0.20
+  # Gloss-order: word-level edit-distance vs gold gloss
+  weight_gloss_order: 0.10
+  # Verifier-scaled (RECIPE-inspired, arXiv:2605.19976)
+  weight_verifier_scaled: 0.10
+  # Format: ensure gloss tokens only (no free text)
+  weight_format: 0.10
+  # Repetition: penalizza loop degeneri
+  weight_repetition: 0.10
+
+# --- Constrained Decoding ---
+# Trie dual-root di default. I config PDA sovrascrivono use_grammarllm_pda
+# e (opzionalmente) pda_temperature/token_lookahead.
+# verifier_gamma/verifier_temperature sono RIMOSSI: dead config (il codice in
+# src/rewards/t2g_rewards.py non li legge più — solo i 4 parametri qui sotto
+# vengono caricati in initialize_rewards).
+grammar:
+  enabled: true
+  use_grammarllm_pda: false # Trie dual-root è più veloce e sufficiente
+  token_lookahead: false      # grammarllm v0.5.0: native BPE token emission (solo con use_grammarllm_pda: true)
+  track_score_history: false  # grammarllm v0.5.0: accumula per-step logit history per debug (costo memoria)
+  # Viterbi diversity penalty params (per viterbi_distance_reward)
+  viterbi_diversity:
+    self_loop_penalty: 0.5
+    max_occurrences: 2
+    diversity_threshold: 0.3
+    max_iters: 3
+
+# --- Curriculum Learning (disabilitato di default) ---
+# I config che lo usano (grpo_optimal, grpo_pda_lookahead) lo attivano.
+curriculum:
+  enabled: false
+
+# --- Evaluation ---
+evaluation:
+  batch_size: 8
+  max_samples: null # override per config (es. 500 per eval rapida)
+  num_samples: 5 # 5 completions per prompt per Pass@k
+  # Best-of-N selection: seleziona il miglior completamento per prompt.
+  # I config eval-only (zero_shot*) o leggeri lo disabilitano.
+  best_of_n: true
+
+# --- Few-shot retrieval (opzionale, anti-leakage) ---
+# Recupera k esempi (text→gloss) simili alla query dal TRAIN split (già
+# deduplicato) e li inietta nel prompt utente di GRPO ed eval — il modello
+# "capisce" il task dal few-shot. SFT resta zero-shot (il suo dataset non
+# passa mai esempi a build_t2g_prompt).
+#
+# ANTI-LEAKAGE: la query stessa (exclude sul normalized text) e i
+# near-duplicati (candidati con similarità > max_self_similarity) sono
+# SEMPRE esclusi dagli esempi, così il modello non può copiare la gold
+# gloss di un esempio invece di tradurre. Gli esempi vengono SEMPRE dal
+# train, mai dal test.
+#
+# backend: "tfidf" (default) = deterministico, nessun download di modelli.
+#          "minilm" richiede `uv add --optional retrieval sentence-transformers`
+#          e scarica il modello HF al primo uso (il cluster ha accesso HF).
+# Con il few-shot attivo alzare grpo.max_prompt_length (es. 768): 3 esempi
+# (~40-60 token l'uno) + query superano i 256 token di default.
+retrieval:
+  enabled: false # few-shot OFF di default; attivo in grpo_optimal.yaml
+  backend: "tfidf"
+  model_name: null # solo per backend "minilm" (default: all-MiniLM-L6-v2)
+  top_k: 3 # esempi per prompt
+  max_self_similarity: 0.98 # drop candidati quasi-identici alla query (anti-leakage)
+  cache_path: "data/retriever_index" # indice salvato su disco (meta sidecar + rebuild su mismatch)
+
+# --- Weights & Biases ---
+wandb:
+  project: "neuro-symbolic-t2g"
+  run_name: "grpo-t2g" # placeholder — ogni config specifico imposta il suo
+  tags: ["grpo", "T2G", "constrained-decoding", "Qwen2.5-0.5B", "ASL"]

@@ -3,12 +3,28 @@ T2G Evaluation Script — Multi-metric with plots.
 
 Evaluates trained checkpoints on the ASLG-PC12 test set using:
     - ROUGE-L F1 (translation quality)
+    - BLEU (sacreBLEU sentence + corpus)
+    - chrF2 (sacreBLEU, sentence + corpus)
+    - Token-level gloss F1 (micro + sentence mean)
     - Pass@1 / Pass@k (multiple sampling)
     - Gloss validity (free-text / repetition detection)
     - Bigram log-probability (structural plausibility)
     - Exact match accuracy
-    - Per-component reward breakdown
+    - Per-component reward breakdown (direct calls — no registry)
     - Detailed metrics (percentiles, error distribution)
+
+**Honest primary metrics.**  The primary metric block is computed over
+*all* ``num_samples`` completions per prompt (never just the first one),
+so ROUGE-L/BLEU/chrF/F1/exact-match/bigram/validity are honest numbers
+for the actual decoding strategy.  ``pass_at_1`` is the fraction of
+prompts whose *first* completion reaches ROUGE-L >= 0.3 (a single
+honest draw), computed with the shared ``compute_pass_at_k`` helper
+(k=1) for consistency with the Pass@k curve.
+
+**Best-of-N is oracle-only.**  When ``--best-of-n`` is enabled, the gold
+reference is used to pick the best completion per prompt; those metrics
+are reported in a *separate* ``oracle_best_of_n`` block and never
+overwrite the primary (deployable) metrics.
 
 Optionally generates plots via ``visualization.py`` (plotnine):
     - Completion length distribution (valid vs invalid)
@@ -19,11 +35,11 @@ Usage:
     # Single checkpoint eval
     python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --checkpoint path/to/ckpt --plot
 
-    # Compare baseline (zero-shot) vs GRPO — generates comparison plots + JSON
+    # Compare baseline (zero-shot) vs checkpoint — SAME decoding for both
     python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --checkpoint path/to/ckpt --compare
 
-    # Best-of-N selection (helps small models generalize — requires num_samples>1)
-    python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --checkpoint path/to/ckpt --compare --best-of-n
+    # Best-of-N selection (DIAGNOSTIC ONLY — oracle; reported separately)
+    python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --checkpoint path/to/ckpt --best-of-n
 
     # Baseline-only eval (generates baseline JSON for later comparison)
     python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --eval-baseline-only --plot
@@ -77,11 +93,27 @@ from src.grammar.grammar_logits_processor import (
     GlossVocabularyLogitsProcessor,
     GrammarPDALogitsProcessor,
 )
-from src.rewards.t2g_rewards import (
-    initialize_rewards,
-    register_gold_glosses,
+from src.rewards.t2g_rewards import initialize_rewards
+from src.training.retrieval_setup import (
+    build_train_retriever,
+    retrieve_few_shot_batch,
 )
 from src.utils.config import load_config
+from src.utils.metrics import (
+    bleu_corpus,
+    bleu_sentence,
+    check_gloss_validity,
+    chrf_score,
+    compute_detailed_metrics,
+    compute_evaluation_report,
+    compute_pass_at_k,
+    compute_reward_breakdown,
+    corpus_chrf,
+    corpus_gloss_f1,
+    gloss_f1,
+    rouge_l_score,
+    seeded_sample_indices,
+)
 from src.utils.prompting import build_t2g_prompt
 
 logger = logging.getLogger("t2g-eval")
@@ -195,10 +227,183 @@ def _generate_batch(
 # ---------------------------------------------------------------------------
 
 
+def _compute_primary_metrics(
+    flat_completions: list[str],
+    flat_references: list[str],
+    all_completions: list[list[str]],
+    all_references: list[str],
+    token_to_idx: dict[str, int],
+    bigram: Any,
+    reward_weights: dict[str, float],
+    n_bootstrap: int = 1000,
+) -> tuple[dict[str, Any], list[float], list[tuple[bool, str]]]:
+    """Compute the honest primary metric block over all completions.
+
+    Every metric here is averaged over *all* completions (not just the
+    first one per prompt), so the numbers reflect the real decoding
+    strategy.  ``pass_at_1`` is the fraction of prompts whose *first*
+    completion reaches ROUGE-L >= 0.3 (a single honest draw) — computed
+    with the shared ``compute_pass_at_k`` helper (k=1) for consistency
+    with the Pass@k curve.  It never uses the gold to select among
+    samples; the higher pass@N (N = num_samples) is reported under
+    ``pass_at_k``.
+
+    Args:
+        flat_completions: All completions flattened (one entry per
+            completion across all prompts).
+        flat_references: Gold reference per completion (same order and
+            length as ``flat_completions``).
+        all_completions: Nested completions (one list per prompt).
+        all_references: Gold reference per prompt (one per prompt).
+        token_to_idx: Gloss token → index mapping for bigram scoring.
+        bigram: Bigram transition matrix.
+        reward_weights: Reward weight map (weight > 0 ⇒ computed).
+        n_bootstrap: Bootstrap resamples for the evaluation report CIs.
+
+    Returns:
+        Tuple of ``(metrics, rouge_scores, validity)`` where *metrics* is
+        the primary metric dict, *rouge_scores* is the per-completion
+        ROUGE-L list, and *validity* is the per-completion ``(is_valid,
+        reason)`` list.
+    """
+    # ── Per-completion quality metrics ──────────────────────────────────
+    rouge_scores = [
+        rouge_l_score(c, r) for c, r in zip(flat_completions, flat_references)
+    ]
+    bleu_scores = [
+        bleu_sentence(c, r) for c, r in zip(flat_completions, flat_references)
+    ]
+    chrf_scores = [
+        chrf_score(c, r) for c, r in zip(flat_completions, flat_references)
+    ]
+    gloss_f1_scores = [
+        gloss_f1(c, r) for c, r in zip(flat_completions, flat_references)
+    ]
+
+    # Validity (over ALL completions)
+    validity: list[tuple[bool, str]] = [
+        check_gloss_validity(c) for c in flat_completions
+    ]
+    valid_count = sum(1 for v, _ in validity if v)
+    validity_rate = valid_count / max(len(flat_completions), 1)
+    error_counts = Counter(err for _, err in validity if err)
+
+    # Bigram log-prob & exact match over ALL completions (not just the first)
+    bigram_scores: list[float] = []
+    exact_matches: list[int] = []
+    for c, r in zip(flat_completions, flat_references):
+        tokens = c.split()
+        indices = [token_to_idx.get(t, token_to_idx.get("<UNK>", 0)) for t in tokens]
+        if len(indices) >= 2:
+            bos = token_to_idx.get("<BOS>", 0)
+            eos = token_to_idx.get("<EOS>", 1)
+            bigram_scores.append(
+                sequence_score_bigram(bigram, [bos] + indices + [eos]),
+            )
+        else:
+            bigram_scores.append(-10.0)
+        exact_matches.append(1 if c == r.strip() else 0)
+
+    # Pass@1 / Pass@k via the shared helper (k=1 for pass@1)
+    pass_at_1 = compute_pass_at_k(
+        all_completions, all_references, k_values=(1,), threshold=0.3
+    )["pass@1"]
+    n_per_prompt = len(all_completions[0]) if all_completions else 0
+    passk_full: dict[str, float] = {}
+    if n_per_prompt > 1:
+        passk_full = compute_pass_at_k(
+            all_completions,
+            all_references,
+            k_values=tuple(range(1, min(n_per_prompt + 1, 11))),
+            threshold=0.3,
+        )
+
+    # Detailed metrics / reward breakdown / comprehensive report
+    detailed = compute_detailed_metrics(flat_completions, flat_references)
+    reward_components = compute_reward_breakdown(
+        flat_completions,
+        references=flat_references,
+        reward_weights=reward_weights,
+    )
+    eval_report = compute_evaluation_report(
+        flat_completions, flat_references, n_bootstrap=n_bootstrap
+    )
+
+    rouge_mean = float(np.mean(rouge_scores)) if rouge_scores else 0.0
+    results: dict[str, Any] = {
+        "rouge_l_mean": rouge_mean,
+        "rouge_l_std": float(np.std(rouge_scores)) if rouge_scores else 0.0,
+        "rouge_l_median": float(np.median(rouge_scores)) if rouge_scores else 0.0,
+        # Valid ROUGE-L: rouge_l_mean × validity_rate. Penalizes outputs
+        # that are invalid (English free text, garbage, code blocks).
+        # This metric shows the TRUE quality gap, not the misleading raw
+        # ROUGE-L that makes no-grammar look "better".
+        "valid_rouge_l_mean": rouge_mean * validity_rate,
+        "bleu_sentence_mean": float(np.mean(bleu_scores)) if bleu_scores else 0.0,
+        "bleu_corpus": bleu_corpus(flat_completions, flat_references),
+        "chrf_sentence_mean": float(np.mean(chrf_scores)) if chrf_scores else 0.0,
+        "chrf_corpus": corpus_chrf(flat_completions, flat_references),
+        "gloss_f1_sentence_mean": (
+            float(np.mean(gloss_f1_scores)) if gloss_f1_scores else 0.0
+        ),
+        "gloss_f1_micro": corpus_gloss_f1(flat_completions, flat_references)["micro"],
+        "exact_match": float(np.mean(exact_matches)) if exact_matches else 0.0,
+        "bigram_log_prob_mean": (
+            float(np.mean(bigram_scores)) if bigram_scores else 0.0
+        ),
+        "bigram_log_prob_std": (
+            float(np.std(bigram_scores)) if bigram_scores else 0.0
+        ),
+        "validity_rate": validity_rate,
+        "valid_count": valid_count,
+        "invalid_count": len(flat_completions) - valid_count,
+        "pass_at_1": pass_at_1,
+        "reward_breakdown": reward_components,
+        "detailed_metrics": detailed,
+        "error_distribution": dict(error_counts.most_common(20)),
+        "total_completions": len(flat_completions),
+        # ── Comprehensive report (BLEU + chrF + gloss F1 + bootstrap CI 95%) ──
+        "evaluation_report": eval_report,
+    }
+    if passk_full:
+        results["pass_at_k"] = passk_full
+
+    return results, rouge_scores, validity
+
+
+def _select_best_of_n(
+    all_completions: list[list[str]],
+    all_references: list[str],
+) -> list[str]:
+    """Select the best completion per prompt (ORACLE — uses the gold).
+
+    Picks the completion with the highest ROUGE-L among valid ones; if
+    none is valid, the highest ROUGE-L overall.
+
+    WARNING: this uses the gold reference, so it is NOT deployable.  It
+    exists purely to quantify the headroom that best-of-N sampling could
+    unlock with a perfect reranker (see ``oracle_best_of_n`` in the
+    results JSON).
+    """
+    selected: list[str] = []
+    for comps, gold in zip(all_completions, all_references):
+        scored = [
+            (rouge_l_score(c, gold), check_gloss_validity(c), c) for c in comps
+        ]
+        # Prefer valid completions; among those, pick highest ROUGE-L.
+        valid_scored = [(rl, c) for rl, (v, _), c in scored if v]
+        if valid_scored:
+            selected.append(max(valid_scored, key=lambda x: x[0])[1])
+        else:
+            # No valid completion — pick highest ROUGE-L overall.
+            selected.append(max(scored, key=lambda x: x[0])[2])
+    return selected
+
+
 def evaluate_checkpoint(
     config: dict[str, Any],
     checkpoint_path: str | None,
-    max_samples: int = 200,
+    max_samples: int | None = None,
     num_samples: int = 1,
     best_of_n: bool = False,
 ) -> tuple[
@@ -215,21 +420,26 @@ def evaluate_checkpoint(
         config: Parsed YAML config.
         checkpoint_path: Path to the checkpoint directory, or ``None`` for
             zero-shot evaluation (loads the base model without LoRA).
-        max_samples: Max test samples to evaluate.
+        max_samples: Max test samples to evaluate, or ``None`` for the full
+            test set.  When set, a *seeded random sample* of the test set
+            is used (seed from ``dataset.seed``), never the first N.
         num_samples: Number of completions per prompt (1 = greedy, >1 = sampled).
         best_of_n: If True and num_samples > 1, select the best completion
-            per prompt (highest ROUGE-L among valid ones) instead of using
-            the first. This helps small models generalize by leveraging
-            multiple samples at inference time (Pass@1 → Best-of-N).
+            per prompt (highest ROUGE-L among valid ones). **Oracle**: uses
+            the gold reference, so it is NOT deployable.  Results are
+            reported in a separate ``oracle_best_of_n`` block and never
+            overwrite the primary metrics.
 
     Returns:
         Tuple of ``(results, flat_completions, validity, all_references,
         rouge_scores, generations)`` where *results* is a dict with all
-        computed metrics, *flat_completions* is a list of generated gloss
-        strings, *validity* is a list of ``(is_valid, reason)`` tuples,
-        *all_references* is the list of gold glosses, *rouge_scores* is the
-        list of per-completion ROUGE-L scores, and *generations* is a list
-        of per-completion dicts (text/gold/completion/valid/rouge_l) suitable
+        computed metrics (primary block over ALL completions, plus an
+        optional ``oracle_best_of_n`` sub-block), *flat_completions* is a
+        list of generated gloss strings, *validity* is a list of
+        ``(is_valid, reason)`` tuples, *all_references* is the list of gold
+        glosses (one per prompt), *rouge_scores* is the list of
+        per-completion ROUGE-L scores, and *generations* is a list of
+        per-completion dicts (text/gold/completion/valid/rouge_l) suitable
         for a standalone JSON dump (mirrors grpo-strict-generation's
         ``completions_*.json`` format).
     """
@@ -245,6 +455,32 @@ def evaluate_checkpoint(
     bigram = load_transition_matrix(
         ds_cfg.get("bigram_matrix_path", "data/bigram_transition.npy"),
     )
+
+    # ── Optional few-shot retrieval (same strategy as GRPO training) ─────
+    # When enabled, eval prompts are augmented with the same top_k
+    # (text→gloss) examples retrieved from the TRAIN split, keeping
+    # train/inference consistent.  Disabled ⇒ zero-shot, identical to the
+    # legacy eval.  Baseline and checkpoint evals share the same retriever,
+    # so ``--compare`` stays fair (same decoding AND same prompting).
+    retrieval_cfg = config.get("retrieval", {})
+    retriever = build_train_retriever(
+        dataset,
+        retrieval_cfg,
+        seed=ds_cfg.get("seed", 42),
+    )
+    top_k = int(retrieval_cfg.get("top_k", 3))
+    max_self_similarity = float(
+        retrieval_cfg.get("max_self_similarity", 0.98)
+    )
+    if retriever is not None:
+        logger.info(
+            "Few-shot retrieval enabled: backend=%s, top_k=%d, "
+            "max_self_similarity=%.2f (examples from TRAIN split, "
+            "query excluded)",
+            retriever.backend,
+            top_k,
+            max_self_similarity,
+        )
 
     initialize_rewards(
         bigram,
@@ -320,10 +556,30 @@ def evaluate_checkpoint(
         logger.info("⚠️  grammar.enabled=false — unconstrained generation (ablation)")
         logits_processor = None
 
-    # ── Prepare test samples ─────────────────────────────────────────────
+    # ── Prepare test samples (seeded sampling, never the first N) ────────
     test_ds = dataset["test"]
-    if max_samples:
-        test_ds = test_ds.select(range(min(max_samples, len(test_ds))))
+    test_set_size = len(test_ds)
+    sample_indices = seeded_sample_indices(
+        test_set_size, max_samples, seed=ds_cfg.get("seed", 42)
+    )
+    logger.info(
+        "Evaluating %d/%d samples (seeded sample)", len(sample_indices), test_set_size
+    )
+    test_ds = test_ds.select(sample_indices)
+
+    # Pre-compute few-shot examples for the selected test samples using the
+    # SAME per-query anti-leakage as GRPO training (exclude the query's own
+    # normalized text; drop near-duplicates above max_self_similarity).
+    examples_batch = (
+        retrieve_few_shot_batch(
+            retriever,
+            [str(s["text"]) for s in test_ds],
+            top_k,
+            max_self_similarity,
+        )
+        if retriever is not None
+        else None
+    )
 
     do_sample = num_samples > 1
     if best_of_n and num_samples <= 1:
@@ -334,8 +590,11 @@ def evaluate_checkpoint(
         best_of_n = False
     if best_of_n:
         logger.info(
-            "Best-of-N selection enabled: generating %d samples/prompt and "
-            "selecting the best (highest ROUGE-L among valid).",
+            "Best-of-N enabled: generating %d samples/prompt and selecting the "
+            "best per prompt (highest ROUGE-L among valid). NOTE: this is an "
+            "ORACLE selection (uses the gold reference) — results are reported "
+            "in a separate 'oracle_best_of_n' block and never override the "
+            "primary metrics.",
             num_samples,
         )
 
@@ -345,15 +604,29 @@ def evaluate_checkpoint(
     all_references: list[str] = []
     all_sample_ids: list[str] = []
     all_texts: list[str] = []
-    all_bigram_scores: list[float] = []
-    all_exact_matches: list[float] = []
 
-    for sample in tqdm(test_ds, desc="Evaluating"):
+    for idx, sample in enumerate(tqdm(test_ds, desc="Evaluating")):
         text = sample["text"]  # type: ignore[index]
         gold = sample["gloss"]  # type: ignore[index]
 
-        # Build prompt with centralized template (same as training)
-        prompt = build_t2g_prompt(text, tokenizer)
+        # Periodic progress line for long runs (e.g. the full 8771-sample
+        # test set) — visible in output.log/slurm logs even if the tqdm
+        # bar is buffered/mangled. Parsable by chain_monitor.
+        if (idx + 1) % 50 == 0:
+            logger.info(
+                "  eval progress: %d/%d (%.1f%%)",
+                idx + 1,
+                len(test_ds),
+                (idx + 1) / max(len(test_ds), 1) * 100,
+            )
+
+        # Build prompt with centralized template (same as training).
+        # With retrieval enabled, examples mirror the GRPO few-shot prompts.
+        prompt = build_t2g_prompt(
+            text,
+            tokenizer,
+            examples=examples_batch[idx] if examples_batch is not None else None,
+        )
 
         # Generate N completions in a single model.generate() call
         temp = 0.7 if do_sample else 1.0  # greedy ignores temperature
@@ -372,115 +645,25 @@ def evaluate_checkpoint(
 
         # Store
         all_completions.append(completions)
-
         all_references.append(gold)
         all_texts.append(str(text))
         all_sample_ids.append(
             hashlib.sha256(str(text).encode("utf-8", errors="replace")).hexdigest()
         )
 
-        # Bigram score (on first completion)
-        tokens = completions[0].split()
-        indices = [token_to_idx.get(t, token_to_idx.get("<UNK>", 0)) for t in tokens]
-        if len(indices) >= 2:
-            bos = token_to_idx.get("<BOS>", 0)
-            eos = token_to_idx.get("<EOS>", 1)
-            all_bigram_scores.append(
-                sequence_score_bigram(bigram, [bos] + indices + [eos]),
-            )
-        else:
-            all_bigram_scores.append(-10.0)
-
-        # Exact match (first completion)
-        all_exact_matches.append(1.0 if completions[0] == gold.strip() else 0.0)
-
-    # ── Compute metrics via metrics.py ───────────────────────────────────
-    from src.utils.metrics import (
-        check_gloss_validity,
-        compute_detailed_metrics,
-        compute_evaluation_report,
-        compute_pass_at_1,
-        compute_pass_at_k,
-        compute_reward_breakdown,
-        rouge_l_score,
-    )
-
-    # Register gold glosses using stable sample IDs (SHA256 of user text).
-    # This matches the format-agnostic lookup in _lookup_gold_gloss.
-    register_gold_glosses(all_sample_ids, all_references)
-
-    # ── Best-of-N selection ─────────────────────────────────────────────
-    # If best_of_n is enabled, for each prompt we select the best completion
-    # (highest ROUGE-L among valid ones; if none valid, highest ROUGE-L
-    # overall). This effectively turns Pass@N into a stronger Pass@1 by
-    # leveraging multiple samples at inference time — a well-known technique
-    # to help small models generalize better without additional training.
-    if best_of_n and num_samples > 1:
-        selected_completions: list[str] = []
-        for i, comps in enumerate(all_completions):
-            gold = all_references[i]
-            scored = [
-                (rouge_l_score(c, gold), check_gloss_validity(c), c) for c in comps
-            ]
-            # Prefer valid completions; among those, pick highest ROUGE-L.
-            valid_scored = [(rl, c) for rl, (v, _), c in scored if v]
-            if valid_scored:
-                best = max(valid_scored, key=lambda x: x[0])[1]
-            else:
-                # No valid completion — pick highest ROUGE-L overall.
-                best = max(scored, key=lambda x: x[0])[2]
-            selected_completions.append(best)
-        # Replace flat lists with selected (1 per prompt)
-        flat_completions = selected_completions
-        flat_sample_ids = list(all_sample_ids)
-        flat_texts = list(all_texts)
-        flat_references = list(all_references)
-        # Keep all_completions nested for Pass@k computation
-        logger.info(
-            "Best-of-N: selected 1 of %d completions per prompt (%d total).",
-            num_samples,
-            len(flat_completions),
-        )
-    else:
-        # Flatten completions and sample_ids for per-completion metrics.
-        # For num_samples=1, there is 1 completion per prompt.
-        # For num_samples>1, all completions are scored individually.
-        flat_completions = [c for comps in all_completions for c in comps]
-        flat_sample_ids = [
-            sid for i, sid in enumerate(all_sample_ids) for _ in all_completions[i]
-        ]
-        flat_texts = [
-            txt for i, txt in enumerate(all_texts) for _ in all_completions[i]
-        ]
-        flat_references = [
-            ref for i, ref in enumerate(all_references) for _ in all_completions[i]
-        ]
-
-    # Validity stats
-    validity: list[tuple[bool, str]] = [
-        check_gloss_validity(c) for c in flat_completions
+    # Flatten completions for per-completion metrics. For num_samples=1 there
+    # is 1 completion per prompt; for num_samples>1 ALL completions are scored
+    # individually — primary metrics are honest averages over every completion.
+    flat_completions = [c for comps in all_completions for c in comps]
+    flat_sample_ids = [
+        sid for i, sid in enumerate(all_sample_ids) for _ in all_completions[i]
     ]
-    valid_count = sum(1 for v, _ in validity if v)
-    error_counts = Counter(err for _, err in validity if err)
+    flat_texts = [txt for i, txt in enumerate(all_texts) for _ in all_completions[i]]
+    flat_references = [
+        ref for i, ref in enumerate(all_references) for _ in all_completions[i]
+    ]
 
-    # Pass@1
-    pass1 = compute_pass_at_1(flat_completions, flat_references, threshold=0.3)
-
-    # Pass@k (multi-sample only — uses nested list)
-    passk: dict[str, float] = {}
-    if num_samples > 1:
-        passk = compute_pass_at_k(
-            all_completions,
-            all_references,
-            k_values=tuple(range(1, min(num_samples + 1, 11))),
-            threshold=0.3,
-        )
-
-    # Detailed metrics
-    detailed = compute_detailed_metrics(flat_completions, flat_references)
-
-    # Per-component reward breakdown (all completions with sample_ids)
-    # Only compute components with weight > 0 to save computation
+    # Reward weight map — only components with weight > 0 are computed.
     rewards_cfg = config.get("reward", {})
     reward_weight_map = {
         "translation_quality_reward": rewards_cfg.get("weight_translation", 0.0),
@@ -494,16 +677,53 @@ def evaluate_checkpoint(
         "gloss_format_reward": rewards_cfg.get("weight_format", 0.0),
         "gloss_repetition_reward": rewards_cfg.get("weight_repetition", 0.0),
     }
-    reward_components = compute_reward_breakdown(
+
+    # ── Primary metrics (honest, averaged over ALL completions) ─────────
+    results, rouge_scores, validity = _compute_primary_metrics(
         flat_completions,
-        sample_ids=flat_sample_ids,
+        flat_references,
+        all_completions,
+        all_references,
+        token_to_idx=token_to_idx,
+        bigram=bigram,
         reward_weights=reward_weight_map,
     )
+    results["num_samples_evaluated"] = len(all_references)
+    results["test_set_size"] = test_set_size
+    results["num_completions_per_prompt"] = num_samples
+    results["best_of_n"] = best_of_n
+    results["decoding"] = {
+        "do_sample": do_sample,
+        "temperature": (0.7 if do_sample else None),
+        "num_samples": num_samples,
+    }
 
-    # ROUGE-L mean/std
-    rouge_scores = [
-        rouge_l_score(c, r) for c, r in zip(flat_completions, flat_references)
-    ]
+    # ── Oracle best-of-N (separate block, never overrides the primary) ──
+    if best_of_n and num_samples > 1:
+        selected = _select_best_of_n(all_completions, all_references)
+        oracle_metrics, _, _ = _compute_primary_metrics(
+            selected,
+            list(all_references),
+            [[c] for c in selected],
+            all_references,
+            token_to_idx=token_to_idx,
+            bigram=bigram,
+            reward_weights=reward_weight_map,
+        )
+        oracle_metrics["num_samples_evaluated"] = len(all_references)
+        oracle_metrics["num_completions_per_prompt"] = num_samples
+        oracle_metrics["note"] = (
+            "Oracle best-of-N: the gold reference was used to select the best "
+            "completion per prompt (highest ROUGE-L among valid). NOT deployable "
+            "— reported separately and never part of the primary metrics."
+        )
+        results["oracle_best_of_n"] = oracle_metrics
+        logger.info(
+            "Oracle best-of-N: selected 1 of %d completions per prompt (%d total). "
+            "Reported under 'oracle_best_of_n' only.",
+            num_samples,
+            len(selected),
+        )
 
     # ── Per-completion generations log (stile grpo-strict-generation) ────
     # Salva ogni generazione con testo sorgente, gold, completion, validità
@@ -533,52 +753,6 @@ def evaluate_checkpoint(
             entry["error"] = err
         generations.append(entry)
 
-    # ── Assemble results ─────────────────────────────────────────────────
-    # Comprehensive evaluation report with BLEU + bootstrap CI (RECIPE-inspired)
-    eval_report = compute_evaluation_report(
-        flat_completions, flat_references, n_bootstrap=1000
-    )
-
-    rouge_l_mean_val = float(np.mean(rouge_scores)) if rouge_scores else 0.0
-    validity_rate_val = valid_count / max(len(flat_completions), 1)
-
-    results: dict[str, Any] = {
-        "num_samples_evaluated": len(all_references),
-        "num_completions_per_prompt": num_samples,
-        "best_of_n": best_of_n,
-        "rouge_l_mean": rouge_l_mean_val,
-        "rouge_l_std": float(np.std(rouge_scores)) if rouge_scores else 0.0,
-        "rouge_l_median": float(np.median(rouge_scores)) if rouge_scores else 0.0,
-        # Valid ROUGE-L: rouge_l_mean × validity_rate. Penalizes outputs
-        # that are invalid (English free text, garbage, code blocks).
-        # Without grammar, ROUGE-L is artificially high (English-gloss
-        # lexical overlap) but validity is ~4% → valid_rouge_l ≈ 0.014.
-        # With grammar, ROUGE-L is lower (model doesn't know gloss format
-        # yet) but validity is ~89% → valid_rouge_l ≈ 0.122.
-        # This metric shows the TRUE quality gap, not the misleading raw
-        # ROUGE-L that makes no-grammar look "better".
-        "valid_rouge_l_mean": rouge_l_mean_val * validity_rate_val,
-        "pass_at_1": pass1,
-        "bigram_log_prob_mean": (
-            float(np.mean(all_bigram_scores)) if all_bigram_scores else 0.0
-        ),
-        "bigram_log_prob_std": (
-            float(np.std(all_bigram_scores)) if all_bigram_scores else 0.0
-        ),
-        "exact_match": float(np.mean(all_exact_matches)) if all_exact_matches else 0.0,
-        "validity_rate": validity_rate_val,
-        "valid_count": valid_count,
-        "invalid_count": len(flat_completions) - valid_count,
-        "error_distribution": dict(error_counts.most_common(20)),
-        "reward_breakdown": reward_components,
-        "detailed_metrics": detailed,
-        "total_completions": len(flat_completions),
-        # ── Comprehensive report (BLEU + bootstrap CI 95%) ──
-        "evaluation_report": eval_report,
-    }
-    if passk:
-        results["pass_at_k"] = passk
-
     return (
         results,
         flat_completions,
@@ -607,7 +781,9 @@ def main() -> None:
         "--max-samples",
         type=int,
         default=None,
-        help="Max test samples (overrides config evaluation.max_samples)",
+        help="Max test samples (overrides config evaluation.max_samples). "
+        "Default: None → the ENTIRE test set; when set, a seeded random "
+        "sample is used (seed = config dataset.seed), never the first N.",
     )
     parser.add_argument(
         "--num-samples",
@@ -646,8 +822,9 @@ def main() -> None:
         "--best-of-n",
         action="store_true",
         help="Select the best completion per prompt (highest ROUGE-L among "
-        "valid) instead of using the first. Helps small models generalize. "
-        "Requires --num-samples > 1.",
+        "valid) using the GOLD reference. ORACLE / diagnostic only — results "
+        "are reported in a separate 'oracle_best_of_n' block and never "
+        "overwrite the primary metrics. Requires --num-samples > 1.",
     )
     parser.add_argument(
         "--eval-baseline-only",
@@ -668,7 +845,8 @@ def main() -> None:
     eval_cfg = config.get("evaluation", {})
     max_samples = args.max_samples
     if max_samples is None:
-        max_samples = eval_cfg.get("max_samples", 200)
+        # None (config default) → evaluate the ENTIRE test set.
+        max_samples = eval_cfg.get("max_samples")
     num_samples = args.num_samples
     if num_samples is None:
         num_samples = eval_cfg.get("num_samples", 1)
@@ -678,7 +856,9 @@ def main() -> None:
     # ── Log eval configuration ───────────────────────────────────────────
     logger.info(f"Config: {args.config}")
     logger.info(f"Checkpoint: {args.checkpoint or 'zero-shot (base model)'}")
-    logger.info(f"Max samples: {max_samples}")
+    logger.info(
+        f"Max samples: {max_samples if max_samples is not None else 'all (full test set)'}"
+    )
     logger.info(f"Completions per prompt: {num_samples}")
     logger.info(f"Grammar enabled: {config.get('grammar', {}).get('enabled', True)}")
     logger.info(
@@ -773,7 +953,7 @@ def main() -> None:
         model_tag = "baseline"
 
     elif args.compare:
-        # Mode 2: baseline + GRPO comparison
+        # Mode 2: baseline + checkpoint comparison (SAME decoding for both)
         # Step A: Load or evaluate baseline
         if args.baseline_json is not None and Path(args.baseline_json).exists():
             logger.info(f"Loading baseline results from {args.baseline_json}")
@@ -793,13 +973,13 @@ def main() -> None:
             logger.info("=" * 60)
             logger.info("BASELINE EVALUATION (zero-shot base model)")
             logger.info("=" * 60)
-            # Baseline uses greedy decoding (num_samples=1) — generating
-            # multiple samples from an untrained model is not informative
-            # and wastes ~3h of compute time.
-            bl_num_samples = 1
+            # Baseline and checkpoint use the SAME decoding strategy so the
+            # comparison is fair: same num_samples (greedy by default, same
+            # sampling temperature when num_samples > 1). No oracle selection.
             logger.info(
-                "  Baseline forced to num_samples=%d (greedy) for speed.",
-                bl_num_samples,
+                "  Baseline uses the same decoding as the checkpoint "
+                "(num_samples=%d).",
+                num_samples,
             )
             (
                 baseline_results,
@@ -812,7 +992,7 @@ def main() -> None:
                 config,
                 checkpoint_path=None,
                 max_samples=max_samples,
-                num_samples=bl_num_samples,
+                num_samples=num_samples,
                 best_of_n=False,
             )
             # Save baseline results for future reuse
@@ -830,9 +1010,9 @@ def main() -> None:
             logger.info(f"Baseline results saved to {bl_path}")
             logger.info(f"Baseline generations saved to {bl_gen_path}")
 
-        # Step B: Evaluate GRPO checkpoint
+        # Step B: Evaluate checkpoint
         logger.info("=" * 60)
-        logger.info("GRPO EVALUATION")
+        logger.info("CHECKPOINT EVALUATION")
         logger.info("=" * 60)
         results, completions, validity, all_references, rouge_scores, generations = (
             evaluate_checkpoint(
@@ -857,11 +1037,17 @@ def main() -> None:
         )
 
     # ── Log key metrics ─────────────────────────────────────────────────
-    logger.info("Evaluation complete. Key metrics:")
+    logger.info("Evaluation complete. Key metrics (averaged over ALL completions):")
     logger.info(
         f"  ROUGE-L mean: {results['rouge_l_mean']:.4f} ± {results['rouge_l_std']:.4f}"
     )
     logger.info(f"  ROUGE-L median: {results.get('rouge_l_median', 0.0):.4f}")
+    logger.info(f"  BLEU (sentence mean / corpus): "
+                f"{results['bleu_sentence_mean']:.4f} / {results['bleu_corpus']:.4f}")
+    logger.info(f"  chrF2 (sentence mean / corpus): "
+                f"{results['chrf_sentence_mean']:.2f} / {results['chrf_corpus']:.2f}")
+    logger.info(f"  Gloss F1 (sentence mean / micro): "
+                f"{results['gloss_f1_sentence_mean']:.4f} / {results['gloss_f1_micro']:.4f}")
     logger.info(f"  Pass@1: {results['pass_at_1']:.4f}")
     if results.get("pass_at_k"):
         for k, v in results["pass_at_k"].items():
@@ -897,7 +1083,8 @@ def main() -> None:
     print("\n" + "=" * 60)
     print(f"  T2G Evaluation Results — {model_tag}")
     print("=" * 60)
-    print(f"  Samples evaluated:       {results['num_samples_evaluated']}")
+    print(f"  Samples evaluated:       {results['num_samples_evaluated']}"
+          f" / {results.get('test_set_size', '?')} test set")
     print(f"  Completions per prompt:  {results['num_completions_per_prompt']}")
     print(
         f"  ROUGE-L (mean ± std):    {results['rouge_l_mean']:.4f} ± {results['rouge_l_std']:.4f}"
@@ -906,6 +1093,12 @@ def main() -> None:
         f"  Valid ROUGE-L:           {results['valid_rouge_l_mean']:.4f}  "
         f"(rouge_l × validity = {results['rouge_l_mean']:.4f} × {results['validity_rate']:.4f})"
     )
+    print(f"  BLEU (sent/corpus):      {results['bleu_sentence_mean']:.4f} / "
+          f"{results['bleu_corpus']:.4f}")
+    print(f"  chrF2 (sent/corpus):     {results['chrf_sentence_mean']:.2f} / "
+          f"{results['chrf_corpus']:.2f}")
+    print(f"  Gloss F1 (sent/micro):   {results['gloss_f1_sentence_mean']:.4f} / "
+          f"{results['gloss_f1_micro']:.4f}")
     print(f"  Pass@1:                  {results['pass_at_1']:.4f}")
     if "pass_at_k" in results:
         for k, v in results["pass_at_k"].items():
@@ -917,10 +1110,10 @@ def main() -> None:
         f"({results['valid_count']} valid / {results['invalid_count']} invalid)"
     )
 
-    # ── Comprehensive report (BLEU + bootstrap CI 95%) ──
+    # ── Comprehensive report (BLEU + chrF + gloss F1 + bootstrap CI 95%) ──
     if "evaluation_report" in results:
         er = results["evaluation_report"]
-        print("\n  ── BLEU & Confidence Intervals (95% CI) ──")
+        print("\n  ── Metrics & Confidence Intervals (95% CI) ──")
         if "rouge_l" in er:
             rl = er["rouge_l"]
             print(
@@ -934,6 +1127,20 @@ def main() -> None:
                 f"sentence={bl['sentence_mean']:.4f}  "
                 f"CI: [{bl['ci_95'][0]:.4f}, {bl['ci_95'][1]:.4f}]"
             )
+        if "chrf" in er:
+            cf = er["chrf"]
+            print(
+                f"    chrF2:    corpus={cf['corpus']:.2f}  "
+                f"sentence={cf['sentence_mean']:.2f}  "
+                f"CI: [{cf['ci_95'][0]:.2f}, {cf['ci_95'][1]:.2f}]"
+            )
+        if "gloss_f1" in er:
+            gf = er["gloss_f1"]
+            print(
+                f"    Gloss F1: micro={gf['micro']:.4f}  "
+                f"sentence={gf['sentence_mean']:.4f}  "
+                f"CI: [{gf['ci_95'][0]:.4f}, {gf['ci_95'][1]:.4f}]"
+            )
         if "pass_at_1" in er:
             pa = er["pass_at_1"]
             print(
@@ -942,6 +1149,16 @@ def main() -> None:
             )
         if "gloss_validity_rate" in er:
             print(f"    Gloss validity rate: {er['gloss_validity_rate']:.4f}")
+
+    # ── Oracle best-of-N (separate, diagnostic only) ────────────────────
+    if results.get("oracle_best_of_n"):
+        obn = results["oracle_best_of_n"]
+        print("\n  ── Oracle Best-of-N (NOT deployable — diagnostic only) ──")
+        print(f"    ROUGE-L:      {obn.get('rouge_l_mean', 0.0):.4f}")
+        print(f"    BLEU:         {obn.get('bleu_sentence_mean', 0.0):.4f}")
+        print(f"    chrF2:        {obn.get('chrf_sentence_mean', 0.0):.2f}")
+        print(f"    Gloss F1:     {obn.get('gloss_f1_sentence_mean', 0.0):.4f}")
+        print(f"    Exact match:  {obn.get('exact_match', 0.0):.4f}")
 
     print("\n  ── Reward Breakdown ──")
     for k, v in results["reward_breakdown"].items():
@@ -968,7 +1185,12 @@ def main() -> None:
     # rouge_l), utile per ispezione manuale e per costruire dataset di
     # analisi degli errori — analogo a completions_{name}.json in
     # grpo-strict-generation/src/evaluation/eval_grpo.py.
-    gen_path = results_dir / f"generations_{out_path.stem.removeprefix('eval_')}.json"
+    # Naming: sempre dallo stem dell'eval file (mai dal path pieno), e
+    # scritto ACCANTO all'eval file — così `--output` custom resta coerente.
+    gen_stem = out_path.stem
+    if gen_stem.startswith("eval_"):
+        gen_stem = gen_stem[len("eval_") :]
+    gen_path = out_path.parent / f"generations_{gen_stem}.json"
     gen_path.write_text(
         json.dumps(generations, indent=2, ensure_ascii=False), encoding="utf-8"
     )
@@ -1103,65 +1325,66 @@ def main() -> None:
                 baseline_metrics=comparison_metrics,
                 grpo_metrics=results,
                 model_name=model_tag,
+                label=model_tag,
                 output_path=str(figures_dir / "baseline_vs_grpo_comparison.png"),
             )
 
             # ── Print comparison summary ───────────────────────────────
+            # Both models use the SAME decoding (same num_samples and
+            # temperature), so the comparison is fair.
+            compare_keys = [
+                "rouge_l_mean",
+                "valid_rouge_l_mean",
+                "pass_at_1",
+                "exact_match",
+                "validity_rate",
+                "bleu_sentence_mean",
+                "bleu_corpus",
+                "chrf_sentence_mean",
+                "chrf_corpus",
+                "gloss_f1_sentence_mean",
+                "gloss_f1_micro",
+                "bigram_log_prob_mean",
+            ]
+            compare_labels = {
+                "rouge_l_mean": "ROUGE-L mean",
+                "valid_rouge_l_mean": "Valid ROUGE-L",
+                "pass_at_1": "Pass@1",
+                "exact_match": "Exact Match",
+                "validity_rate": "Validity Rate",
+                "bleu_sentence_mean": "BLEU (sent)",
+                "bleu_corpus": "BLEU (corpus)",
+                "chrf_sentence_mean": "chrF2 (sent)",
+                "chrf_corpus": "chrF2 (corpus)",
+                "gloss_f1_sentence_mean": "Gloss F1 (sent)",
+                "gloss_f1_micro": "Gloss F1 (micro)",
+                "bigram_log_prob_mean": "Bigram LP",
+            }
             print("\n" + "=" * 60)
-            print("  BASELINE vs GRPO COMPARISON")
+            print("  BASELINE vs CHECKPOINT COMPARISON (same decoding)")
             print("=" * 60)
-            for metric_key, metric_label in [
-                ("rouge_l_mean", "ROUGE-L mean"),
-                ("valid_rouge_l_mean", "Valid ROUGE-L ⭐"),
-                ("pass_at_1", "Pass@1"),
-                ("exact_match", "Exact Match"),
-                ("validity_rate", "Validity Rate"),
-            ]:
+            for metric_key in compare_keys:
                 bl_val = comparison_metrics.get(metric_key, 0.0)
                 gr_val = results.get(metric_key, 0.0)
                 delta = gr_val - bl_val
                 arrow = "↑" if delta > 0 else ("↓" if delta < 0 else "→")
                 print(
-                    f"  {metric_label:20s}  "
-                    f"BL={bl_val:.4f}  GRPO={gr_val:.4f}  "
+                    f"  {compare_labels[metric_key]:20s}  "
+                    f"BL={bl_val:.4f}  CKPT={gr_val:.4f}  "
                     f"Δ={delta:+.4f} {arrow}"
                 )
             print("=" * 60)
 
             # ── Save comparison JSON ────────────────────────────────────
             comparison_json = {
+                "decoding": results.get("decoding", {}),
                 "baseline": {
-                    k: comparison_metrics.get(k, 0.0)
-                    for k in [
-                        "rouge_l_mean",
-                        "valid_rouge_l_mean",
-                        "pass_at_1",
-                        "exact_match",
-                        "validity_rate",
-                        "bigram_log_prob_mean",
-                    ]
+                    k: comparison_metrics.get(k, 0.0) for k in compare_keys
                 },
-                "grpo": {
-                    k: results.get(k, 0.0)
-                    for k in [
-                        "rouge_l_mean",
-                        "valid_rouge_l_mean",
-                        "pass_at_1",
-                        "exact_match",
-                        "validity_rate",
-                        "bigram_log_prob_mean",
-                    ]
-                },
+                "checkpoint": {k: results.get(k, 0.0) for k in compare_keys},
                 "delta": {
                     k: results.get(k, 0.0) - comparison_metrics.get(k, 0.0)
-                    for k in [
-                        "rouge_l_mean",
-                        "valid_rouge_l_mean",
-                        "pass_at_1",
-                        "exact_match",
-                        "validity_rate",
-                        "bigram_log_prob_mean",
-                    ]
+                    for k in compare_keys
                 },
             }
             comp_path = out_path.parent / "comparison.json"
@@ -1226,29 +1449,49 @@ def main() -> None:
 
         # Log comparison metrics if available
         if baseline_results is not None:
-            wandb.log(
-                {
-                    "baseline/rouge_l_mean": baseline_results.get("rouge_l_mean", 0.0),
-                    "baseline/valid_rouge_l_mean": baseline_results.get(
-                        "valid_rouge_l_mean", 0.0
-                    ),
-                    "baseline/pass_at_1": baseline_results.get("pass_at_1", 0.0),
-                    "baseline/exact_match": baseline_results.get("exact_match", 0.0),
-                    "baseline/validity_rate": baseline_results.get(
-                        "validity_rate", 0.0
-                    ),
-                    "delta/rouge_l_mean": results.get("rouge_l_mean", 0.0)
-                    - baseline_results.get("rouge_l_mean", 0.0),
-                    "delta/valid_rouge_l_mean": results.get("valid_rouge_l_mean", 0.0)
-                    - baseline_results.get("valid_rouge_l_mean", 0.0),
-                    "delta/pass_at_1": results.get("pass_at_1", 0.0)
-                    - baseline_results.get("pass_at_1", 0.0),
-                    "delta/exact_match": results.get("exact_match", 0.0)
-                    - baseline_results.get("exact_match", 0.0),
-                    "delta/validity_rate": results.get("validity_rate", 0.0)
-                    - baseline_results.get("validity_rate", 0.0),
-                }
-            )
+            wandb_delta: dict[str, Any] = {
+                "baseline/rouge_l_mean": baseline_results.get("rouge_l_mean", 0.0),
+                "baseline/valid_rouge_l_mean": baseline_results.get(
+                    "valid_rouge_l_mean", 0.0
+                ),
+                "baseline/pass_at_1": baseline_results.get("pass_at_1", 0.0),
+                "baseline/exact_match": baseline_results.get("exact_match", 0.0),
+                "baseline/validity_rate": baseline_results.get("validity_rate", 0.0),
+                "baseline/bleu_sentence_mean": baseline_results.get(
+                    "bleu_sentence_mean", 0.0
+                ),
+                "baseline/bleu_corpus": baseline_results.get("bleu_corpus", 0.0),
+                "baseline/chrf_sentence_mean": baseline_results.get(
+                    "chrf_sentence_mean", 0.0
+                ),
+                "baseline/gloss_f1_sentence_mean": baseline_results.get(
+                    "gloss_f1_sentence_mean", 0.0
+                ),
+                "baseline/gloss_f1_micro": baseline_results.get("gloss_f1_micro", 0.0),
+                "delta/rouge_l_mean": results.get("rouge_l_mean", 0.0)
+                - baseline_results.get("rouge_l_mean", 0.0),
+                "delta/valid_rouge_l_mean": results.get("valid_rouge_l_mean", 0.0)
+                - baseline_results.get("valid_rouge_l_mean", 0.0),
+                "delta/pass_at_1": results.get("pass_at_1", 0.0)
+                - baseline_results.get("pass_at_1", 0.0),
+                "delta/exact_match": results.get("exact_match", 0.0)
+                - baseline_results.get("exact_match", 0.0),
+                "delta/validity_rate": results.get("validity_rate", 0.0)
+                - baseline_results.get("validity_rate", 0.0),
+                "delta/bleu_sentence_mean": results.get("bleu_sentence_mean", 0.0)
+                - baseline_results.get("bleu_sentence_mean", 0.0),
+                "delta/bleu_corpus": results.get("bleu_corpus", 0.0)
+                - baseline_results.get("bleu_corpus", 0.0),
+                "delta/chrf_sentence_mean": results.get("chrf_sentence_mean", 0.0)
+                - baseline_results.get("chrf_sentence_mean", 0.0),
+                "delta/gloss_f1_sentence_mean": results.get(
+                    "gloss_f1_sentence_mean", 0.0
+                )
+                - baseline_results.get("gloss_f1_sentence_mean", 0.0),
+                "delta/gloss_f1_micro": results.get("gloss_f1_micro", 0.0)
+                - baseline_results.get("gloss_f1_micro", 0.0),
+            }
+            wandb.log(wandb_delta)
 
         # Log figures as images
         if args.plot:

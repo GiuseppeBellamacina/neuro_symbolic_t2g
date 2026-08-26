@@ -37,6 +37,12 @@ METRICS = [
     ("pass_at_1", "Pass@1"),
     ("exact_match", "Exact Match"),
     ("validity_rate", "Validity"),
+    ("bleu_sentence_mean", "BLEU (sent)"),
+    ("bleu_corpus", "BLEU (corpus)"),
+    ("chrf_sentence_mean", "chrF2 (sent)"),
+    ("chrf_corpus", "chrF2 (corpus)"),
+    ("gloss_f1_sentence_mean", "Gloss F1 (sent)"),
+    ("gloss_f1_micro", "Gloss F1 (micro)"),
     ("bigram_log_prob_mean", "Bigram LP"),
 ]
 
@@ -47,6 +53,12 @@ DELTA_METRICS = [
     ("pass_at_1", "Δ Pass@1"),
     ("exact_match", "Δ Exact Match"),
     ("validity_rate", "Δ Validity"),
+    ("bleu_sentence_mean", "Δ BLEU (sent)"),
+    ("bleu_corpus", "Δ BLEU (corpus)"),
+    ("chrf_sentence_mean", "Δ chrF2 (sent)"),
+    ("chrf_corpus", "Δ chrF2 (corpus)"),
+    ("gloss_f1_sentence_mean", "Δ Gloss F1 (sent)"),
+    ("gloss_f1_micro", "Δ Gloss F1 (micro)"),
 ]
 
 
@@ -83,15 +95,22 @@ def find_eval_results(results_dir: Path) -> list[dict]:
         latest_run = run_dirs[-1]
 
         # Find eval_*.json (skip eval_baseline.json — that's the zero-shot ref)
-        eval_files = sorted(latest_run.glob("eval_*.json"))
-        eval_files = [f for f in eval_files if f.name != "eval_baseline.json"]
+        eval_files = [
+            f for f in latest_run.glob("eval_*.json") if f.name != "eval_baseline.json"
+        ]
 
         if not eval_files:
             logger.debug("No eval_*.json in %s", latest_run)
             continue
 
-        # Take the latest eval file
-        eval_path = eval_files[-1]
+        # Prefer eval_final.json (final metrics) — plain alphabetical sorting
+        # would pick eval_zero_shot.json whenever both exist ("final" <
+        # "zero_shot"). Otherwise take the most recently modified eval file.
+        final_candidates = [f for f in eval_files if f.name == "eval_final.json"]
+        if final_candidates:
+            eval_path = final_candidates[0]
+        else:
+            eval_path = max(eval_files, key=lambda p: p.stat().st_mtime)
         try:
             with open(eval_path, encoding="utf-8") as f:
                 data = json.load(f)
@@ -192,8 +211,19 @@ def plot_ablation_comparison(entries: list[dict], output_path: Path) -> None:
         logger.warning("No entries to plot")
         return
 
-    # Use the 4 primary metrics (not deltas) for the chart
-    chart_labels = [label for _, label in METRICS if label != "Bigram LP"]
+    # Use the primary metrics (not deltas) for the chart. Only plot metrics
+    # that are actually present in at least one entry, so older eval JSONs
+    # (without BLEU/chrF/gloss-F1) render gracefully instead of showing a
+    # wall of zero bars.
+    chart_labels = [
+        label
+        for _, label in METRICS
+        if label != "Bigram LP"
+        and any(e["metrics"].get(label) is not None for e in entries)
+    ]
+    if not chart_labels:
+        chart_labels = ["ROUGE-L", "Pass@1"]
+
     n_metrics = len(chart_labels)
     n_configs = len(entries)
     config_names = [e["config_name"] for e in entries]
@@ -204,7 +234,7 @@ def plot_ablation_comparison(entries: list[dict], output_path: Path) -> None:
     fig, ax = plt.subplots(figsize=(max(14, n_configs * 1.5), 7))
 
     for i, label in enumerate(chart_labels):
-        values = [e["metrics"].get(label, 0.0) for e in entries]
+        values = [e["metrics"].get(label, 0.0) or 0.0 for e in entries]
         bars = ax.bar(x + i * width - 0.4 + width / 2, values, width, label=label)
         # Add value labels on top of bars
         for bar, val in zip(bars, values):

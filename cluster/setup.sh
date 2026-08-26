@@ -21,6 +21,11 @@ fi
 
 set -e
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=cluster/_lib.sh
+source "$SCRIPT_DIR/_lib.sh"
+cd "$PROJ_DIR"
+
 echo "=== Setup Neuro-Symbolic T2G (Cluster) ==="
 echo ""
 
@@ -39,55 +44,26 @@ if command -v nvidia-smi &>/dev/null; then
 fi
 
 # ── 2. Installa dipendenze dal pyproject.toml ─────────────────────────────────
+# TUTTE le dipendenze opzionali TRANNE l'extra "dev" (isort/black/ruff/pytest =
+# formattazione e test, volutamente esclusi dal cluster):
+#   core      → incluso (scikit-learn incluso: backend retrieval tfidf, default)
+#   retrieval → incluso (sentence-transformers: backend minilm opzionale)
+#   dev       → ESCLUSO di proposito
+# sentence-transformers scaricherà il modello MiniLM in modo LAZY al primo uso
+# del backend minilm (retrieval.backend: "minilm"); il default resta tfidf →
+# zero costi se non attivi il backend.
 echo ""
-echo "📦 Installazione dipendenze..."
+echo "📦 Installazione dipendenze (core + retrieval, niente dev)..."
 $PY -m pip cache purge 2>/dev/null || true
 echo "   Cache pip ripulita"
-$PY -m pip install --user -e . --retries 10 --timeout 60
+$PY -m pip install --user -e ".[retrieval]" --retries 10 --timeout 60
 
-# ── 3. Scarica e processa il dataset ASLG-PC12 ────────────────────────────────
+# ── 3+4. Dataset, vocabolario e matrici di transizione ────────────────────────
+# Funzione shared da _lib.sh (era triplicata in setup.sh/train.sh/eval.sh).
+# setup.sh gira già DENTRO il container → forza python bare (RUN_PY_FORCE_BARE).
 echo ""
-echo "📊 Download e processing dataset ASLG-PC12..."
-
-$PY -c "
-from src.datasets.aslg_dataset import (
-    download_aslg_dataset,
-    extract_gloss_vocabulary,
-    save_vocabulary,
-    build_t2g_dataset,
-)
-
-dataset = download_aslg_dataset()
-vocab = extract_gloss_vocabulary(dataset, split='train')
-save_vocabulary(vocab, 'data/gloss_vocab.txt')
-print(f'  Gloss unici: {len(vocab)}')
-
-# Build dataset splits
-train_ds = build_t2g_dataset(dataset, split='train')
-test_ds = build_t2g_dataset(dataset, split='test')
-print(f'  Train samples: {len(train_ds)}')
-print(f'  Test samples: {len(test_ds)}')
-train_ds.save_to_disk('data/aslg_pc12_train')
-test_ds.save_to_disk('data/aslg_pc12_test')
-print('Dataset salvato in data/')
-" || echo "⚠️  Dataset processing fallito — verrà fatto al primo training"
-
-# ── 4. Calcola matrici di transizione ─────────────────────────────────────────
-echo ""
-echo "📊 Calcolo matrici di transizione bigram..."
-
-$PY -c "
-from src.datasets.aslg_dataset import download_aslg_dataset, load_vocabulary
-from src.datasets.transition_matrix import compute_bigram_transitions, save_transition_matrix
-
-vocab = load_vocabulary('data/gloss_vocab.txt')
-dataset = download_aslg_dataset()
-
-bigram = compute_bigram_transitions(dataset, vocab, split='train', smoothing=1.0)
-save_transition_matrix(bigram, 'data/bigram_transition.npy')
-print(f'  Bigram matrix: {bigram.shape}')
-print(f'  Salvato in data/bigram_transition.npy')
-" || echo "⚠️  Matrici di transizione non calcolate"
+echo "📊 Download e processing dataset ASLG-PC12 + matrici bigram..."
+RUN_PY_FORCE_BARE=1 prepare_data || echo "⚠️  Dataset processing fallito — verrà fatto al primo training"
 
 # ── 5. Pre-download modello per Unsloth (offline cache) ────────────────────────
 echo ""
@@ -106,13 +82,21 @@ except Exception as e:
 echo ""
 echo "🔍 Verifica installazione..."
 $PY -c "
-import torch, transformers, trl, peft, datasets
+import torch, transformers, trl, peft, datasets, sklearn
 print(f'  PyTorch:       {torch.__version__}')
 print(f'  CUDA:          {torch.cuda.is_available()}')
 print(f'  Transformers:  {transformers.__version__}')
 print(f'  TRL:           {trl.__version__}')
 print(f'  PEFT:          {peft.__version__}')
 print(f'  Datasets:      {datasets.__version__}')
+print(f'  scikit-learn:  {sklearn.__version__}')
+try:
+    import sentence_transformers
+    print(f'  sentence-transformers: {sentence_transformers.__version__}')
+except Exception as e:
+    print('  ⚠️  sentence-transformers NON importabile (extra retrieval mancante?)')
+    print(f'      {e}')
+    print('      Il backend minilm non sarà disponibile; il default tfidf funziona.')
 try:
     import unsloth
     print(f'  Unsloth:       {unsloth.__version__}')

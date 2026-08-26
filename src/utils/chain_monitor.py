@@ -45,7 +45,6 @@ _KV_REWARD = re.compile(r"reward=([+-]?\d+\.\d+)")
 # TRL dict-style log: 'reward': 0.5025833547115326
 _DICT_REWARD = re.compile(r"'reward':\s*([+-]?\d+\.\d+)")
 _STAGE_START = re.compile(r"\[stage (\d+)\] steps=(\d+)")
-_STAGE_DONE = re.compile(r"\[stage (\d+)\] (\S+) completed")
 # tqdm progress bar: " 47%|████▋     | 420/900 [29:23<25:49"
 _TQDM_PROGRESS = re.compile(r"^\s*\d+%\|.*\|\s*(\d+)/(\d+)\s*\[", re.MULTILINE)
 # SFT progress: "  [sft] step=50/200 (25.0%)  loss=2.345678  avg=2.5  min=2.1  lr=1.5e-05  epoch=0.5"
@@ -54,18 +53,42 @@ _SFT_PROGRESS = re.compile(
 )
 # SFT sample predictions header
 _SFT_SAMPLE_HEADER = re.compile(r"SFT SAMPLE PREDICTIONS \(step (\d+)\)")
-# SFT training summary
-_SFT_SUMMARY = re.compile(r"SFT TRAINING SUMMARY")
 # SFT phase start
 _SFT_PHASE_START = re.compile(r"STEP 1\.5: SFT Pre-training")
-# Eval generation bar: "Generating:  45%|████▍| 17/38 ["
-_TQDM_GENERATING = re.compile(r"Generating.*\|\s*(\d+)/(\d+)\s*\[")
+# GRPO phase start (ends the SFT pre-training phase)
+_GRPO_PHASE_START = re.compile(r"STEP 7: GRPO Training")
+# SFT eval-loss KV line (HighPrecisionLogCallback):
+# "  step=100  eval_loss=1.23456789  epoch=0.50000000"
+_KV_STEP_EVAL = re.compile(r"^\s+step=(\d+)\s+eval_loss=([\d.]+)")
+# SFT best eval loss: "[sft] Best eval_loss=0.987654 (best checkpoint=...)"
+_SFT_BEST_EVAL = re.compile(r"\[sft\] Best eval_loss=([\d.]+)")
+# Eval generation bar: "Evaluating:  45%|████▍| 17/38 [" or legacy "Generating: ..."
+_TQDM_GENERATING = re.compile(r"(?:Generating|Evaluating).*\|\s*(\d+)/(\d+)\s*\[")
+# Plain-text eval progress line (E2, eval_t2g.py):
+# "  eval progress: 50/8771 (0.6%)" — fallback when the tqdm bar is mangled
+_EVAL_LOG_PROGRESS = re.compile(r"eval progress:\s*(\d+)/(\d+)")
 # tqdm time info: "[04:25<37:02, 33.17s/it]" or "[1:23:45<2:03:04"
 _TQDM_TIME = re.compile(r"\[([\d:]+)<([\d:]+)")
-_EVAL_CHECKPOINT = re.compile(r"Evaluating: (.+)")
-_EVAL_STAGE_NUM = re.compile(r"Stage (\d+)")
-_EVAL_PASS = re.compile(r"(.+?)\s+Pass@1:\s+([\d.]+)")
+# Eval phase header (legacy "Evaluating: baseline") and new seeded-sampling line
+# "Evaluating 100/8771 samples (seeded sample)"
+_EVAL_CHECKPOINT = re.compile(r"Evaluating:\s*(.+)")
+_EVAL_PROGRESS_LINE = re.compile(r"Evaluating\s+(\d+)/(\d+)\s+samples")
+# "  Pass@1: 0.1234" (no label) or "  qwen05        Pass@1: 0.8523"
+_EVAL_PASS = re.compile(r"(?:(.+?)\s+)?Pass@1:\s*([\d.]+)")
 _EVAL_COMPLETE = re.compile(r"Evaluation complete")
+# Key eval metric lines printed by eval_t2g.py (lines 1030-1044):
+#   ROUGE-L mean: 0.1234 ± 0.0567
+#   BLEU (sentence mean / corpus): 0.1234 / 0.1234
+#   chrF2 (sentence mean / corpus): 12.34 / 12.34
+#   Gloss F1 (sentence mean / micro): 0.1234 / 0.1234
+#   Validity rate: 0.1234
+_EVAL_ROUGE_L = re.compile(r"ROUGE-L mean:\s*([\d.]+)")
+_EVAL_BLEU = re.compile(r"BLEU \(sentence mean / corpus\):\s*([\d.]+)\s*/\s*([\d.]+)")
+_EVAL_CHRF = re.compile(r"chrF2 \(sentence mean / corpus\):\s*([\d.]+)\s*/\s*([\d.]+)")
+_EVAL_GLOSS_F1 = re.compile(r"Gloss F1 \(sentence mean / micro\):\s*([\d.]+)\s*/\s*([\d.]+)")
+_EVAL_VALIDITY = re.compile(r"Validity rate:\s*([\d.]+)")
+# "Results saved to experiments/results/qwen05/run_x/eval_final.json"
+_EVAL_RESULTS_JSON = re.compile(r"Results saved to\s+(\S+\.json)")
 
 # ── ANSI color helpers ────────────────────────────────────────────────────────
 _RST = "\033[0m"
@@ -96,6 +119,9 @@ class JobInfo:
     eval_label: str = ""  # current eval label
     eval_pass: str = ""  # last eval pass@1
     eval_stages: dict[str, str] = field(default_factory=dict)  # per-stage pass@1
+    eval_metrics: dict[str, str] = field(default_factory=dict)  # parsed eval metrics
+    #     (rouge_l_mean, bleu_sentence_mean, chrf_sentence_mean,
+    #      gloss_f1_micro, validity_rate, ...) — from log lines or eval_*.json
     eval_step_total: int = 0  # total generation batches for eval
     exit_code: str = ""
     elapsed: str = ""  # elapsed time from squeue (e.g. "12:34")
@@ -107,6 +133,8 @@ class JobInfo:
     completion_samples: list[str] = field(default_factory=list)
     sft_active: bool = False  # True when SFT pre-training phase is running
     sft_loss: str = ""  # last SFT loss value
+    sft_eval_loss: str = ""  # last SFT eval_loss ("  step=N  eval_loss=...")
+    sft_eval_loss_best: str = ""  # best SFT eval_loss ("[sft] Best eval_loss=...")
     sft_step: int = 0  # current SFT step
     sft_total: int = 0  # total SFT steps (estimated)
     sft_samples: list[str] = field(default_factory=list)  # SFT sample predictions
@@ -183,6 +211,8 @@ def _cache_update_job(job: JobInfo) -> None:
             merged = entry.get("eval_stages", {})
             merged.update(job.eval_stages)
             entry["eval_stages"] = merged
+        if job.job_type == "eval" and job.eval_metrics:
+            entry["eval_metrics"] = job.eval_metrics
         if job.last_reward:
             entry["last_reward"] = job.last_reward
         if job.error_type:
@@ -293,6 +323,10 @@ def _cache_enrich_job(job: JobInfo) -> None:
         merged = dict(entry["eval_stages"])
         merged.update(job.eval_stages)
         job.eval_stages = merged
+    if entry.get("eval_metrics"):
+        merged = dict(entry["eval_metrics"])
+        merged.update(job.eval_metrics)
+        job.eval_metrics = merged
     if not job.exit_code and entry.get("exit_code"):
         job.exit_code = entry["exit_code"]
     if not job.last_reward and entry.get("last_reward"):
@@ -522,6 +556,9 @@ def _extract_completion_samples(
     result: list[str] = []
     diff_colors = {"simple": _GREEN, "medium": _YELLOW, "hard": _RED}
 
+    # Header so downstream consumers (tests, live table) can detect the block
+    result.append(f"{_BOLD}Last completion samples:{_RST}")
+
     for idx, s in enumerate(samples[-3:]):
         difficulty = s.get("difficulty", "")
         match_indicator = s.get("match_indicator", "")
@@ -539,7 +576,12 @@ def _extract_completion_samples(
 
         prompt_text = s.get("prompt_text", "")
         if prompt_text:
-            result.append(f"  {_CYAN}PROMPT:{_RST} {prompt_text.strip()}")
+            # Few-shot prompts can be long multi-line blocks ("Examples: ..."):
+            # cap the display so the sample panel stays compact.
+            ptext = prompt_text.strip()
+            if len(ptext) > 200:
+                ptext = ptext[:200] + "..."
+            result.append(f"  {_CYAN}PROMPT:{_RST} {ptext}")
 
         think_lines = s.get("think_lines", [])
         if think_lines:
@@ -647,10 +689,6 @@ def _parse_training_log(log_path: Path, job: JobInfo) -> None:
         if m:
             job.stage_total = int(m.group(2))
 
-        m = _STAGE_DONE.search(line)
-        if m:
-            pass  # stage completion handled elsewhere
-
     tail = _tail_lines(log_path, n=3000)
 
     if job.stage_total == 0:
@@ -667,16 +705,24 @@ def _parse_training_log(log_path: Path, job: JobInfo) -> None:
         job.completion_samples = samples
 
     # ── SFT phase parsing ───────────────────────────────────────────────
-    # Detect SFT phase and extract progress info
-    for line in tail:
-        if _SFT_PHASE_START.search(line):
-            job.sft_active = True
-            break
-        if "STEP 2: Model Loading" in line and "SFT" not in line:
-            # SFT phase ended if we see STEP 2 after SFT
-            if job.sft_active:
-                job.sft_active = False
-            break
+    # Detect whether the SFT pre-training phase is active by taking the LAST
+    # relevant marker in the tail.  The old code broke on the FIRST match,
+    # which kept sft_active=True whenever "STEP 1.5: SFT Pre-training" was
+    # still inside the 3000-line window while GRPO was already running.
+    # Markers (verified against grpo_t2g_train.py / sft_train.py):
+    #   "STEP 1.5: SFT Pre-training"   -> SFT sub-phase starts (grpo)
+    #   "[sft] step=N/M (...)"         -> SFT training running (SFT callback)
+    #   "STEP 7: GRPO Training"        -> GRPO phase starts (grpo)
+    last_marker: tuple[int, str] | None = None
+    for i, line in enumerate(tail):
+        if _GRPO_PHASE_START.search(line):
+            last_marker = (i, "grpo")
+        elif _SFT_PROGRESS.search(line):
+            last_marker = (i, "sft_progress")
+        elif _SFT_PHASE_START.search(line):
+            last_marker = (i, "sft_start")
+    if last_marker is not None:
+        job.sft_active = last_marker[1] != "grpo"
 
     # Parse SFT progress lines (last one wins)
     for line in reversed(tail):
@@ -685,6 +731,20 @@ def _parse_training_log(log_path: Path, job: JobInfo) -> None:
             job.sft_step = int(m.group(1))
             job.sft_total = int(m.group(2))
             job.sft_loss = m.group(3)
+            break
+
+    # Parse SFT eval_loss KV lines ("  step=100  eval_loss=...") — last wins
+    for line in reversed(tail):
+        m = _KV_STEP_EVAL.search(line)
+        if m:
+            job.sft_eval_loss = m.group(2)
+            break
+
+    # Parse SFT best eval loss ("[sft] Best eval_loss=...")
+    for line in reversed(tail):
+        m = _SFT_BEST_EVAL.search(line)
+        if m:
+            job.sft_eval_loss_best = m.group(1)
             break
 
     # Parse SFT sample predictions (last block)
@@ -729,18 +789,49 @@ def _parse_eval_log(log_path: Path, job: JobInfo) -> None:
     tail = _tail_lines(log_path, n=500)
 
     for line in tail:
-        m = _EVAL_CHECKPOINT.search(line)
+        # "Evaluating 100/8771 samples (seeded sample)" → progress label
+        m = _EVAL_PROGRESS_LINE.search(line)
         if m:
-            job.eval_label = m.group(1)
+            job.eval_label = f"{m.group(1)}/{m.group(2)} samples"
+        else:
+            m = _EVAL_CHECKPOINT.search(line)
+            if m:
+                job.eval_label = m.group(1)
+        # Pass@1 — with or without a label prefix:
+        #   "  Pass@1: 0.1234"          -> stage "latest"
+        #   "  qwen05  Pass@1: 0.8523"  -> stage from label
         m = _EVAL_PASS.search(line)
         if m:
-            job.eval_label = m.group(1)
+            label = (m.group(1) or "").strip()
             job.eval_pass = m.group(2)
-            label = m.group(1).strip()
             if "baseline" in label.lower():
                 job.eval_stages["baseline"] = m.group(2)
             elif "grpo" in label.lower():
                 job.eval_stages["stage_1"] = m.group(2)
+            elif label:
+                job.eval_stages[label] = m.group(2)
+            else:
+                job.eval_stages["latest"] = m.group(2)
+                job.eval_metrics["pass_at_1"] = m.group(2)
+        # Other key metrics printed by eval_t2g.py (last wins by overwrite)
+        m = _EVAL_ROUGE_L.search(line)
+        if m:
+            job.eval_metrics["rouge_l_mean"] = m.group(1)
+        m = _EVAL_BLEU.search(line)
+        if m:
+            job.eval_metrics["bleu_sentence_mean"] = m.group(1)
+            job.eval_metrics["bleu_corpus"] = m.group(2)
+        m = _EVAL_CHRF.search(line)
+        if m:
+            job.eval_metrics["chrf_sentence_mean"] = m.group(1)
+            job.eval_metrics["chrf_corpus"] = m.group(2)
+        m = _EVAL_GLOSS_F1.search(line)
+        if m:
+            job.eval_metrics["gloss_f1_sentence_mean"] = m.group(1)
+            job.eval_metrics["gloss_f1_micro"] = m.group(2)
+        m = _EVAL_VALIDITY.search(line)
+        if m:
+            job.eval_metrics["validity_rate"] = m.group(1)
         if _EVAL_COMPLETE.search(line):
             job.eval_label = "COMPLETE"
 
@@ -748,12 +839,18 @@ def _parse_eval_log(log_path: Path, job: JobInfo) -> None:
     for pl in pass_lines:
         mp = _EVAL_PASS.search(pl)
         if mp:
-            label = mp.group(1).strip()
+            label = (mp.group(1) or "").strip()
             if "baseline" in label.lower():
                 job.eval_stages["baseline"] = mp.group(2)
             elif "grpo" in label.lower():
                 job.eval_stages["stage_1"] = mp.group(2)
+            elif label:
+                job.eval_stages[label] = mp.group(2)
+            else:
+                job.eval_stages["latest"] = mp.group(2)
+                job.eval_metrics["pass_at_1"] = mp.group(2)
 
+    # ── Progress ────────────────────────────────────────────────────────
     for line in reversed(tail):
         m = _TQDM_GENERATING.search(line)
         if m:
@@ -764,6 +861,58 @@ def _parse_eval_log(log_path: Path, job: JobInfo) -> None:
                 job.tqdm_elapsed = mt.group(1)
                 job.tqdm_eta = mt.group(2)
             break
+        # Fallback: plain-text progress line "eval progress: N/M (pct%)"
+        m = _EVAL_LOG_PROGRESS.search(line)
+        if m:
+            job.step = int(m.group(1))
+            job.eval_step_total = int(m.group(2))
+            break
+
+    # ── C6: on completion, read the results JSON for authoritative values ──
+    # The log lines above give the printed metrics; loading the eval_*.json
+    # guarantees exact numbers and keys the log never prints (exact_match).
+    results_path: Path | None = None
+    for line in tail:
+        m = _EVAL_RESULTS_JSON.search(line)
+        if m:
+            results_path = Path(m.group(1))
+    if results_path is not None:
+        if not results_path.is_absolute():
+            results_path = PROJ_DIR / results_path
+        if results_path.exists():
+            try:
+                data = json.loads(results_path.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                data = None
+            if data:
+                for key in (
+                    "rouge_l_mean",
+                    "pass_at_1",
+                    "bleu_sentence_mean",
+                    "bleu_corpus",
+                    "chrf_sentence_mean",
+                    "chrf_corpus",
+                    "gloss_f1_sentence_mean",
+                    "gloss_f1_micro",
+                    "validity_rate",
+                    "exact_match",
+                ):
+                    val = data.get(key)
+                    if val is not None:
+                        job.eval_metrics[key] = f"{float(val):.4f}"
+                if data.get("pass_at_1") is not None and "latest" not in job.eval_stages:
+                    job.eval_stages["latest"] = f"{float(data['pass_at_1']):.4f}"
+                # Baseline (saved in --compare mode) → metrics table column
+                bl = results_path.parent / "eval_baseline.json"
+                if bl.exists():
+                    try:
+                        bl_data = json.loads(bl.read_text(encoding="utf-8"))
+                    except (ValueError, OSError):
+                        bl_data = None
+                    if bl_data and bl_data.get("pass_at_1") is not None:
+                        job.eval_stages["baseline"] = (
+                            f"{float(bl_data['pass_at_1']):.4f}"
+                        )
 
 
 # ── Build full pipeline view ──────────────────────────────────────────────────
@@ -1008,6 +1157,8 @@ def _build_pipeline() -> list[JobInfo]:
             job.last_reward = entry["last_reward"]
         if entry.get("eval_stages"):
             job.eval_stages = entry["eval_stages"]
+        if entry.get("eval_metrics"):
+            job.eval_metrics = entry["eval_metrics"]
         jobs.append(job)
 
     if pipeline_keys:
@@ -1261,6 +1412,10 @@ def _display(
                 desc = f"{_MAGENTA}SFT{_RST} step {_WHITE}{j.sft_step}{_RST}/{sft_tot}"
                 if j.sft_loss:
                     desc += f" {_DIM}loss={j.sft_loss}{_RST}"
+                if j.sft_eval_loss:
+                    desc += f" {_DIM}eval={j.sft_eval_loss}{_RST}"
+                if j.sft_eval_loss_best:
+                    desc += f" {_DIM}best={j.sft_eval_loss_best}{_RST}"
             else:
                 desc = f"step {_WHITE}{j.step}{_RST}/{tot}"
         elif j.job_type == "eval":
@@ -1322,9 +1477,7 @@ def _display(
         recently_submitted = False
         if CHAIN_LOG.exists():
             try:
-                import os as _os
-
-                mtime = _os.path.getmtime(str(CHAIN_LOG))
+                mtime = os.path.getmtime(str(CHAIN_LOG))
                 age = time.time() - mtime
                 if age < 120:  # log modified in last 2 min
                     recently_submitted = True
@@ -1359,12 +1512,18 @@ def _display(
             if not j.tag:
                 continue
             if j.tag not in metrics_data:
-                metrics_data[j.tag] = {"train_rw": "", "eval_stages": {}}
+                metrics_data[j.tag] = {
+                    "train_rw": "",
+                    "eval_stages": {},
+                    "eval_metrics": {},
+                }
                 tag_order.append(j.tag)
             if j.job_type == "train" and j.last_reward:
                 metrics_data[j.tag]["train_rw"] = j.last_reward
             if j.job_type == "eval" and j.eval_stages:
                 metrics_data[j.tag]["eval_stages"] = j.eval_stages
+            if j.job_type == "eval" and j.eval_metrics:
+                metrics_data[j.tag]["eval_metrics"] = j.eval_metrics
 
         cache = _load_cache()
         for key in cache.get("pipeline_jobs", []):
@@ -1373,7 +1532,11 @@ def _display(
                 continue
             tag = parts[1]
             if tag not in metrics_data:
-                metrics_data[tag] = {"train_rw": "", "eval_stages": {}}
+                metrics_data[tag] = {
+                    "train_rw": "",
+                    "eval_stages": {},
+                    "eval_metrics": {},
+                }
                 tag_order.append(tag)
             entry = cache["jobs"].get(key, {})
             if (
@@ -1388,7 +1551,14 @@ def _display(
                 and not metrics_data[tag]["eval_stages"]
             ):
                 metrics_data[tag]["eval_stages"] = entry["eval_stages"]
+            if (
+                parts[0] == "eval"
+                and entry.get("eval_metrics")
+                and not metrics_data[tag]["eval_metrics"]
+            ):
+                metrics_data[tag]["eval_metrics"] = entry["eval_metrics"]
 
+        # ── Stage columns (per-stage Pass@1: baseline / stage_N / latest) ──
         all_stage_keys: list[str] = []
         stage_set: set[str] = set()
         for tag in tag_order:
@@ -1406,28 +1576,53 @@ def _display(
             )
         )
 
+        # ── Extra metric columns (C2/C6): populated from eval log lines or
+        #    from the run's eval_*.json when the eval finished. "pass_at_1"
+        #    is intentionally omitted — it is already shown by the "latest"
+        #    stage column. ─────────────────────────────────────────────────
+        _METRIC_COLS: list[tuple[str, str]] = [
+            ("rouge_l_mean", "Rouge-L"),
+            ("bleu_sentence_mean", "BLEU"),
+            ("chrf_sentence_mean", "chrF2"),
+            ("gloss_f1_micro", "GlossF1"),
+            ("validity_rate", "Validity"),
+        ]
+        present_metrics = [
+            (key, label)
+            for key, label in _METRIC_COLS
+            if any(md["eval_metrics"].get(key) for md in metrics_data.values())
+        ]
+
         def _col_label(k: str) -> str:
             if k == "baseline":
                 return "Baseline"
+            if k == "latest":
+                return "Latest"
             if k.startswith("stage_"):
                 return f"Stage {k.split('_')[1]}"
             return k
 
-        rows: list[tuple[str, str, dict[str, str]]] = []
+        rows: list[tuple[str, str, dict[str, str], dict[str, str]]] = []
         for tag in tag_order:
             md = metrics_data[tag]
             train_rw = md["train_rw"]
             stages = md["eval_stages"]
-            if train_rw or stages:
-                rows.append((tag, train_rw, stages))
+            metrics = md["eval_metrics"]
+            if train_rw or stages or metrics:
+                rows.append((tag, train_rw, stages, metrics))
 
         if rows:
             col_w = 10
+            n_metric_cols = len(present_metrics)
             stage_hdr = "".join(f"{_col_label(k):<{col_w}s}" for k in all_stage_keys)
+            metric_hdr = "".join(f"{label:<{col_w}s}" for _, label in present_metrics)
+            hdr_w = 24 + 10 + col_w * (len(all_stage_keys) + n_metric_cols)
             print()
-            print(f"  {_BOLD}{'Model':<24s} {'Reward':<10s} {stage_hdr}{_RST}")
-            print(f"  {'─' * (24 + 10 + col_w * len(all_stage_keys))}")
-            for tag, rw, stages in rows:
+            print(
+                f"  {_BOLD}{'Model':<24s} {'Reward':<10s} {stage_hdr}{metric_hdr}{_RST}"
+            )
+            print(f"  {'─' * hdr_w}")
+            for tag, rw, stages, metrics in rows:
                 if rw:
                     try:
                         rw_fmt = f"{float(rw):.4f}"
@@ -1436,7 +1631,7 @@ def _display(
                     rw_str = f"{_CYAN}{rw_fmt:<10s}{_RST}"
                 else:
                     rw_str = f"{_DIM}{'-':<10s}{_RST}"
-                stage_strs = []
+                cells: list[str] = []
                 for sk in all_stage_keys:
                     val = stages.get(sk, "")
                     if val:
@@ -1444,11 +1639,20 @@ def _display(
                             val = f"{float(val):.4f}"
                         except ValueError:
                             pass
-                        stage_strs.append(f"{_GREEN}{val:<{col_w}s}{_RST}")
+                        cells.append(f"{_GREEN}{val:<{col_w}s}{_RST}")
                     else:
-                        stage_strs.append(f"{_DIM}{'-':<{col_w}s}{_RST}")
-                stage_cells = "".join(stage_strs)
-                print(f"  {tag:<24s} {rw_str} {stage_cells}")
+                        cells.append(f"{_DIM}{'-':<{col_w}s}{_RST}")
+                for key, _label in present_metrics:
+                    val = metrics.get(key, "")
+                    if val:
+                        try:
+                            val = f"{float(val):.4f}"
+                        except ValueError:
+                            pass
+                        cells.append(f"{_GREEN}{val:<{col_w}s}{_RST}")
+                    else:
+                        cells.append(f"{_DIM}{'-':<{col_w}s}{_RST}")
+                print(f"  {tag:<24s} {rw_str} " + "".join(cells))
 
     if show_samples and running:
         j = running[0]

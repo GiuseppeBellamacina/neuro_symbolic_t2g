@@ -4,22 +4,28 @@
 Text-to-Gloss (T2G), più una config **optimal** e una **experimental** con tutti i
 moduli reward attivi. Tutti usano **Qwen2.5-0.5B-Instruct** (4-bit, LoRA, gradient_checkpointing).
 
+Tutti i config specifici **ereditano da `base.yaml`** via `extends`: le parti
+comuni (model, lora, dataset, training GRPO, grpo, reward v2.1, grammar,
+curriculum, evaluation, wandb) stanno nella base e ogni config sovrascrive
+solo le proprie differenze (vedi `src/utils/config.py::resolve_config`).
+
 **Quick reference:**
 
-| #   | Config                            | Training | Grammar          | Eval | Cosa testa                                           |
-| --- | --------------------------------- | -------- | ---------------- | ---- | ---------------------------------------------------- |
-| 1   | `t2g/grpo_optimal.yaml`           | ✅ GRPO+SFT | Trie (dual-root)| ✅   | **Optimal v2.1** — G=8, beta=0, 7 reward [-1,1]+BLEU, curriculum, grad-ckpt |
-| 2   | `t2g/grpo_experimental_all.yaml`  | ✅ GRPO+SFT | Trie             | ✅   | **Experimental** — tutti i 10 moduli reward attivi    |
-| 3   | `t2g/grpo_qwen05.yaml`            | ✅ GRPO+SFT | Trie             | ✅   | **Main training** — GRPO + gloss vocabulary mask      |
-| 4   | `t2g/sft.yaml`                    | ✅ SFT   | Trie (eval)      | ✅   | Baseline supervisionata via teacher forcing          |
-| 5   | `ablation/zero_shot.yaml`         | ❌       | ❌                | ✅   | Modello base grezzo (nessun vincolo)                  |
-| 6   | `ablation/zero_shot_grammar.yaml` | ❌       | Trie             | ✅   | Modello base + vincoli (no training)                  |
-| 7   | `ablation/grpo_no_grammar.yaml`   | ✅ GRPO  | ❌                | ✅   | GRPO senza constrained decoding                      |
-| 8   | `ablation/grpo_pda.yaml`          | ✅ GRPO  | PDA LL(1)        | ✅   | GRPO + PDA baseline (senza lookahead)                 |
-| 9   | `ablation/grpo_pda_lookahead.yaml`| ✅ GRPO+SFT | PDA + lookahead  | ✅   | **NUOVO** — GRPO + native BPE token emission (v0.5.0) |
-| 10  | `ablation/grpo_no_sft.yaml`       | ✅ GRPO  | Trie             | ❌   | GRPO senza SFT pre-training                          |
-| 11  | `ablation/grpo_soft_viterbi.yaml` | ✅ GRPO+SFT | Trie             | ✅   | GRPO + Soft Viterbi reward                           |
-| 12  | `ablation/grpo_verifier_scaled.yaml`| ✅ GRPO+SFT | Trie           | ✅   | GRPO + Verifier-Scaled reward                        |
+| #   | Config                            | extends  | Training | Grammar          | Eval | Cosa testa                                           |
+| --- | --------------------------------- | -------- | -------- | ---------------- | ---- | ---------------------------------------------------- |
+| 1   | `t2g/base.yaml`                   | —        | —        | —                | —    | **Template comune** (mai eseguito direttamente)       |
+| 2   | `t2g/grpo_optimal.yaml`           | base     | ✅ GRPO+SFT | Trie (dual-root)| ✅   | **Optimal v2.1** — G=8, beta=0.04, 7 reward [-1,1]+BLEU, curriculum, grad-ckpt |
+| 3   | `t2g/grpo_experimental_all.yaml`  | base     | ✅ GRPO+SFT | Trie             | ✅   | **Experimental** — tutti i 10 pesi reward attivi      |
+| 4   | `t2g/grpo_qwen05.yaml`            | base     | ✅ GRPO+SFT | Trie             | ✅   | **Main training** — GRPO + gloss vocabulary mask      |
+| 5   | `t2g/sft.yaml`                    | base     | ✅ SFT   | Trie (eval)      | ✅   | Baseline supervisionata via teacher forcing          |
+| 6   | `ablation/zero_shot.yaml`         | ../base  | ❌       | ❌                | ✅   | Modello base grezzo (nessun vincolo)                  |
+| 7   | `ablation/zero_shot_grammar.yaml` | ../base  | ❌       | Trie             | ✅   | Modello base + vincoli (no training)                  |
+| 8   | `ablation/grpo_no_grammar.yaml`   | ../base  | ✅ GRPO  | ❌                | ✅   | GRPO senza constrained decoding                      |
+| 9   | `ablation/grpo_pda.yaml`          | ../base  | ✅ GRPO  | PDA LL(1)        | ✅   | GRPO + PDA baseline (senza lookahead)                 |
+| 10  | `ablation/grpo_pda_lookahead.yaml`| ../base  | ✅ GRPO+SFT | PDA + lookahead  | ✅   | **NUOVO** — GRPO + native BPE token emission (v0.5.0) |
+| 11  | `ablation/grpo_no_sft.yaml`       | ../base  | ✅ GRPO  | Trie             | ❌   | GRPO senza SFT pre-training                          |
+| 12  | `ablation/grpo_soft_viterbi.yaml` | ../base  | ✅ GRPO+SFT | Trie             | ✅   | GRPO + Soft Viterbi reward                           |
+| 13  | `ablation/grpo_verifier_scaled.yaml`| ../base | ✅ GRPO+SFT | Trie           | ✅   | GRPO + Verifier-Scaled reward                        |
 
 
 ## Ablation Matrix
@@ -264,7 +270,7 @@ per misurare il delta.
 | `notthink` vs `think`    | Non applicabile | T2G non usa `ti` blocks                                       |
 | Curriculum learning      | ✅ Attivo       | `grpo_optimal` e `grpo_pda_lookahead` hanno `curriculum.enabled: true` |
 | Multi-modello            | Da aggiungere   | Altri modelli oltre Qwen2.5-0.5B                                    |
-| Viterbi diversity tuning | Esplorato       | `verifier_temperature` in `grammar.viterbi_diversity` (default 5.0) |
+| Viterbi diversity tuning | Esplorato       | Solo i 4 parametri reali in `grammar.viterbi_diversity` (`verifier_gamma`/`verifier_temperature` rimossi: dead config) |
 | Token-boundary lookahead | ✅ Attivo       | `grpo_pda_lookahead.yaml` — grammarllm v0.5.0                       |
 | gradient_checkpointing   | ✅ Attivo       | Tutti i config con training hanno `gradient_checkpointing: true`    |
 
@@ -282,13 +288,15 @@ reward:       weight_translation=0.20, weight_bleu=0.20, weight_gold_structure=0
               weight_gloss_order=0.10, weight_verifier_scaled=0.10,
               weight_format=0.10, weight_repetition=0.10 (sum=1.0, range [-1,1])
 evaluation:   max_samples=500, num_samples=5, best_of_n=true
-grpo:         num_generations=8, beta=0.0, temperature=0.9
+grpo:         num_generations=8, beta=0.04, temperature=0.7
 curriculum:   enabled: true
 ```
 
 **Cosa fa:** Config "ottimale" v2.1 con LoRA r=32, reward simmetriche [-1, 1] +
-BLEU-4, curriculum learning 3-stage, beta=0 (DAPO-style), gradient_checkpointing
-per OOM-safe training su GPU 22GB. Post-fix OOM: G ridotto da 16 a 8.
+BLEU-4, curriculum learning 3-stage, gradient_checkpointing per OOM-safe
+training su GPU 22GB. Post-fix OOM: G ridotto da 16 a 8. beta/temperature/
+max_grad_norm sono ereditati da `base.yaml` (0.04/0.7/0.1 — riallineati al
+reference GRPO convergente, vedi header di `base.yaml`).
 
 ---
 
@@ -307,13 +315,13 @@ evaluation:   max_samples=500, num_samples=5, best_of_n=false
 grpo:         num_generations=8, beta=0.02, temperature=0.8
 ```
 
-**Cosa fa:** Config sperimentale che attiva TUTTI i 9 moduli reward con pesi
-uniformi (~0.10-0.15 ciascuno). Serve per ablation del full reward space:
+**Cosa fa:** Config sperimentale che attiva TUTTI i 10 pesi reward con pesi
+distribuiti (~0.05-0.25 ciascuno). Serve per ablation del full reward space:
 verifica se combinare tutti i segnali strutturali migliora o confonde
-il training rispetto alla config optimal (dove solo 4 moduli sono attivi).
+il training rispetto alla config optimal (dove 7 reward sono attive).
 
-**Verifica moduli:** Tutti i 9 moduli sono stati verificati funzionanti
-via test suite (37/37 pytest pass).
+**Verifica moduli:** Tutti i 10 pesi sono stati verificati funzionanti
+via test suite (96/96 pytest pass).
 
 ---
 

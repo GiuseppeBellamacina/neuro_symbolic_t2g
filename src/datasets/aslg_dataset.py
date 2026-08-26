@@ -13,8 +13,10 @@ Reference:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
+from typing import Any
 
 # tqdm fallback for Apptainer containers without tqdm installed
 try:
@@ -40,6 +42,62 @@ DEFAULT_CACHE_DIR: str = "data/aslg_pc12"
 BOS_GLOSS: str = "<BOS>"
 EOS_GLOSS: str = "<EOS>"
 UNK_GLOSS: str = "<UNK>"
+
+
+def normalize_text(text: str) -> str:
+    """Normalize English source text for dedup keys and sample IDs.
+
+    Lowercases, collapses every run of whitespace into a single space, and
+    strips leading/trailing whitespace. Two strings that differ only in case
+    or whitespace (e.g. ``"The  Man walks."`` vs ``"the man walks."``) map to
+    the same key.
+
+    Args:
+        text: Raw source sentence.
+
+    Returns:
+        Normalized key string.
+    """
+    return " ".join(str(text).lower().split())
+
+
+def deduplicate_by_text(dataset: Dataset) -> tuple[Dataset, int]:
+    """Deduplicate a dataset split by normalized English text.
+
+    Keeps the FIRST occurrence of each normalized text key and drops later
+    duplicates. The ASLG-PC12 corpus (heavily biblical) contains many
+    near-duplicate sentences that differ only in case/whitespace; running
+    this BEFORE the train/test split guarantees no normalized sentence can
+    leak into both splits.
+
+    Args:
+        dataset: A Hugging Face ``Dataset`` (e.g. the raw ``"train"`` split).
+
+    Returns:
+        A tuple ``(deduplicated_dataset, removed_count)`` where
+        ``removed_count`` is the number of duplicate rows dropped.
+    """
+    seen: set[str] = set()
+    unique_rows: list[dict[str, Any]] = []
+    removed = 0
+
+    for sample in dataset:
+        key = normalize_text(sample.get("text", ""))
+        if key in seen:
+            removed += 1
+            continue
+        seen.add(key)
+        unique_rows.append(sample)
+
+    if removed:
+        logger.info(
+            f"  Deduplicated by normalized text: removed {removed} "
+            f"duplicate rows, kept {len(unique_rows)}"
+        )
+        return Dataset.from_list(unique_rows), removed
+
+    logger.info(f"  No duplicate rows found by normalized text ({len(dataset)} kept)")
+    return dataset, removed
 
 
 def download_aslg_dataset(
@@ -80,7 +138,16 @@ def download_aslg_dataset(
                 "Raw dataset already has a 'test' split — ignoring it in favor of "
                 "reproducible split."
             )
-        split_ds = ds["train"].train_test_split(test_size=0.1, seed=seed)
+
+        # Deduplicate by normalized English text BEFORE the split. The raw
+        # corpus contains many near-duplicate sentences (biblical text
+        # variations differing only in case/whitespace); splitting without
+        # dedup leaks duplicates into both train and test, inflating eval
+        # metrics via memorized prompts (leakage).
+        logger.info("Deduplicating training data by normalized text...")
+        train_ds, _ = deduplicate_by_text(ds["train"])
+
+        split_ds = train_ds.train_test_split(test_size=0.1, seed=seed)
         ds = DatasetDict({"train": split_ds["train"], "test": split_ds["test"]})
     else:
         raise RuntimeError(
@@ -154,7 +221,16 @@ def build_t2g_dataset(
 
     Each sample contains:
         - ``"prompt"``: The English source sentence.
+        - ``"text"``: The raw English source sentence (same value as ``"prompt"``;
+          kept as a separate column so GRPOTrainer forwards it verbatim).
         - ``"completion"``: The gold ASL gloss sequence.
+        - ``"gold_gloss"``: Same value as ``"completion"``. GRPOTrainer forwards
+          extra dataset columns to reward functions as keyword arguments, so
+          reward functions read the gold reference from ``gold_gloss[idx]``
+          instead of a global registry.
+        - ``"sample_id"``: ``sha256(normalized_text + "||" + gold_gloss)`` —
+          stable across runs and collision-safe (two identical texts with
+          different glosses get different IDs).
         - ``"difficulty"``: Heuristic based on gloss token count:
           ``"simple"`` (1-5 tokens), ``"medium"`` (6-15), ``"hard"`` (16+).
 
@@ -165,7 +241,8 @@ def build_t2g_dataset(
             means use all samples.
 
     Returns:
-        A Hugging Face ``Dataset`` with columns ``["prompt", "completion", "difficulty"]``.
+        A Hugging Face ``Dataset`` with columns ``["prompt", "text",
+        "completion", "gold_gloss", "sample_id", "difficulty"]``.
     """
     logger.info(f"Building T2G dataset from '{split}' split...")
     split_ds = dataset[split]
@@ -186,10 +263,18 @@ def build_t2g_dataset(
         else:
             difficulty = "hard"
 
+        gold_gloss = gloss.strip()
         rows.append(
             {
                 "prompt": text.strip(),
-                "completion": gloss.strip(),
+                "text": text.strip(),
+                "completion": gold_gloss,
+                "gold_gloss": gold_gloss,
+                "sample_id": hashlib.sha256(
+                    (normalize_text(text) + "||" + gold_gloss).encode(
+                        "utf-8", errors="replace"
+                    )
+                ).hexdigest(),
                 "difficulty": difficulty,
             }
         )

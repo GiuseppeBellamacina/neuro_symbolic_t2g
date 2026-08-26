@@ -38,7 +38,7 @@ Il progetto addestra **Qwen2.5-0.5B-Instruct** a tradurre frasi inglesi in **glo
 | Reward                                | Peso (optimal v2.1) | Cosa misura                                       |
 | ------------------------------------- | ------------------- | ------------------------------------------------- |
 | **Translation quality** (ROUGE-L)    | 0.20                | Similarità con le glosse gold                     |
-| **BLEU-4** (T2G-Reasoner 2025) ⭐     | 0.20                | N-gram precision con effective_order + smoothing   |
+| **BLEU-4** (RVLF 2025) ⭐          | 0.20                | N-gram precision con effective_order + smoothing   |
 | **Gold-structure** (Gold Baseline) ⭐ | 0.20                | Confronto bigram vs gold reference                |
 | **Gloss-order** (Edit-distance)       | 0.10                | Levenshtein normalizzato vs gold                  |
 | **Verifier-scaled** (RECIPE)          | 0.10                | ROUGE × structural — confidence multiplier        |
@@ -142,7 +142,7 @@ Modifica `experiments/configs/t2g/grpo_optimal.yaml` per:
 - **Durata**: `training.max_steps` (default 2000)
 - **Velocità**: `grpo.num_generations` (default 8, riduci a 4 per GPU piccole)
 - **GPU piccole (K80)**: `model.quantization: null`, `model.use_unsloth: false`
-- **Quality/speed tradeoff**: `grpo.temperature` (default 0.9, più alto = più esplorazione)
+- **Quality/speed tradeoff**: `grpo.temperature` (default 0.7 nella base, più alto = più esplorazione)
 - **OOM**: `training.gradient_checkpointing: true` (già attivo di default)
 - **Reward struttura**: `grammar.viterbi_diversity.*` per iperparametri Viterbi
 - **Ablation**: `grammar.enabled: false` per GRPO senza constrained decoding

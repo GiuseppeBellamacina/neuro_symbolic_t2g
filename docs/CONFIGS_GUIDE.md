@@ -1,27 +1,72 @@
 # Config YAML — Guida ai Config di Training
 
-**Ultimo aggiornamento**: 8 luglio 2026
+**Ultimo aggiornamento**: 26 agosto 2026
 
-Questa guida spiega le differenze tra i 9 config YAML disponibili in
-`experiments/configs/t2g/`, quando usarli e in che ordine.
+Questa guida spiega le differenze tra i 13 config YAML disponibili in
+`experiments/configs/t2g/` (12 eseguibili + `base.yaml`), quando usarli e
+in che ordine.
+
+---
+
+## 0. Inheritance (extends)
+
+Tutti i config specifici **ereditano le parti comuni da `base.yaml`** usando
+la chiave `extends` (stringa o lista di stringhe, path relativi alla directory
+del file che la dichiara):
+
+```yaml
+# experiments/configs/t2g/grpo_optimal.yaml
+extends: base.yaml            # ← parti comuni (model, lora, dataset, reward…)
+training:
+  max_steps: 2000             # ← differenze: solo ciò che cambia
+  output_dir: "experiments/checkpoints/qwen25-05b-optimal"
+  log_dir: "experiments/logs/qwen25-05b-optimal"
+curriculum:
+  enabled: true
+```
+
+```yaml
+# experiments/configs/t2g/ablation/grpo_pda.yaml  (dalla sotto-directory)
+extends: ../base.yaml
+grammar:
+  use_grammarllm_pda: true
+  pda_temperature: 1.0
+```
+
+**Come funziona la resolution** (`src/utils/config.py::resolve_config`):
+un **deep merge ricorsivo** fonde `base → override` (l'override vince,
+i dict annidati vengono fusi, le liste e gli scalari sostituiti). Il dict
+risultante **non contiene mai la chiave `extends`** ed è identico alla
+struttura di prima del refactor per i trainer. I cicli di ereditarietà
+lanciano `ValueError`; un parent mancante lancia `FileNotFoundError`.
+
+**Riallineamento iperparametri**: `base.yaml` porta i valori del reference
+GRPO convergente — `grpo.beta=0.04`, `grpo.temperature=0.7`,
+`training.max_grad_norm=0.1`. I config che non li sovrascrivono
+esplicitamente (es. `grpo_optimal`) li ereditano dalla base.
+
+**Nota su `base.yaml`**: è un template, **mai eseguito direttamente**; il
+validator lo salta e lo valida indirettamente tramite i figli.
 
 ---
 
 ## 1. Panoramica dei Config
 
-| #   | Config                               | Tipo      | SFT Pre-train |   Grammar   | Reward Attive                                                                      | Somma Pesi |
-| --- | ------------------------------------ | --------- | :-----------: | :---------: | ---------------------------------------------------------------------------------- | :--------: |
-| 1   | `grpo_optimal.yaml`                  | GRPO      |      ✅       |    Trie     | translation + gold_structure + gloss_order + verifier_scaled + format + repetition |    1.00    |
-| 2   | `grpo_qwen05.yaml`                   | GRPO      |      ✅       |    Trie     | translation + gold_structure + gloss_order + format + repetition                   |    1.00    |
-| 3   | `sft.yaml`                           | SFT       |       —       | Trie (eval) | translation + gold_structure + gloss_order + format + repetition                   |    1.00    |
-| 4   | `ablation/grpo_no_grammar.yaml`      | GRPO      |      ❌       |     ❌      | translation + gold_structure + format + repetition                                 |    1.00    |
-| 5   | `ablation/grpo_no_sft.yaml`          | GRPO      |      ❌       |    Trie     | translation + gold_structure + gloss_order + verifier_scaled + format + repetition |    1.00    |
-| 6   | `ablation/grpo_pda.yaml`             | GRPO      |      ❌       |     PDA     | translation + gold_structure + format + repetition                                 |    1.00    |
-| 7   | `ablation/grpo_pda_lookahead.yaml`   | GRPO      |      ✅       | PDA+lookahead | translation + bleu + gold_structure + gloss_order + verifier_scaled + format + repetition | 1.00 |
-| 8   | `ablation/grpo_soft_viterbi.yaml`    | GRPO      |      ✅       |    Trie     | translation + soft_viterbi + gloss_order + format + repetition                     |    1.00    |
-| 9   | `ablation/grpo_verifier_scaled.yaml` | GRPO      |      ✅       |    Trie     | verifier_scaled + gloss_order + format + repetition                                |    1.00    |
-| 10  | `ablation/zero_shot.yaml`            | Eval-only |      ❌       |     ❌      | translation (1.0)                                                                  |    1.00    |
-| 11  | `ablation/zero_shot_grammar.yaml`    | Eval-only |      ❌       |    Trie     | translation (1.0)                                                                  |    1.00    |
+| #   | Config                               | extends  | Tipo      | SFT Pre-train |   Grammar   | Reward Attive                                                                      | Somma Pesi |
+| --- | ------------------------------------ | -------- | --------- | :-----------: | :---------: | ---------------------------------------------------------------------------------- | :--------: |
+| —   | `base.yaml`                          | —        | template  |       —       |     —       | (template: 7 pesi v2.1)                                                            |    1.00    |
+| 1   | `grpo_optimal.yaml`                  | base     | GRPO      |      ✅       |    Trie     | translation + bleu + gold_structure + gloss_order + verifier_scaled + format + repetition | 1.00 |
+| 2   | `grpo_qwen05.yaml`                   | base     | GRPO      |      ✅       |    Trie     | translation + gold_structure + gloss_order + format + repetition                   |    1.00    |
+| 3   | `grpo_experimental_all.yaml`         | base     | GRPO      |      ✅       |    Trie     | tutti i 10 pesi (translation .25 … viterbi .05 …)                                  |    1.00    |
+| 4   | `sft.yaml`                           | base     | SFT       |       —       | Trie (eval) | translation + gold_structure + gloss_order + format + repetition                   |    1.00    |
+| 5   | `ablation/grpo_no_grammar.yaml`      | ../base  | GRPO      |      ❌       |     ❌      | translation + gold_structure + gloss_order + format + repetition                   |    1.00    |
+| 6   | `ablation/grpo_no_sft.yaml`          | ../base  | GRPO      |      ❌       |    Trie     | translation + gold_structure + gloss_order + verifier_scaled + format + repetition |    1.00    |
+| 7   | `ablation/grpo_pda.yaml`             | ../base  | GRPO      |      ❌       |     PDA     | translation + gold_structure + gloss_order + format + repetition                   |    1.00    |
+| 8   | `ablation/grpo_pda_lookahead.yaml`   | ../base  | GRPO      |      ✅       | PDA+lookahead | translation + bleu + gold_structure + gloss_order + verifier_scaled + format + repetition | 1.00 |
+| 9   | `ablation/grpo_soft_viterbi.yaml`    | ../base  | GRPO      |      ✅       |    Trie     | translation + soft_viterbi + gloss_order + format + repetition                     |    1.00    |
+| 10  | `ablation/grpo_verifier_scaled.yaml` | ../base  | GRPO      |      ✅       |    Trie     | verifier_scaled + gloss_order + format + repetition                                |    1.00    |
+| 11  | `ablation/zero_shot.yaml`            | ../base  | Eval-only |      ❌       |     ❌      | translation (1.0)                                                                  |    1.00    |
+| 12  | `ablation/zero_shot_grammar.yaml`    | ../base  | Eval-only |      ❌       |    Trie     | translation (1.0)                                                                  |    1.00    |
 
 ---
 
@@ -37,11 +82,20 @@ Il config più completo e bilanciato. Combina tutte le migliorie introdotte:
 - **SFT pre-training** abilitato (1 epoch, impara il formato gloss)
 - **GRPO 2000 step** (più lungo del default 1500)
 - **num_generations=8** (più alto del default 4, migliore stima del vantaggio)
-- **beta=0.02** (KL penalty basso, più esplorazione)
-- **temperature=0.8** (più alta, più diversità nei rollout)
-- **9 reward attive**: translation + gold_structure + structural_dense + gloss_order + verifier_scaled + soft_viterbi + viterbi + format + repetition
-- **verifier_gamma=1.5** (bilanciato tra strict e permissivo)
-- **Evaluation**: 500 campioni, 5 completions/prompt per Pass@k
+- **beta=0.04 / temperature=0.7** (ereditati da `base.yaml` — riallineati al reference convergente)
+- **7 reward attive**: translation + bleu + gold_structure + gloss_order + verifier_scaled + format + repetition
+- **Evaluation**: 500 campioni, 5 completions/prompt per Pass@k, best-of-N
+
+**Riuso adapter SFT** (`sft_pretrain.reuse_adapter`): se sul cluster esiste
+già un adapter SFT addestrato con la **stessa configurazione** (stesso
+fingerprint sha256 di modello/LoRA/dataset/system prompt/iperparametri SFT,
+salvato in `run_*/sft_pretrain/final/sft_fingerprint.json`), il job lo riusa
+e salta la Phase 0 — evita di riaddestrare SFT da zero a ogni job. Il
+fingerprint invalida al cambio di qualunque iperparametro SFT, modello,
+dataset o system prompt. Default: `reuse_adapter: true`.
+`sft_pretrain.adapter_path: "<dir>"` forza un adapter esplicito (bypassa la
+ricerca). `--force-sft` (o `EXTRA_ARGS="--force-sft"` su cluster) forza
+sempre il retrain.
 
 #### `grpo_qwen05.yaml` — Config Base (default)
 
@@ -184,15 +238,15 @@ Confrontare con `zero_shot.yaml` per misurare il delta del grammar.
 | **SFT pre-train**      |       ✅       |      ✅       |   —   |      ❌      |  ❌   |       ✅       |        ✅         |     ❌      |         ❌          |
 | **max_steps**          |      2000      |     1500      |   —   |     1500     | 1500  |      1500      |       1500        |      —      |          —          |
 | **num_generations**    |       8        |       4       |   —   |      4       |   4   |       4        |         4         |      —      |          —          |
-| **beta (KL)**          |      0.02      |     0.04      |   —   |     0.04     | 0.04  |      0.04      |       0.04        |      —      |          —          |
-| **temperature**        |      0.8       |      0.7      |   —   |     0.7      |  0.7  |      0.7       |        0.7        |     0.7     |         0.7         |
+| **beta (KL)**          |      0.04      |     0.04      |   —   |     0.04     | 0.04  |      0.04      |       0.04        |      —      |          —          |
+| **temperature**        |      0.7       |      0.7      |   —   |     0.7      |  0.7  |      0.7       |        0.7        |     0.7     |         0.7         |
 | **max_completion**     |      128       |      128      |  256  |     256      |  256  |      128       |        128        |     256     |         256         |
 | **lr**                 |      3e-6      |     5e-6      | 2e-5  |     5e-6     | 5e-6  |      5e-6      |       5e-6        |      —      |          —          |
-| **max_grad_norm**      |      0.05      |      0.1      |  1.0  |     0.1      |  0.1  |      0.1       |        0.1        |      —      |          —          |
+| **max_grad_norm**      |      0.1       |      0.1      |  1.0  |     0.1      |  0.1  |      0.1       |        0.1        |      —      |          —          |
 | **warmup_steps**       |      200       |      150      |  100  |     150      |  150  |      150       |        150        |      —      |          —          |
 | **grammar.enabled**    |       ✅       |      ✅       |  ✅   |      ❌      |  ✅   |       ✅       |        ✅         |     ❌      |         ✅          |
 | **use_grammarllm_pda** |       ❌       |      ❌       |  ❌   |      ❌      |  ✅   |       ❌       |        ❌         |     ❌      |         ❌          |
-| **verifier_gamma**     |      1.5       |      1.0      |   —   |      —       |   —   |      1.0       |        2.0        |      —      |          —          |
+| **verifier_gamma/ temperature** | RIMOSSI | RIMOSSI | RIMOSSI | RIMOSSI | RIMOSSI | RIMOSSI | RIMOSSI | RIMOSSI | RIMOSSI |
 | **max_samples**        |      null      |     20000     | null  |     null     | null  |     20000      |       20000       |      —      |          —          |
 | **use_unsloth**        |       ✅       |      ✅       |  ❌   |      ❌      |  ❌   |       ✅       |        ✅         |     ❌      |         ❌          |
 
@@ -361,19 +415,14 @@ CONFIG=experiments/configs/t2g/grpo_optimal.yaml CHECKPOINT="path/to/ckpt" BEST_
 | `zero_shot`            |        — n/a         | OK (eval-only, 1 reward)    |
 | `zero_shot_grammar`    |        — n/a         | OK (eval-only, 1 reward)    |
 
-### 5.3 `verifier_gamma` — ✅ Allineato
+### 5.3 `verifier_gamma` / `verifier_temperature` — ✅ Rimossi (dead config)
 
-| Config                 | `verifier_gamma` | Note                        |
-| ---------------------- | :--------------: | --------------------------- |
-| `grpo_optimal`         |       1.5        | Bilanciato                  |
-| `grpo_qwen05`          |       1.0        | Lineare (default)           |
-| `sft`                  |       1.0        | ✅ Allineato (era mancante) |
-| `grpo_no_grammar`      |       1.0        | ✅ Allineato (era mancante) |
-| `grpo_pda`             |       1.0        | ✅ Allineato (era mancante) |
-| `grpo_soft_viterbi`    |       1.0        | ✅                          |
-| `grpo_verifier_scaled` |       2.0        | Quadratico (più stricto)    |
-| `zero_shot`            |      — n/a       | OK (eval-only)              |
-| `zero_shot_grammar`    |      — n/a       | OK (eval-only)              |
+`verifier_gamma` e `verifier_temperature` sono stati **rimossi da tutti i
+config**: `src/rewards/t2g_rewards.py` non li legge più (solo i 4 parametri
+`viterbi_diversity` reali — `self_loop_penalty`, `max_occurrences`,
+`diversity_threshold`, `max_iters` — vengono caricati in
+`initialize_rewards`). Il validator (`tests/validate_configs.py`) fallisce se
+riappaiono.
 
 ### 5.4 `max_completion_length` — Differenze intenzionali
 
@@ -389,12 +438,11 @@ CONFIG=experiments/configs/t2g/grpo_optimal.yaml CHECKPOINT="path/to/ckpt" BEST_
 
 ### 5.5 `gradient_checkpointing` e `max_seq_length`
 
-- **`gradient_checkpointing`**: usato solo in `sft_train.py` (non in GRPO).
-  Tutti i 4 config con `sft_pretrain.enabled=true` lo hanno a `true`.
-  I config GRPO non lo specificano (corretto, non è usato da `GRPOConfig`).
-- **`max_seq_length`**: presente in `model` (tutti i config GRPO/SFT: 1024)
-  e in `training` (solo `sft.yaml`: 768). Il codice legge `model.max_seq_length`
-  per Unsloth e `training.max_seq_length` per SFTConfig. Coerente.
+- **`gradient_checkpointing`**: presente in `base.yaml` (`true`) ed ereditato
+  da tutti i config con training; `grpo_t2g_train.py` e `sft_train.py` lo
+  passano al trainer. I config `sft_pretrain.training` lo includono anch'esso.
+- **`max_seq_length`**: presente in `model` (base: 1024) per Unsloth e in
+  `training` (solo `sft.yaml`: 768) per SFTConfig. Coerente.
 
 ### 5.6 Somma dei pesi reward — ✅ Tutti a 1.00
 

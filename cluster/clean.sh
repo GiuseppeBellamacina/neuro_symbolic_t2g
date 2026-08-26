@@ -1,19 +1,35 @@
 #!/bin/bash
 # ============================================================================
-# Pulizia workspace sul cluster — rimuove tutti gli artifact generati.
+# Pulizia workspace sul cluster — rimuove gli artifact generati.
 #
 # Uso:
-#   bash cluster/clean.sh          # dry-run (mostra cosa cancellerebbe)
-#   bash cluster/clean.sh --force  # cancella davvero
+#   bash cluster/clean.sh               # dry-run (mostra cosa cancellerebbe)
+#   bash cluster/clean.sh --force       # cancella davvero
+#   bash cluster/clean.sh --force --all-cache   # cancella ANCHE le cache costose
+#
+# N.B. di default data/retriever_index* e data/*.meta.json vengono PRESERVATI:
+# l'indice TF-IDF è fittato su ~78k documenti (rebuild costoso, minuti) e i
+# sidecar *.meta.json validano la cache vocab/bigram. Solo --all-cache li tocca.
 # ============================================================================
 
 set -e
 cd "$HOME/neuro_symbolic_t2g"
 
 FORCE=0
-if [ "$1" = "--force" ]; then
-    FORCE=1
-fi
+ALL_CACHE=0
+for arg in "$@"; do
+    case "$arg" in
+        --force)     FORCE=1 ;;
+        --all-cache) ALL_CACHE=1 ;;
+        --help|-h)
+            echo "Uso: bash cluster/clean.sh [--force] [--all-cache]"
+            echo ""
+            echo "  --force      cancella davvero (default: dry-run)"
+            echo "  --all-cache  cancella anche data/retriever_index* e data/*.meta.json"
+            echo "               (preservati di default: rebuild costoso)"
+            exit 0 ;;
+    esac
+done
 
 if [ "$FORCE" = "0" ]; then
     echo "=== DRY RUN — aggiungi --force per cancellare davvero ==="
@@ -27,9 +43,22 @@ echo "Pulizia workspace: $PWD"
 echo ""
 
 # ── 1. data/ (dataset scaricato, verrà riscaricato) ──────────────────────
-echo "[1/10] data/ (dataset ASLG-PC12)"
+# PRESERVA la cache del retriever (TF-IDF su 78k doc, rebuild costoso) e i
+# sidecar *.meta.json a meno di --all-cache.
+echo "[1/10] data/ (dataset ASLG-PC12) — cache retriever preservata"
 if [ -d "data" ]; then
-    $CMD data/*
+    if [ "$ALL_CACHE" -eq 1 ]; then
+        $CMD data/*
+    else
+        for p in data/*; do
+            case "$(basename "$p")" in
+                retriever_index|retriever_index.*|*.meta.json)
+                    echo "  preserved: $p" ;;
+                *)
+                    $CMD "$p" ;;
+            esac
+        done
+    fi
 fi
 
 # ── 2. Checkpoints ────────────────────────────────────────────────────────
@@ -61,7 +90,9 @@ fi
 
 # ── 6. Cache Python __pycache__ ───────────────────────────────────────────
 echo "[6/10] __pycache__/ (Python bytecode)"
-find . -type d -name "__pycache__" -print -exec $CMD {} + 2>/dev/null || true
+find . -type d -name "__pycache__" -print 2>/dev/null | while read -r p; do
+    [ -d "$p" ] && $CMD "$p"
+done
 
 # ── 7. Artifact LoRA del GRPOTrainer ──────────────────────────────────────
 echo "[7/10] grpo_trainer_lora_model_*/"
@@ -94,4 +125,9 @@ if [ "$FORCE" = "0" ]; then
     echo "=== Nessun file cancellato (dry-run). Usa: bash cluster/clean.sh --force ==="
 else
     echo "✅ Pulizia completata (10 step)."
+fi
+if [ "$ALL_CACHE" -eq 0 ]; then
+    echo ""
+    echo "  Preservati (rebuild costoso): data/retriever_index*, data/*.meta.json"
+    echo "  Per cancellarli anche: bash cluster/clean.sh --force --all-cache"
 fi

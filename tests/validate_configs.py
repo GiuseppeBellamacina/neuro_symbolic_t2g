@@ -7,26 +7,44 @@ Uso:
     python -m tests.validate_configs --verbose
     python -m tests.validate_configs --config experiments/configs/t2g/grpo_qwen05.yaml
 
+I config vengono caricati via ``src.utils.config.resolve_config``, quindi le
+catene ``extends`` vengono risolte prima della validazione.
+
 Regole di validazione:
     - Ogni config ha un "tipo" rilevato automaticamente (grpo, sft, eval-only)
     - Sezioni obbligatorie per tipo
     - Chiavi nidificate obbligatorie
     - Vincoli di tipo (bool, int, float, list)
     - Coerenza cross-sezione (es. grammar.use_grammarllm_pda → pda_temperature)
+    - Somma dei reward weights = 1.0 (±1e-9)
+    - Assenza di chiavi morte (verifier_gamma / verifier_temperature)
+    - Assenza di ``extends`` residuo nel dict fuso
+    - Ogni config YAML referenziato da cluster/run_all.sh esiste
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+# Ensure project root is importable (also when run as a plain script).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.utils.config import resolve_config
+
 # ── Project root ──────────────────────────────────────────────────────────────
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _CONFIG_GLOB = "experiments/configs/**/*.yaml"
+_CLUSTER_RUN_ALL = _PROJECT_ROOT / "cluster" / "run_all.sh"
+
+# Chiavi morte: rimosse dal codice (src/rewards/t2g_rewards.py non le legge
+# più — solo i 4 parametri viterbi_diversity reali vengono caricati).
+DEAD_KEYS = {"verifier_gamma", "verifier_temperature"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -104,6 +122,7 @@ TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
     "reward.weight_gloss_order": (int, float),
     "reward.weight_format": (int, float),
     "reward.weight_repetition": (int, float),
+    "reward.weight_bleu": (int, float),
 }
 
 
@@ -113,14 +132,19 @@ TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
 
 
 def _detect_kind(cfg: dict[str, Any]) -> str:
-    """Detect the config kind: 'grpo', 'sft', or 'eval-only'."""
+    """Detect the config kind: 'grpo', 'sft', or 'eval-only'.
+
+    Un config è ``eval-only`` se non dichiara alcun training attivo:
+    niente ``training.trainer`` e nessuna chiave di step (``max_steps`` /
+    ``num_train_epochs``) — può comunque ereditare una sezione ``training``
+    parziale e un blocco ``grpo`` da ``base.yaml``.
+    """
     trainer = cfg.get("training", {}).get("trainer", "grpo")
     if trainer == "sft":
         return "sft"
-    if "grpo" in cfg and "num_generations" in cfg.get("grpo", {}):
+    training = cfg.get("training", {})
+    if training and (TRAINING_STEPS_KEYS & set(training.keys())):
         return "grpo"
-    if "training" in cfg:
-        return "grpo"  # has training section, assume GRPO
     return "eval-only"
 
 
@@ -165,8 +189,21 @@ def _validate_type(
         )
 
 
+def _iter_dead_keys(obj: Any, prefix: str = "", found: list[str] | None = None) -> list[str]:
+    """Collect any occurrence of a DEAD_KEYS key in a (nested) dict."""
+    if found is None:
+        found = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            dotted = f"{prefix}.{k}" if prefix else k
+            if k in DEAD_KEYS:
+                found.append(dotted)
+            _iter_dead_keys(v, dotted, found)
+    return found
+
+
 def _validate_reward_weights(cfg: dict[str, Any], errors: list[str], path: str) -> None:
-    """Ensure reward weights sum to ~1.0 (warn if not)."""
+    """Reward weights must sum to 1.0 (±1e-9)."""
     reward = cfg.get("reward", {})
     weights = {
         k: v
@@ -176,10 +213,10 @@ def _validate_reward_weights(cfg: dict[str, Any], errors: list[str], path: str) 
     if not weights:
         return
     total = sum(weights.values())
-    if abs(total - 1.0) > 0.15:
+    if abs(total - 1.0) > 1e-9:
         errors.append(
-            f"{path}: reward weights sum to {total:.3f} "
-            f"(expected ~1.0); weights: {weights}"
+            f"{path}: reward weights sum to {total:.6f} "
+            f"(expected 1.0 ±1e-9); weights: {weights}"
         )
 
 
@@ -204,8 +241,9 @@ def _validate_cross_section(cfg: dict[str, Any], errors: list[str], path: str) -
             )
 
     # Training configs should have either max_steps or num_train_epochs
+    # (eval-only configs ereditano una sezione `training` parziale da base.yaml)
     training = cfg.get("training", {})
-    if training:
+    if training and _detect_kind(cfg) != "eval-only":
         has_steps = TRAINING_STEPS_KEYS & set(training.keys())
         if not has_steps:
             errors.append(f"{path}: training deve avere max_steps o num_train_epochs")
@@ -220,7 +258,7 @@ def _validate_cross_section(cfg: dict[str, Any], errors: list[str], path: str) -
             )
 
     # GRPO configs must have grpo section with num_generations and beta
-    if trainer != "sft" and "training" in cfg:
+    if trainer != "sft" and "training" in cfg and _detect_kind(cfg) != "eval-only":
         grpo = cfg.get("grpo", {})
         if "num_generations" not in grpo:
             errors.append(f"{path}: GRPO config deve avere grpo.num_generations")
@@ -236,31 +274,55 @@ def _validate_cross_section(cfg: dict[str, Any], errors: list[str], path: str) -
 def validate_config(config_path: Path, verbose: bool = False) -> list[str]:
     """Validate a single config YAML file.
 
+    The file is loaded through ``resolve_config`` (extends chains merged);
+    the raw YAML is additionally checked for a stray top-level ``extends``
+    surviving in the merged dict.
+
     Returns a list of error messages (empty = valid).
     """
     path = str(config_path.relative_to(_PROJECT_ROOT))
     errors: list[str] = []
 
-    # ── Parse YAML ───────────────────────────────────────────────────────
+    # ── Parse YAML (raw, per mostrare la catena extends) ────────────────
     try:
         with open(config_path, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f)
+            raw = yaml.safe_load(f)
     except yaml.YAMLError as e:
         return [f"{path}: errore di parsing YAML: {e}"]
     except Exception as e:
         return [f"{path}: errore lettura file: {e}"]
 
-    if cfg is None:
+    if raw is None:
         return [f"{path}: file YAML vuoto"]
 
-    if not isinstance(cfg, dict):
+    if not isinstance(raw, dict):
         return [
-            f"{path}: il contenuto YAML non è un dizionario (tipo={type(cfg).__name__})"
+            f"{path}: il contenuto YAML non è un dizionario (tipo={type(raw).__name__})"
         ]
+
+    # ── Resolve extends chain ───────────────────────────────────────────
+    try:
+        cfg = resolve_config(config_path)
+    except FileNotFoundError as e:
+        return [f"{path}: extends non risolvibile — {e}"]
+    except ValueError as e:
+        return [f"{path}: extends invalido — {e}"]
+
+    if "extends" in cfg:
+        errors.append(f"{path}: chiave 'extends' residua nel dict fuso")
 
     kind = _detect_kind(cfg)
     if verbose:
-        print(f"  [{kind}] {path}")
+        parents = raw.get("extends")
+        if parents:
+            p_str = ", ".join(parents) if isinstance(parents, list) else parents
+            print(f"  [{kind}] {path} (extends: {p_str})")
+        else:
+            print(f"  [{kind}] {path}")
+
+    # ── Chiavi morte (verifier_gamma / verifier_temperature) ───────────
+    for dotted in _iter_dead_keys(cfg):
+        errors.append(f"{path}: chiave morta '{dotted}' (rimossa dal codice)")
 
     # ── Required top-level sections ──────────────────────────────────────
     required = set(REQUIRED_SECTIONS["_all"])
@@ -275,6 +337,9 @@ def validate_config(config_path: Path, verbose: bool = False) -> list[str]:
     for section, keys in REQUIRED_KEYS.items():
         if section not in cfg:
             continue  # already reported above
+        # eval-only configs don't train → output/log dirs non richiesti
+        if kind == "eval-only" and section == "training":
+            continue
         sec = cfg[section]
         if not isinstance(sec, dict):
             errors.append(
@@ -309,6 +374,27 @@ def find_configs(config_root: Path | None = None) -> list[Path]:
     return sorted(root.glob("**/*.yaml"))
 
 
+def validate_cluster_references() -> list[str]:
+    """Verify every config YAML referenced by cluster/run_all.sh exists.
+
+    Parses the ``MODELS=( ... :path:mode ... )`` array lines.
+    """
+    errors: list[str] = []
+    if not _CLUSTER_RUN_ALL.exists():
+        errors.append(f"cluster/run_all.sh non trovato: {_CLUSTER_RUN_ALL}")
+        return errors
+
+    refs = re.findall(
+        r"(?:experiments/configs/[\w/.-]+\.yaml)",
+        _CLUSTER_RUN_ALL.read_text(encoding="utf-8"),
+    )
+    for ref in sorted(set(refs)):
+        target = _PROJECT_ROOT / ref
+        if not target.exists():
+            errors.append(f"cluster/run_all.sh: config referenziato mancante: {ref}")
+    return errors
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # CLI
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -340,11 +426,18 @@ def main() -> None:
         print("[INFO] Nessun config YAML trovato.")
         sys.exit(0)
 
-    print(f"Validazione {len(configs)} config YAML...")
+    print(f"Validazione {len(configs)} config YAML (con risoluzione extends)...")
     print()
 
     total_errors = 0
     for config_path in configs:
+        # base.yaml è un template di ereditarietà (non eseguibile): viene
+        # validato indirettamente da ogni config che lo estende.
+        if config_path.name == "base.yaml":
+            if args.verbose:
+                rel = config_path.relative_to(_PROJECT_ROOT)
+                print(f"  [skip] {rel} (template di ereditarietà, non eseguibile)")
+            continue
         errors = validate_config(config_path, verbose=args.verbose)
         if errors:
             for err in errors:
@@ -352,6 +445,13 @@ def main() -> None:
             total_errors += len(errors)
         elif args.verbose:
             print(f"  OK    {config_path.relative_to(_PROJECT_ROOT)}")
+
+    # ── Riferimenti da cluster/run_all.sh ────────────────────────────────
+    cluster_errors = validate_cluster_references()
+    if cluster_errors:
+        for err in cluster_errors:
+            print(f"  FAIL  {err}")
+        total_errors += len(cluster_errors)
 
     print()
     if total_errors == 0:

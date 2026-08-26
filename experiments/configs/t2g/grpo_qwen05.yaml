@@ -1,50 +1,29 @@
 # ============================================================================
 # GRPO Training Config — Qwen2.5-0.5B-Instruct — Text-to-Gloss (T2G)
 #
-# Neuro-symbolic pipeline: Constrained Decoding + GRPO for ASL gloss generation.
+# Config "base" di riferimento per GRPO (quello che converge):
+#   - Eredita da base.yaml (modello, dataset, grammar Trie, SFT, wandb)
+#   - LoRA più leggero: r=16 / alpha=32 / dropout=0
+#   - 1500 step, lr=5e-6, warmup=150, G=4, max_samples=20000
+#   - beta=0.04 / temperature=0.7 / max_grad_norm=0.1 (già nella base)
+#   - reward: set storico senza BLEU/verifier-scaled (chiavi base azzerate)
 #
 # Usato da:
 #   CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/train.sh
 #   python -m src.training --config experiments/configs/t2g/grpo_qwen05.yaml
 # ============================================================================
 
-# --- Modello ---
-model:
-  name: "Qwen/Qwen2.5-0.5B-Instruct"
-  num_gpus: 1
-  quantization: "4bit"
-  dtype: "bfloat16"
-  use_unsloth: true
-  max_seq_length: 1024
+extends: base.yaml
 
-# --- LoRA adapters ---
+# --- LoRA adattatori (più leggeri della base r=32) ---
 lora:
   r: 16
   lora_alpha: 32
   lora_dropout: 0
-  target_modules:
-    - q_proj
-    - k_proj
-    - v_proj
-    - o_proj
-    - gate_proj
-    - up_proj
-    - down_proj
-  task_type: "CAUSAL_LM"
-  random_state: 3407
 
-# --- Dataset ---
+# --- Dataset (sottoinsieme per iterazione veloce) ---
 dataset:
-  # Path to the preprocessed ASLG-PC12 dataset (Hugging Face cache)
-  dataset_name: "achrafothman/aslg_pc12"
-  dataset_cache: "data/aslg_pc12"
-  vocab_path: "data/gloss_vocab.txt"
-  bigram_matrix_path: "data/bigram_transition.npy"
-  split: "train"
   max_samples: 20000
-  seed: 42
-  # T2G does not use <think> blocks
-  thinking: false
 
 # --- SFT Pre-training (Phase 0: teach model gloss format before GRPO) ---
 sft_pretrain:
@@ -66,78 +45,29 @@ sft_pretrain:
     max_seq_length: 768
     gradient_checkpointing: true
 
-# --- Iperparametri di training ---
+# --- Iperparametri di training (solo differenze dalla base) ---
 training:
   max_steps: 1500
-  per_device_train_batch_size: 1
-  gradient_accumulation_steps: 8
   learning_rate: 5.0e-6
-  lr_scheduler_type: "cosine"
   warmup_steps: 150 # was warmup_ratio: 0.1 → deprecated in transformers 5.2+
-  optim: "paged_adamw_8bit"
-  weight_decay: 0.1
-  max_grad_norm: 0.1
-  bf16: true
-  gradient_checkpointing: true # OOM mitigation
-  logging_steps: 5
-  save_steps: 100
-  save_total_limit: 3
   output_dir: "experiments/checkpoints/qwen25-05b"
   log_dir: "experiments/logs/qwen25-05b"
 
 # --- Parametri GRPO ---
 grpo:
   num_generations: 4 # G = number of completions per prompt
-  max_completion_length: 128 # Doubled: 64 was too tight for subword sequences, causing clipped_ratio=1.0
-  max_prompt_length: 256
-  beta: 0.04 # KL penalty coefficient
-  temperature: 0.7 # Exploration temperature during rollouts
 
-# --- Pesi della reward function ---
+# --- Pesi della reward function (set storico di questo config) ---
+# Le chiavi della base non usate qui (weight_bleu, weight_verifier_scaled)
+# vengono azzerate esplicitamente così il dict fuso mantiene somma = 1.0.
 reward:
-  # Translation quality (ROUGE-L similarity with gold gloss)
   weight_translation: 0.30
-  # Gold-structure reward: bigram score vs gold reference baseline
-  # (Recommended over the older weight_structure / structural_dense_reward)
+  weight_bleu: 0.0 # non usato da questo config
   weight_gold_structure: 0.35
-  # Gloss-order reward: word-level edit-distance vs gold gloss.
-  # Complements ROUGE-L with a signal sensitive to gloss ordering
-  # (see docs/T2G_PIPELINE_REVIEW.md §5.3). Partially replaces the
-  # weight taken away from weight_translation above.
   weight_gloss_order: 0.15
-  # Format reward: ensure gloss tokens only (no free text)
+  weight_verifier_scaled: 0.0 # non usato da questo config
   weight_format: 0.10
-  # Repetition penalty
   weight_repetition: 0.10
-  # ── Ablation modules (set to >0 to enable) ──────────────────────
-  # Soft Viterbi (differentiable, forward-backward) — ViterbiPlanNet DVL
-  # weight_soft_viterbi: 0.0
-  # Verifier-scaled reward (RECIPE-inspired structural confidence gate)
-  # weight_verifier_scaled: 0.0
-  # Hard Viterbi distance (experimental, non-differentiable)
-  # weight_viterbi: 0.0
-  # Absolute bigram score (no baseline — use gold_structure instead)
-  # weight_structure: 0.0
-
-# --- Constrained Decoding ---
-grammar:
-  enabled: true
-  use_grammarllm_pda: false
-  token_lookahead: false      # grammarllm v0.5.0: native BPE token emission (only with use_grammarllm_pda: true)
-  track_score_history: false  # grammarllm v0.5.0: accumulate per-step logit history for debug (memory cost)
-  # Viterbi diversity penalty params (for viterbi_distance_reward)
-  viterbi_diversity:
-    self_loop_penalty: 0.5
-    max_occurrences: 2
-    diversity_threshold: 0.3
-    max_iters: 3
-    # Verifier gamma: controls how strictly the structural verifier
-    # filters the translation reward (verifier_scaled_reward).
-    # gamma=1.0 = linear, gamma=2.0 = quadratic (stricter).
-    verifier_gamma: 1.0
-    # Verifier temperature: scala avg_log_prob prima del sigmoid/softmax in
-    # structural_dense_reward. Disaccoppiato da verifier_gamma.
-    verifier_temperature: 5.0
 
 # --- Curriculum Learning (disabled for Phase 1) ---
 curriculum:
@@ -145,13 +75,10 @@ curriculum:
 
 # --- Evaluation ---
 evaluation:
-  batch_size: 8
   max_samples: 500 # 500 campioni per evaluation rapida, null per tutto il test set
-  num_samples: 5 # 5 completions per prompt per Pass@k
-  best_of_n: false # true per attivare best-of-N selection, o usa --best-of-n
+  best_of_n: false
 
 # --- Weights & Biases ---
 wandb:
-  project: "neuro-symbolic-t2g"
   run_name: "grpo-t2g-qwen25-05b"
   tags: ["grpo", "T2G", "constrained-decoding", "Qwen2.5-0.5B", "ASL"]

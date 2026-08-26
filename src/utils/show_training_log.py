@@ -17,6 +17,7 @@ from pathlib import Path
 _DEFAULT_COLS = [
     "step",
     "loss",
+    "eval_loss",
     "reward",
     "reward_std",
     "rewards/translation_quality_reward/mean",
@@ -102,8 +103,11 @@ def show_log(
         print("No log entries found.")
         return
 
-    # Filter to training logs only (skip eval entries)
-    train_logs = [e for e in log_history if "loss" in e or "reward" in e]
+    # Filter to training logs (skip pure eval entries but keep eval_loss lines,
+    # which SFT now records in the log history)
+    train_logs = [
+        e for e in log_history if "loss" in e or "eval_loss" in e or "reward" in e
+    ]
     if not train_logs:
         print("No training log entries found.")
         return

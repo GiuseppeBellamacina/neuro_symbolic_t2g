@@ -23,20 +23,18 @@ dependencies = [
     "rouge-score>=0.1.2",
     "sacrebleu>=2.0.0",
     "numpy",
-    "scipy",
     "pandas",
     "matplotlib",
-    "seaborn",
     "plotnine>=0.14.0",
+
+    # Retrieval (tfidf backend — default in grpo_optimal)
+    "scikit-learn>=1.7.2",
 
     # Infra
     "pyyaml",
     "tqdm",
     "wandb",
-    "weave",
-    "safetensors",
     "python-dotenv",
-    "regex",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +43,11 @@ dev = [
     "black[jupyter]",
     "ruff",
     "pytest",
+]
+# Heavy extras for the optional "minilm" retrieval backend only.
+# The default "tfidf" backend (scikit-learn) is a core dependency.
+retrieval = [
+    "sentence-transformers>=5.7.0",
 ]
 
 [build-system]

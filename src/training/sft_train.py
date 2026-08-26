@@ -5,6 +5,14 @@ Trains Qwen2.5-0.5B-Instruct via teacher forcing on gold ASL gloss sequences
 using ``trl.SFTTrainer``.  No reward shaping, no constrained decoding —
 the model simply learns to replicate the gold gloss given the English input.
 
+The dataset uses trl's native prompt-completion conversational format
+(``prompt`` = ``[system, user]`` message list, ``completion`` = the gold
+gloss) with ``completion_only_loss=True``, so the loss masks the prompt
+tokens and only the gold gloss is counted.  A small seeded holdout is carved
+from the train split and used with early stopping to guard against
+overfitting.  Prompt formatting is identical to the GRPO rollout prompts
+(see ``src/utils/prompting.py``).
+
 Usage:
     python -m src.training --config experiments/configs/t2g/sft.yaml
     CONFIG=experiments/configs/t2g/sft.yaml sbatch cluster/train.sh
@@ -14,11 +22,14 @@ from __future__ import annotations
 
 import argparse
 import gc
+import hashlib
+import json
 import logging
 import os
 import random
 import sys
 import warnings
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -62,24 +73,98 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _build_prompt_completion_example(sample: dict[str, Any]) -> dict[str, Any]:
+    """Convert a raw T2G row into a prompt-completion SFT example.
+
+    ``prompt`` is the conversational message list ``[system, user]`` and
+    ``completion`` the single ``[assistant]`` gold-gloss message.  trl 0.24
+    tokenizes the prompt with ``apply_chat_template(prompt,
+    add_generation_prompt=True)`` (``trl/trainer/sft_trainer.py:956-962``),
+    producing byte-identical prompts to the GRPO rollout path
+    (``build_t2g_prompt`` in ``src/utils/prompting.py``).  The full sequence
+    is tokenized from ``prompt + completion`` and a ``completion_mask`` marks
+    everything after the prompt (``trl/trainer/sft_trainer.py:997-1000``), so
+    with ``completion_only_loss=True`` the loss only counts the gold gloss.
+
+    Args:
+        sample: Row from ``build_t2g_dataset`` (``prompt``, ``completion``,
+            ``difficulty``; optionally ``gold_gloss`` and ``sample_id``).
+
+    Returns:
+        Dict with ``prompt`` and ``completion`` message lists plus the
+        metadata columns ``gold_gloss``, ``difficulty``, ``sample_id``.
+    """
+    text = str(sample["prompt"]).strip()
+    gold = str(sample.get("gold_gloss") or sample["completion"]).strip()
+    return {
+        "prompt": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": text},
+        ],
+        "completion": [{"role": "assistant", "content": gold}],
+        "gold_gloss": gold,
+        "difficulty": str(sample.get("difficulty", "medium")),
+        "sample_id": str(
+            sample.get("sample_id")
+            or hashlib.sha256(text.encode("utf-8")).hexdigest()
+        ),
+    }
+
+
+def split_eval_holdout(
+    dataset: Dataset,
+    eval_fraction: float = 0.02,
+    seed: int = 42,
+) -> tuple[Dataset, Dataset]:
+    """Split a Hugging Face ``Dataset`` into ``(train, eval)`` holdout subsets.
+
+    Seeded and deterministic (``Dataset.train_test_split`` with a fixed
+    ``seed``), so the same inputs always produce the same partition and the
+    two subsets are disjoint by construction.  Used to carve a small held-out
+    set from the ASLG train split for evaluation and early stopping.
+
+    Args:
+        dataset: Source ``Dataset`` (the built SFT prompt-completion set).
+        eval_fraction: Fraction of rows held out for evaluation.  Values
+            ``<= 0`` return an empty eval set.
+        seed: RNG seed for the shuffle (use the dataset seed).
+
+    Returns:
+        ``(train_ds, eval_ds)``.
+    """
+    if eval_fraction <= 0.0:
+        return dataset, dataset.select([])
+    split = dataset.train_test_split(
+        test_size=eval_fraction, seed=seed, shuffle=True
+    )
+    return split["train"], split["test"]
+
+
 def _prepare_sft_dataset(
     config: dict[str, Any],
-    tokenizer: Any,
     dataset: Any = None,
-) -> Dataset:
-    """Build conversation pairs for SFT: prompt → gold gloss.
+) -> tuple[Dataset, Dataset]:
+    """Build prompt-completion train/eval datasets for SFT.
 
-    SFTTrainer needs a single ``"text"`` column with the full conversation
-    (chat template applied).  We build prompt+gold pairs using the same
-    centralized ``build_t2g_prompt`` used in GRPO training and evaluation.
+    Uses trl 0.24's native prompt-completion conversational format: the
+    ``prompt`` column is the message list ``[system, user]`` and the
+    ``completion`` column the single ``[assistant]`` gold-gloss message
+    (see ``_build_prompt_completion_example``).  ``SFTTrainer`` tokenizes
+    these with the tokenizer chat template and builds a ``completion_mask``
+    (``trl/trainer/sft_trainer.py:949-1000``), so the loss — with
+    ``completion_only_loss=True`` — only covers the gold gloss.
+
+    A small seeded holdout is carved from the train split
+    (``config["training"]["eval_fraction"]``, default 0.02) for evaluation
+    and early stopping.
 
     Args:
         config: Full config dict.
-        tokenizer: Hugging Face tokenizer.
         dataset: Optional pre-loaded ``DatasetDict``. If ``None``, downloads it.
 
     Returns:
-        HuggingFace ``Dataset`` with a ``"text"`` column.
+        ``(train_ds, eval_ds)`` pair with columns ``prompt``, ``completion``,
+        ``gold_gloss``, ``difficulty``, ``sample_id``.
     """
     ds_cfg = config["dataset"]
     if dataset is None:
@@ -93,42 +178,248 @@ def _prepare_sft_dataset(
         max_samples=ds_cfg.get("max_samples"),
     )
 
-    conversations: list[dict[str, str]] = []
-    for i in range(len(t2g_ds)):
-        sample = t2g_ds[i]
-        text = sample["prompt"]
-        gold = sample["completion"]
-
-        # Build full conversation: system prompt + user text + assistant gold gloss
-        # This aligns formatting exactly with the GRPO rollout prompt structure.
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": text},
-            {"role": "assistant", "content": gold},
-        ]
-        try:
-            full_text = tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=False,
-            )
-        except Exception:
-            # Fallback: concatenate manually with ChatML format
-            full_text = (
-                f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n"
-                f"<|im_start|>user\n{text}<|im_end|>\n"
-                f"<|im_start|>assistant\n{gold}<|im_end|>"
-            )
-
-        conversations.append({"text": full_text})
-
-    result = Dataset.from_list(conversations)
+    rows = [_build_prompt_completion_example(sample) for sample in t2g_ds]
+    sft_ds = Dataset.from_list(rows)
     logger.info(
-        "[sft] SFT dataset: %d conversation pairs " "(columns=%s)",
-        len(result),
-        list(result.column_names),
+        "[sft] SFT dataset: %d prompt-completion pairs (columns=%s)",
+        len(sft_ds),
+        list(sft_ds.column_names),
     )
-    return result
+
+    eval_fraction = config.get("training", {}).get("eval_fraction", 0.02)
+    seed = ds_cfg.get("seed", 42)
+    train_ds, eval_ds = split_eval_holdout(
+        sft_ds, eval_fraction=eval_fraction, seed=seed
+    )
+    logger.info(
+        "[sft] Eval holdout: eval_fraction=%.3f → train=%d, eval=%d",
+        eval_fraction,
+        len(train_ds),
+        len(eval_ds),
+    )
+    return train_ds, eval_ds
+
+
+# ---------------------------------------------------------------------------
+# SFT adapter fingerprint & reuse
+# ---------------------------------------------------------------------------
+
+#: Version of the fingerprint schema.  Bump when the fingerprinted fields
+#: change (e.g. a new field starts affecting the adapter) — the version is
+#: part of the hash, so a bump invalidates every previously stored
+#: fingerprint automatically.
+_SFT_FINGERPRINT_VERSION = 1
+
+#: Training keys that never affect the SFT adapter weights (paths/timestamps).
+_NON_DETERMINISTIC_TRAINING_KEYS = ("output_dir", "log_dir", "run_timestamp", "trainer")
+
+
+def _sft_training_fingerprint_source(config: dict[str, Any]) -> dict[str, Any]:
+    """SFT-relevant training hyperparameters (path/timestamp keys excluded).
+
+    In the GRPO flow ``sft_config["sft_pretrain"]["training"]`` carries the
+    SFT hyperparameters, while the merged ``training`` section additionally
+    holds GRPO-only keys such as ``max_steps`` that must NOT invalidate the
+    SFT adapter.  The standalone ``sft.yaml`` flow has no ``sft_pretrain``
+    section, so the effective ``training`` section is used instead.
+    """
+    pretrain_training = config.get("sft_pretrain", {}).get("training", {})
+    if isinstance(pretrain_training, dict) and pretrain_training:
+        training = dict(pretrain_training)
+    else:
+        training = dict(config.get("training", {}))
+    for key in _NON_DETERMINISTIC_TRAINING_KEYS:
+        training.pop(key, None)
+    return training
+
+
+def _sft_fingerprint_payload(config: dict[str, Any]) -> dict[str, Any]:
+    """The exact dict hashed to produce the SFT fingerprint.
+
+    Contains every field that determines the SFT adapter (model + loading,
+    LoRA shape, dataset selection, SFT hyperparameters, system prompt).
+    Output/log paths and run timestamps are deliberately excluded — they
+    never affect the adapter weights.
+    """
+    model = config.get("model", {})
+    lora = config.get("lora", {})
+    dataset = config.get("dataset", {})
+    return {
+        "version": _SFT_FINGERPRINT_VERSION,
+        "model": {
+            key: model.get(key)
+            for key in ("name", "quantization", "dtype", "use_unsloth")
+            if key in model
+        },
+        "lora": {
+            key: lora.get(key)
+            for key in (
+                "r",
+                "lora_alpha",
+                "lora_dropout",
+                "target_modules",
+                "random_state",
+            )
+            if key in lora
+        },
+        "dataset": {
+            key: dataset.get(key)
+            for key in ("dataset_name", "seed", "split", "max_samples", "thinking")
+            if key in dataset
+        },
+        "sft_training": _sft_training_fingerprint_source(config),
+        "system_prompt": SYSTEM_PROMPT,
+    }
+
+
+def compute_sft_fingerprint(sft_config: dict[str, Any]) -> str:
+    """SHA-256 fingerprint of everything that determines an SFT adapter.
+
+    Two runs with the same fingerprint are expected to produce equivalent
+    adapters, so the SFT phase can be skipped and the previously saved
+    adapter reused.  Changing any SFT hyperparameter, the model, the LoRA
+    config, the dataset or the system prompt changes the fingerprint and
+    forces a retrain.
+
+    Args:
+        sft_config: Full config dict as passed to :func:`run_sft`.
+
+    Returns:
+        64-char hex SHA-256 of the canonical JSON of the fingerprinted
+        fields.
+    """
+    canonical = json.dumps(
+        _sft_fingerprint_payload(sft_config), sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def write_sft_fingerprint(
+    final_path: str | Path, sft_config: dict[str, Any]
+) -> Path:
+    """Write ``sft_fingerprint.json`` next to a freshly-trained SFT adapter.
+
+    The file records the fingerprint plus the fingerprinted config so a
+    later GRPO run can decide whether this adapter is reusable.  It is
+    written ONLY after training completed (called at the end of
+    :func:`run_sft`); a ``final/`` without it is never reused.
+
+    Args:
+        final_path: Directory of the saved SFT adapter (``.../final``).
+        sft_config: Full config dict used to train the adapter.
+
+    Returns:
+        Path of the written ``sft_fingerprint.json`` file.
+    """
+    document = {
+        "fingerprint": compute_sft_fingerprint(sft_config),
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "config": _sft_fingerprint_payload(sft_config),
+    }
+    final_dir = Path(final_path)
+    final_dir.mkdir(parents=True, exist_ok=True)
+    out = final_dir / "sft_fingerprint.json"
+    out.write_text(
+        json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return out
+
+
+def is_complete_adapter_dir(path: str | Path) -> bool:
+    """Whether *path* looks like a loadable (PEFT/merged) adapter directory.
+
+    Accepts a PEFT LoRA adapter (``adapter_config.json`` + weights) or a
+    merged model directory (``config.json`` + weights).  Used to guard
+    adapter reuse: a directory containing only ``sft_fingerprint.json`` is
+    NOT a usable adapter.
+
+    Args:
+        path: Candidate adapter directory.
+
+    Returns:
+        ``True`` if the directory has a config file AND weight files.
+    """
+    d = Path(path)
+    if not d.is_dir():
+        return False
+    has_config = (d / "adapter_config.json").is_file() or (d / "config.json").is_file()
+    has_weights = any(
+        (d / name).is_file()
+        for name in (
+            "adapter_model.safetensors",
+            "adapter_model.bin",
+            "model.safetensors",
+            "pytorch_model.bin",
+        )
+    )
+    return has_config and has_weights
+
+
+def _sft_fingerprint_candidates(parent: Path) -> list[Path]:
+    """All ``run_*/sft_pretrain/final/sft_fingerprint.json`` under *parent*.
+
+    Sorted by modification time, most recent first.
+    """
+    return sorted(
+        parent.glob("run_*/sft_pretrain/final/sft_fingerprint.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+
+
+def find_reusable_sft_adapter(
+    model_ckpt_parent: str | Path, fingerprint: str
+) -> Path | None:
+    """Find a previously-trained SFT adapter matching *fingerprint*.
+
+    Scans sibling ``run_*/sft_pretrain/final`` directories under
+    *model_ckpt_parent* (e.g. ``experiments/checkpoints/qwen25-05b-optimal``)
+    and returns the most recently modified adapter whose
+    ``sft_fingerprint.json`` matches and whose weight files are intact.  A
+    candidate whose fingerprint matches but whose adapter files are missing
+    is skipped (logged loudly) in favour of the next candidate.
+
+    Args:
+        model_ckpt_parent: Directory containing the ``run_*`` subdirectories
+            of the model family.
+        fingerprint: Expected SFT fingerprint (see
+            :func:`compute_sft_fingerprint`).
+
+    Returns:
+        Path to the reusable adapter directory (``.../final``), or ``None``
+        if no candidate matches.
+    """
+    parent = Path(model_ckpt_parent)
+    if not parent.is_dir():
+        return None
+    candidates = _sft_fingerprint_candidates(parent)
+    for candidate in candidates:
+        try:
+            meta = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            logger.warning(
+                "[sft-reuse] Unreadable sft_fingerprint.json, skipping: %s", candidate
+            )
+            continue
+        if meta.get("fingerprint") != fingerprint:
+            continue
+        adapter_dir = candidate.parent
+        if not is_complete_adapter_dir(adapter_dir):
+            logger.warning(
+                "[sft-reuse] Fingerprint match but adapter files missing, "
+                "skipping: %s",
+                adapter_dir,
+            )
+            continue
+        logger.info("[sft-reuse] Reusable SFT adapter found: %s", adapter_dir)
+        return adapter_dir
+    if candidates:
+        logger.warning(
+            "[sft-reuse] No matching SFT adapter found "
+            "(checked %d candidate run(s)) — training SFT",
+            len(candidates),
+        )
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -220,22 +511,16 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     logger.info("STEP 3: SFT Dataset Preparation")
     logger.info("=" * 60)
 
-    sft_dataset = _prepare_sft_dataset(config, tokenizer, dataset=dataset)
+    sft_train_ds, sft_eval_ds = _prepare_sft_dataset(config, dataset=dataset)
 
     # Log a few sample pairs for verification
-    logger.info("[sft] Sample conversation pairs (first 2):")
-    for i in range(min(2, len(sft_dataset))):
-        text = sft_dataset[i]["text"]
-        # Extract just the user instruction and gold gloss for compact display
-        user_marker = "<|im_start|>user\n"
-        asst_marker = "<|im_start|>assistant\n"
-        if user_marker in text and asst_marker in text:
-            user_text = text.split(user_marker)[1].split("<|im_end|>")[0].strip()
-            gold_text = text.split(asst_marker)[1].split("<|im_end|>")[0].strip()
-            logger.info("[sft]   #%d  EN: %s", i, user_text[:80])
-            logger.info("[sft]        GOLD: %s", gold_text[:80])
-        else:
-            logger.info("[sft]   #%d  (raw) %s", i, text[:100])
+    logger.info("[sft] Sample prompt-completion pairs (first 2):")
+    for i in range(min(2, len(sft_train_ds))):
+        sample = sft_train_ds[i]
+        user_text = sample["prompt"][-1]["content"]
+        gold_text = sample["completion"][0]["content"]
+        logger.info("[sft]   #%d  EN: %s", i, user_text[:80])
+        logger.info("[sft]        GOLD: %s", gold_text[:80])
 
     # ── Step 4: SFT configuration ────────────────────────────────────────
     logger.info("=" * 60)
@@ -297,12 +582,19 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     # since transformers 5.2).
     os.environ.setdefault("TENSORBOARD_LOGGING_DIR", log_dir)
 
+    eval_enabled = len(sft_eval_ds) > 0
+    if not eval_enabled:
+        logger.warning(
+            "[sft] eval_fraction<=0 → eval_strategy='no', early stopping disabled"
+        )
+
     sft_config = SFTConfig(
         output_dir=output_dir,
         run_name=run_name,
         seed=training_cfg.get("seed", config["dataset"].get("seed", 42)),
         num_train_epochs=training_cfg.get("num_train_epochs", 3),
         per_device_train_batch_size=training_cfg.get("per_device_train_batch_size", 4),
+        per_device_eval_batch_size=training_cfg.get("per_device_eval_batch_size", 8),
         gradient_accumulation_steps=training_cfg.get("gradient_accumulation_steps", 4),
         learning_rate=training_cfg.get("learning_rate", 2e-5),
         lr_scheduler_type=training_cfg.get("lr_scheduler_type", "cosine"),
@@ -313,12 +605,27 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         bf16=training_cfg.get("bf16", True),
         logging_steps=training_cfg.get("logging_steps", 10),
         save_steps=training_cfg.get("save_steps", 200),
-        save_total_limit=training_cfg.get("save_total_limit", 3),
+        save_total_limit=training_cfg.get("save_total_limit", 2),
         max_length=training_cfg.get(
             "max_seq_length", 768
         ),  # renamed from max_seq_length in TRL 0.20+
         gradient_checkpointing=training_cfg.get("gradient_checkpointing", False),
-        dataset_text_field="text",
+        # ── Loss masking: only the gold gloss (completion) counts ───────
+        # The dataset uses trl's prompt-completion conversational format, so
+        # SFTTrainer builds a completion_mask and, when completion_only_loss
+        # is None (default), auto-enables completion-only loss for
+        # prompt-completion datasets (trl/trainer/sft_trainer.py:733-739).
+        # Set explicitly for clarity and forward-compatibility.
+        completion_only_loss=True,
+        # ── Held-out eval + early stopping (overfitting guard) ──────────
+        # ``sft_pretrain.training`` is merged into ``training`` by
+        # grpo_t2g_train.py, so eval_fraction/eval_steps/... are read here
+        # from the same key regardless of the entry point.
+        eval_strategy="steps" if eval_enabled else "no",
+        eval_steps=training_cfg.get("eval_steps", 200),
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
+        load_best_model_at_end=eval_enabled,
         report_to="wandb",
     )
 
@@ -340,17 +647,25 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     )
     logger.info(
         "[sft] dataset_size=%d, effective_batch=%d, total_optim_steps≈%d",
-        len(sft_dataset),
+        len(sft_train_ds),
         sft_config.per_device_train_batch_size * sft_config.gradient_accumulation_steps,
         max(
             1,
-            len(sft_dataset)
+            len(sft_train_ds)
             // (
                 sft_config.per_device_train_batch_size
                 * sft_config.gradient_accumulation_steps
             ),
         )
         * sft_config.num_train_epochs,
+    )
+    logger.info(
+        "[sft] eval: strategy=%s, eval_steps=%d, eval_size=%d, "
+        "completion_only_loss=%s",
+        sft_config.eval_strategy,
+        sft_config.eval_steps,
+        len(sft_eval_ds),
+        sft_config.completion_only_loss,
     )
 
     # ── Resume logic ─────────────────────────────────────────────────────
@@ -419,7 +734,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         model.warnings_issued = {}
 
     from transformers.integrations.integration_utils import WandbCallback
-    from transformers.trainer_callback import ProgressCallback
+    from transformers.trainer_callback import EarlyStoppingCallback, ProgressCallback
 
     from src.training.callbacks import (
         HighPrecisionLogCallback,
@@ -430,7 +745,8 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     trainer = SFTTrainer(
         model=model,
         args=sft_config,
-        train_dataset=sft_dataset,
+        train_dataset=sft_train_ds,
+        eval_dataset=sft_eval_ds if eval_enabled else None,
         processing_class=tokenizer,
     )
 
@@ -444,11 +760,23 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     except Exception:
         pass
 
+    # Early stopping on eval_loss: stop if it does not improve for
+    # `early_stopping_patience` evaluations (guards overfitting on the
+    # prompt-redundant 78K train samples).
+    if eval_enabled:
+        trainer.add_callback(
+            EarlyStoppingCallback(
+                early_stopping_patience=training_cfg.get(
+                    "early_stopping_patience", 3
+                )
+            )
+        )
+
     # SFT sample + loss tracking callback for visibility into pre-training
     sft_sample_cb = SFTSampleCallback(
         tokenizer=tokenizer,
         model=model,
-        dataset=sft_dataset,
+        dataset=sft_train_ds,
         every_n_steps=training_cfg.get("logging_steps", 10) * 5,
         sample_every_n_steps=training_cfg.get("sft_sample_every_n_steps", 100),
         n_samples=2,
@@ -462,12 +790,34 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         logger.info("Starting SFT training...")
         trainer.train(resume_from_checkpoint=resume_from)
 
+        # ── Best metric (tracked by load_best_model_at_end) ─────────────
+        best_metric = getattr(trainer.state, "best_metric", None)
+        if best_metric is not None:
+            logger.info(
+                "[sft] Best eval_loss=%.6f (best checkpoint=%s)",
+                best_metric,
+                trainer.state.best_model_checkpoint,
+            )
+        else:
+            logger.info("[sft] No eval metric tracked (evaluation disabled).")
+
         # ── Save final model ─────────────────────────────────────────────
+        # With load_best_model_at_end=True the trainer already re-loaded the
+        # best checkpoint weights, so `final` holds the best adapter.
         final_path = Path(output_dir) / "final"
         logger.info("Saving final model to %s...", final_path)
         trainer.save_model(str(final_path))
         tokenizer.save_pretrained(str(final_path))
         final_path_str = str(final_path)
+
+        # ── Record SFT fingerprint (adapter reuse in the GRPO flow) ──────
+        # Written ONLY after a completed training: a ``final/`` without
+        # sft_fingerprint.json is never reused by grpo_t2g_train.
+        try:
+            fingerprint_path = write_sft_fingerprint(final_path, config)
+            logger.info("SFT fingerprint written to %s", fingerprint_path)
+        except Exception as exc:  # metadata only — never fail a completed training
+            logger.warning("[sft] Failed to write sft_fingerprint.json: %s", exc)
 
         # ── Clean up duplicate final step checkpoint ──────────────────────
         global_step = trainer.state.global_step

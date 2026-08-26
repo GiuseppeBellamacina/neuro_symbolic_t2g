@@ -33,7 +33,6 @@ expected by TRL's ``GRPOTrainer``:
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 from typing import Any, Callable
@@ -41,7 +40,7 @@ from typing import Any, Callable
 import numpy as np
 from rouge_score import rouge_scorer
 
-from src.utils.text_utils import extract_gloss_text, extract_user_text
+from src.utils.text_utils import extract_gloss_text
 
 logger = logging.getLogger(__name__)
 
@@ -68,18 +67,12 @@ _viterbi_diversity_params: dict[str, float | int] = {
     "max_occurrences": 2,
     "diversity_threshold": 0.3,
     "max_iters": 3,
-    "verifier_gamma": 1.0,
-    # Decoupled from verifier_gamma (see verifier_scaled_reward docstring):
-    # controls the softmax temperature used to rescale structural_dense_reward
-    # before log1p-scaling it as the verifier confidence multiplier. Default
-    # 5.0 gives a gentle curve; configs can override via
-    # grammar.viterbi_diversity.verifier_temperature.
-    "verifier_temperature": 5.0,
 }
 
-#: Gold gloss registry: maps sample_id (SHA256 of user instruction) → gold gloss.
-#  Populated at dataset load time via ``register_gold_glosses()``.
-_gold_gloss_registry: dict[str, str] = {}
+#: Guard flag: when True, the missing-gold warning has already been logged.
+#  Reset in ``initialize_rewards`` so the warning fires at most once per run
+#  (and once per test setup).
+_warned_missing_gold: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +94,7 @@ def initialize_rewards(
         vocab: The sorted gloss vocabulary.
     """
     global _bigram_matrix, _gloss_vocab, _token_to_idx, _ROUGE_SCORER
-    global _viterbi_diversity_params
+    global _viterbi_diversity_params, _warned_missing_gold
     _bigram_matrix = bigram_matrix
     _gloss_vocab = vocab
     _token_to_idx = {t: i for i, t in enumerate(vocab)}
@@ -109,7 +102,9 @@ def initialize_rewards(
     # Use ROUGE-L F1 as the primary quality metric
     _ROUGE_SCORER = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=False)
 
-    # Set Viterbi diversity params from config
+    # Set Viterbi diversity params from config (only the params actually used
+    # by the Viterbi/soft-Viterbi rewards; verifier_gamma and
+    # verifier_temperature are dead config and no longer loaded).
     diversity_cfg = viterbi_diversity or {}
 
     _viterbi_diversity_params = {
@@ -117,86 +112,12 @@ def initialize_rewards(
         "max_occurrences": diversity_cfg.get("max_occurrences", 2),
         "diversity_threshold": diversity_cfg.get("diversity_threshold", 0.3),
         "max_iters": diversity_cfg.get("max_iters", 3),
-        "verifier_gamma": diversity_cfg.get("verifier_gamma", 1.0),
-        "verifier_temperature": diversity_cfg.get("verifier_temperature", 5.0),
     }
     logger.info("Viterbi diversity params: %s", _viterbi_diversity_params)
 
-
-def _extract_sample_id(prompt: Any) -> str:
-    """Extract a stable sample ID from a prompt in any format.
-
-    Uses the shared ``extract_user_text`` to get the user instruction,
-    then returns its SHA256 hash as a deterministic lookup key.
-
-    Args:
-        prompt: The prompt in whatever format GRPOTrainer provides.
-
-    Returns:
-        SHA256 hex digest of the user instruction, or ``""`` if no
-        user content could be extracted.
-    """
-    user_text = extract_user_text(prompt)
-    if not user_text:
-        return ""
-    return hashlib.sha256(user_text.encode("utf-8", errors="replace")).hexdigest()
-
-
-def register_gold_glosses(
-    sample_ids: list[str],
-    gold_glosses: list[str],
-) -> None:
-    """Populate the gold gloss registry from the training dataset.
-
-    Called once after dataset preparation, before training starts.
-    Maps each sample ID (SHA256 of user instruction) to its
-    corresponding gold gloss sequence.
-
-    This registry is used by ``translation_quality_reward`` to look up
-    the gold reference for each rollout prompt during GRPO.
-
-    Args:
-        sample_ids: Stable sample IDs (hashes of user instructions).
-        gold_glosses: The gold gloss completion strings (same order).
-    """
-    global _gold_gloss_registry
-    _gold_gloss_registry = dict(zip(sample_ids, gold_glosses))
-    logger.info(f"Gold gloss registry: {len(_gold_gloss_registry)} entries registered")
-
-
-def _lookup_gold_gloss(prompt: Any) -> str:
-    """Look up the gold gloss for a prompt in the registry.
-
-    Extracts a stable sample ID from the prompt (handling any format
-    that GRPOTrainer may provide), then looks up the gold gloss.
-    Falls back to empty string if not found.
-
-    Args:
-        prompt: The prompt from GRPOTrainer (any format).
-
-    Returns:
-        The gold gloss string, or ``""`` if not found.
-    """
-    sample_id = _extract_sample_id(prompt)
-    if not sample_id:
-        return ""
-    return _gold_gloss_registry.get(sample_id, "")
-
-
-def _lookup_gold_gloss_by_id(sample_id: str) -> str:
-    """Look up the gold gloss directly by its stable sample ID.
-
-    Unlike ``_lookup_gold_gloss``, this does NOT re-hash the input —
-    it performs a direct dictionary lookup.  Use this when you already
-    have a pre-computed sample ID (SHA256 hex string).
-
-    Args:
-        sample_id: The stable sample ID (SHA256 hex digest).
-
-    Returns:
-        The gold gloss string, or ``""`` if not found.
-    """
-    return _gold_gloss_registry.get(sample_id, "")
+    # Reset the one-time "gold_gloss missing" warning flag so it can fire
+    # again after a fresh initialization (e.g. new training run / test setup).
+    _warned_missing_gold = False
 
 
 # ---------------------------------------------------------------------------
@@ -407,6 +328,22 @@ def gold_structure_reward(
     - ``≪ 1.0`` → LLM sequence has much worse bigram transitions than the
       gold reference (mapped toward ``-1``).
 
+    **Anti reward-hacking safeguards**:
+
+    - A completion with **fewer than 2 in-vocabulary tokens** (e.g. ``"IX"``
+      or all-OOV garbage) scores a hard ``-1.0``.  Without this guard, such
+      sequences would glide on the near-uniform ``<BOS> → <EOS>`` transition
+      instead of being penalized.
+    - A **length-mismatch penalty** ``min(1, min(a, b) / max(a, b))`` (where
+      ``a``/``b`` are the in-vocab token counts of completion and gold) is
+      applied to the normalized reward BEFORE the symmetric ``[-1, 1]``
+      mapping.  Rewarding average bigram log-probability alone favors SHORT
+      paths — fewer transitions means fewer chances to hit a low-probability
+      edge and thus a higher average.  The factor down-weights any length
+      asymmetry (e.g. a 2-token completion against a 6-token gold → factor
+      ``1/3``), so degenerate short outputs stop receiving free structural
+      credit.
+
     .. note::
        This is the **recommended** structural reward for T2G GRPO.  It
        uses a semantically meaningful baseline (the gold gloss) rather
@@ -460,6 +397,18 @@ def gold_structure_reward(
     llm_indices, llm_oov = _indices(llm_text.split())
     gold_indices, gold_oov = _indices(gold_text.split())
 
+    # Effective structural length = number of in-vocabulary tokens (OOV
+    # tokens are skipped by _indices and must not count toward length).
+    llm_vocab_len = len(llm_text.split()) - llm_oov
+    gold_vocab_len = len(gold_text.split()) - gold_oov
+
+    # Anti-hacking guard: fewer than 2 in-vocab tokens → hard failure.
+    # Such a sequence cannot carry a meaningful structural comparison; with
+    # 0 or 1 in-vocab tokens the path degenerates to BOS→EOS / BOS→tok→EOS
+    # whose near-uniform probabilities would give garbage free credit.
+    if llm_vocab_len < 2:
+        return -1.0
+
     # Compute log-probabilities
     from src.datasets.transition_matrix import sequence_score_bigram
 
@@ -487,6 +436,14 @@ def gold_structure_reward(
         if total_tokens > 0:
             oov_penalty = llm_oov / total_tokens
             reward *= 1.0 - oov_penalty
+        # Length-mismatch penalty (see docstring): down-weights completions
+        # whose in-vocab length diverges from the gold's, applied BEFORE the
+        # symmetric mapping so asymmetry pushes the score below 0.
+        length_factor = min(
+            1.0,
+            min(llm_vocab_len, gold_vocab_len) / max(llm_vocab_len, gold_vocab_len, 1),
+        )
+        reward *= length_factor
         return _to_symmetric(reward)
 
     return _clamp_symmetric(llm_log_prob - gold_log_prob)
@@ -942,20 +899,26 @@ def gloss_format_reward(completion: str) -> float:
 def gloss_repetition_reward(completion: str) -> float:
     """Penalize repetitive gloss sequences (degenerate generation).
 
+    Sequences shorter than 4 tokens cannot exhibit meaningful repetition
+    (no trigram is even available), so they are scored as NEUTRAL ``0.0``.
+    The previous behavior returned ``+1.0`` unconditionally for short
+    outputs, which incentivized reward hacking: the model could emit 1–3
+    tokens and collect a free +1.0.  Empty outputs are treated the same way.
+
     Args:
         completion: Raw model completion.
 
     Returns:
-        ``1.0`` for normal output, ``0.0`` for moderate repetition,
-        ``-1.0`` for severe loops.
+        ``1.0`` for normal output, ``0.0`` for short (<4 tokens) or empty
+        output, ``-0.3`` for moderate repetition, ``-1.0`` for severe loops.
     """
     text = extract_gloss_text(completion)
     if not text:
-        return 1.0
+        return 0.0
 
     tokens = text.split()
     if len(tokens) < 4:
-        return 1.0
+        return 0.0
 
     # Check token-level uniqueness
     unique_ratio = len(set(tokens)) / len(tokens)
@@ -1013,10 +976,9 @@ def _check_sacrebleu_available() -> None:
     except ImportError as e:
         raise ImportError(
             "sacrebleu is not installed but weight_bleu > 0 in the config. "
-            "BLEU reward requires sacrebleu. Install it with: pip install sacrebleu "
-            "(or uv pip install sacrebleu). On the cluster, ensure the Apptainer "
-            "image includes it — see cluster/setup.sh (pip install --user -e . "
-            "from pyproject.toml which declares sacrebleu>=2.0.0)."
+            "sacrebleu is a core dependency of this project — your "
+            "environment is out of sync with pyproject.toml. Reinstall "
+            "with: pip install -e . (or: uv sync)."
         ) from e
 
 
@@ -1044,10 +1006,9 @@ def _get_sacrebleu_metric() -> Any:
         _SACREBLEU_AVAILABLE = False
         raise ImportError(
             "sacrebleu is not installed but weight_bleu > 0 in the config. "
-            "BLEU reward requires sacrebleu. Install it with: pip install sacrebleu "
-            "(or uv pip install sacrebleu). On the cluster, ensure the Apptainer "
-            "image includes it — see cluster/setup.sh (pip install --user -e . "
-            "from pyproject.toml which declares sacrebleu>=2.0.0)."
+            "sacrebleu is a core dependency of this project — your "
+            "environment is out of sync with pyproject.toml. Reinstall "
+            "with: pip install -e . (or: uv sync)."
         ) from e
 
     _SACREBLEU_AVAILABLE = True
@@ -1062,8 +1023,11 @@ def _get_sacrebleu_metric() -> Any:
 def bleu_reward(completion: str, gold_gloss: str) -> float:
     """BLEU-4 reward using sacrebleu sentence BLEU.
 
-    T2G-Reasoner (2025) shows BLEU-4 outperforms ROUGE-L as a reward
-    signal for T2G GRPO training.
+    BLEU as a GRPO reward signal for translation on small models is
+    validated by RVLF (Rao et al., 2025, arXiv:2512.07273 — BLEU+ROUGE
+    rewards for sign language translation) and by Mosquera et al., 2025
+    (arXiv:2508.19481 — GRPO with BLEU similarity reward on
+    Qwen2.5-0.5B). See docs/SOURCES.md for the full bibliography.
 
     Uses ``effective_order=True`` so short gloss sequences (1–3 tokens,
     common in ASL: ``"IX-1p"``, ``"WALK HOUSE"``) are scored against the
@@ -1119,17 +1083,27 @@ def _make_gloss_reward_fn(
     """Wrap a single-sample reward component for GRPOTrainer.
 
     The GRPOTrainer expects:
-        ``fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]``
+        ``fn(completions, prompts, **kwargs) -> list[float]``
 
-    For ``needs_gold_gloss=True``, the gold gloss is retrieved from the
-    global ``_gold_gloss_registry`` by extracting a stable sample ID
-    (SHA256 of user instruction) from the prompt, regardless of format.
+    TRL 0.24 forwards every extra dataset column to the reward function as a
+    keyword argument (see ``GRPOTrainer._calculate_rewards``: it builds
+    ``reward_kwargs`` from all input columns except ``prompt``/``completion``/
+    ``completion_ids`` and calls ``reward_func(prompts=…, completions=…,
+    completion_ids=…, **reward_kwargs)``).  Therefore, for
+    ``needs_gold_gloss=True``, the gold reference is read directly from the
+    ``gold_gloss`` kwarg (a list aligned with ``completions``): ``gold_gloss[idx]``.
+    The dataset must retain a ``gold_gloss`` column (see ``build_t2g_dataset``).
+
+    If ``gold_gloss`` is missing, ``None``, or empty for a sample, the wrapper
+    logs a warning ONCE per run and returns a neutral ``0.0`` — never ``-1.0``,
+    so a misconfigured pipeline degrades the reward signal instead of
+    silently punishing every rollout.
 
     Args:
         component_fn: A function taking a single completion (and optionally
             gold gloss text) and returning a float.
         needs_gold_gloss: If ``True``, the function also receives the gold
-            gloss target looked up from the registry.
+            gloss target provided via the ``gold_gloss`` kwargs list.
 
     Returns:
         A callable with the GRPOTrainer-compatible signature.
@@ -1138,10 +1112,13 @@ def _make_gloss_reward_fn(
     def reward_fn(
         completions: list[Any],
         prompts: list[Any] | None = None,
+        *,
+        gold_gloss: list[str] | None = None,
         **kwargs: Any,
     ) -> list[float]:
-        results: list[float] = []
+        global _warned_missing_gold
 
+        results: list[float] = []
         for idx, completion in enumerate(completions):
             # Handle GRPOTrainer's completion format: list of messages
             text: str = (
@@ -1151,10 +1128,25 @@ def _make_gloss_reward_fn(
             )
 
             if needs_gold_gloss:
-                # Look up gold gloss via stable sample ID (format-agnostic)
-                prompt = prompts[idx] if prompts and idx < len(prompts) else None
-                gold = _lookup_gold_gloss(prompt)
-                results.append(component_fn(text, gold))
+                gold = (
+                    gold_gloss[idx]
+                    if gold_gloss is not None and idx < len(gold_gloss)
+                    else None
+                )
+                if gold is None or not str(gold).strip():
+                    if not _warned_missing_gold:
+                        _warned_missing_gold = True
+                        logger.warning(
+                            "gold_gloss missing/empty for reward '%s' (sample %d); "
+                            "returning neutral 0.0. Ensure the training dataset "
+                            "retains a 'gold_gloss' column — TRL forwards extra "
+                            "dataset columns to reward functions as kwargs.",
+                            component_fn.__name__,
+                            idx,
+                        )
+                    results.append(0.0)
+                else:
+                    results.append(component_fn(text, gold))
             else:
                 results.append(component_fn(text))
 

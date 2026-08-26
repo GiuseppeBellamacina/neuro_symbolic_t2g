@@ -7,6 +7,9 @@ Validates:
   3. Bigram transition matrix is row-normalized
   4. Save/load round-trip works
   5. T2G dataset format is correct
+  6. Dedup by normalized text removes duplicates before the split
+  7. Sample IDs are stable and gloss-sensitive (no hash collisions)
+  8. Vocab/bigram cache sidecar invalidation (seed / train_size)
 
 Requires internet to download the dataset — tests are skipped if offline.
 """
@@ -98,10 +101,116 @@ def test_t2g_dataset(dataset):
     t2g = build_t2g_dataset(dataset, split="train", max_samples=50)
     assert len(t2g) == 50, f"T2G dataset has correct size, got {len(t2g)}"
     assert "prompt" in t2g.column_names, "Has 'prompt' column"
+    assert "text" in t2g.column_names, "Has 'text' column"
     assert "completion" in t2g.column_names, "Has 'completion' column"
+    assert "gold_gloss" in t2g.column_names, "Has 'gold_gloss' column"
+    assert "sample_id" in t2g.column_names, "Has 'sample_id' column"
     assert "difficulty" in t2g.column_names, "Has 'difficulty' column"
 
     sample = t2g[0]
     assert isinstance(sample["prompt"], str) and len(sample["prompt"]) > 0
     assert isinstance(sample["completion"], str) and len(sample["completion"]) > 0
     assert sample["difficulty"] in ("simple", "medium", "hard")
+    # Contract: gold_gloss is identical to completion.
+    assert sample["gold_gloss"] == sample["completion"], "gold_gloss == completion"
+    # Contract: sample_id is a SHA256 hex digest (64 chars).
+    assert len(sample["sample_id"]) == 64, "sample_id is sha256 hex digest"
+
+
+# ---------------------------------------------------------------------------
+# Synthetic (offline) tests — no dataset download
+# ---------------------------------------------------------------------------
+
+
+def test_dedup_removes_normalized_duplicates():
+    """Dedup by normalized text removes case/whitespace duplicates, keeps first."""
+    from datasets import Dataset
+    from src.datasets.aslg_dataset import deduplicate_by_text
+
+    rows = [
+        {"text": "The man walks.", "gloss": "MAN WALK"},
+        {"text": "the   man walks.", "gloss": "MAN WALK"},  # whitespace dup
+        {"text": "THE MAN WALKS.", "gloss": "MAN WALK"},  # case dup
+        {"text": "A dog barks.", "gloss": "DOG BARK"},
+    ]
+    deduped, removed = deduplicate_by_text(Dataset.from_list(rows))
+    assert removed == 2, f"Removed 2 duplicates, got {removed}"
+    assert len(deduped) == 2
+    # First occurrence is kept.
+    assert deduped[0]["text"] == "The man walks."
+
+
+def test_dedup_prevents_cross_split_leakage(monkeypatch):
+    """After dedup + 90/10 split, no normalized text appears in both splits.
+
+    This replicates the exact flow of ``download_aslg_dataset`` with
+    ``load_dataset`` monkeypatched to return a synthetic HF dataset, so no
+    internet access is required.
+    """
+    import src.datasets.aslg_dataset as ds_module
+    from datasets import Dataset, DatasetDict
+
+    rows = [
+        {"text": "In the beginning God created the heaven.", "gloss": "BEGIN GOD CREATE HEAVEN"},
+        {"text": "in the beginning god created the heaven.", "gloss": "BEGIN GOD CREATE HEAVEN"},  # dup
+        {"text": "And God said let there be light.", "gloss": "GOD SAY LIGHT EXIST"},
+        {"text": "AND GOD SAID LET THERE BE LIGHT.", "gloss": "GOD SAY LIGHT EXIST"},  # dup
+        {"text": "And the earth was without form.", "gloss": "EARTH FORM NONE"},
+        {"text": "The man walks into the house.", "gloss": "MAN WALK ENTER HOUSE"},
+        {"text": "The dog chases the cat.", "gloss": "DOG CHASE CAT"},
+        {"text": "The boy reads the book.", "gloss": "BOY READ BOOK"},
+    ]
+    fake = DatasetDict({"train": Dataset.from_list(rows)})
+    monkeypatch.setattr(
+        ds_module, "load_dataset", lambda *args, **kwargs: fake
+    )
+
+    result = ds_module.download_aslg_dataset(cache_dir="unused", seed=42)
+
+    train_norm = {ds_module.normalize_text(t) for t in result["train"]["text"]}
+    test_norm = {ds_module.normalize_text(t) for t in result["test"]["text"]}
+    assert train_norm.isdisjoint(test_norm), (
+        "No normalized sentence may leak into both train and test"
+    )
+
+
+def test_sample_id_stable_and_gloss_sensitive():
+    """sample_id differs per gold gloss; identical normalized text+gloss collide."""
+    from datasets import Dataset, DatasetDict
+    from src.datasets.aslg_dataset import build_t2g_dataset
+
+    rows = [
+        {"text": "The man walks.", "gloss": "MAN WALK"},
+        # Same text, different gloss order → different sample_id.
+        {"text": "The man walks.", "gloss": "WALK MAN"},
+        # Same normalized text + same gloss → identical sample_id.
+        {"text": "the   man walks.", "gloss": "MAN WALK"},
+    ]
+    ds = DatasetDict({"train": Dataset.from_list(rows)})
+    out = build_t2g_dataset(ds, split="train")
+
+    ids = list(out["sample_id"])
+    assert len(ids) == 3
+    assert ids[0] != ids[1], "Different gold gloss → different sample_id"
+    assert ids[0] == ids[2], "Same normalized text + same gloss → same sample_id"
+    assert all(len(i) == 64 for i in ids), "sample_id is sha256 hex digest"
+
+
+def test_cache_meta_invalidation(tmp_path):
+    """Vocab/bigram cache sidecar invalidates on seed or train_size change."""
+    from src.training.grpo_t2g_train import _cache_is_current, _write_cache_meta
+
+    path = tmp_path / "gloss_vocab.txt"
+    path.write_text("IX\nMAN\n", encoding="utf-8")
+
+    # Legacy cache without sidecar → never trusted.
+    assert not _cache_is_current(path, seed=42, train_size=100)
+
+    _write_cache_meta(path, seed=42, train_size=100)
+    assert _cache_is_current(path, seed=42, train_size=100), "Fresh sidecar is valid"
+
+    assert not _cache_is_current(path, seed=43, train_size=100), "Seed change → invalid"
+    assert not _cache_is_current(path, seed=42, train_size=101), "Size change → invalid"
+
+    # Missing artifact → invalid.
+    assert not _cache_is_current(tmp_path / "missing.npy", seed=42, train_size=100)

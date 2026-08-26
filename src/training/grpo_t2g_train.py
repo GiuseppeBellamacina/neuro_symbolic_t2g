@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import gc
-import hashlib
 
 # ── Workaround: _is_package_available in transformers 5.3.0 restituisce  ─
 # una TUPLA (bool, str) invece di un bool.  In Python, una tupla non vuota
@@ -89,10 +88,14 @@ from src.grammar.grammar_logits_processor import (
     GrammarPDALogitsProcessor,
 )
 from src.models.model_loader import load_model_and_tokenizer
+from src.retrieval import ExampleRetriever
 from src.rewards.t2g_rewards import (
     build_t2g_reward_functions,
     initialize_rewards,
-    register_gold_glosses,
+)
+from src.training.retrieval_setup import (
+    build_train_retriever,
+    retrieve_few_shot_batch,
 )
 from src.utils.config import load_config
 from src.utils.prompting import build_t2g_prompt
@@ -187,16 +190,36 @@ def _prepare_t2g_dataset(
     tokenizer: Any,
     vocab: list[str],
     dataset: Any = None,
+    *,
+    retriever: ExampleRetriever | None = None,
+    retrieval_cfg: dict[str, Any] | None = None,
 ) -> Dataset:
     """Load ASLG-PC12 and build prompt-completion pairs for GRPO.
 
-    The dataset has columns: ``prompt``, ``completion`` (gold gloss), ``difficulty``.
+    The dataset has columns: ``prompt``, ``text``, ``completion``,
+    ``gold_gloss``, ``sample_id``, ``difficulty``.  All extra columns are
+    intentionally preserved: TRL 0.24's ``GRPOTrainer`` forwards every
+    dataset column (except ``prompt``/``completion``/``completion_ids``) to
+    the reward functions as keyword arguments, so the ``gold_gloss`` column
+    is what feeds the gold reference to the rewards at rollout time.
+
+    When ``retriever`` is given, every prompt is augmented with ``top_k``
+    similar ``(text, gloss)`` examples retrieved from the TRAIN split (same
+    strategy as ``eval_t2g.py``, so train/inference prompts stay coherent).
+    Retrieval happens ONCE up front — never per training step.  Anti-leakage
+    (excluding the query's own normalized text and dropping near-duplicates
+    above ``max_self_similarity``) is handled by
+    :func:`retrieve_few_shot_batch`.
 
     Args:
         config: Full config dict.
         tokenizer: Hugging Face tokenizer.
         vocab: Gloss vocabulary (unused here, kept for API compatibility).
         dataset: Optional pre-loaded ``DatasetDict``. If ``None``, downloads it.
+        retriever: Optional few-shot retriever built over the train split
+            (see ``src/training/retrieval_setup.py``). ``None`` ⇒ zero-shot.
+        retrieval_cfg: Resolved ``retrieval`` config section (``top_k``,
+            ``max_self_similarity``); ignored when ``retriever`` is ``None``.
     """
     ds_cfg = config["dataset"]
     if dataset is None:
@@ -210,6 +233,19 @@ def _prepare_t2g_dataset(
         max_samples=ds_cfg.get("max_samples"),
     )
 
+    # Retrieve few-shot examples for every sample in one pass (the tfidf
+    # backend is deterministic and fast; this never runs during rollout).
+    top_k = int((retrieval_cfg or {}).get("top_k", 3))
+    max_self_similarity = float(
+        (retrieval_cfg or {}).get("max_self_similarity", 0.98)
+    )
+    texts = [t2g_ds[i]["prompt"] for i in range(len(t2g_ds))]
+    examples_batch = (
+        retrieve_few_shot_batch(retriever, texts, top_k, max_self_similarity)
+        if retriever is not None
+        else None
+    )
+
     # Format prompts with the centralized T2G prompt builder.
     # This guarantees train/eval/test use identical formatting.
     formatted: list[dict[str, str]] = []
@@ -217,27 +253,96 @@ def _prepare_t2g_dataset(
         sample = t2g_ds[i]
         text = sample["prompt"]
 
-        prompt = build_t2g_prompt(text, tokenizer)
+        prompt = build_t2g_prompt(
+            text,
+            tokenizer,
+            examples=examples_batch[i] if examples_batch is not None else None,
+        )
 
-        # Stable sample ID: SHA256 of the user instruction (English sentence).
-        # This survives any prompt format changes by TRL, enabling reliable
-        # gold gloss lookup in reward functions.
-        sample_id = hashlib.sha256(
-            str(text).encode("utf-8", errors="replace")
-        ).hexdigest()
-
+        # Keep every column produced by build_t2g_dataset.  In particular
+        # ``gold_gloss`` must survive to the GRPOTrainer dataset so TRL
+        # forwards it to the reward functions as a kwarg (see
+        # ``t2g_rewards._make_gloss_reward_fn``). ``sample_id`` already
+        # encodes normalized text + gold gloss (collision-safe), so it no
+        # longer needs to be recomputed here.
         formatted.append(
             {
                 "prompt": prompt,
+                "text": sample.get("text", text),
                 "completion": sample["completion"],
+                "gold_gloss": sample.get("gold_gloss", sample["completion"]),
                 "difficulty": sample.get("difficulty", "medium"),
-                "sample_id": sample_id,
+                "sample_id": sample.get("sample_id", ""),
             }
         )
 
     result = Dataset.from_list(formatted)
     logger.info(f"[dataset] T2G training set: {len(result)} prompts")
     return result
+
+
+# ---------------------------------------------------------------------------
+# Cache invalidation for vocab / bigram artifacts
+# ---------------------------------------------------------------------------
+
+
+def _cache_meta_path(cache_path: str | Path) -> Path:
+    """Return the sidecar JSON path for a cache file (``<stem>.meta.json``).
+
+    Args:
+        cache_path: Path to the cache artifact (e.g. ``data/gloss_vocab.txt``).
+
+    Returns:
+        Sidecar path, e.g. ``data/gloss_vocab.meta.json``.
+    """
+    return Path(cache_path).with_suffix(".meta.json")
+
+
+def _write_cache_meta(cache_path: str | Path, seed: int, train_size: int) -> None:
+    """Write a sidecar JSON recording ``{seed, train_size}`` for a cache file.
+
+    Args:
+        cache_path: Path to the cache artifact.
+        seed: Random seed used to build the artifact.
+        train_size: Size of the training split used to build the artifact.
+    """
+    import json
+
+    meta_path = _cache_meta_path(cache_path)
+    meta_path.write_text(
+        json.dumps({"seed": seed, "train_size": train_size}, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
+def _cache_is_current(cache_path: str | Path, seed: int, train_size: int) -> bool:
+    """Check whether a cached artifact is up to date for the current run.
+
+    A cache is valid only if the file exists AND its sidecar JSON matches the
+    current ``(seed, train_size)``.  Legacy cache files WITHOUT a sidecar are
+    NEVER trusted and are regenerated — this prevents silently reusing
+    vocab/bigram artifacts built under a different seed or before dataset
+    dedup changed the training-set composition.
+
+    Args:
+        cache_path: Path to the cache artifact.
+        seed: Current run seed.
+        train_size: Current training split size.
+
+    Returns:
+        ``True`` if the cache is current, ``False`` otherwise.
+    """
+    import json
+
+    path = Path(cache_path)
+    meta_path = _cache_meta_path(cache_path)
+    if not path.exists() or not meta_path.exists():
+        return False
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return meta.get("seed") == seed and meta.get("train_size") == train_size
 
 
 # ---------------------------------------------------------------------------
@@ -274,16 +379,24 @@ def _build_generation_kwargs(
 
 
 # ---------------------------------------------------------------------------
-# Curriculum Learning (G²RPO-A, ACL 2026)
+# Curriculum Learning (difficulty-scheduled sampling)
+#
+# NOTE: previously attributed to "G²RPO-A (ACL 2026)" — that attribution was
+# wrong. The real G²RPO (arXiv:2508.13023) is Guided GRPO (ground-truth
+# reasoning injection), not a difficulty curriculum. This implementation is
+# a project-original 3-stage schedule; related evidence: FSA-GRPO
+# (arXiv:2606.02615) and G²RPO both target small/weak models with
+# stronger supervision signals. See docs/SOURCES.md.
 # ---------------------------------------------------------------------------
 
 
 class CurriculumSchedule:
     """Progressive difficulty curriculum for GRPO training.
 
-    Implements 3-stage curriculum based on G²RPO-A findings that sorting
-    training data by difficulty prevents small models from getting stuck
-    on hard examples early in training.
+    Project-original 3-stage curriculum: sorting training data by
+    difficulty keeps small models from getting stuck on hard examples
+    early in training (schedule calibrated on the post-dedup ASLG-PC12
+    difficulty distribution).
 
     Stage 1 (0-33% steps): 10% simple, 65% medium, 25% hard
     Stage 2 (33-66% steps): 5% simple, 40% medium, 55% hard
@@ -291,7 +404,8 @@ class CurriculumSchedule:
     """
 
     _STAGES: list[dict[str, float]] = [
-        # Stage 1: 10% simple (usa quasi tutti i disponibili, 9.3%), 65% medium, 25% hard
+        # Stage 1: 10% simple target (post-dedup availability ~4.9%, capped),
+        # 65% medium, 25% hard
         {"simple": 0.10, "medium": 0.65, "hard": 0.25},
         # Stage 2: 5% simple, 40% medium, 55% hard
         {"simple": 0.05, "medium": 0.40, "hard": 0.55},
@@ -460,8 +574,12 @@ class CurriculumCallback(TrainerCallback):
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
-    """Main entry point for T2G GRPO training."""
+def build_arg_parser() -> argparse.ArgumentParser:
+    """Build the CLI argument parser.
+
+    Extracted from :func:`main` so tests can exercise the argument wiring
+    (e.g. ``--force-sft``) without launching a training run.
+    """
     parser = argparse.ArgumentParser(
         description="GRPO training for Text-to-Gloss (T2G) with constrained decoding"
     )
@@ -474,7 +592,18 @@ def main() -> None:
         action="store_true",
         help="Only prepare data (download dataset, compute transitions, save vocab)",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--force-sft",
+        action="store_true",
+        help="Ignore SFT adapter reuse and always retrain SFT from scratch "
+        "(bypasses the fingerprint match on previously saved SFT adapters)",
+    )
+    return parser
+
+
+def main() -> None:
+    """Main entry point for T2G GRPO training."""
+    args = build_arg_parser().parse_args()
 
     config = load_config(args.config)
 
@@ -543,23 +672,31 @@ def main() -> None:
         cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
     )
 
-    # Extract vocabulary (or load from cache)
-    if Path(vocab_path).exists():
+    # Caches are keyed by (seed, train_size): if either changes (e.g. a new
+    # seed, or dataset dedup changing the split composition), the vocab and
+    # bigram artifacts must be regenerated.  Legacy caches without a sidecar
+    # are never trusted (see _cache_is_current).
+    train_size = len(dataset["train"])
+
+    # Extract vocabulary (or load from cache if still current)
+    if _cache_is_current(vocab_path, seed, train_size):
         from src.datasets.aslg_dataset import load_vocabulary
 
         vocab = load_vocabulary(vocab_path)
     else:
         vocab = extract_gloss_vocabulary(dataset, split="train")
         save_vocabulary(vocab, vocab_path)
+        _write_cache_meta(vocab_path, seed, train_size)
 
-    # Compute transition matrix (or load from cache)
-    if Path(bigram_path).exists():
+    # Compute transition matrix (or load from cache if still current)
+    if _cache_is_current(bigram_path, seed, train_size):
         bigram_matrix = load_transition_matrix(bigram_path)
     else:
         bigram_matrix = compute_bigram_transitions(
             dataset, vocab, split="train", smoothing=1.0
         )
         save_transition_matrix(bigram_matrix, bigram_path)
+        _write_cache_meta(bigram_path, seed, train_size)
 
     print(f"  Data prepared: |V|={len(vocab)}, bigram shape={bigram_matrix.shape}")
 
@@ -574,7 +711,12 @@ def main() -> None:
         print(f"\n{'=' * 60}")
         print("STEP 1.5: SFT Pre-training")
 
-        from src.training.sft_train import run_sft
+        from src.training.sft_train import (
+            compute_sft_fingerprint,
+            find_reusable_sft_adapter,
+            is_complete_adapter_dir,
+            run_sft,
+        )
 
         # Build a synthetic config for run_sft using sft_pretrain section
         sft_config = {
@@ -597,8 +739,54 @@ def main() -> None:
                 "trainer": "sft",
             },
         }
-        sft_adapter_path = run_sft(sft_config, resume=args.resume)
-        print(f"  SFT adapter saved to: {sft_adapter_path}")
+
+        # ── SFT adapter reuse ──────────────────────────────────────────
+        # If a previous run already produced an SFT adapter trained with the
+        # SAME SFT configuration (same fingerprint of model/lora/dataset/
+        # system prompt/SFT hyperparams — see compute_sft_fingerprint),
+        # retraining SFT is wasteful: reuse it.  Reuse only skips Step 1.5;
+        # GRPO still trains (or resumes) from its OWN checkpoints, so
+        # `--resume` behaviour is unaffected.
+        #   - sft_pretrain.reuse_adapter: false → always retrain
+        #   - sft_pretrain.adapter_path: <dir>  → explicit adapter (no search)
+        #   - --force-sft                        → always retrain (CLI override)
+        explicit_adapter = sft_pretrain_cfg.get("adapter_path")
+        reuse_adapter = sft_pretrain_cfg.get("reuse_adapter", True)
+        reused_adapter: str | None = None
+
+        if explicit_adapter is not None:
+            if is_complete_adapter_dir(explicit_adapter):
+                reused_adapter = str(explicit_adapter)
+                print(f"  Reusing SFT adapter (explicit path): {reused_adapter}")
+            else:
+                print(
+                    "  ⚠️  Explicit adapter_path missing or incomplete: "
+                    f"{explicit_adapter} — ignoring it"
+                )
+        elif reuse_adapter and not args.force_sft:
+            fingerprint = compute_sft_fingerprint(sft_config)
+            # Sibling runs of the same model checkpoint root, e.g.
+            # experiments/checkpoints/qwen25-05b-optimal/run_*/sft_pretrain/final.
+            model_root = Path(config["training"]["output_dir"]).parent
+            found = find_reusable_sft_adapter(model_root, fingerprint)
+            if found is not None:
+                reused_adapter = str(found)
+                print(
+                    "  Reusing SFT adapter from "
+                    f"{Path(reused_adapter).parent.parent.name} "
+                    "(fingerprint match) — skipping SFT training"
+                )
+
+        if reused_adapter is not None:
+            sft_adapter_path = reused_adapter
+        else:
+            if args.force_sft:
+                print(
+                    "  --force-sft: retraining SFT from scratch "
+                    "(adapter reuse disabled)"
+                )
+            sft_adapter_path = run_sft(sft_config, resume=args.resume)
+            print(f"  SFT adapter saved to: {sft_adapter_path}")
 
         # Aggressive cleanup between SFT and GRPO
         gc.collect()
@@ -669,15 +857,52 @@ def main() -> None:
     print(f"\n{'=' * 60}")
     print("STEP 4: Dataset Preparation")
 
-    t2g_dataset = _prepare_t2g_dataset(config, tokenizer, vocab, dataset=dataset)
-
-    # Register gold glosses for the translation quality reward function.
-    # Uses stable sample IDs (SHA256 of user instruction) for format-agnostic
-    # matching, so TRL prompt reformatting doesn'’t break the lookup.
-    register_gold_glosses(
-        sample_ids=list(t2g_dataset["sample_id"]),
-        gold_glosses=list(t2g_dataset["completion"]),
+    # ── Optional few-shot retrieval (train-split demonstrations) ─────────
+    # Build (or load from cache) the ExampleRetriever over the deduplicated
+    # TRAIN split.  When enabled, every GRPO prompt is augmented with top_k
+    # similar (text→gloss) examples; the query itself and near-duplicates
+    # are always excluded (anti-leakage).  SFT pre-training stays zero-shot.
+    retrieval_cfg = config.get("retrieval", {})
+    retriever = build_train_retriever(
+        dataset,
+        retrieval_cfg,
+        seed=ds_cfg.get("seed", 42),
     )
+    if retriever is not None:
+        print(
+            f"  Few-shot retrieval ENABLED: backend={retriever.backend}, "
+            f"top_k={retrieval_cfg.get('top_k', 3)}, "
+            f"max_self_similarity="
+            f"{retrieval_cfg.get('max_self_similarity', 0.98)}"
+        )
+        # Few-shot examples (~40-60 tokens each) inflate prompt length; the
+        # default 256 can silently truncate them.  Warn — never force.
+        max_prompt_length = grpo_cfg.get("max_prompt_length", 256)
+        if max_prompt_length < 768:
+            logger.warning(
+                "[retrieval] Few-shot retrieval is enabled but "
+                "grpo.max_prompt_length=%d < 768: few-shot prompts may be "
+                "truncated during rollout. Consider raising it in the config "
+                "(e.g. grpo.max_prompt_length: 768). Not forced automatically.",
+                max_prompt_length,
+            )
+    else:
+        print("  Few-shot retrieval disabled — zero-shot prompts")
+
+    t2g_dataset = _prepare_t2g_dataset(
+        config,
+        tokenizer,
+        vocab,
+        dataset=dataset,
+        retriever=retriever,
+        retrieval_cfg=retrieval_cfg,
+    )
+
+    # NOTE: no gold-gloss registry anymore.  The ``gold_gloss`` column is
+    # preserved on the dataset and TRL 0.24 forwards it to the reward
+    # functions as a kwarg (see t2g_rewards._make_gloss_reward_fn), which
+    # eliminates the SHA256-of-text-only collision problem of the old
+    # registry (duplicate English sentences mapped to the wrong gold gloss).
 
     # ── Step 5: Reward functions ─────────────────────────────────────────
     print(f"\n{'=' * 60}")
@@ -714,7 +939,7 @@ def main() -> None:
     if curriculum_cfg.get("enabled", False):
         print(f"\n{'─' * 60}")
         print("CURRICULUM LEARNING: ENABLED")
-        print("  G²RPO-A 3-stage progressive difficulty curriculum")
+        print("  3-stage progressive difficulty curriculum (project-original)")
 
         max_steps = config["training"].get("max_steps", 1500)
         curriculum_schedule = CurriculumSchedule(max_steps)

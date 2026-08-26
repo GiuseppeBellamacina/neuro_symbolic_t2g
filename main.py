@@ -227,7 +227,7 @@ def test_reward_functions() -> None:
 
     # Test structural dense reward
     struct_score = structural_dense_reward("IX MAN WALK")
-    assert 0.0 <= struct_score <= 1.0, f"Score out of range: {struct_score}"
+    assert -1.0 <= struct_score <= 1.0, f"Score out of range: {struct_score}"
     logger.info(f"✓ Structural dense reward: {struct_score:.4f}")
 
     # Test format reward

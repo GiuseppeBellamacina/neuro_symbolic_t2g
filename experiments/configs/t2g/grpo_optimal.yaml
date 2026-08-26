@@ -1,90 +1,34 @@
 # ============================================================================
 # OPTIMAL v2.1 Config — GRPO + Curriculum + Paper-Inspired Rewards
 #
-# Novità rispetto alla v1:
-#   - Reward range [-1, 1] (symmetric) — gradiente più forte, meno reward hacking
-#   - BLEU-4 reward (T2G-Reasoner 2025) — complementare a ROUGE-L
-#   - Curriculum learning 3-stage (G²RPO-A 2026) — difficoltà progressiva
-#   - num_generations=8 — stabile su GPU 22GB (G=16 causava OOM sul cluster)
-#   - beta=0 — DAPO-style (no KL penalty al reference, solo PPO clip)
-#   - temperature=0.9 — più esplorazione
-#   - gradient_checkpointing=true — risparmio VRAM nel backward (GRPOConfig)
+# Eredita da base.yaml: modello Qwen2.5-0.5B 4bit + LoRA r=32 + reward v2.1
+# ([-1,1] + BLEU-4) + constrained decoding Trie dual-root.
 #
-# v2.1 (hotfix OOM): num_generations riportato a 8 (valore v1, provato sul
-#   cluster) + gradient_checkpointing abilitato esplicitamente in GRPOConfig.
-#   Tutte le altre migliorie v2 (curriculum, BLEU-4, beta=0, temp=0.9,
-#   reward simmetriche) sono mantenute.
+# Differenze dalla base:
+#   - max_steps=2000, lr=3e-6, warmup=200
+#   - Curriculum learning 3-stage (project-original) ATTIVO
+#   - beta/temperature/max_grad_norm: ereditati da base (0.04 / 0.7 / 0.1) —
+#     riallineati al reference GRPO convergente (vedi header di base.yaml).
 #
-# Combina:
-#   - SFT pre-training (Phase 0: impara il formato gloss)
-#   - GRPO con 7 reward ottimizzate (range [-1, 1])
-#   - Curriculum learning 3-stage (simple→medium→hard)
-#   - Constrained decoding con Trie dual-root
-#   - Evaluation con bootstrap CI + HTML completion examples
-#
-# Pipeline:
-#   1. SFT pre-training (1 epoch)
-#   2. GRPO training (2000 step, curriculum + reward shaping)
-#   3. Evaluation (ROUGE-L, BLEU, Pass@1, Pass@k, reward breakdown, CI 95%)
-#
-# Uso:
-#   # Train + Eval (catena automatica):
-#   CONFIG=experiments/configs/t2g/grpo_optimal.yaml sbatch cluster/run_all.sh
-#
-#   # Solo training:
-#   CONFIG=experiments/configs/t2g/grpo_optimal.yaml sbatch cluster/train.sh
-#
-#   # Solo evaluation:
-#   CONFIG=experiments/configs/t2g/grpo_optimal.yaml sbatch cluster/eval.sh
-#
-#   # Locale (senza cluster):
-#   python -m src.training --config experiments/configs/t2g/grpo_optimal.yaml
-#   python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_optimal.yaml --checkpoint experiments/checkpoints/grpo/t2g/qwen25-05b-optimal/final --plot
+# Pipeline: SFT pre-training (1 epoch) → GRPO (2000 step, curriculum) → eval.
 # ============================================================================
 
-# --- Modello ---
-model:
-  name: "Qwen/Qwen2.5-0.5B-Instruct"
-  num_gpus: 1
-  quantization: "4bit"
-  dtype: "bfloat16"
-  use_unsloth: true
-  max_seq_length: 1024
-
-# --- LoRA adapters ---
-# r=32 (doppio rispetto al default r=16) per maggiore capacità di adattamento.
-# lora_alpha=64 (2x di r, come raccomandato dalla letteratura LoRA).
-lora:
-  r: 32
-  lora_alpha: 64
-  lora_dropout: 0.05 # leggero dropout per regolarizzazione
-  target_modules:
-    - q_proj
-    - k_proj
-    - v_proj
-    - o_proj
-    - gate_proj
-    - up_proj
-    - down_proj
-  task_type: "CAUSAL_LM"
-  random_state: 3407
-
-# --- Dataset ---
-dataset:
-  dataset_name: "achrafothman/aslg_pc12"
-  dataset_cache: "data/aslg_pc12"
-  vocab_path: "data/gloss_vocab.txt"
-  bigram_matrix_path: "data/bigram_transition.npy"
-  split: "train"
-  max_samples: null # usa tutto il dataset (78939 samples)
-  seed: 42
-  thinking: false
+extends: base.yaml
 
 # --- SFT Pre-training (Phase 0) ---
 # SFT insegna al modello il formato gloss prima del GRPO.
-# Senza SFT, il modello genera free text e GRPO impiega più step a convergere.
+# RIUSO ADAPTER: se una run precedente dello stesso modello ha già salvato
+# un adapter SFT (run_*/sft_pretrain/final) addestrato con la STESSA
+# configurazione — fingerprint sha256 di modello/lora/dataset/system prompt/
+# iperparametri SFT — il job lo riusa e salta il retrain. Il fingerprint
+# invalida se cambia QUALSIASI iperparametro SFT, il modello, il dataset o
+# il system prompt. Default: reuse_adapter=true. `--force-sft` (o
+# EXTRA_ARGS="--force-sft" sul cluster) forza il retrain in ogni caso.
 sft_pretrain:
   enabled: true
+  reuse_adapter: true
+  # adapter_path: "experiments/checkpoints/qwen25-05b-optimal/run_20260714_233901/sft_pretrain/final"
+  #   ^ forza un adapter esplicito, bypassando la ricerca per fingerprint.
   training:
     num_train_epochs: 1
     per_device_train_batch_size: 4
@@ -102,129 +46,40 @@ sft_pretrain:
     max_seq_length: 768
     gradient_checkpointing: true
 
-# --- Iperparametri di training GRPO ---
-# max_steps=2000 (più lungo del default 1500 per migliore convergenza)
-# learning_rate=3e-6 (leggermente più basso per stabilità con LoRA r=32)
-# max_grad_norm=0.05 (più stretto per stabilità GRPO)
-# gradient_checkpointing=true — riduce peak VRAM del backward pass, consente
-#   num_generations=8 con margine su GPU 22GB. Costo: ~20% più lento.
+# --- Iperparametri di training GRPO (solo le differenze dalla base) ---
 training:
-  max_steps: 2000
-  per_device_train_batch_size: 1
-  gradient_accumulation_steps: 8
-  learning_rate: 3.0e-6
-  lr_scheduler_type: "cosine"
-  warmup_steps: 200 # più lungo warmup per stabilità
-  optim: "paged_adamw_8bit"
-  weight_decay: 0.1
-  max_grad_norm: 0.05
-  bf16: true
-  gradient_checkpointing: true # OOM mitigation (forward activations recomputed in backward)
-  logging_steps: 5
-  save_steps: 100
-  save_total_limit: 3
+  max_steps: 2000 # più lungo del default 1500 per migliore convergenza
+  learning_rate: 3.0e-6 # stabile con LoRA r=32
+  warmup_steps: 200 # warmup più lungo per stabilità
   output_dir: "experiments/checkpoints/qwen25-05b-optimal"
   log_dir: "experiments/logs/qwen25-05b-optimal"
 
-# --- Parametri GRPO ---
-# num_generations=8 — valore provato sul cluster (GPU 22GB). G=16 causava
-#   OOM: GRPO trattiene G completions in memoria attraverso generazione,
-#   recomputazione logprob e backward. Raddoppiare G raddoppia ~peak VRAM.
-# max_completion_length=128 — sufficiente per gloss ASL (~20-40 token)
-# beta=0 — DAPO-style: no KL penalty al reference model. Solo PPO clip per
-#   stabilità. Paper GRPO dynamics (ACL 2025) mostra che Mirror GRPO (KL a
-#   policy precedente, non a reference) garantisce miglioramento monotonico.
-#   Con beta=0 e clip=0.2, l'update è vincolato solo dal clipping ratio.
-# temperature=0.9 — più esplorazione per compensare beta=0
-grpo:
-  num_generations: 8
-  max_completion_length: 128
-  max_prompt_length: 256
-  beta: 0.0
-  temperature: 0.9
-
-# --- Pesi della reward function (v2: range [-1, 1] + BLEU-4) ---
-# Tutte le reward sono ora mappate su range simmetrico [-1, 1]:
-#   -1 = completamente sbagliato, 0 = neutro, 1 = perfetto.
-# I pesi sommano a 1.0 per interpretabilità.
-#
-# Rispetto alla v1:
-#   - Aggiunto BLEU-4 (T2G-Reasoner 2025: BLEU-4 batte ROUGE-L come reward)
-#   - Ribilanciato: semantic 40% (ROUGE + BLEU), structure 30% (gold + verifier),
-#     order 10%, format 10%, repetition 10%
-reward:
-  # ROUGE-L similarity with gold gloss — primary semantic signal
-  weight_translation: 0.20
-  # BLEU-4 precision with gold gloss — complementary to ROUGE-L (T2G-Reasoner)
-  weight_bleu: 0.20
-  # Gold-structure: bigram score vs gold reference baseline
-  weight_gold_structure: 0.20
-  # Gloss-order: word-level edit-distance vs gold gloss
-  weight_gloss_order: 0.10
-  # Verifier-scaled (RECIPE-inspired, arXiv:2605.19976):
-  # structural plausibility come confidence multiplier per translation quality
-  weight_verifier_scaled: 0.10
-  # Format: ensure gloss tokens only (no free text)
-  weight_format: 0.10
-  # Repetition: penalizza loop degeneri (già [-1, 1])
-  weight_repetition: 0.10
-
-  # ── Ablation modules (decommenta per testare) ──────────────────────
-  # Soft Viterbi (differentiable, forward-backward) — ViterbiPlanNet DVL
-  # weight_soft_viterbi: 0.0
-  # Hard Viterbi distance (experimental, non-differentiable)
-  # weight_viterbi: 0.0
-  # Absolute bigram score (no baseline — use gold_structure instead)
-  # weight_structure: 0.0
-
-# --- Constrained Decoding ---
-grammar:
+# --- Few-shot retrieval (attivo) ---
+# Il few-shot aiuta il modello piccolo (0.5B) a capire il formato del task
+# dalle dimostrazioni: esempi simili recuperati dal TRAIN split con
+# anti-leakage (mai la query stessa né near-duplicati). Eval usa la STESSA
+# strategia per coerenza train/inference. SFT resta zero-shot.
+retrieval:
   enabled: true
-  use_grammarllm_pda: false # Trie dual-root è più veloce e sufficiente
-  token_lookahead: false      # grammarllm v0.5.0: native BPE token emission (only with use_grammarllm_pda: true)
-  track_score_history: false  # grammarllm v0.5.0: accumulate per-step logit history for debug (memory cost)
-  # Viterbi diversity penalty params (for viterbi_distance_reward)
-  viterbi_diversity:
-    self_loop_penalty: 0.5
-    max_occurrences: 2
-    diversity_threshold: 0.3
-    max_iters: 3
-    # Verifier gamma: controlla la strictness del structural gate.
-    # gamma=1.5 = leggermente più stricto del lineare (buon bilanciamento)
-    verifier_gamma: 1.5
-    # Verifier temperature: scala avg_log_prob prima del sigmoid/softmax in
-    # structural_dense_reward (usato da verifier_scaled_reward). Disaccoppiato
-    # da verifier_gamma — NON riusare gamma come temperature, altrimenti il
-    # reward collassa quasi a 0 per sequenze a bassa probabilità (stesso bug
-    # di prima). temperature=5.0 = curva morbida raccomandata.
-    verifier_temperature: 5.0
 
-# --- Curriculum Learning (G²RPO-A 2026) ---
+# --- GRPO overrides ---
+# max_prompt_length alzato per il few-shot: 3 esempi (~40-60 token l'uno)
+# + query superano i 256 di default; 768 + max_completion 128 <= 1024.
+grpo:
+  max_prompt_length: 768
+
+# --- Curriculum Learning (project-original, 3-stage) ---
 # 3-stage progressive difficulty: il modello inizia con esempi facili e
 # gradualmente affronta quelli più difficili. Essenziale per SLM.
-# Le proporzioni sono calibrate sulla distribuzione reale di ASLG-PC12:
-#   9.3% simple (1-5 token), 68.4% medium (6-15), 22.2% hard (16+).
-# Stage 1 (0-33%): 10% simple, 65% medium, 25% hard
-# Stage 2 (33-66%): 5% simple, 40% medium, 55% hard
-# Stage 3 (66-100%): 3% simple, 30% medium, 67% hard
 curriculum:
   enabled: true
 
 # --- Evaluation ---
-# max_samples=null per valutare su tutto il test set (8771 samples)
-# batch_size=8 per generazione batched
 evaluation:
-  batch_size: 8
   max_samples: 500 # 500 campioni per evaluation rapida, null per tutto il test set
-  num_samples: 5 # 5 completions per prompt per Pass@k
-  # Best-of-N selection: seleziona il miglior completamento per prompt
-  # (ROUGE-L più alto tra i validi). Aiuta il modello piccolo a generalizzare.
-  # Attivato anche via CLI con --best-of-n.
-  best_of_n: true # true per attivare di default, o usa --best-of-n
 
 # --- Weights & Biases ---
 wandb:
-  project: "neuro-symbolic-t2g"
   run_name: "grpo-t2g-optimal"
   tags:
     [
@@ -235,7 +90,6 @@ wandb:
       "curriculum",
       "bleu-reward",
       "symmetric-reward",
-      "beta-zero",
       "G8",
       "grad-ckpt",
       "Qwen2.5-0.5B",

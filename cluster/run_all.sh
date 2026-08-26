@@ -1,26 +1,35 @@
 #!/bin/bash
 # ============================================================================
-# Lancia training + evaluation per il modello T2G in catena.
+# Lancia training + evaluation per il modello T2G in catena (self-chaining).
 #
-# La QoS permette un solo job alla volta, quindi un watcher in background
-# controlla ogni 60s se la coda è vuota e sottomette il prossimo job.
+# La QoS permette un solo job alla volta (1 attivo, 0 pending), quindi la
+# catena viene avanzata da chain_tick.sh (one-shot idempotente), guidata da:
+#   bashrc-hook (PRIMARIO) → chain_tick.sh --quiet via PROMPT_COMMAND
+#                            (chain-hook-install) — su gcluster `at` NON c'è
+#   watcher (fallback auto)→ chain_next.sh setsid (può essere ucciso dal reaper)
+#   at (opportunistico)    → se un giorno `at` comparisse sul login node,
+#                            chain_tick.sh --schedule lo userebbe senza danni
+#
+# MAI rm -rf automatico dello stato con job pendenti: se una catena risulta
+# interrotta (job_chain non vuota, nessun job attivo, nessun tick/watcher)
+# run_all RIFIUTA e chiede chain-resume (o --force per ricominciare).
 #
 # Uso:
-#   bash cluster/run_all.sh                       # train + eval (default: grpo_optimal)
-#   bash cluster/run_all.sh grpo_qwen05             # train + eval con config specifico
-#   bash cluster/run_all.sh grpo_qwen05 --train-only # solo training con config specifico
-#   bash cluster/run_all.sh --ablation             # ablation study completo
-#   bash cluster/run_all.sh --eval-only            # solo evaluation
-#   bash cluster/run_all.sh --train-only           # solo training
-#   bash cluster/run_all.sh --resume               # riprendi pipeline fallita
-#   bash cluster/run_all.sh --append               # aggiungi job a pipeline attiva
-#   bash cluster/run_all.sh --remove               # rimuovi job dalla pipeline
+#   bash cluster/run_all.sh                          # train+eval (default: grpo_optimal)
+#   bash cluster/run_all.sh grpo_qwen05              # train+eval con config specifico
+#   bash cluster/run_all.sh --ablation               # ablation study completo
+#   bash cluster/run_all.sh --eval-only              # solo evaluation
+#   bash cluster/run_all.sh --train-only             # solo training
+#   bash cluster/run_all.sh --resume                 # riparte dalla coda esistente
+#   bash cluster/run_all.sh --append                 # aggiungi job alla coda attiva
+#   bash cluster/run_all.sh --remove                 # svuota la coda
+#   bash cluster/run_all.sh --force                  # azzera lo stato (catena interrotta)
 #
 # Config specifici (passa il nome senza .yaml):
-#   bash cluster/run_all.sh grpo_qwen05             # config base
-#   bash cluster/run_all.sh grpo_optimal            # config ottimale (default)
-#   bash cluster/run_all.sh sft                     # SFT baseline
-#   bash cluster/run_all.sh grpo_no_grammar         # ablation senza grammar
+#   bash cluster/run_all.sh grpo_qwen05              # config base
+#   bash cluster/run_all.sh grpo_optimal             # config ottimale (default)
+#   bash cluster/run_all.sh sft                      # SFT baseline
+#   bash cluster/run_all.sh grpo_no_grammar          # ablation senza grammar
 #   (cerca in experiments/configs/t2g/ e experiments/configs/t2g/ablation/)
 #
 # Ablation Study (--ablation):
@@ -38,16 +47,21 @@
 #  12. GRPO + Optimal (train + eval — config ottimale v2.1)
 #
 # Monitorare:
-#   tail -f logs/chain_watcher.log           # log del watcher
-#   monitor                              # monitor live
+#   tail -f logs/chain_watcher.log           # log del tick/watcher
+#   monitor                                  # monitor live
 #   myjobs                                   # job attivo su SLURM
 #
 # Interrompere:
-#   kill $(cat .chain_pid)                   # uccidi il watcher
+#   chain-stop                               # ferma (preserva stato + tick at)
 #   killalljobs                              # cancella anche il job SLURM attivo
 # ============================================================================
 
-set -e
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=cluster/_lib.sh
+source "$SCRIPT_DIR/_lib.sh"
+cd "$PROJ_DIR"
 
 # ── Parsing argomenti ─────────────────────────────────────────────────────────
 GLOBAL_TRAIN=1
@@ -56,6 +70,7 @@ ABLATION=0
 RESUME=0
 APPEND=0
 REMOVE=0
+FORCE=0
 CONFIG_NAME=""
 for arg in "$@"; do
     case "$arg" in
@@ -65,6 +80,7 @@ for arg in "$@"; do
         --append)      APPEND=1 ;;
         --remove)      REMOVE=1 ;;
         --resume)      RESUME=1 ;;
+        --force)       FORCE=1 ;;
         --help|-h)
             echo "Uso: bash cluster/run_all.sh [opzioni] [config_name]"
             echo ""
@@ -74,9 +90,10 @@ for arg in "$@"; do
             echo "  --ablation          Ablation study completo (12 varianti)"
             echo "  --eval-only         Solo evaluation (skip training)"
             echo "  --train-only        Solo training (skip eval)"
-            echo "  --resume            Riprendi pipeline da dove si era fermata"
-            echo "  --append            Aggiungi job alla pipeline attiva"
-            echo "  --remove            Rimuovi job dalla pipeline attiva"
+            echo "  --resume            Riprendi dalla coda esistente (non richiede chain_failed)"
+            echo "  --append            Aggiungi job alla coda attiva"
+            echo "  --remove            Svuota la coda"
+            echo "  --force             Azzera lo stato anche se ci sono job pendenti"
             echo ""
             echo "Config disponibili (passa il nome senza .yaml):"
             echo "  grpo_optimal           GRPO + tutti i moduli v2.1 (default, post-OOM-fix)"
@@ -111,7 +128,7 @@ done
 
 # ── Modelli T2G ───────────────────────────────────────────────────────────────
 if [ "$ABLATION" -eq 1 ]; then
-    # Ablation study: 9 varianti in ordine (dai più semplici ai più complessi)
+    # Ablation study: 12 varianti in ordine (dai più semplici ai più complessi)
     # Formato: TAG:CONFIG[:MODE]
     # MODE: te=train+eval (default), e=eval-only, t=train-only
     MODELS=(
@@ -148,139 +165,162 @@ elif [ -n "$CONFIG_NAME" ]; then
         exit 1
     fi
     # Deriva il tag dal nome del config (senza percorso ed estensione)
-    TAG=$(basename "$CONFIG_PATH" .yaml)
+    TAG=$(basename "$CONFIG_PATH" .yaml | tr '_' '-')
     MODELS=("${TAG}:${CONFIG_PATH}")
 else
-    # Default: config ottimale
-    MODELS=("qwen05:experiments/configs/t2g/grpo_optimal.yaml")
+    # Default: config ottimale. Il TAG deve essere COERENTE col config
+    # (il default storico "qwen05" non matchano output_dir/clean_model).
+    MODELS=("grpo-optimal:experiments/configs/t2g/grpo_optimal.yaml")
 fi
 
-PROJ_DIR="$HOME/neuro_symbolic_t2g"
-STATE_DIR="$PROJ_DIR/.chain_state"
-mkdir -p "$STATE_DIR"
-CHAIN_FILE="$STATE_DIR/job_chain"
-FAILED_FILE="$STATE_DIR/chain_failed"
+mkdir -p "$STATE_DIR" logs
 
-# ── Resume mode ───────────────────────────────────────────────────────────────
-if [ "$RESUME" -eq 1 ]; then
-    if [ ! -f "$FAILED_FILE" ]; then
-        echo "❌ Nessun .chain_failed trovato. Non c'è nulla da riprendere."
+# ── Funzioni di lancio ────────────────────────────────────────────────────────
+# Kick della pipeline. PRIMARIO su gcluster: `at` NON è disponibile → il
+# watcher viene avviato subito come fallback automatico e l'HOME hook
+# (chain-hook-install) è la resilienza raccomandata. `at` resta solo come
+# rilevamento opportunistico: se un giorno comparisse sul login node, il tick
+# --schedule lo userebbe senza alcun danno (dedup ≤1 pending).
+_launch_pipeline() {
+    mkdir -p logs
+
+    if command -v at >/dev/null 2>&1; then
+        bash cluster/chain_tick.sh --quiet --schedule=3
+        local rc=$?
+        if [ "$rc" -ne 3 ]; then
+            [ "$rc" -ne 0 ] && echo "⚠️  tick rc=$rc (sottomissione fallita) — retry automatico al prossimo tick."
+            echo ""
+            echo "✅ Pipeline attiva in at-mode (tick ogni 3 min via 'at')."
+            echo "   atq                   → tick schedulati (max 1)"
+            echo "   chain-stop            → ferma (cancella anche i tick at)"
+            echo "   tail -f logs/chain_watcher.log"
+            return 0
+        fi
+        echo "⚠️  at non raggiungibile (rc=3) — fallback watcher."
+    fi
+
+    local pid=""
+    setsid nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
+    disown
+    sleep 2
+    [ -f "$CHAIN_PID_FILE" ] && pid=$(cat "$CHAIN_PID_FILE")
+    echo ""
+    echo "Pipeline avviata con watcher fallback (PID ${pid:-?})."
+    echo ""
+    echo "⚠️  at NON è disponibile su gcluster — il watcher può essere ucciso dal"
+    echo "    reaper del login node. Per la resilienza installa l'HOME hook:"
+    echo ""
+    echo "        chain-hook-install && source ~/.bashrc"
+    echo ""
+    echo "    (e se la catena si ferma comunque: chain-resume)"
+}
+
+# Riprendi dalla coda ESISTENTE: non richiede più .chain_failed, basta che
+# job_chain sia non vuota (il caso reale: daemon ucciso dal reaper). Legacy:
+# ricostruisce da .chain_failed se la coda è vuota.
+_cmd_resume() {
+    echo "============================================"
+    echo "  RESUME Pipeline"
+    echo "  Date:  $(date)"
+    echo "============================================"
+
+    if [ -s "$CHAIN_FILE" ]; then
+        echo "Coda esistente ($(wc -l < "$CHAIN_FILE") job):"
+        cat -n "$CHAIN_FILE"
+    elif [ -f "$FAILED_FILE" ]; then
+        local fjob ftype fcfg ftag fext
+        fjob=$(cat "$FAILED_FILE")
+        ftype=$(echo "$fjob" | cut -d: -f1)
+        fcfg=$(echo "$fjob" | cut -d: -f2)
+        ftag=$(echo "$fjob" | cut -d: -f3)
+        fext=$(echo "$fjob" | cut -d: -f4-)
+        if [ "$ftype" != "train" ] && [ "$ftype" != "eval" ]; then
+            echo "❌ chain_failed malformato: $fjob"
+            exit 1
+        fi
+        if [ "$ftype" = "train" ]; then
+            [ -n "$fext" ] || fext="--resume"
+            printf 'train:%s:%s:%s\neval:%s:%s\n' "$fcfg" "$ftag" "$fext" "$fcfg" "$ftag" > "$CHAIN_FILE"
+            echo "→ Ricostruita da .chain_failed: train $ftag ($fext) + eval"
+        else
+            printf 'eval:%s:%s\n' "$fcfg" "$ftag" > "$CHAIN_FILE"
+            echo "→ Ricostruita da .chain_failed: eval $ftag"
+        fi
+        rm -f "$FAILED_FILE"
+    else
+        echo "❌ Nessuna coda da riprendere (job_chain vuoto, nessun chain_failed)."
         echo "   Usa: bash cluster/run_all.sh (senza --resume) per una nuova pipeline."
         exit 1
     fi
 
-    FAILED_JOB=$(cat "$FAILED_FILE")
-    FAILED_TYPE=$(echo "$FAILED_JOB" | cut -d: -f1)
-    FAILED_CFG=$(echo "$FAILED_JOB" | cut -d: -f2)
-    FAILED_TAG=$(echo "$FAILED_JOB" | cut -d: -f3)
+    # Pulisci pid stale del vecchio watcher
+    if [ -f "$CHAIN_PID_FILE" ] && ! watcher_alive; then
+        rm -f "$CHAIN_PID_FILE"
+    fi
 
-    echo "============================================"
-    echo "  RESUME Pipeline"
-    echo "  Date:      $(date)"
-    echo "  Failed job: $FAILED_TYPE $FAILED_TAG"
-    echo "  Config:     $FAILED_CFG"
-    echo "============================================"
+    _launch_pipeline
     echo ""
-
-    RESUME_CHAIN=$(mktemp)
-    if [ "$FAILED_TYPE" = "train" ]; then
-        echo "train:${FAILED_CFG}:${FAILED_TAG}:--resume" > "$RESUME_CHAIN"
-        echo "eval:${FAILED_CFG}:${FAILED_TAG}" >> "$RESUME_CHAIN"
-        echo "→ Training $FAILED_TAG verrà ripreso dall'ultimo checkpoint"
-    else
-        echo "eval:${FAILED_CFG}:${FAILED_TAG}" > "$RESUME_CHAIN"
-        echo "→ Eval $FAILED_TAG verrà rieseguito da capo"
-    fi
-
-    if [ -f "$CHAIN_FILE" ] && [ -s "$CHAIN_FILE" ]; then
-        cat "$CHAIN_FILE" >> "$RESUME_CHAIN"
-    fi
-    mv "$RESUME_CHAIN" "$CHAIN_FILE"
-    rm -f "$FAILED_FILE"
-
-    TOTAL=$(wc -l < "$CHAIN_FILE")
-    echo ""
-    echo "Catena ($TOTAL job):"
-    cat -n "$CHAIN_FILE"
-    echo ""
-
-    if [ -f "$STATE_DIR/chain_pid" ]; then
-        OLD_PID=$(cat "$STATE_DIR/chain_pid")
-        kill "$OLD_PID" 2>/dev/null && echo "Watcher precedente (PID $OLD_PID) terminato."
-        rm -f "$STATE_DIR/chain_pid"
-    fi
-
-    setsid nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
-    disown
-
-    # Attendi che il watcher scriva il suo PID, poi leggilo
-    sleep 2
-    WATCHER_PID=""
-    if [ -f "$STATE_DIR/chain_pid" ]; then
-        WATCHER_PID=$(cat "$STATE_DIR/chain_pid")
-    fi
-
     echo "============================================"
     echo "  Pipeline ripresa!"
-    echo "  Watcher PID: ${WATCHER_PID:-sconosciuto}"
-    echo "  Log: logs/chain_watcher.log"
     echo "============================================"
+}
+
+# ── Resume mode ───────────────────────────────────────────────────────────────
+if [ "$RESUME" -eq 1 ]; then
+    _cmd_resume
     exit 0
 fi
 
-# ── Funzione helper: controlla se il watcher è attivo ─────────────────────────
-_watcher_is_alive() {
-    if [ -f "$STATE_DIR/chain_pid" ]; then
-        local pid=$(cat "$STATE_DIR/chain_pid")
-        if ps -p "$pid" > /dev/null 2>&1; then
-            return 0
-        fi
+# ── Auto-append: se la catena è già attiva, i nuovi job vengono AGGIUNTI ──────
+if [ "$APPEND" -eq 0 ] && [ "$REMOVE" -eq 0 ]; then
+    if watcher_alive || [ -n "$(active_job_id)" ] || _at_tick_pending; then
+        echo "⚠️  Pipeline già attiva (watcher / job SLURM / at-tick)."
+        echo "   I nuovi job verranno AGGIUNTI alla coda esistente."
+        echo ""
+        APPEND=1
     fi
-    return 1
-}
-
-# ── Auto-detect: se watcher attivo e non --append/--remove esplicito ──────────
-if [ "$APPEND" -eq 0 ] && [ "$REMOVE" -eq 0 ] && _watcher_is_alive; then
-    echo "⚠️  Pipeline già attiva (watcher PID $(cat "$STATE_DIR/chain_pid"))."
-    echo "   I nuovi job verranno AGGIUNTI alla coda esistente."
-    echo "   (Usa Ctrl-C per annullare, oppure uccidi il watcher prima: watcher-kill)"
-    echo ""
-    APPEND=1
 fi
 
 # ── Remove mode ───────────────────────────────────────────────────────────────
 if [ "$REMOVE" -eq 1 ]; then
-    if [ ! -f "$CHAIN_FILE" ] || [ ! -s "$CHAIN_FILE" ]; then
-        echo "❌ Nessuna catena attiva (job_chain vuoto o non trovato)."
+    if [ ! -s "$CHAIN_FILE" ]; then
+        echo "❌ Nessuna catena attiva (job_chain vuoto)."
         exit 1
     fi
-
     echo "Catena attuale:"
     cat -n "$CHAIN_FILE"
     echo ""
-
-    # Rimuovi tutto (catena T2G ha solo un modello)
     rm -f "$CHAIN_FILE"
+    monitor_cache_clear
     echo "✅ Catena svuotata."
-
-    # Update monitor cache
-    python3 -c "
-import json, pathlib
-cache_path = pathlib.Path('$STATE_DIR/monitor_cache')
-if cache_path.exists():
-    cache_path.unlink()
-" 2>/dev/null
-
     exit 0
 fi
 
-# ── Costruisci la catena ──────────────────────────────────────────────────────
-# Pulisci .chain_state/ se partenza fresca (non --resume, --append, --remove)
+# ── Fresh start: MAI rm -rf automatico con job pendenti ──────────────────────
+# Anti-rm-rf: se la coda esiste non vuota, nessun watcher, nessun job attivo
+# e nessun at-tick → la catena è interrotta (es. daemon ucciso dal reaper).
+# Azzerare qui significherebbe CANCELLARE i job rimanenti.
 if [ "$RESUME" -eq 0 ] && [ "$APPEND" -eq 0 ] && [ "$REMOVE" -eq 0 ]; then
-    rm -rf "$STATE_DIR"
-    mkdir -p "$STATE_DIR"
+    if [ -s "$CHAIN_FILE" ]; then
+        REMAINING=$(wc -l < "$CHAIN_FILE")
+        if [ "$FORCE" -eq 1 ]; then
+            echo "⚠️  Catena interrotta con $REMAINING job rimanenti — --force: reset."
+            rm -rf "$STATE_DIR"
+            mkdir -p "$STATE_DIR"
+        else
+            echo "❌ Catena interrotta con $REMAINING job rimanenti."
+            echo "   → chain-resume      riparte dalla coda esistente"
+            echo "   → run-all --force   azzera lo stato e ricomincia da zero"
+            exit 1
+        fi
+    else
+        # Nessun job pendente → reset sicuro
+        rm -rf "$STATE_DIR"
+        mkdir -p "$STATE_DIR"
+    fi
 fi
 
+# ── Costruisci la catena ──────────────────────────────────────────────────────
 if [ "$APPEND" -eq 0 ]; then
     > "$CHAIN_FILE"  # svuota/crea il file
 fi
@@ -329,27 +369,10 @@ for entry in "${MODELS[@]}"; do
     fi
 done
 
-# Update monitor cache
-if [ ${#NEW_KEYS[@]} -gt 0 ]; then
-    KEYS_JSON=$(printf '"%s",' "${NEW_KEYS[@]}")
-    KEYS_JSON="[${KEYS_JSON%,}]"
-    CLEAR_OLD=0
-    [ "$APPEND" -eq 0 ] && CLEAR_OLD=1
-    python3 -c "
-import json, pathlib
-cache_path = pathlib.Path('$STATE_DIR/monitor_cache')
-cache = json.loads(cache_path.read_text()) if cache_path.exists() else {'jobs': {}, 'pipeline_jobs': []}
-cache.setdefault('pipeline_jobs', [])
-if $CLEAR_OLD:
-    cache['pipeline_jobs'] = []
-    cache['jobs'] = {}
-new_keys = $KEYS_JSON
-for k in new_keys:
-    if k not in cache['pipeline_jobs']:
-        cache['pipeline_jobs'].append(k)
-cache_path.write_text(json.dumps(cache, indent=2))
-" 2>/dev/null
-fi
+# Update monitor cache (shell-only — niente python sul login node)
+for key in ${NEW_KEYS[@]+"${NEW_KEYS[@]}"}; do
+    monitor_cache_add "$key"
+done
 
 TOTAL=$(wc -l < "$CHAIN_FILE")
 
@@ -371,7 +394,13 @@ if [ "$APPEND" -eq 1 ]; then
     echo "Catena completa:"
     cat -n "$CHAIN_FILE"
     echo ""
-    echo "✅ Il watcher (PID $(cat "$STATE_DIR/chain_pid")) li eseguirà automaticamente."
+    # Se nulla sta già avanzando la coda, avviala ora
+    if ! watcher_alive && [ -z "$(active_job_id)" ] && ! _at_tick_pending; then
+        echo "✅ Nessun driver attivo — avvio la pipeline."
+        _launch_pipeline
+    else
+        echo "✅ Il driver attivo (watcher/at-tick) eseguirà i nuovi job automaticamente."
+    fi
     exit 0
 fi
 
@@ -385,38 +414,14 @@ echo "Catena:"
 cat -n "$CHAIN_FILE"
 echo ""
 
-# ── Avvia il watcher in background ────────────────────────────────────────────
-# setsid: crea una nuova session, staccando dal gruppo della sessione SSH.
-#   Questo previene SIGHUP (disconnect SSH) E SIGTERM (process reaper del
-#   login node). nohup da solo gestisce SIGHUP ma non SIGTERM.
-# disown: rimuove il job dalla job table della shell, così la shell non
-#   gli invia segnali al logout.
-# Questo è fondamentale per l'ablation study (12 config × ~2h = 24h+):
-# il watcher deve sopravvivere alla disconnect SSH e al reaper del login node.
-mkdir -p logs
-
-if [ -f "$STATE_DIR/chain_pid" ]; then
-    OLD_PID=$(cat "$STATE_DIR/chain_pid")
-    kill "$OLD_PID" 2>/dev/null && echo "Watcher precedente (PID $OLD_PID) terminato."
-    rm -f "$STATE_DIR/chain_pid"
-fi
-
-setsid nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
-disown
-
-# Attendi che il watcher scriva il suo PID, poi leggilo
-sleep 2
-WATCHER_PID=""
-if [ -f "$STATE_DIR/chain_pid" ]; then
-    WATCHER_PID=$(cat "$STATE_DIR/chain_pid")
-fi
+# ── Avvia la pipeline (hook/watcher; at solo se opportunisticamente presente) ─
+_launch_pipeline
 
 echo ""
 echo "============================================"
 echo "  Pipeline avviata!"
-echo "  Watcher PID: ${WATCHER_PID:-sconosciuto}"
-echo "  Log: logs/chain_watcher.log"
-echo "  Catena: .chain_state/job_chain"
+echo "  Log:  logs/chain_watcher.log"
+echo "  Coda: .chain_state/job_chain"
 echo ""
 echo "  Per monitorare:"
 echo "    tail -f logs/chain_watcher.log"
@@ -424,6 +429,6 @@ echo "    monitor"
 echo "    myjobs"
 echo ""
 echo "  Per interrompere:"
-echo "    kill \$(cat .chain_state/chain_pid)"
+echo "    chain-stop"
 echo "    killalljobs"
 echo "============================================"

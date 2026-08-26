@@ -1,11 +1,14 @@
 """Evaluation metrics for T2G gloss generation.
 
-Computes ROUGE-L Pass@1, per-component reward breakdowns, and
-completion validity statistics for ASL gloss sequences.
+Computes ROUGE-L, sacreBLEU BLEU (sentence/corpus), chrF2, token-level
+gloss F1, Pass@k, per-component reward breakdowns (direct calls — no
+gold-gloss registry), seeded evaluation sampling, and completion
+validity statistics for ASL gloss sequences.
 """
 
 from __future__ import annotations
 
+import random
 import re
 from collections import Counter
 from typing import Any
@@ -78,7 +81,7 @@ def check_gloss_validity(completion: str) -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
-# ROUGE-L Pass@1
+# ROUGE-L Pass@k
 # ---------------------------------------------------------------------------
 
 _ROUGE_SCORER = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=False)
@@ -100,27 +103,6 @@ def rouge_l_score(generated: str, reference: str) -> float:
         return 0.0
     scores = _ROUGE_SCORER.score(ref, gen)
     return scores["rougeL"].fmeasure
-
-
-def compute_pass_at_1(
-    completions: list[str],
-    references: list[str],
-    threshold: float = 0.3,
-) -> float:
-    """Compute Pass@1: fraction of completions with ROUGE-L ≥ threshold.
-
-    Args:
-        completions: Generated gloss sequences.
-        references: Gold reference gloss sequences (same order).
-        threshold: ROUGE-L threshold for considering a pass.
-
-    Returns:
-        Pass@1 rate in [0, 1].
-    """
-    passes = sum(
-        1 for c, r in zip(completions, references) if rouge_l_score(c, r) >= threshold
-    )
-    return passes / max(len(completions), 1)
 
 
 def compute_pass_at_k(
@@ -208,25 +190,53 @@ def compute_detailed_metrics(
 # Per-component reward breakdown
 # ---------------------------------------------------------------------------
 
+#: Reward components that need a gold reference gloss (completion, gold).
+_GOLD_REWARD_COMPONENTS: tuple[str, ...] = (
+    "translation_quality_reward",
+    "bleu_reward",
+    "gold_structure_reward",
+    "gloss_order_reward",
+    "verifier_scaled_reward",
+)
+
+#: Reward components that score the completion alone (no gold needed).
+_FREE_REWARD_COMPONENTS: tuple[str, ...] = (
+    "gloss_format_reward",
+    "gloss_repetition_reward",
+)
+
+#: Optional structural components that may be removed by refactors of
+#: ``src.rewards`` — looked up defensively so a missing function is
+#: skipped instead of crashing the eval.
+_OPTIONAL_FREE_REWARD_COMPONENTS: tuple[str, ...] = (
+    "structural_dense_reward",
+    "viterbi_distance_reward",
+    "soft_viterbi_distance_reward",
+)
+
 
 def compute_reward_breakdown(
     completions: list[str],
-    prompts: list[str] | None = None,
-    sample_ids: list[str] | None = None,
+    references: list[str] | None = None,
     reward_weights: dict[str, float] | None = None,
 ) -> dict[str, float]:
     """Compute average score for each T2G reward component directly.
 
-    Calls each reward function (translation_quality, structural_dense,
-    gloss_format, gloss_repetition) on every completion and returns
-    the mean per component.
+    Calls the component reward functions in ``src.rewards.t2g_rewards``
+    with plain strings — no global gold-gloss registry is used.  Gold
+    references are passed in explicitly via ``references`` (same order
+    as ``completions``).
+
+    Gold-dependent components (translation quality, BLEU, gold
+    structure, gloss order, verifier-scaled) are only computed when
+    ``references`` is provided; otherwise they are skipped.  Structural
+    components that no longer exist in the rewards module (e.g. the
+    dense Viterbi proxies) are skipped gracefully via attribute lookup.
 
     Args:
         completions: Generated gloss sequences.
-        prompts: Optional prompts, used as fallback to look up gold glosses
-            via ``_extract_sample_id`` if ``sample_ids`` is not provided.
-        sample_ids: Optional stable sample IDs (SHA256 of user text) for
-            reliable gold gloss lookup.  Preferred over ``prompts``.
+        references: Gold reference glosses (same order as ``completions``).
+            ``None`` skips gold-dependent components.
         reward_weights: Optional dict mapping component name → weight.
             If provided, only components with weight > 0 are computed
             (others are skipped to save computation).
@@ -234,199 +244,274 @@ def compute_reward_breakdown(
     Returns:
         Dict mapping component name → average score.
     """
-    from src.rewards.t2g_rewards import (
-        _lookup_gold_gloss,
-        _lookup_gold_gloss_by_id,
-        bleu_reward,
-        gloss_format_reward,
-        gloss_order_reward,
-        gloss_repetition_reward,
-        gold_structure_reward,
-        soft_viterbi_distance_reward,
-        structural_dense_reward,
-        translation_quality_reward,
-        verifier_scaled_reward,
-        viterbi_distance_reward,
-    )
+    import src.rewards.t2g_rewards as rewards_mod
 
-    n = len(completions)
-    # Build set of active components (weight > 0) to skip computation of others
-    _ACTIVE: set[str] | None = None
+    gold_components: dict[str, Any] = {
+        name: getattr(rewards_mod, name) for name in _GOLD_REWARD_COMPONENTS
+    }
+    free_components: dict[str, Any] = {
+        name: getattr(rewards_mod, name) for name in _FREE_REWARD_COMPONENTS
+    }
+    for name in _OPTIONAL_FREE_REWARD_COMPONENTS:
+        fn = getattr(rewards_mod, name, None)
+        if fn is not None:
+            free_components[name] = fn
+
+    has_refs = bool(references) and len(references) == len(completions)
+
+    # Only compute components with weight > 0 to save computation.
+    active: set[str] | None = None
     if reward_weights is not None:
-        _ACTIVE = {k for k, v in reward_weights.items() if v > 0}
+        active = {k for k, v in reward_weights.items() if v > 0}
 
     def _is_active(name: str) -> bool:
         """Return True if this component should be computed."""
-        return _ACTIVE is None or name in _ACTIVE
+        return active is None or name in active
 
-    sums = {
-        "translation_quality_reward": 0.0,
-        "bleu_reward": 0.0,
-        "structural_dense_reward": 0.0,
-        "gold_structure_reward": 0.0,
-        "viterbi_distance_reward": 0.0,
-        "soft_viterbi_distance_reward": 0.0,
-        "verifier_scaled_reward": 0.0,
-        "gloss_order_reward": 0.0,
-        "gloss_format_reward": 0.0,
-        "gloss_repetition_reward": 0.0,
-    }
+    sums: dict[str, float] = {}
+    counts: dict[str, int] = {}
+
+    def _add(name: str, value: float) -> None:
+        sums[name] = sums.get(name, 0.0) + value
+        counts[name] = counts.get(name, 0) + 1
 
     for i, comp in enumerate(completions):
-        gold = ""
-        if sample_ids and i < len(sample_ids) and sample_ids[i]:
-            gold = _lookup_gold_gloss_by_id(sample_ids[i])
-        elif prompts and i < len(prompts):
-            gold = _lookup_gold_gloss(prompts[i])
-        if _is_active("translation_quality_reward"):
-            sums["translation_quality_reward"] += translation_quality_reward(comp, gold)
-        if _is_active("bleu_reward"):
-            sums["bleu_reward"] += bleu_reward(comp, gold)
-        if _is_active("structural_dense_reward"):
-            sums["structural_dense_reward"] += structural_dense_reward(
-                comp, normalize=True
-            )
-        if _is_active("gold_structure_reward"):
-            sums["gold_structure_reward"] += gold_structure_reward(
-                comp, gold, normalize=True
-            )
-        if _is_active("viterbi_distance_reward"):
-            sums["viterbi_distance_reward"] += viterbi_distance_reward(
-                comp, normalize=True
-            )
-        if _is_active("soft_viterbi_distance_reward"):
-            sums["soft_viterbi_distance_reward"] += soft_viterbi_distance_reward(
-                comp, normalize=True
-            )
-        if _is_active("verifier_scaled_reward"):
-            sums["verifier_scaled_reward"] += verifier_scaled_reward(comp, gold)
-        if _is_active("gloss_order_reward"):
-            sums["gloss_order_reward"] += gloss_order_reward(comp, gold)
-        if _is_active("gloss_format_reward"):
-            sums["gloss_format_reward"] += gloss_format_reward(comp)
-        if _is_active("gloss_repetition_reward"):
-            sums["gloss_repetition_reward"] += gloss_repetition_reward(comp)
+        gold = references[i] if references is not None and has_refs else ""
+        for name, fn in gold_components.items():
+            if _is_active(name) and has_refs:
+                _add(name, fn(comp, gold))
+        for name, fn in free_components.items():
+            if _is_active(name):
+                _add(name, fn(comp))
 
-    # Only return components that were actually computed (active ones)
-    result = {k: v / max(n, 1) for k, v in sums.items()}
-    if _ACTIVE is not None:
-        result = {k: v for k, v in result.items() if k in _ACTIVE}
-    return result
+    return {
+        name: sums[name] / counts[name]
+        for name in counts
+        if _is_active(name)
+    }
 
 
 # ---------------------------------------------------------------------------
-# BLEU Score (corpus-level and sentence-level)
+# SacreBLEU-based metrics (BLEU, chrF2) and token-level gloss F1
 # ---------------------------------------------------------------------------
 
-
-def _ngram_counts(tokens: list[str], n: int) -> Counter:
-    """Count n-grams in a token list."""
-    return Counter(tuple(tokens[i : i + n]) for i in range(len(tokens) - n + 1))
+_SACREBLEU_BLEU_METRIC: Any = None
+_SACREBLEU_CHRF_METRIC: Any = None
 
 
-def sentence_bleu(reference: str, hypothesis: str, max_n: int = 4) -> float:
-    """Compute sentence-level BLEU score (geometric mean of n-gram precision).
+def _get_sacrebleu_bleu() -> Any:
+    """Lazily build the shared sacrebleu BLEU metric instance.
 
-    Uses uniform weights (1/max_n) for n-gram precisions and applies
-    brevity penalty.  Suitable for short gloss sequences.
+    Uses ``effective_order=True`` (so short gloss sequences are scored
+    against the n-gram orders actually present instead of collapsing to
+    0) and ``floor`` smoothing, matching the configuration used by
+    ``bleu_reward`` in ``src.rewards.t2g_rewards``.
+    """
+    global _SACREBLEU_BLEU_METRIC
+    if _SACREBLEU_BLEU_METRIC is None:
+        import sacrebleu
+
+        _SACREBLEU_BLEU_METRIC = sacrebleu.BLEU(
+            effective_order=True,
+            smooth_method="floor",
+            smooth_value=0.1,
+        )
+    return _SACREBLEU_BLEU_METRIC
+
+
+def _get_sacrebleu_chrf() -> Any:
+    """Lazily build the shared sacrebleu CHRF metric instance (chrF2)."""
+    global _SACREBLEU_CHRF_METRIC
+    if _SACREBLEU_CHRF_METRIC is None:
+        import sacrebleu
+
+        _SACREBLEU_CHRF_METRIC = sacrebleu.CHRF(char_order=6, word_order=2)
+    return _SACREBLEU_CHRF_METRIC
+
+
+def bleu_sentence(generated: str, reference: str) -> float:
+    """Sentence-level BLEU via sacrebleu, normalized to [0, 1].
 
     Args:
+        generated: Generated gloss sequence (hypothesis).
         reference: Gold reference gloss sequence.
-        hypothesis: Generated gloss sequence.
-        max_n: Maximum n-gram order (default 4 = BLEU-4).
 
     Returns:
-        BLEU score in [0, 1].
+        BLEU score in [0, 1] (sacrebleu's 0-100 scale divided by 100).
     """
-    ref_tokens = reference.strip().split()
-    hyp_tokens = hypothesis.strip().split()
-
-    if not hyp_tokens or not ref_tokens:
+    gen = extract_gloss_text(generated)
+    ref = reference.strip()
+    if not gen or not ref:
         return 0.0
-
-    # Brevity penalty
-    bp = (
-        1.0
-        if len(hyp_tokens) >= len(ref_tokens)
-        else np.exp(1 - len(ref_tokens) / len(hyp_tokens))
-    )
-
-    # Geometric mean of n-gram precisions
-    log_precisions = []
-    for n in range(1, max_n + 1):
-        ref_counts = _ngram_counts(ref_tokens, n)
-        hyp_counts = _ngram_counts(hyp_tokens, n)
-
-        total = sum(hyp_counts.values())
-        if total == 0:
-            log_precisions.append(-np.inf)
-            continue
-
-        matches = sum(min(hyp_counts[ng], ref_counts.get(ng, 0)) for ng in hyp_counts)
-        precision = matches / total
-        if precision == 0:
-            log_precisions.append(-np.inf)
-        else:
-            log_precisions.append(np.log(precision))
-
-    if any(np.isneginf(lp) for lp in log_precisions):
-        return 0.0
-
-    geo_mean = np.exp(np.mean(log_precisions))
-    return float(bp * geo_mean)
+    return float(_get_sacrebleu_bleu().sentence_score(gen, [ref]).score) / 100.0
 
 
-def corpus_bleu(references: list[str], hypotheses: list[str], max_n: int = 4) -> float:
-    """Compute corpus-level BLEU score.
+def bleu_corpus(generated: list[str], references: list[str]) -> float:
+    """Corpus-level BLEU via sacrebleu, normalized to [0, 1].
 
-    Aggregates n-gram matches across all sentences before computing
+    Aggregates n-gram matches across all sentence pairs before computing
     precision, which is more accurate than averaging sentence-level BLEU.
 
     Args:
-        references: List of gold reference gloss sequences.
-        hypotheses: List of generated gloss sequences.
-        max_n: Maximum n-gram order.
+        generated: List of generated gloss sequences.
+        references: List of gold reference glosses (same order).
 
     Returns:
         Corpus BLEU score in [0, 1].
     """
-    if not references or not hypotheses:
+    if not generated or not references:
         return 0.0
+    hyps = [extract_gloss_text(g) for g in generated]
+    refs = [[r.strip()] for r in references]
+    return float(_get_sacrebleu_bleu().corpus_score(hyps, refs).score) / 100.0
 
-    total_matches = [0] * max_n
-    total_counts = [0] * max_n
-    ref_len_total = 0
-    hyp_len_total = 0
 
-    for ref, hyp in zip(references, hypotheses):
-        ref_tokens = ref.strip().split()
-        hyp_tokens = hyp.strip().split()
-        ref_len_total += len(ref_tokens)
-        hyp_len_total += len(hyp_tokens)
+def chrf_score(generated: str, reference: str) -> float:
+    """Sentence-level chrF2 via sacrebleu (0-100 scale).
 
-        for n in range(1, max_n + 1):
-            ref_counts = _ngram_counts(ref_tokens, n)
-            hyp_counts = _ngram_counts(hyp_tokens, n)
-            total_counts[n - 1] += sum(hyp_counts.values())
-            total_matches[n - 1] += sum(
-                min(hyp_counts[ng], ref_counts.get(ng, 0)) for ng in hyp_counts
-            )
+    chrF (character n-gram F-score, beta=2) is a standard MT metric
+    robust to word-order errors and out-of-vocabulary tokens — a good
+    complement to ROUGE-L and BLEU for short ASL gloss sequences.
 
-    # Brevity penalty (corpus-level)
-    bp = (
-        1.0
-        if hyp_len_total >= ref_len_total
-        else np.exp(1 - ref_len_total / max(hyp_len_total, 1))
-    )
+    Args:
+        generated: Generated gloss sequence (hypothesis).
+        reference: Gold reference gloss sequence.
 
-    log_precisions = []
-    for n in range(max_n):
-        if total_counts[n] == 0 or total_matches[n] == 0:
-            return 0.0
-        log_precisions.append(np.log(total_matches[n] / total_counts[n]))
+    Returns:
+        chrF2 score in [0, 100] (sacrebleu convention).
+    """
+    gen = extract_gloss_text(generated)
+    ref = reference.strip()
+    if not gen or not ref:
+        return 0.0
+    return float(_get_sacrebleu_chrf().sentence_score(gen, [ref]).score)
 
-    geo_mean = np.exp(np.mean(log_precisions))
-    return float(bp * geo_mean)
+
+def corpus_chrf(generated: list[str], references: list[str]) -> float:
+    """Corpus-level chrF2 via sacrebleu (0-100 scale).
+
+    Args:
+        generated: List of generated gloss sequences.
+        references: List of gold reference glosses (same order).
+
+    Returns:
+        Corpus chrF2 score in [0, 100].
+    """
+    if not generated or not references:
+        return 0.0
+    hyps = [extract_gloss_text(g) for g in generated]
+    refs = [[r.strip()] for r in references]
+    return float(_get_sacrebleu_chrf().corpus_score(hyps, refs).score)
+
+
+def gloss_f1(generated: str, reference: str) -> float:
+    """Compute token-level F1 between generated and gold gloss sequences.
+
+    Precision/recall are computed over space-separated tokens with a
+    case-insensitive (lowercased) comparison, so ``"WALK"`` and
+    ``"walk"`` match.
+
+    Args:
+        generated: Generated gloss sequence.
+        reference: Gold reference gloss sequence.
+
+    Returns:
+        F1 score in [0, 1] (0 = no overlap, 1 = identical).
+    """
+    gen_tokens = extract_gloss_text(generated).lower().split()
+    ref_tokens = reference.strip().lower().split()
+    if not gen_tokens or not ref_tokens:
+        return 0.0
+    gen_counts = Counter(gen_tokens)
+    ref_counts = Counter(ref_tokens)
+    overlap = sum((gen_counts & ref_counts).values())
+    if overlap == 0:
+        return 0.0
+    precision = overlap / len(gen_tokens)
+    recall = overlap / len(ref_tokens)
+    return float(2.0 * precision * recall / (precision + recall))
+
+
+def corpus_gloss_f1(
+    generated: list[str],
+    references: list[str],
+) -> dict[str, float]:
+    """Compute corpus-level token F1: micro-averaged and sentence-mean.
+
+    - ``"micro"`` aggregates token counts across all sentence pairs
+      before computing precision/recall (one global F1).
+    - ``"sentence_mean"`` averages the per-sentence F1 scores.
+
+    Args:
+        generated: List of generated gloss sequences.
+        references: List of gold reference glosses (same order).
+
+    Returns:
+        Dict with keys ``"micro"`` and ``"sentence_mean"`` in [0, 1].
+    """
+    if not generated or not references:
+        return {"micro": 0.0, "sentence_mean": 0.0}
+
+    gen_counts_total: Counter[str] = Counter()
+    ref_counts_total: Counter[str] = Counter()
+    overlap_total = 0
+    sentence_scores: list[float] = []
+
+    for gen, ref in zip(generated, references):
+        gen_counts = Counter(extract_gloss_text(gen).lower().split())
+        ref_counts = Counter(ref.strip().lower().split())
+        gen_counts_total.update(gen_counts)
+        ref_counts_total.update(ref_counts)
+        overlap = sum((gen_counts & ref_counts).values())
+        overlap_total += overlap
+        gen_len = sum(gen_counts.values())
+        ref_len = sum(ref_counts.values())
+        if gen_len and ref_len and overlap:
+            precision = overlap / gen_len
+            recall = overlap / ref_len
+            sentence_scores.append(2.0 * precision * recall / (precision + recall))
+        else:
+            sentence_scores.append(0.0)
+
+    total_gen = sum(gen_counts_total.values())
+    total_ref = sum(ref_counts_total.values())
+    if total_gen and total_ref and overlap_total:
+        precision = overlap_total / total_gen
+        recall = overlap_total / total_ref
+        micro = 2.0 * precision * recall / (precision + recall)
+    else:
+        micro = 0.0
+
+    return {
+        "micro": float(micro),
+        "sentence_mean": float(np.mean(sentence_scores)),
+    }
+
+
+def seeded_sample_indices(
+    total: int,
+    n: int | None,
+    seed: int = 42,
+) -> list[int]:
+    """Return a reproducible random subset of indices for evaluation.
+
+    When ``n`` is ``None`` (or ``n >= total``), returns all indices
+    ``[0, total)`` in order.  Otherwise samples ``n`` distinct indices
+    with a seeded RNG — NOT the first ``n`` of the dataset — so partial
+    evaluations are unbiased and reproducible.
+
+    Args:
+        total: Total number of items (e.g. test-set size).
+        n: Number of items to sample, or ``None`` for all.
+        seed: Random seed for reproducible sampling.
+
+    Returns:
+        Sorted list of distinct indices in ``[0, total)``.
+    """
+    if n is None or n >= total:
+        return list(range(total))
+    rng = random.Random(seed)
+    return sorted(rng.sample(range(total), n))
 
 
 # ---------------------------------------------------------------------------
@@ -487,7 +572,9 @@ def compute_evaluation_report(
     models.  It computes:
 
     - ROUGE-L (mean, 95% CI)
-    - BLEU (corpus-level + sentence-level mean with 95% CI)
+    - BLEU via sacrebleu (corpus + sentence mean with 95% CI, [0, 1])
+    - chrF2 via sacrebleu (corpus + sentence mean with 95% CI, 0-100 scale)
+    - Token-level gloss F1 (micro + sentence mean with 95% CI, [0, 1])
     - Pass@1 (with 95% CI)
     - Gloss validity rate
     - Error distribution
@@ -508,7 +595,9 @@ def compute_evaluation_report(
 
     # Per-sample metrics
     rouge_scores = [rouge_l_score(c, r) for c, r in zip(completions, references)]
-    bleu_scores = [sentence_bleu(r, c) for c, r in zip(completions, references)]
+    bleu_scores = [bleu_sentence(c, r) for c, r in zip(completions, references)]
+    chrf_scores = [chrf_score(c, r) for c, r in zip(completions, references)]
+    gloss_f1_scores = [gloss_f1(c, r) for c, r in zip(completions, references)]
     pass_scores = [1.0 if s >= 0.3 else 0.0 for s in rouge_scores]
 
     # Validity
@@ -523,12 +612,17 @@ def compute_evaluation_report(
     bleu_mean, bleu_lo, bleu_hi = bootstrap_confidence_interval(
         bleu_scores, n_bootstrap
     )
+    chrf_mean, chrf_lo, chrf_hi = bootstrap_confidence_interval(
+        chrf_scores, n_bootstrap
+    )
+    gloss_f1_mean, gloss_f1_lo, gloss_f1_hi = bootstrap_confidence_interval(
+        gloss_f1_scores, n_bootstrap
+    )
     pass_mean, pass_lo, pass_hi = bootstrap_confidence_interval(
         pass_scores, n_bootstrap
     )
 
-    # Corpus BLEU
-    corpus_bleu_score = corpus_bleu(references, completions)
+    corpus_f1 = corpus_gloss_f1(completions, references)
 
     return {
         "total_samples": total,
@@ -543,9 +637,19 @@ def compute_evaluation_report(
             },
         },
         "bleu": {
-            "corpus": corpus_bleu_score,
+            "corpus": bleu_corpus(completions, references),
             "sentence_mean": bleu_mean,
             "ci_95": [bleu_lo, bleu_hi],
+        },
+        "chrf": {
+            "corpus": corpus_chrf(completions, references),
+            "sentence_mean": chrf_mean,
+            "ci_95": [chrf_lo, chrf_hi],
+        },
+        "gloss_f1": {
+            "micro": corpus_f1["micro"],
+            "sentence_mean": gloss_f1_mean,
+            "ci_95": [gloss_f1_lo, gloss_f1_hi],
         },
         "pass_at_1": {
             "mean": pass_mean,

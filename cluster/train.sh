@@ -38,6 +38,11 @@ fi
 # ── Setup ambiente ───────────────────────────────────────────────────────────
 set -e
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=cluster/_lib.sh
+source "$SCRIPT_DIR/_lib.sh"
+cd "$PROJ_DIR"
+
 echo "============================================"
 echo "  T2G Training — Cluster"
 echo "  Job ID:    ${SLURM_JOB_ID}"
@@ -52,62 +57,11 @@ mkdir -p logs
 export WANDB_MODE=offline
 export PYTHONUNBUFFERED=1
 
-cd "$HOME/neuro_symbolic_t2g"
-
-# Prepara dataset e vocabolario se mancanti
-if [ ! -d "data/aslg_pc12_train" ] || [ ! -f "data/gloss_vocab.txt" ]; then
-    echo "Dataset ASLG-PC12 o vocabolario non trovati, rigenerazione in corso..."
-    if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
-        apptainer run --nv /shared/sifs/latest.sif python3 -c "
-from src.datasets.aslg_dataset import download_aslg_dataset, extract_gloss_vocabulary, save_vocabulary, build_t2g_dataset
-dataset = download_aslg_dataset()
-vocab = extract_gloss_vocabulary(dataset, split='train')
-save_vocabulary(vocab, 'data/gloss_vocab.txt')
-train_ds = build_t2g_dataset(dataset, split='train')
-test_ds = build_t2g_dataset(dataset, split='test')
-train_ds.save_to_disk('data/aslg_pc12_train')
-test_ds.save_to_disk('data/aslg_pc12_test')
-print('Dataset e vocabolario pronti.')
-"
-    else
-        python3 -c "
-from src.datasets.aslg_dataset import download_aslg_dataset, extract_gloss_vocabulary, save_vocabulary, build_t2g_dataset
-dataset = download_aslg_dataset()
-vocab = extract_gloss_vocabulary(dataset, split='train')
-save_vocabulary(vocab, 'data/gloss_vocab.txt')
-train_ds = build_t2g_dataset(dataset, split='train')
-test_ds = build_t2g_dataset(dataset, split='test')
-train_ds.save_to_disk('data/aslg_pc12_train')
-test_ds.save_to_disk('data/aslg_pc12_test')
-print('Dataset e vocabolario pronti.')
-"
-    fi
-fi
-
-if [ ! -f "data/bigram_transition.npy" ]; then
-    echo "Matrici di transizione non trovate, calcolo in corso..."
-    if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
-        apptainer run --nv /shared/sifs/latest.sif python3 -c "
-from src.datasets.aslg_dataset import download_aslg_dataset, load_vocabulary
-from src.datasets.transition_matrix import compute_bigram_transitions, save_transition_matrix
-dataset = download_aslg_dataset()
-vocab = load_vocabulary('data/gloss_vocab.txt')
-bigram = compute_bigram_transitions(dataset, vocab, split='train', smoothing=1.0)
-save_transition_matrix(bigram, 'data/bigram_transition.npy')
-print('Matrici salvate.')
-"
-    else
-        python3 -c "
-from src.datasets.aslg_dataset import download_aslg_dataset, load_vocabulary
-from src.datasets.transition_matrix import compute_bigram_transitions, save_transition_matrix
-dataset = download_aslg_dataset()
-vocab = load_vocabulary('data/gloss_vocab.txt')
-bigram = compute_bigram_transitions(dataset, vocab, split='train', smoothing=1.0)
-save_transition_matrix(bigram, 'data/bigram_transition.npy')
-print('Matrici salvate.')
-"
-    fi
-fi
+# Prepara dataset/vocab/bigram se mancanti (funzione shared da _lib.sh,
+# idempotente — era triplicata tra setup.sh/train.sh/eval.sh).
+# set -e qui: se la preparazione fallisce, il job fallisce LOUD (niente
+# training silenzioso su dati mancanti).
+prepare_data
 
 echo ""
 echo "Avvio training..."
