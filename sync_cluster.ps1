@@ -22,6 +22,23 @@ function Download-RemoteDir($remoteSubpath, $localDest) {
     ssh $SSH_TARGET "cd ~/neuro_symbolic_t2g && tar cf - $excludeArgs $remoteSubpath" | tar xvf - -C "$LOCAL"
 }
 
+function Filter-EnvForUpload($envPath) {
+    # Security: strip the local TUI credentials section (marker
+    # '# >>> t2g-tui >>>' ... '# <<< t2g-tui <<<', containing the Render
+    # service URL + auth token) before uploading .env to the cluster —
+    # the cluster never needs it and the token must not leave this machine.
+    if (-not (Test-Path $envPath)) { return $envPath }
+    $tmp = Join-Path $env:TEMP "t2g_env_upload_$PID.env"
+    $inSection = $false
+    $kept = foreach ($line in Get-Content $envPath) {
+        if ($line -match '^\s*# >>> t2g-tui >>>') { $inSection = $true; continue }
+        if ($line -match '^\s*# <<< t2g-tui <<<') { $inSection = $false; continue }
+        if (-not $inSection) { $line }
+    }
+    Set-Content -Path $tmp -Value $kept
+    return $tmp
+}
+
 function Upload {
     Write-Host "Uploading project to cluster..." -ForegroundColor Cyan
 
@@ -44,6 +61,10 @@ function Upload {
 
     # Collect all individual files to upload (flatten directories)
     # NOTE: "data" is excluded — the dataset is generated on the cluster by setup.sh/train.sh
+    # NOTE: "remote/" is NOT uploaded as a whole: only cluster_helper.sh is
+    # pushed, and it lands in cluster/ (where the Render service expects it —
+    # see remote/app.py HELPER_REMOTE). This also prevents the upload's
+    # rm -rf of cluster/ from deleting a previously installed helper.
     $items = @(
         "src",
         "cluster",
@@ -53,7 +74,8 @@ function Upload {
         "main.py",
         "pyproject.toml",
         "README.md",
-        ".env"
+        ".env",
+        "remote/cluster_helper.sh"
     )
 
     # Build flat list of (localPath, remotePath) pairs
@@ -66,11 +88,22 @@ function Upload {
             Write-Host "  [SKIP] $item (not found)" -ForegroundColor Yellow
             continue
         }
+
+        # .env: strip the local TUI credentials (service URL + auth token)
+        # before it leaves this machine — the cluster never needs them.
+        if ($item -eq ".env") {
+            $localPath = Filter-EnvForUpload $localPath
+        }
+
+        # The cluster helper lives in remote/ locally but must be installed
+        # in cluster/ on the remote (HELPER_REMOTE contract of remote/app.py).
+        $remoteRel = $item -replace '^remote/', 'cluster/'
+
         if (Test-Path $localPath -PathType Container) {
             # Track top-level dirs for remote cleanup
-            $parent = Split-Path $item
+            $parent = Split-Path $remoteRel
             if (-not $parent) {
-                $dirsToClean.Add($item)
+                $dirsToClean.Add($remoteRel)
             }
             # Enumerate all files in directory recursively
             Get-ChildItem -Path $localPath -File -Recurse | ForEach-Object {
@@ -78,7 +111,7 @@ function Upload {
                 $files.Add(@{ Local = $_.FullName; Remote = $relPath })
             }
         } else {
-            $files.Add(@{ Local = $localPath; Remote = $item })
+            $files.Add(@{ Local = $localPath; Remote = $remoteRel })
         }
     }
 

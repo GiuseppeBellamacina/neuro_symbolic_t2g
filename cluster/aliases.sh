@@ -679,6 +679,10 @@ install-aliases() {
         echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
         echo "✅ ~/.local/bin aggiunto al PATH in ~/.bashrc"
     fi
+    # Installa anche l'hook della chain (idempotente: skip se già presente;
+    # una volta deployato il servizio esterno si può rimuovere con
+    # chain-hook-uninstall — vedi CLUSTER.md § Chain)
+    chain-hook-install || true
 }
 
 # Rimuovi alias dal .bashrc
@@ -689,6 +693,8 @@ uninstall-aliases() {
     else
         echo "⚠️  Alias non presenti in ~/.bashrc"
     fi
+    # Rimuove anche l'hook della chain se installato
+    chain-hook-uninstall || true
     unload-aliases
 }
 

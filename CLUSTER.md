@@ -250,7 +250,7 @@ Le modalità di guida (primaria → ultima ratio):
 | 1 | **bashrc-hook** (PRIMARIO / raccomandato) | `~/.bashrc` col blocco `t2g-chain-hook` | `chain-hook-install` (poi `source ~/.bashrc`); `PROMPT_COMMAND` throttled 300s |
 | 2 | **watcher fallback** (automatico) | nessuno | avviato da `run-all` / `chain-resume` quando `at` manca (il caso gcluster); best-effort — il reaper può ucciderlo → riprendi con `chain-resume` |
 | 3 | **at-mode** (opportunistico) | `at` presente sul login node (oggi ASSENTE su gcluster) | `chain_tick.sh --schedule`; dedup = max 1 job at pendente; se un giorno `at` comparisse, rilevato automaticamente senza danni |
-| 4 | **esterno** (ultima ratio) | cron/ssh esterno | `cluster/remote_tick.sh` |
+| 4 | **esterno** (primario se `remote/` è deployato) | Render + cronjob.org (o cron/ssh semplice) | `remote/app.py` → `cluster_helper.sh` / `cluster/remote_tick.sh` |
 
 Il tick è **innocuo e idempotente**: se c'è un job attivo non tocca la coda,
 se la coda è vuota non fa nulla, se due istanze partono insieme il `flock` ne
@@ -308,6 +308,42 @@ Se anche il retry fallisce, l'errore finisce in `chain_errors`, l'eventuale
 eval associato viene saltato (per non valutare un modello non addestrato) e la
 catena continua con l'entry successiva (continue-on-failure, pensato per
 l'ablation study).
+
+### 6.6. Driver esterno (Render + cronjob.org)
+
+> Quando `remote/` è deployato, il driver diventa la modalità **PRIMARIA** di
+> avanzamento; hook bashrc e watcher restano installati come fallback innocui
+> (il tick è idempotente, più driver non si pestano i piedi).
+
+**Architettura (in 5 righe):** cronjob.org POSTa `/tick` ogni 5 min (header
+`X-Auth-Token`) → il servizio FastAPI su Render apre **una** ssh verso il
+login node → esegue `cluster_helper.sh tick` (che chiama
+`chain_tick.sh --quiet`, one-shot e idempotente) → riceve uno snapshot
+`KEY=VALUE` machine-readable (coda separata da `\x1f`) → lo sincronizza in un
+DB SQLite locale. La **fonte di verità resta `.chain_state/` sul cluster**:
+il filesystem di Render è effimero, quindi il DB è solo cache/diario (il
+puntatore `errors_offset` evita di rileggere gli errori già visti).
+
+**Quando usarlo:** primario se deployato (piloti la coda via API:
+aggiungi/rimuovi job, `POST /pause`/`/resume`, `GET /status`). Hook bashrc
+(`chain-hook-install`) e watcher (`chain_next.sh`) diventano **fallback** e
+possono convivere senza danni.
+
+**Deploy:** tutto in `remote/` — README passo-passo (Web Service su Render,
+build `pip install -r remote/requirements.txt`, start
+`cd remote && uvicorn app:app --host 0.0.0.0 --port $PORT`), env vars,
+setup chiave dedicata e cronjob.org: **`remote/README.md`**.
+
+**Sicurezza:** chiave SSH **dedicata** senza passphrase generata solo per il
+driver (`ssh-keygen -t ed25519 -f ~/.ssh/t2g_driver -N ""` + la pubblica in
+`~/.ssh/authorized_keys`): se trapela da Render la revochi con una sola riga
+senza toccare il tuo accesso. Token API e chiave vivono solo nelle env vars
+di Render e **non vengono mai loggati**; tutte le route richiedono
+`X-Auth-Token` (confronto constant-time).
+
+**Nota hook:** `install-aliases` / `chain-hook-install` installa comunque
+l'hook bashrc come fallback; se vuoi l'unico driver = Render, rimuovilo con
+`chain-hook-uninstall` (il driver esterno continua a funzionare da solo).
 
 ---
 

@@ -43,11 +43,20 @@ dev = [
     "black[jupyter]",
     "ruff",
     "pytest",
+    "fastapi>=0.139.0",
+    "uvicorn>=0.50.2",
+    "httpx>=0.28.1",
 ]
 # Heavy extras for the optional "minilm" retrieval backend only.
 # The default "tfidf" backend (scikit-learn) is a core dependency.
 retrieval = [
     "sentence-transformers>=5.7.0",
+]
+# Local TUI client for the remote cluster driver (remote/tui.py). Self-contained:
+# textual + httpx are declared here so the extra works without pulling "dev".
+tui = [
+    "textual>=0.85",
+    "httpx>=0.27",
 ]
 
 [build-system]
