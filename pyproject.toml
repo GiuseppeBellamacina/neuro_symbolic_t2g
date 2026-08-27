@@ -9,15 +9,27 @@ authors = [
 
 dependencies = [
     # Core ML
+    # ⚠️ STACK ALLINEATO AL CONTAINER DEL CLUSTER (torch 2.7.1+cu118, driver
+    # CUDA 12.4, transformers 5.3.0, trl 0.24.0 preinstallati). I pin evitano
+    # che pip risolva stack più recenti in ~/.local che hanno la precedenza
+    # sul container e rompono CUDA (es. unsloth 2026.8 → torchao 0.18 →
+    # richiede torch>=2.11 → "cannot import ScalingType" / "no accelerator").
+    # - unsloth 2026.7.1: dichiara torch<2.11 — ultima testata su torch 2.7
+    # - torchao <0.15: 0.14 è il pairing ufficiale di torch 2.7 (0.15+ vuole
+    #   torch>=2.8; nota: torchao NON dichiara torch nei metadati PyPI, pip
+    #   non può proteggerlo da solo — da qui il pin esplicito)
+    # - peft 0.19.1: versione verificata con transformers 5.3.0 (stesso stack
+    #   del run di luglio 2026 e del reference grpo-strict-generation)
     "torch",
     "transformers",
     "trl==0.24.0",
-    "peft",
+    "peft==0.19.1",
     "datasets",
     "accelerate",
     "bitsandbytes",
-    "unsloth>=2026.7.1",
-    "unsloth_zoo>=2026.7.1",
+    "unsloth==2026.7.1",
+    "unsloth_zoo==2026.7.1",
+    "torchao>=0.13.0,<0.15",
 
     # Data & Eval
     "rouge-score>=0.1.2",
