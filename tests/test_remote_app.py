@@ -35,10 +35,26 @@ EXPECTED_ABLATION_MODELS: list[tuple[str, str, str]] = [
     ("grpo-grammar", "experiments/configs/t2g/grpo_qwen05.yaml", "te"),
     ("sft", "experiments/configs/t2g/sft.yaml", "te"),
     ("grpo-pda", "experiments/configs/t2g/ablation/grpo_pda.yaml", "te"),
-    ("grpo-pda-lookahead", "experiments/configs/t2g/ablation/grpo_pda_lookahead.yaml", "te"),
-    ("grpo-soft-viterbi", "experiments/configs/t2g/ablation/grpo_soft_viterbi.yaml", "te"),
-    ("grpo-verifier", "experiments/configs/t2g/ablation/grpo_verifier_scaled.yaml", "te"),
-    ("grpo-experimental-all", "experiments/configs/t2g/grpo_experimental_all.yaml", "te"),
+    (
+        "grpo-pda-lookahead",
+        "experiments/configs/t2g/ablation/grpo_pda_lookahead.yaml",
+        "te",
+    ),
+    (
+        "grpo-soft-viterbi",
+        "experiments/configs/t2g/ablation/grpo_soft_viterbi.yaml",
+        "te",
+    ),
+    (
+        "grpo-verifier",
+        "experiments/configs/t2g/ablation/grpo_verifier_scaled.yaml",
+        "te",
+    ),
+    (
+        "grpo-experimental-all",
+        "experiments/configs/t2g/grpo_experimental_all.yaml",
+        "te",
+    ),
     ("grpo-optimal", "experiments/configs/t2g/grpo_optimal.yaml", "te"),
 ]
 
@@ -103,7 +119,11 @@ class FakeClusterSSH:
             log_path = ""
             b64 = ""
             if self.active_job and self.log_lines is not None:
-                prefix = "eval" if self.active_job.split("|")[1].startswith("eval-") else "train"
+                prefix = (
+                    "eval"
+                    if self.active_job.split("|")[1].startswith("eval-")
+                    else "train"
+                )
                 log_path = f"~/neuro_symbolic_t2g/logs/slurm-{prefix}-{self.active_job.split('|')[0]}.log"
                 b64 = base64.b64encode("\n".join(self.log_lines).encode()).decode()
             out += f"LOG_PATH={log_path}\nLOG_TAIL_B64={b64}\n"
@@ -125,12 +145,12 @@ class FakeClusterSSH:
         elif sub == "resume":
             self.stopped = False
         elif sub == "monitor":
-            return app_module.SSHResult(self.rc, self._snapshot(with_log=True), self.stderr)
+            return app_module.SSHResult(
+                self.rc, self._snapshot(with_log=True), self.stderr
+            )
         elif sub == "scancel":
             if not self.active_job:
-                return app_module.SSHResult(
-                    1, "", "ERR_NO_ACTIVE_JOB=1"
-                )
+                return app_module.SSHResult(1, "", "ERR_NO_ACTIVE_JOB=1")
             job_id = self.active_job.split("|")[0]
             self.scancel_calls.append(job_id)
             self.active_job = ""
@@ -147,8 +167,10 @@ class FakeClusterSSH:
         """Subcomando = token dopo `bash .../cluster_helper.sh`."""
         tokens = remote_cmd.split()
         for i, tok in enumerate(tokens):
-            if tok == "bash" and i + 2 < len(tokens) and tokens[i + 1].endswith(
-                "cluster_helper.sh"
+            if (
+                tok == "bash"
+                and i + 2 < len(tokens)
+                and tokens[i + 1].endswith("cluster_helper.sh")
             ):
                 return tokens[i + 2].rstrip(";")
         return ""
@@ -197,12 +219,18 @@ def test_auth_required_401(client):
     test_client, _ = client
     assert test_client.get("/status").status_code == 401
     assert test_client.post("/tick").status_code == 401
-    assert test_client.post("/jobs", json={"type": "train", "config": "sft"}).status_code == 401
+    assert (
+        test_client.post("/jobs", json={"type": "train", "config": "sft"}).status_code
+        == 401
+    )
     assert test_client.post("/queue", json={"ablation": True}).status_code == 401
     assert test_client.delete("/jobs/foo").status_code == 401
     assert test_client.post("/pause").status_code == 401
     assert test_client.post("/resume").status_code == 401
-    assert test_client.get("/status", headers={"X-Auth-Token": "sbagliato"}).status_code == 401
+    assert (
+        test_client.get("/status", headers={"X-Auth-Token": "sbagliato"}).status_code
+        == 401
+    )
 
 
 # ── Chiave SSH opzionale (deploy locale) ──────────────────────────────────────
@@ -245,7 +273,9 @@ def test_ssh_key_explicit_but_missing_file_502(client, monkeypatch):
     resta un errore chiaro (502) — il comportamento non cambia con la chiave
     opzionale."""
     test_client, _ = client
-    monkeypatch.setattr(app_module.settings, "ssh_key_file", str(Path("C:/chiave_inesistente")))
+    monkeypatch.setattr(
+        app_module.settings, "ssh_key_file", str(Path("C:/chiave_inesistente"))
+    )
     resp = test_client.post("/tick", headers=AUTH)
     assert resp.status_code == 502
     assert "Chiave SSH" in resp.json()["detail"]
@@ -285,7 +315,11 @@ def test_status_format_after_tick(client):
         "events",
     ):
         assert key in body
-    assert body["active_job"] == {"id": "12345", "name": "train-foo", "state": "RUNNING"}
+    assert body["active_job"] == {
+        "id": "12345",
+        "name": "train-foo",
+        "state": "RUNNING",
+    }
     assert body["queue"] == ["train:experiments/configs/t2g/grpo_optimal.yaml:run1"]
     assert body["stopped"] is False
     assert body["cluster_reachable"] is True
@@ -350,7 +384,9 @@ def test_jobs_add_and_list(client):
         json={"type": "train", "config": "grpo_optimal", "tag": "run1"},
     )
     assert resp.status_code == 201
-    assert resp.json()["added"] == "train:experiments/configs/t2g/grpo_optimal.yaml:run1"
+    assert (
+        resp.json()["added"] == "train:experiments/configs/t2g/grpo_optimal.yaml:run1"
+    )
     assert fake.queue == ["train:experiments/configs/t2g/grpo_optimal.yaml:run1"]
     assert " enqueue " in fake.commands[-1]
 
@@ -368,9 +404,14 @@ def test_jobs_add_and_list(client):
 
 def test_jobs_tag_derived_and_mode(client):
     test_client, _ = client
-    resp = test_client.post("/jobs", headers=AUTH, json={"type": "eval", "config": "zero_shot"})
+    resp = test_client.post(
+        "/jobs", headers=AUTH, json={"type": "eval", "config": "zero_shot"}
+    )
     assert resp.status_code == 201
-    assert resp.json()["added"] == "eval:experiments/configs/t2g/ablation/zero_shot.yaml:zero-shot"
+    assert (
+        resp.json()["added"]
+        == "eval:experiments/configs/t2g/ablation/zero_shot.yaml:zero-shot"
+    )
 
     resp = test_client.post(
         "/jobs",
@@ -378,7 +419,10 @@ def test_jobs_tag_derived_and_mode(client):
         json={"type": "train", "config": "grpo_qwen05", "tag": "x", "mode": "--resume"},
     )
     assert resp.status_code == 201
-    assert resp.json()["added"] == "train:experiments/configs/t2g/grpo_qwen05.yaml:x:--resume"
+    assert (
+        resp.json()["added"]
+        == "train:experiments/configs/t2g/grpo_qwen05.yaml:x:--resume"
+    )
 
 
 def test_jobs_validation(client):
@@ -620,6 +664,7 @@ def test_monitor_eval_job_uses_eval_parser(client):
 def test_start_job_enqueues_and_ticks(client):
     """POST /jobs/start: enqueue + tick; started_now se il job è attivo."""
     test_client, fake = client
+
     # tick sottomette il job → diventa attivo con nome train-<tag>
     def _tick_side_effect(remote_cmd, timeout=None):
         fake.commands.append(remote_cmd)
@@ -658,7 +703,9 @@ def test_start_job_enqueued_when_busy(client):
     )
     assert resp.status_code == 201
     assert resp.json()["started_now"] is False
-    assert fake.queue == ["train:experiments/configs/t2g/grpo_optimal.yaml:grpo-optimal"]
+    assert fake.queue == [
+        "train:experiments/configs/t2g/grpo_optimal.yaml:grpo-optimal"
+    ]
 
 
 def test_kill_cancels_active_job(client):

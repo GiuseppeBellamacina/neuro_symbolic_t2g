@@ -174,13 +174,13 @@ def test_gold_structure_reward_anti_hacking(reward_setup):
     gold = "IX MAN WALK HOUSE"
 
     # < 2 in-vocab tokens → hard -1.0 (was: gliding on BOS→EOS uniform edge).
-    assert gold_structure_reward("IX", gold, normalize=True) == -1.0, (
-        "Single in-vocab token = -1.0"
-    )
+    assert (
+        gold_structure_reward("IX", gold, normalize=True) == -1.0
+    ), "Single in-vocab token = -1.0"
     # All-OOV garbage → 0 in-vocab tokens → -1.0.
-    assert gold_structure_reward("ZZZ QQQ RRR", gold, normalize=True) == -1.0, (
-        "All-OOV completion = -1.0"
-    )
+    assert (
+        gold_structure_reward("ZZZ QQQ RRR", gold, normalize=True) == -1.0
+    ), "All-OOV completion = -1.0"
 
     # Length-mismatch penalty: a 2-token completion against a 4-token gold
     # gets factor min(2,4)/max(2,4)=0.5, so its score cannot reach the
@@ -236,7 +236,9 @@ def test_reward_wrapper_missing_gold_is_neutral(reward_setup, caplog):
     # gold_gloss present but shorter than completions → missing for the tail.
     with caplog.at_level("WARNING", logger="src.rewards.t2g_rewards"):
         assert fn(
-            ["IX MAN WALK HOUSE", "DOG CAT"], prompts=["p1", "p2"], gold_gloss=["IX MAN WALK HOUSE"]
+            ["IX MAN WALK HOUSE", "DOG CAT"],
+            prompts=["p1", "p2"],
+            gold_gloss=["IX MAN WALK HOUSE"],
         ) == [1.0, 0.0]
 
     # Warning is logged at most once across all calls.

@@ -29,7 +29,9 @@ STATUS_BODY = {
     "errors_recent": [],
     "last_tick_at": "2026-08-26T10:00:00",
     "cluster_reachable": True,
-    "events": [{"ts": "2026-08-26T09:59:00", "type": "tick", "detail": "tick eseguito"}],
+    "events": [
+        {"ts": "2026-08-26T09:59:00", "type": "tick", "detail": "tick eseguito"}
+    ],
 }
 
 MONITOR_BODY = {
@@ -101,7 +103,10 @@ def _default_handler(request: httpx.Request) -> httpx.Response:
     if request.method == "POST" and path == "/jobs":
         return httpx.Response(
             201,
-            json={"added": "train:experiments/configs/t2g/sft.yaml:run1", "status": STATUS_BODY},
+            json={
+                "added": "train:experiments/configs/t2g/sft.yaml:run1",
+                "status": STATUS_BODY,
+            },
         )
     if request.method == "POST" and path == "/jobs/start":
         return httpx.Response(201, json={**MONITOR_BODY, "started_now": True})
@@ -146,7 +151,11 @@ def test_get_status_parses_fields():
     client, _ = _client()
     status = client.get_status()
     assert status["cluster_reachable"] is True
-    assert status["active_job"] == {"id": "12345", "name": "train-grpo", "state": "RUNNING"}
+    assert status["active_job"] == {
+        "id": "12345",
+        "name": "train-grpo",
+        "state": "RUNNING",
+    }
     assert status["queue"] == ["train:experiments/configs/t2g/grpo_optimal.yaml:run1"]
     assert status["watcher_alive"] is True
     assert status["stopped"] is False
@@ -168,20 +177,32 @@ def test_add_job_payload_and_auth_header():
     assert request.method == "POST"
     assert request.url.path == "/jobs"
     assert request.headers["X-Auth-Token"] == "test-token"
-    assert json.loads(request.content) == {"type": "train", "config": "grpo_optimal", "tag": "run1"}
+    assert json.loads(request.content) == {
+        "type": "train",
+        "config": "grpo_optimal",
+        "tag": "run1",
+    }
 
 
 def test_add_job_omits_optional_fields():
     client, recorder = _client()
     client.add_job("eval", "zero_shot")
-    assert json.loads(recorder.requests[-1].content) == {"type": "eval", "config": "zero_shot"}
+    assert json.loads(recorder.requests[-1].content) == {
+        "type": "eval",
+        "config": "zero_shot",
+    }
 
 
 def test_add_job_with_mode():
     client, recorder = _client()
     client.add_job("train", "grpo_qwen05", tag="x", mode="--resume")
     body = json.loads(recorder.requests[-1].content)
-    assert body == {"type": "train", "config": "grpo_qwen05", "tag": "x", "mode": "--resume"}
+    assert body == {
+        "type": "train",
+        "config": "grpo_qwen05",
+        "tag": "x",
+        "mode": "--resume",
+    }
 
 
 def test_replace_queue_ablation_payload():
@@ -213,15 +234,25 @@ def test_delete_job_url():
 
 def test_auth_header_on_every_request():
     client, recorder = _client()
-    for call in (client.get_status, client.get_jobs, client.pause, client.resume, client.tick):
+    for call in (
+        client.get_status,
+        client.get_jobs,
+        client.pause,
+        client.resume,
+        client.tick,
+    ):
         call()
     assert len(recorder.requests) == 5
-    assert all(request.headers["X-Auth-Token"] == "test-token" for request in recorder.requests)
+    assert all(
+        request.headers["X-Auth-Token"] == "test-token" for request in recorder.requests
+    )
 
 
 def test_401_raises_auth_error():
     def handler(request):
-        return httpx.Response(401, json={"detail": "X-Auth-Token mancante o non valido"})
+        return httpx.Response(
+            401, json={"detail": "X-Auth-Token mancante o non valido"}
+        )
 
     client, _ = _client(handler=handler)
     with pytest.raises(tui.AuthError, match="401"):
@@ -248,7 +279,9 @@ def test_timeout_error_is_friendly():
 
 def test_api_error_502_includes_detail():
     def handler(request):
-        return httpx.Response(502, json={"detail": "Cluster irraggiungibile: ssh timeout"})
+        return httpx.Response(
+            502, json={"detail": "Cluster irraggiungibile: ssh timeout"}
+        )
 
     client, _ = _client(handler=handler)
     with pytest.raises(tui.ApiError) as excinfo:

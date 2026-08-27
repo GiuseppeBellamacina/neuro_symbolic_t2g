@@ -35,9 +35,7 @@ def test_deep_merge_nested_dicts_merged_recursively() -> None:
         {"train": {"lr": 1e-5, "batch": 1, "nested": {"x": 1, "y": 2}}},
         {"train": {"batch": 8, "nested": {"y": 9}}},
     )
-    assert merged == {
-        "train": {"lr": 1e-5, "batch": 8, "nested": {"x": 1, "y": 9}}
-    }
+    assert merged == {"train": {"lr": 1e-5, "batch": 8, "nested": {"x": 1, "y": 9}}}
 
 
 def test_deep_merge_lists_replaced_not_concatenated() -> None:

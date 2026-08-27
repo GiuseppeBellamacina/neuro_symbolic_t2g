@@ -176,9 +176,7 @@ def test_callbacks_interface(reward_setup):
     logger._capture(completions, None)
     assert logger._buffer[0]["gold"] == "", "Empty gold when kwarg absent"
     formatted_no_gold = logger.format_samples()
-    assert (
-        "gold non disponibile" in formatted_no_gold
-    ), "Graceful missing-gold marker"
+    assert "gold non disponibile" in formatted_no_gold, "Graceful missing-gold marker"
 
     cb = CompletionSampleCallback(logger, every_n_steps=5)
     assert cb is not None, "Callback created"
@@ -353,9 +351,7 @@ def test_build_train_retriever_cache_roundtrip(tmp_path, monkeypatch):
         build_calls["n"] += 1
         return orig_build(*args, **kwargs)
 
-    monkeypatch.setattr(
-        retrieval_setup.ExampleRetriever, "build", counting_build
-    )
+    monkeypatch.setattr(retrieval_setup.ExampleRetriever, "build", counting_build)
 
     r1 = build_train_retriever({"train": corpus}, cfg, seed=42)
     assert r1 is not None
@@ -416,4 +412,3 @@ def test_grpo_dataset_building_with_retrieval():
         # Anti-leakage at prompt level: the query's own sentence appears
         # exactly once (as the query), never as an example.
         assert prompt.count(f"English: {text}") == 1, prompt
-

@@ -105,8 +105,7 @@ def _build_prompt_completion_example(sample: dict[str, Any]) -> dict[str, Any]:
         "gold_gloss": gold,
         "difficulty": str(sample.get("difficulty", "medium")),
         "sample_id": str(
-            sample.get("sample_id")
-            or hashlib.sha256(text.encode("utf-8")).hexdigest()
+            sample.get("sample_id") or hashlib.sha256(text.encode("utf-8")).hexdigest()
         ),
     }
 
@@ -134,9 +133,7 @@ def split_eval_holdout(
     """
     if eval_fraction <= 0.0:
         return dataset, dataset.select([])
-    split = dataset.train_test_split(
-        test_size=eval_fraction, seed=seed, shuffle=True
-    )
+    split = dataset.train_test_split(test_size=eval_fraction, seed=seed, shuffle=True)
     return split["train"], split["test"]
 
 
@@ -294,9 +291,7 @@ def compute_sft_fingerprint(sft_config: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def write_sft_fingerprint(
-    final_path: str | Path, sft_config: dict[str, Any]
-) -> Path:
+def write_sft_fingerprint(final_path: str | Path, sft_config: dict[str, Any]) -> Path:
     """Write ``sft_fingerprint.json`` next to a freshly-trained SFT adapter.
 
     The file records the fingerprint plus the fingerprinted config so a
@@ -766,9 +761,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     if eval_enabled:
         trainer.add_callback(
             EarlyStoppingCallback(
-                early_stopping_patience=training_cfg.get(
-                    "early_stopping_patience", 3
-                )
+                early_stopping_patience=training_cfg.get("early_stopping_patience", 3)
             )
         )
 

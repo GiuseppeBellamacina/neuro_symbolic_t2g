@@ -222,9 +222,7 @@ class ExampleRetriever:
         return self
 
     @classmethod
-    def load(
-        cls, dir: str | Path, *, device: str | None = None
-    ) -> "ExampleRetriever":
+    def load(cls, dir: str | Path, *, device: str | None = None) -> "ExampleRetriever":
         """Load a retriever previously saved with :meth:`save`.
 
         The sidecar ``meta.json`` is validated against the pickled index

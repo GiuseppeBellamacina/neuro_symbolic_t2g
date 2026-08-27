@@ -120,7 +120,11 @@ def read_env_file(path: Path) -> dict[str, str]:
     """Legge un .env con python-dotenv, senza toccare os.environ."""
     if not path.is_file():
         return {}
-    return {key: value for key, value in dotenv_values(str(path)).items() if value is not None}
+    return {
+        key: value
+        for key, value in dotenv_values(str(path)).items()
+        if value is not None
+    }
 
 
 def _format_env_lines(url: str, token: str) -> list[str]:
@@ -137,7 +141,9 @@ def save_env_config(url: str, token: str, path: Path | None = None) -> Path:
     """
     target = path or env_file_candidates()[0]
     lines = target.read_text(encoding="utf-8").splitlines() if target.is_file() else []
-    marker_idx = next((i for i, ln in enumerate(lines) if ln.strip() == ENV_MARKER), None)
+    marker_idx = next(
+        (i for i, ln in enumerate(lines) if ln.strip() == ENV_MARKER), None
+    )
     section = [ENV_MARKER, *_format_env_lines(url, token)]
     if marker_idx is not None:
         end = marker_idx + 1
@@ -168,7 +174,11 @@ def resolve_config(
     file_values: dict[str, str] = {}
     for path in paths:
         file_values.update(read_env_file(path))
-    url = cli_url or os.environ.get("T2G_SERVICE_URL") or file_values.get("T2G_SERVICE_URL", "")
+    url = (
+        cli_url
+        or os.environ.get("T2G_SERVICE_URL")
+        or file_values.get("T2G_SERVICE_URL", "")
+    )
     token = (
         cli_token
         or os.environ.get("T2G_AUTH_TOKEN")
@@ -282,7 +292,9 @@ class RemoteServiceClient:
         ablation: bool = False,
     ) -> dict[str, Any]:
         """POST /queue → rimpiazza la coda (``{jobs:[...]}`` o ``{ablation:true}``)."""
-        payload: dict[str, Any] = {"ablation": ablation} if jobs is None else {"jobs": jobs}
+        payload: dict[str, Any] = (
+            {"ablation": ablation} if jobs is None else {"jobs": jobs}
+        )
         return self._request("POST", "/queue", json=payload)
 
     def delete_job(self, tag: str) -> dict[str, Any]:
@@ -350,7 +362,9 @@ class RemoteServiceClient:
                 "(T2G_SERVICE_URL) e che Render sia attivo."
             ) from exc
         except httpx.HTTPError as exc:
-            raise ConnectionError(f"Errore di trasporto HTTP: {exc.__class__.__name__}") from exc
+            raise ConnectionError(
+                f"Errore di trasporto HTTP: {exc.__class__.__name__}"
+            ) from exc
         if response.status_code == 401:
             raise AuthError(
                 "Token non valido (401): aggiorna T2G_AUTH_TOKEN (env, .env o "
@@ -644,7 +658,11 @@ class DashboardScreen(T2GScreen):
         queue_box.update(
             "\n\n".join(
                 part
-                for part in [self._queue_text(snap), self._errors_text(snap), self._events_text(snap)]
+                for part in [
+                    self._queue_text(snap),
+                    self._errors_text(snap),
+                    self._events_text(snap),
+                ]
                 if part
             )
         )
@@ -655,7 +673,9 @@ class DashboardScreen(T2GScreen):
         stopped = bool(snap.get("stopped"))
         watcher = bool(snap.get("watcher_alive"))
         last_tick = escape(str(snap.get("last_tick_at") or "mai"))
-        reach = "[green]ok[/green]" if snap.get("cluster_reachable") else "[red]giù[/red]"
+        reach = (
+            "[green]ok[/green]" if snap.get("cluster_reachable") else "[red]giù[/red]"
+        )
         stop_txt = "[red]PAUSA[/red]" if stopped else "[green]attivo[/green]"
         watch_txt = "[green]vivo[/green]" if watcher else "[yellow]spento[/yellow]"
 
@@ -664,7 +684,9 @@ class DashboardScreen(T2GScreen):
             queue = snap.get("queue") or []
             nxt = "\n".join(f"  [dim]{escape(str(e))}[/dim]" for e in queue[:3])
             hint = (
-                f"Prossimi {min(3, len(queue))} in coda:\n{nxt}" if queue else "Coda vuota."
+                f"Prossimi {min(3, len(queue))} in coda:\n{nxt}"
+                if queue
+                else "Coda vuota."
             )
             return "\n".join(
                 [
@@ -698,7 +720,9 @@ class DashboardScreen(T2GScreen):
             if metrics:
                 lines.append(" | ".join(metrics))
             if detail.get("sft_active"):
-                sft = [f"SFT: step {detail.get('sft_step') or '?'}/{detail.get('sft_total') or '?'}"]
+                sft = [
+                    f"SFT: step {detail.get('sft_step') or '?'}/{detail.get('sft_total') or '?'}"
+                ]
                 if detail.get("sft_loss"):
                     sft.append(f"loss {escape(str(detail['sft_loss']))}")
                 if detail.get("sft_eval_loss"):
@@ -711,7 +735,9 @@ class DashboardScreen(T2GScreen):
             for key, value in (detail.get("eval_metrics") or {}).items():
                 lines.append(f"[cyan]  {escape(str(key))}: {escape(str(value))}[/cyan]")
         else:
-            lines.append("[dim](dettagli non disponibili — log non ancora prodotto)[/dim]")
+            lines.append(
+                "[dim](dettagli non disponibili — log non ancora prodotto)[/dim]"
+            )
         return "\n".join(lines)
 
     def _update_progress(self, pct: float) -> None:
@@ -801,16 +827,24 @@ class QueueScreen(T2GScreen):
     def action_delete_job(self) -> None:
         table = self.query_one("#queue", DataTable)
         if table.row_count == 0:
-            self.t2g_app.notify("[yellow]Coda vuota[/yellow]", severity="warning", timeout=4)
+            self.t2g_app.notify(
+                "[yellow]Coda vuota[/yellow]", severity="warning", timeout=4
+            )
             return
         row_index = table.cursor_row
         if row_index is None:
-            self.t2g_app.notify("[yellow]Nessuna riga selezionata[/yellow]", severity="warning", timeout=4)
+            self.t2g_app.notify(
+                "[yellow]Nessuna riga selezionata[/yellow]",
+                severity="warning",
+                timeout=4,
+            )
             return
         row = table.get_row_at(row_index)
         tag = str(row[3]) if row else ""
         if not tag:
-            self.t2g_app.notify("[yellow]Riga senza tag[/yellow]", severity="warning", timeout=4)
+            self.t2g_app.notify(
+                "[yellow]Riga senza tag[/yellow]", severity="warning", timeout=4
+            )
             return
         self.t2g_app.push_screen(
             ConfirmScreen(f"Rimuovere TUTTI i job con tag '{tag}' dalla coda?"),
@@ -856,7 +890,9 @@ class AddJobScreen(T2GScreen):
             value=CONFIG_NAMES[0],
             id="config",
         )
-        yield Input(placeholder="Tag (opzionale — di default derivato dal config)", id="tag")
+        yield Input(
+            placeholder="Tag (opzionale — di default derivato dal config)", id="tag"
+        )
         submit_label = "Avvia ora" if self.start_mode else "Accoda"
         yield Button(submit_label, variant="primary", id="submit")
         yield Footer()
@@ -950,7 +986,9 @@ class LogScreen(T2GScreen):
         try:
             result = await asyncio.to_thread(self.t2g_app.client.get_logs, 200)
         except RemoteServiceError as exc:
-            self.t2g_app.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=8)
+            self.t2g_app.notify(
+                f"[red]{escape(str(exc))}[/red]", severity="error", timeout=8
+            )
             return
         if not self.is_mounted:
             return
@@ -981,8 +1019,12 @@ class ReplaceQueueScreen(T2GScreen):
             "ATTENZIONE: la coda attuale viene SOSTITUITA dall'operazione.",
             classes="hint",
         )
-        yield Button("Ablation completa (12 config → 22 job)", variant="primary", id="ablation")
-        yield Static("…oppure definisci una coda custom (una entry per riga):", classes="hint")
+        yield Button(
+            "Ablation completa (12 config → 22 job)", variant="primary", id="ablation"
+        )
+        yield Static(
+            "…oppure definisci una coda custom (una entry per riga):", classes="hint"
+        )
         yield Static(
             "Formato [b]tipo:config[:tag][/b] — es. [b]train:grpo_optimal[/b] "
             "o [b]train:grpo_optimal:my-run[/b]",
@@ -1025,7 +1067,9 @@ class ReplaceQueueScreen(T2GScreen):
         try:
             jobs = self._parse_custom(text)
         except ValueError as exc:
-            self.t2g_app.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=8)
+            self.t2g_app.notify(
+                f"[red]{escape(str(exc))}[/red]", severity="error", timeout=8
+            )
             return
         if not jobs:
             self.t2g_app.notify(
@@ -1035,7 +1079,9 @@ class ReplaceQueueScreen(T2GScreen):
             )
             return
         self.t2g_app.push_screen(
-            ConfirmScreen(f"Invio {len(jobs)} job custom? La coda esistente viene SOSTITUITA."),
+            ConfirmScreen(
+                f"Invio {len(jobs)} job custom? La coda esistente viene SOSTITUITA."
+            ),
             lambda ok: self._confirmed_custom(bool(ok), jobs),
         )
 
@@ -1053,12 +1099,16 @@ class ReplaceQueueScreen(T2GScreen):
                 continue
             parts = line.split(":")
             if len(parts) not in (2, 3):
-                raise ValueError(f"Formato non valido: {line!r} (atteso tipo:config[:tag])")
+                raise ValueError(
+                    f"Formato non valido: {line!r} (atteso tipo:config[:tag])"
+                )
             job_type, config = parts[0].strip(), parts[1].strip()
             if job_type not in ("train", "eval"):
                 raise ValueError(f"Tipo non valido: {job_type!r} (usare train o eval)")
             if config not in CONFIG_NAME_SET and not config.endswith(".yaml"):
-                raise ValueError(f"Config non valido: {config!r} (nome noto o path .yaml)")
+                raise ValueError(
+                    f"Config non valido: {config!r} (nome noto o path .yaml)"
+                )
             job: dict[str, str] = {"type": job_type, "config": config}
             if len(parts) == 3 and parts[2].strip():
                 job["tag"] = parts[2].strip()
@@ -1143,7 +1193,9 @@ class ConfigScreen(T2GScreen):
         url = self.query_one("#url", Input).value.strip()
         token = self.query_one("#token", Input).value.strip()
         if not url:
-            self.t2g_app.notify("[red]L'URL è obbligatorio[/red]", severity="error", timeout=6)
+            self.t2g_app.notify(
+                "[red]L'URL è obbligatorio[/red]", severity="error", timeout=6
+            )
             return
         if not url.startswith(("http://", "https://")):
             self.t2g_app.notify(
@@ -1154,7 +1206,9 @@ class ConfigScreen(T2GScreen):
             return
         path = save_env_config(url, token)
         self.t2g_app.config = T2GConfig(url=url.rstrip("/"), token=token)
-        self.t2g_app.client = RemoteServiceClient(self.t2g_app.config.url, self.t2g_app.config.token)
+        self.t2g_app.client = RemoteServiceClient(
+            self.t2g_app.config.url, self.t2g_app.config.token
+        )
         self.t2g_app.notify(
             f"[green]Configurazione salvata in {escape(str(path))}[/green]",
             severity="information",
@@ -1213,7 +1267,9 @@ class T2GDashApp(App[None]):
             try:
                 status = await asyncio.to_thread(self.client.get_status)
             except RemoteServiceError as exc:
-                self.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=8)
+                self.notify(
+                    f"[red]{escape(str(exc))}[/red]", severity="error", timeout=8
+                )
             else:
                 self._set_status(status)
         except Exception as exc:  # rete di sicurezza: mai crashare la UI
@@ -1234,7 +1290,9 @@ class T2GDashApp(App[None]):
             try:
                 snapshot = await asyncio.to_thread(self.client.get_monitor)
             except RemoteServiceError as exc:
-                self.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=8)
+                self.notify(
+                    f"[red]{escape(str(exc))}[/red]", severity="error", timeout=8
+                )
             else:
                 self.monitor_snapshot = snapshot
                 self.status = snapshot  # campi status condivisi
@@ -1271,7 +1329,9 @@ class T2GDashApp(App[None]):
         if self.client is None:
             return
         try:
-            result = await asyncio.to_thread(self.client.start_job, job_type, config, tag)
+            result = await asyncio.to_thread(
+                self.client.start_job, job_type, config, tag
+            )
         except RemoteServiceError as exc:
             self.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=10)
             return
@@ -1324,7 +1384,9 @@ class T2GDashApp(App[None]):
                     timeout=6,
                 )
             else:
-                self.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=10)
+                self.notify(
+                    f"[red]{escape(str(exc))}[/red]", severity="error", timeout=10
+                )
             return
         except RemoteServiceError as exc:
             self.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=10)
@@ -1347,7 +1409,11 @@ class T2GDashApp(App[None]):
             return False
         self._set_status(result.get("status"))
         added = str(result.get("added", ""))
-        self.notify(f"[green]Job accodato: {escape(added)}[/green]", severity="information", timeout=6)
+        self.notify(
+            f"[green]Job accodato: {escape(added)}[/green]",
+            severity="information",
+            timeout=6,
+        )
         return True
 
     async def delete_job(self, tag: str) -> None:
@@ -1404,7 +1470,9 @@ class T2GDashApp(App[None]):
 
     async def resume(self) -> None:
         """POST /resume: rimuove chain_stopped e fa un tick immediato."""
-        await self._simple_action("resume", "Catena ripresa (chain_stopped rimosso + tick)")
+        await self._simple_action(
+            "resume", "Catena ripresa (chain_stopped rimosso + tick)"
+        )
 
     async def tick(self) -> None:
         """POST /tick: tick manuale (ssh sul cluster — può durare secondi)."""
@@ -1416,12 +1484,18 @@ class T2GDashApp(App[None]):
             try:
                 result = await asyncio.to_thread(self.client.tick)
             except RemoteServiceError as exc:
-                self.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=12)
+                self.notify(
+                    f"[red]{escape(str(exc))}[/red]", severity="error", timeout=12
+                )
         finally:
             self.set_busy(False)
         if result is not None:
             self._set_status(result)
-            self.notify("[green]Tick manuale eseguito[/green]", severity="information", timeout=4)
+            self.notify(
+                "[green]Tick manuale eseguito[/green]",
+                severity="information",
+                timeout=4,
+            )
 
     # ── Interno ──
 
@@ -1436,7 +1510,9 @@ class T2GDashApp(App[None]):
             return
         if isinstance(result, dict):
             self._set_status(result.get("status"))
-        self.notify(f"[green]{escape(ok_message)}[/green]", severity="information", timeout=4)
+        self.notify(
+            f"[green]{escape(ok_message)}[/green]", severity="information", timeout=4
+        )
 
     def _set_status(self, status: Any) -> None:
         """Aggiorna ``self.status`` e ridisegna la dashboard se visibile."""

@@ -127,9 +127,10 @@ def _render_generation_prompt(tokenizer: Any, prompt: Any) -> str:
         The rendered prompt string (possibly empty).
     """
     if isinstance(prompt, list):
-        if hasattr(tokenizer, "apply_chat_template") and getattr(
-            tokenizer, "chat_template", None
-        ) is not None:
+        if (
+            hasattr(tokenizer, "apply_chat_template")
+            and getattr(tokenizer, "chat_template", None) is not None
+        ):
             try:
                 return tokenizer.apply_chat_template(
                     prompt,

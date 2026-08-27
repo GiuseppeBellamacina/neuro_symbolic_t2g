@@ -81,9 +81,7 @@ def test_pass_at_1(reward_setup):
     references = ["IX MAN WALK HOUSE", "IX MAN WALK", "NOT CAN WANT"]
     nested = [[c] for c in completions]
 
-    rate = compute_pass_at_k(nested, references, k_values=(1,), threshold=0.3)[
-        "pass@1"
-    ]
+    rate = compute_pass_at_k(nested, references, k_values=(1,), threshold=0.3)["pass@1"]
     assert 0.0 <= rate <= 1.0, f"Pass@1 rate in [0,1], got {rate:.4f}"
     assert rate > 0.0
 
@@ -136,9 +134,7 @@ def test_pass_at_k_matches_rouge_based_pass_at_1(reward_setup):
     references = ["IX MAN WALK HOUSE", "IX MAN WALK", "NOT CAN WANT"]
     nested = [[c] for c in completions]
 
-    p1 = compute_pass_at_k(nested, references, k_values=(1,), threshold=0.3)[
-        "pass@1"
-    ]
+    p1 = compute_pass_at_k(nested, references, k_values=(1,), threshold=0.3)["pass@1"]
     manual = sum(
         1 for c, r in zip(completions, references) if rouge_l_score(c, r) >= 0.3
     ) / len(completions)

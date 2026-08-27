@@ -85,9 +85,10 @@ def test_prompt_completion_builder_columns() -> None:
     assert ex["completion"] == [{"role": "assistant", "content": "IX MAN WALK DOG"}]
     assert ex["gold_gloss"] == "IX MAN WALK DOG"
     assert ex["difficulty"] == "simple"
-    assert ex["sample_id"] == hashlib.sha256(
-        "The man walks the dog.".encode("utf-8")
-    ).hexdigest()
+    assert (
+        ex["sample_id"]
+        == hashlib.sha256("The man walks the dog.".encode("utf-8")).hexdigest()
+    )
 
 
 def test_prompt_completion_builder_prefers_gold_gloss() -> None:
@@ -135,9 +136,7 @@ def test_completion_only_loss_default_and_masking(tmp_path) -> None:
     collator = DataCollatorForLanguageModeling(
         pad_token_id=0, completion_only_loss=True
     )
-    out = collator(
-        [{"input_ids": [1, 2, 3, 4, 5], "completion_mask": [0, 0, 1, 1, 1]}]
-    )
+    out = collator([{"input_ids": [1, 2, 3, 4, 5], "completion_mask": [0, 0, 1, 1, 1]}])
     assert out["labels"].tolist() == [[-100, -100, 3, 4, 5]]
 
 
@@ -430,9 +429,7 @@ def _make_adapter_run(
     final = root / name / "sft_pretrain" / "final"
     final.mkdir(parents=True, exist_ok=True)
     (final / "sft_fingerprint.json").write_text(
-        json.dumps(
-            {"fingerprint": fingerprint, "created_at": "2026-01-01T00:00:00"}
-        ),
+        json.dumps({"fingerprint": fingerprint, "created_at": "2026-01-01T00:00:00"}),
         encoding="utf-8",
     )
     if complete:

@@ -73,9 +73,7 @@ def test_exclude_never_returns_query():
     assert any(r.text == query for r in plain)
 
     # Exact exclusion.
-    filtered = retriever.retrieve(
-        query, k=3, exclude={query}, max_self_similarity=1.0
-    )
+    filtered = retriever.retrieve(query, k=3, exclude={query}, max_self_similarity=1.0)
     assert all(r.text != query for r in filtered)
 
     # Exclusion via normalized form: differently cased/spaced query text
@@ -124,9 +122,9 @@ def test_save_load_roundtrip(tmp_path):
     assert loaded.seed == 7
 
     query = "My cat naps on the sofa"
-    assert _as_tuples(loaded.retrieve(query, k=2, max_self_similarity=1.0)) == _as_tuples(
-        retriever.retrieve(query, k=2, max_self_similarity=1.0)
-    )
+    assert _as_tuples(
+        loaded.retrieve(query, k=2, max_self_similarity=1.0)
+    ) == _as_tuples(retriever.retrieve(query, k=2, max_self_similarity=1.0))
 
 
 @pytest.mark.parametrize(

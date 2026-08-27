@@ -251,7 +251,9 @@ def test_eval_generating_bar_c1(tmp_path):
     job = cm.JobInfo(job_type="eval", config="", tag="qwen05")
     cm._parse_eval_log(log, job)
     assert job.step == 17, f"step from Evaluating bar: {job.step}"
-    assert job.eval_step_total == 38, f"total from Evaluating bar: {job.eval_step_total}"
+    assert (
+        job.eval_step_total == 38
+    ), f"total from Evaluating bar: {job.eval_step_total}"
     assert job.tqdm_elapsed == "00:30", f"elapsed: {job.tqdm_elapsed}"
     assert job.tqdm_eta == "00:40", f"eta: {job.tqdm_eta}"
 
@@ -348,7 +350,9 @@ def test_sft_eval_loss_c5(tmp_path):
     job = cm.JobInfo(job_type="train", config="", tag="qwen05")
     cm._parse_training_log(log, job)
     assert job.sft_eval_loss == "1.11111111", f"last eval_loss: {job.sft_eval_loss}"
-    assert job.sft_eval_loss_best == "0.987654", f"best eval_loss: {job.sft_eval_loss_best}"
+    assert (
+        job.sft_eval_loss_best == "0.987654"
+    ), f"best eval_loss: {job.sft_eval_loss_best}"
 
 
 def test_eval_results_json_c6(tmp_path):

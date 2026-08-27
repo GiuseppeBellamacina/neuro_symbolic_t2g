@@ -151,27 +151,34 @@ def test_dedup_prevents_cross_split_leakage(monkeypatch):
     from datasets import Dataset, DatasetDict
 
     rows = [
-        {"text": "In the beginning God created the heaven.", "gloss": "BEGIN GOD CREATE HEAVEN"},
-        {"text": "in the beginning god created the heaven.", "gloss": "BEGIN GOD CREATE HEAVEN"},  # dup
+        {
+            "text": "In the beginning God created the heaven.",
+            "gloss": "BEGIN GOD CREATE HEAVEN",
+        },
+        {
+            "text": "in the beginning god created the heaven.",
+            "gloss": "BEGIN GOD CREATE HEAVEN",
+        },  # dup
         {"text": "And God said let there be light.", "gloss": "GOD SAY LIGHT EXIST"},
-        {"text": "AND GOD SAID LET THERE BE LIGHT.", "gloss": "GOD SAY LIGHT EXIST"},  # dup
+        {
+            "text": "AND GOD SAID LET THERE BE LIGHT.",
+            "gloss": "GOD SAY LIGHT EXIST",
+        },  # dup
         {"text": "And the earth was without form.", "gloss": "EARTH FORM NONE"},
         {"text": "The man walks into the house.", "gloss": "MAN WALK ENTER HOUSE"},
         {"text": "The dog chases the cat.", "gloss": "DOG CHASE CAT"},
         {"text": "The boy reads the book.", "gloss": "BOY READ BOOK"},
     ]
     fake = DatasetDict({"train": Dataset.from_list(rows)})
-    monkeypatch.setattr(
-        ds_module, "load_dataset", lambda *args, **kwargs: fake
-    )
+    monkeypatch.setattr(ds_module, "load_dataset", lambda *args, **kwargs: fake)
 
     result = ds_module.download_aslg_dataset(cache_dir="unused", seed=42)
 
     train_norm = {ds_module.normalize_text(t) for t in result["train"]["text"]}
     test_norm = {ds_module.normalize_text(t) for t in result["test"]["text"]}
-    assert train_norm.isdisjoint(test_norm), (
-        "No normalized sentence may leak into both train and test"
-    )
+    assert train_norm.isdisjoint(
+        test_norm
+    ), "No normalized sentence may leak into both train and test"
 
 
 def test_sample_id_stable_and_gloss_sensitive():

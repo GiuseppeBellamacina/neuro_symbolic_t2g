@@ -85,7 +85,9 @@ _EVAL_COMPLETE = re.compile(r"Evaluation complete")
 _EVAL_ROUGE_L = re.compile(r"ROUGE-L mean:\s*([\d.]+)")
 _EVAL_BLEU = re.compile(r"BLEU \(sentence mean / corpus\):\s*([\d.]+)\s*/\s*([\d.]+)")
 _EVAL_CHRF = re.compile(r"chrF2 \(sentence mean / corpus\):\s*([\d.]+)\s*/\s*([\d.]+)")
-_EVAL_GLOSS_F1 = re.compile(r"Gloss F1 \(sentence mean / micro\):\s*([\d.]+)\s*/\s*([\d.]+)")
+_EVAL_GLOSS_F1 = re.compile(
+    r"Gloss F1 \(sentence mean / micro\):\s*([\d.]+)\s*/\s*([\d.]+)"
+)
 _EVAL_VALIDITY = re.compile(r"Validity rate:\s*([\d.]+)")
 # "Results saved to experiments/results/qwen05/run_x/eval_final.json"
 _EVAL_RESULTS_JSON = re.compile(r"Results saved to\s+(\S+\.json)")
@@ -900,7 +902,10 @@ def _parse_eval_log(log_path: Path, job: JobInfo) -> None:
                     val = data.get(key)
                     if val is not None:
                         job.eval_metrics[key] = f"{float(val):.4f}"
-                if data.get("pass_at_1") is not None and "latest" not in job.eval_stages:
+                if (
+                    data.get("pass_at_1") is not None
+                    and "latest" not in job.eval_stages
+                ):
                     job.eval_stages["latest"] = f"{float(data['pass_at_1']):.4f}"
                 # Baseline (saved in --compare mode) → metrics table column
                 bl = results_path.parent / "eval_baseline.json"

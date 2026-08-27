@@ -284,11 +284,7 @@ def compute_reward_breakdown(
             if _is_active(name):
                 _add(name, fn(comp))
 
-    return {
-        name: sums[name] / counts[name]
-        for name in counts
-        if _is_active(name)
-    }
+    return {name: sums[name] / counts[name] for name in counts if _is_active(name)}
 
 
 # ---------------------------------------------------------------------------

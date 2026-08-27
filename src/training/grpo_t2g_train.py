@@ -236,9 +236,7 @@ def _prepare_t2g_dataset(
     # Retrieve few-shot examples for every sample in one pass (the tfidf
     # backend is deterministic and fast; this never runs during rollout).
     top_k = int((retrieval_cfg or {}).get("top_k", 3))
-    max_self_similarity = float(
-        (retrieval_cfg or {}).get("max_self_similarity", 0.98)
-    )
+    max_self_similarity = float((retrieval_cfg or {}).get("max_self_similarity", 0.98))
     texts = [t2g_ds[i]["prompt"] for i in range(len(t2g_ds))]
     examples_batch = (
         retrieve_few_shot_batch(retriever, texts, top_k, max_self_similarity)

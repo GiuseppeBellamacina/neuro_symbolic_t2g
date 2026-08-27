@@ -44,7 +44,10 @@ _log = logging.getLogger("uvicorn.error")
 try:
     from dotenv import load_dotenv
 
-    for _candidate in (Path(__file__).resolve().parent.parent / ".env", Path.cwd() / ".env"):
+    for _candidate in (
+        Path(__file__).resolve().parent.parent / ".env",
+        Path.cwd() / ".env",
+    ):
         if _candidate.is_file():
             load_dotenv(_candidate, override=False)
 except ImportError:  # pragma: no cover - dotenv è core, fallback silenzioso
@@ -93,12 +96,16 @@ class Settings:
             # None = nessun `-i`: ssh-agent / identità default / ~/.ssh/config
             ssh_key_file=key_file,
             ssh_key_content=key_content,
-            ssh_known_hosts=os.environ.get("T2G_SSH_KNOWN_HOSTS", str(Path(data_dir) / "known_hosts")),
+            ssh_known_hosts=os.environ.get(
+                "T2G_SSH_KNOWN_HOSTS", str(Path(data_dir) / "known_hosts")
+            ),
             ssh_timeout=_env_int("T2G_SSH_TIMEOUT", 30),
             # OPZIONALE in locale (bind 127.0.0.1): chiave API servizio↔TUI.
             # OBBLIGATORIA su Render (0.0.0.0) — vedi warning in lifespan.
             auth_token=os.environ.get("T2G_AUTH_TOKEN", ""),
-            db_path=os.environ.get("T2G_DB_PATH", str(Path(data_dir) / "t2g_driver.db")),
+            db_path=os.environ.get(
+                "T2G_DB_PATH", str(Path(data_dir) / "t2g_driver.db")
+            ),
             data_dir=data_dir,
             helper_auto_install=os.environ.get("T2G_HELPER_AUTO_INSTALL", "1")
             not in ("", "0", "false", "False"),
@@ -136,10 +143,26 @@ ABLATION_MODELS: list[tuple[str, str, str]] = [
     ("grpo-grammar", "experiments/configs/t2g/grpo_qwen05.yaml", "te"),
     ("sft", "experiments/configs/t2g/sft.yaml", "te"),
     ("grpo-pda", "experiments/configs/t2g/ablation/grpo_pda.yaml", "te"),
-    ("grpo-pda-lookahead", "experiments/configs/t2g/ablation/grpo_pda_lookahead.yaml", "te"),
-    ("grpo-soft-viterbi", "experiments/configs/t2g/ablation/grpo_soft_viterbi.yaml", "te"),
-    ("grpo-verifier", "experiments/configs/t2g/ablation/grpo_verifier_scaled.yaml", "te"),
-    ("grpo-experimental-all", "experiments/configs/t2g/grpo_experimental_all.yaml", "te"),
+    (
+        "grpo-pda-lookahead",
+        "experiments/configs/t2g/ablation/grpo_pda_lookahead.yaml",
+        "te",
+    ),
+    (
+        "grpo-soft-viterbi",
+        "experiments/configs/t2g/ablation/grpo_soft_viterbi.yaml",
+        "te",
+    ),
+    (
+        "grpo-verifier",
+        "experiments/configs/t2g/ablation/grpo_verifier_scaled.yaml",
+        "te",
+    ),
+    (
+        "grpo-experimental-all",
+        "experiments/configs/t2g/grpo_experimental_all.yaml",
+        "te",
+    ),
     ("grpo-optimal", "experiments/configs/t2g/grpo_optimal.yaml", "te"),
 ]
 
@@ -209,7 +232,11 @@ def _add_event(event_type: str, detail: str) -> None:
     try:
         conn.execute(
             "INSERT INTO events (ts, type, detail) VALUES (?, ?, ?)",
-            (datetime.now().isoformat(timespec="seconds"), event_type, str(detail)[:500]),
+            (
+                datetime.now().isoformat(timespec="seconds"),
+                event_type,
+                str(detail)[:500],
+            ),
         )
         conn.commit()
     finally:
@@ -224,7 +251,10 @@ def _recent_events(limit: int = 10) -> list[dict]:
         ).fetchall()
     finally:
         conn.close()
-    return [{"ts": r["ts"], "type": r["type"], "detail": r["detail"]} for r in rows][::-1]
+    return [{"ts": r["ts"], "type": r["type"], "detail": r["detail"]} for r in rows][
+        ::-1
+    ]
+
 
 # ── SSH verso il login node (subprocess + ssh nativo, zero lib esotiche) ─────
 
@@ -270,16 +300,23 @@ class ClusterSSH:
         # Alias ~/.ssh/config (default "gcluster"): niente user@ né -p — li
         # risolve l'alias. user/porta espliciti SOLO se configurati via env.
         self.base += [
-            "-o", "BatchMode=yes",
-            "-o", "ConnectTimeout=15",
-            "-o", "StrictHostKeyChecking=accept-new",
-            "-o", f"UserKnownHostsFile={settings.ssh_known_hosts}",
-            "-o", "LogLevel=ERROR",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=15",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            f"UserKnownHostsFile={settings.ssh_known_hosts}",
+            "-o",
+            "LogLevel=ERROR",
         ]
         if settings.ssh_port:
             self.base += ["-p", str(settings.ssh_port)]
         target = (
-            f"{settings.ssh_user}@{settings.ssh_host}" if settings.ssh_user else settings.ssh_host
+            f"{settings.ssh_user}@{settings.ssh_host}"
+            if settings.ssh_user
+            else settings.ssh_host
         )
         self.base.append(target)
 
@@ -303,11 +340,16 @@ class ClusterSSH:
         if self.settings.ssh_key_file:
             args += ["-i", self.settings.ssh_key_file]
         args += [
-            "-o", "BatchMode=yes",
-            "-o", "ConnectTimeout=15",
-            "-o", "StrictHostKeyChecking=accept-new",
-            "-o", f"UserKnownHostsFile={self.settings.ssh_known_hosts}",
-            "-o", "LogLevel=ERROR",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=15",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            f"UserKnownHostsFile={self.settings.ssh_known_hosts}",
+            "-o",
+            "LogLevel=ERROR",
         ]
         if self.settings.ssh_port:
             args += ["-P", str(self.settings.ssh_port)]
@@ -354,6 +396,7 @@ def _install_helper(ssh: ClusterSSH) -> None:
         )
     _log.info("cluster_helper.sh copiato sul cluster")
     _add_event("info", "cluster_helper.sh installato sul cluster")
+
 
 # ── Parsing dello snapshot del helper (KEY=VALUE; coda separata da \x1f) ─────
 
@@ -412,6 +455,7 @@ def _parse_entry(entry: str) -> dict:
         "extra": ":".join(parts[3:]) or None,
     }
 
+
 # ── Sincronizzazione stato sul DB ────────────────────────────────────────────
 
 
@@ -425,7 +469,9 @@ def _store_snapshot(state: dict) -> None:
     now = datetime.now().isoformat(timespec="seconds")
     for key, value in {
         "cluster_reachable": "1",
-        "active_job": json.dumps(state["active_job"]) if state.get("active_job") else "",
+        "active_job": (
+            json.dumps(state["active_job"]) if state.get("active_job") else ""
+        ),
         "queue": json.dumps(state["queue"]),
         "last_job": state.get("last_job") or "",
         "stopped": "1" if state.get("stopped") else "0",
@@ -488,7 +534,8 @@ def _cluster() -> Iterator[ClusterSSH]:
         raise HTTPException(502, "T2G_SSH_HOST non configurato")
     if settings.ssh_key_file and not Path(settings.ssh_key_file).is_file():
         raise HTTPException(
-            502, "Chiave SSH non trovata: imposta T2G_SSH_KEY_CONTENT o T2G_SSH_KEY_FILE"
+            502,
+            "Chiave SSH non trovata: imposta T2G_SSH_KEY_CONTENT o T2G_SSH_KEY_FILE",
         )
     try:
         with ClusterSSH(settings) as ssh:
@@ -505,7 +552,10 @@ def _cluster() -> Iterator[ClusterSSH]:
     except Exception as exc:  # ultima rete di sicurezza: mai crashare il server
         _log.exception("errore inatteso nell'accesso al cluster")
         _kv_set("cluster_reachable", "0")
-        raise HTTPException(502, f"Errore interno nell'accesso al cluster: {exc.__class__.__name__}")
+        raise HTTPException(
+            502, f"Errore interno nell'accesso al cluster: {exc.__class__.__name__}"
+        )
+
 
 # ── Cache per GET /status (solo DB, mai ssh) ─────────────────────────────────
 
@@ -528,6 +578,7 @@ def _cached_status() -> dict:
         "cluster_reachable": _kv_get("cluster_reachable", "0") == "1",
         "events": _recent_events(10),
     }
+
 
 # ── Validazione config / costruzione entry di coda ───────────────────────────
 
@@ -581,6 +632,7 @@ def build_queue_lines(payload: "QueueIn") -> list[str]:
         )
     return [build_entry(j) for j in payload.jobs]
 
+
 # ── Avvio: chiave ssh da env + init DB ───────────────────────────────────────
 
 
@@ -613,7 +665,11 @@ async def lifespan(app: FastAPI):
             "il deploy locale (bind 127.0.0.1). OBBLIGATORIA quando il "
             "servizio viene esposto (Render)."
         )
-    target = f"{settings.ssh_user}@{settings.ssh_host}" if settings.ssh_user else settings.ssh_host
+    target = (
+        f"{settings.ssh_user}@{settings.ssh_host}"
+        if settings.ssh_user
+        else settings.ssh_host
+    )
     _add_event("startup", f"driver avviato ({target})")
     yield
     _add_event("shutdown", "driver fermato")
@@ -637,8 +693,11 @@ def require_auth(x_auth_token: str | None = Header(default=None)) -> None:
     è configurato (deploy locale su 127.0.0.1)."""
     if not settings.auth_token:
         return  # auth disabilitata: solo deploy locale
-    if x_auth_token is None or not secrets.compare_digest(x_auth_token, settings.auth_token):
+    if x_auth_token is None or not secrets.compare_digest(
+        x_auth_token, settings.auth_token
+    ):
         raise HTTPException(401, "X-Auth-Token mancante o non valido")
+
 
 # ── API REST (tutte autenticate) ─────────────────────────────────────────────
 
@@ -657,7 +716,11 @@ class QueueIn(BaseModel):
 
 @app.get("/")
 def root() -> dict:
-    target = f"{settings.ssh_user}@{settings.ssh_host}" if settings.ssh_user else settings.ssh_host
+    target = (
+        f"{settings.ssh_user}@{settings.ssh_host}"
+        if settings.ssh_user
+        else settings.ssh_host
+    )
     return {
         "service": "t2g-cluster-driver",
         "docs": "/docs",
@@ -696,7 +759,11 @@ def replace_queue(payload: QueueIn) -> dict:
     with _cluster() as ssh:
         state = _helper_do(ssh, "rewrite_queue", "\x1f".join(lines))
     _add_event("queue_replace", f"{len(lines)} entry (ablation={payload.ablation})")
-    return {"queue": state["queue"], "count": len(state["queue"]), "status": _cached_status()}
+    return {
+        "queue": state["queue"],
+        "count": len(state["queue"]),
+        "status": _cached_status(),
+    }
 
 
 @app.delete("/jobs/{tag}", dependencies=[Depends(require_auth)])
@@ -804,7 +871,9 @@ def _job_detail_from_log(
     try:
         cm = _import_chain_monitor()
         tmp = Path(settings.data_dir) / "monitor_tail.log"
-        tmp.write_text("\n".join(log_tail_lines) + "\n", encoding="utf-8", errors="replace")
+        tmp.write_text(
+            "\n".join(log_tail_lines) + "\n", encoding="utf-8", errors="replace"
+        )
         job = cm.JobInfo(job_type=job_type, config="", tag=tag)
         if job_type == "eval":
             cm._parse_eval_log(tmp, job)
@@ -827,7 +896,9 @@ def _job_detail_from_log(
             "sft_eval_loss_best": job.sft_eval_loss_best or None,
             "eval_label": job.eval_label or None,
             "eval_progress": (
-                f"{job.eval_label}" if job.eval_label and "samples" in job.eval_label else None
+                f"{job.eval_label}"
+                if job.eval_label and "samples" in job.eval_label
+                else None
             ),
             "eval_metrics": job.eval_metrics or {},
         }

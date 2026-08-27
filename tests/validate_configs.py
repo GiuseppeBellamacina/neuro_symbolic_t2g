@@ -189,7 +189,9 @@ def _validate_type(
         )
 
 
-def _iter_dead_keys(obj: Any, prefix: str = "", found: list[str] | None = None) -> list[str]:
+def _iter_dead_keys(
+    obj: Any, prefix: str = "", found: list[str] | None = None
+) -> list[str]:
     """Collect any occurrence of a DEAD_KEYS key in a (nested) dict."""
     if found is None:
         found = []

@@ -47,9 +47,7 @@ def load_config(config_path: str | Path) -> dict[str, Any]:
         if parents:
             # Display the extends chain relative to the config file (e.g.
             # "base.yaml" or "../base.yaml"), matching how it was declared.
-            rel = ", ".join(
-                os.path.relpath(str(p), str(path.parent)) for p in parents
-            )
+            rel = ", ".join(os.path.relpath(str(p), str(path.parent)) for p in parents)
             print(f"[config] Loaded {path} (extends: {rel})")
         else:
             print(f"[config] Loaded {path}")

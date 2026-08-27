@@ -26,7 +26,9 @@ class _ChatTokenizer:
 
     chat_template = "qwen"
 
-    def apply_chat_template(self, messages, *, tokenize=False, add_generation_prompt=True):
+    def apply_chat_template(
+        self, messages, *, tokenize=False, add_generation_prompt=True
+    ):
         return "CHAT|" + repr(messages) + "|"
 
 
@@ -104,7 +106,10 @@ def test_format_few_shot_examples_with_retrieved_objects():
     """``RetrievedExample`` objects (``.text``/``.gloss``) render identically."""
     examples = [
         RetrievedExample(
-            text="The cat sleeps on the sofa", gloss="CAT SLEEP SOFA", score=0.81, index=0
+            text="The cat sleeps on the sofa",
+            gloss="CAT SLEEP SOFA",
+            score=0.81,
+            index=0,
         ),
         RetrievedExample(
             text="A dog runs in the park", gloss="DOG RUN PARK", score=0.72, index=1

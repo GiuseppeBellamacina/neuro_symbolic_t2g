@@ -273,9 +273,7 @@ def _compute_primary_metrics(
     bleu_scores = [
         bleu_sentence(c, r) for c, r in zip(flat_completions, flat_references)
     ]
-    chrf_scores = [
-        chrf_score(c, r) for c, r in zip(flat_completions, flat_references)
-    ]
+    chrf_scores = [chrf_score(c, r) for c, r in zip(flat_completions, flat_references)]
     gloss_f1_scores = [
         gloss_f1(c, r) for c, r in zip(flat_completions, flat_references)
     ]
@@ -351,9 +349,7 @@ def _compute_primary_metrics(
         "bigram_log_prob_mean": (
             float(np.mean(bigram_scores)) if bigram_scores else 0.0
         ),
-        "bigram_log_prob_std": (
-            float(np.std(bigram_scores)) if bigram_scores else 0.0
-        ),
+        "bigram_log_prob_std": (float(np.std(bigram_scores)) if bigram_scores else 0.0),
         "validity_rate": validity_rate,
         "valid_count": valid_count,
         "invalid_count": len(flat_completions) - valid_count,
@@ -387,9 +383,7 @@ def _select_best_of_n(
     """
     selected: list[str] = []
     for comps, gold in zip(all_completions, all_references):
-        scored = [
-            (rouge_l_score(c, gold), check_gloss_validity(c), c) for c in comps
-        ]
+        scored = [(rouge_l_score(c, gold), check_gloss_validity(c), c) for c in comps]
         # Prefer valid completions; among those, pick highest ROUGE-L.
         valid_scored = [(rl, c) for rl, (v, _), c in scored if v]
         if valid_scored:
@@ -469,9 +463,7 @@ def evaluate_checkpoint(
         seed=ds_cfg.get("seed", 42),
     )
     top_k = int(retrieval_cfg.get("top_k", 3))
-    max_self_similarity = float(
-        retrieval_cfg.get("max_self_similarity", 0.98)
-    )
+    max_self_similarity = float(retrieval_cfg.get("max_self_similarity", 0.98))
     if retriever is not None:
         logger.info(
             "Few-shot retrieval enabled: backend=%s, top_k=%d, "
@@ -1042,12 +1034,18 @@ def main() -> None:
         f"  ROUGE-L mean: {results['rouge_l_mean']:.4f} ± {results['rouge_l_std']:.4f}"
     )
     logger.info(f"  ROUGE-L median: {results.get('rouge_l_median', 0.0):.4f}")
-    logger.info(f"  BLEU (sentence mean / corpus): "
-                f"{results['bleu_sentence_mean']:.4f} / {results['bleu_corpus']:.4f}")
-    logger.info(f"  chrF2 (sentence mean / corpus): "
-                f"{results['chrf_sentence_mean']:.2f} / {results['chrf_corpus']:.2f}")
-    logger.info(f"  Gloss F1 (sentence mean / micro): "
-                f"{results['gloss_f1_sentence_mean']:.4f} / {results['gloss_f1_micro']:.4f}")
+    logger.info(
+        f"  BLEU (sentence mean / corpus): "
+        f"{results['bleu_sentence_mean']:.4f} / {results['bleu_corpus']:.4f}"
+    )
+    logger.info(
+        f"  chrF2 (sentence mean / corpus): "
+        f"{results['chrf_sentence_mean']:.2f} / {results['chrf_corpus']:.2f}"
+    )
+    logger.info(
+        f"  Gloss F1 (sentence mean / micro): "
+        f"{results['gloss_f1_sentence_mean']:.4f} / {results['gloss_f1_micro']:.4f}"
+    )
     logger.info(f"  Pass@1: {results['pass_at_1']:.4f}")
     if results.get("pass_at_k"):
         for k, v in results["pass_at_k"].items():
@@ -1083,8 +1081,10 @@ def main() -> None:
     print("\n" + "=" * 60)
     print(f"  T2G Evaluation Results — {model_tag}")
     print("=" * 60)
-    print(f"  Samples evaluated:       {results['num_samples_evaluated']}"
-          f" / {results.get('test_set_size', '?')} test set")
+    print(
+        f"  Samples evaluated:       {results['num_samples_evaluated']}"
+        f" / {results.get('test_set_size', '?')} test set"
+    )
     print(f"  Completions per prompt:  {results['num_completions_per_prompt']}")
     print(
         f"  ROUGE-L (mean ± std):    {results['rouge_l_mean']:.4f} ± {results['rouge_l_std']:.4f}"
@@ -1093,12 +1093,18 @@ def main() -> None:
         f"  Valid ROUGE-L:           {results['valid_rouge_l_mean']:.4f}  "
         f"(rouge_l × validity = {results['rouge_l_mean']:.4f} × {results['validity_rate']:.4f})"
     )
-    print(f"  BLEU (sent/corpus):      {results['bleu_sentence_mean']:.4f} / "
-          f"{results['bleu_corpus']:.4f}")
-    print(f"  chrF2 (sent/corpus):     {results['chrf_sentence_mean']:.2f} / "
-          f"{results['chrf_corpus']:.2f}")
-    print(f"  Gloss F1 (sent/micro):   {results['gloss_f1_sentence_mean']:.4f} / "
-          f"{results['gloss_f1_micro']:.4f}")
+    print(
+        f"  BLEU (sent/corpus):      {results['bleu_sentence_mean']:.4f} / "
+        f"{results['bleu_corpus']:.4f}"
+    )
+    print(
+        f"  chrF2 (sent/corpus):     {results['chrf_sentence_mean']:.2f} / "
+        f"{results['chrf_corpus']:.2f}"
+    )
+    print(
+        f"  Gloss F1 (sent/micro):   {results['gloss_f1_sentence_mean']:.4f} / "
+        f"{results['gloss_f1_micro']:.4f}"
+    )
     print(f"  Pass@1:                  {results['pass_at_1']:.4f}")
     if "pass_at_k" in results:
         for k, v in results["pass_at_k"].items():
@@ -1378,9 +1384,7 @@ def main() -> None:
             # ── Save comparison JSON ────────────────────────────────────
             comparison_json = {
                 "decoding": results.get("decoding", {}),
-                "baseline": {
-                    k: comparison_metrics.get(k, 0.0) for k in compare_keys
-                },
+                "baseline": {k: comparison_metrics.get(k, 0.0) for k in compare_keys},
                 "checkpoint": {k: results.get(k, 0.0) for k in compare_keys},
                 "delta": {
                     k: results.get(k, 0.0) - comparison_metrics.get(k, 0.0)
