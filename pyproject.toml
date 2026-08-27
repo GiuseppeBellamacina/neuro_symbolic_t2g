@@ -15,9 +15,11 @@ dependencies = [
     # sul container e rompono CUDA (es. unsloth 2026.8 → torchao 0.18 →
     # richiede torch>=2.11 → "cannot import ScalingType" / "no accelerator").
     # - unsloth 2026.7.1: dichiara torch<2.11 — ultima testata su torch 2.7
-    # - torchao <0.15: 0.14 è il pairing ufficiale di torch 2.7 (0.15+ vuole
-    #   torch>=2.8; nota: torchao NON dichiara torch nei metadati PyPI, pip
-    #   non può proteggerlo da solo — da qui il pin esplicito)
+    # - torchao >=0.16,<0.18: 0.17 è lo stack del run di luglio 2026 (VERIFICATO
+    #   funzionante su torch 2.7.1+cu118). NOTA: torchao NON dichiara torch nei
+    #   metadati PyPI — 0.18+ richiede torch>=2.11 (crash "ScalingType"), mentre
+    #   <0.16 viene RIFIUTATO dal dispatcher torchao di peft 0.19.1. La finestra
+    #   valida è esattamente 0.16–0.17.
     # - peft 0.19.1: versione verificata con transformers 5.3.0 (stesso stack
     #   del run di luglio 2026 e del reference grpo-strict-generation)
     "torch",
@@ -29,7 +31,7 @@ dependencies = [
     "bitsandbytes",
     "unsloth==2026.7.1",
     "unsloth_zoo==2026.7.1",
-    "torchao>=0.13.0,<0.15",
+    "torchao>=0.16.0,<0.18",
 
     # Data & Eval
     "rouge-score>=0.1.2",
