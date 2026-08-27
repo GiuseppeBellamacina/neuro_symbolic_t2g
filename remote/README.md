@@ -27,11 +27,11 @@ risponde comunque con l'ultimo stato noto e `cluster_reachable: false`.
 
 ## 1. Componenti
 
-| File | Ruolo |
-| ---- | ----- |
-| `remote/app.py` | Servizio FastAPI completo (un file, zero librerie SSH esotiche: subprocess + `ssh` nativo) |
-| `remote/cluster_helper.sh` | Helper **lato cluster**: un'unica shell che in una sola connessione restituisce TUTTO lo stato (o esegue una mutazione) in formato `KEY=VALUE` |
-| `remote/requirements.txt` | Dipendenze Python: solo `fastapi` + `uvicorn[standard]` |
+| File                         | Ruolo                                                                                                                                                 |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `remote/app.py`            | Servizio FastAPI completo (un file, zero librerie SSH esotiche: subprocess +`ssh` nativo)                                                           |
+| `remote/cluster_helper.sh` | Helper**lato cluster**: un'unica shell che in una sola connessione restituisce TUTTO lo stato (o esegue una mutazione) in formato `KEY=VALUE` |
+| `remote/requirements.txt`  | Dipendenze Python: solo`fastapi` + `uvicorn[standard]`                                                                                            |
 
 > `app.py` fa **auto-install** del helper sul cluster (via `scp`) al primo
 > tick se `T2G_HELPER_AUTO_INSTALL=1` (default) e il file non è già presente.
@@ -59,14 +59,14 @@ ERRORS_TAIL=[...]                       # ultime 5 righe raw come JSON array
 
 **Subcomandi**:
 
-| Comando | Effetto |
-| ------- | ------- |
-| `status` (default) | stampa lo snapshot completo |
-| `enqueue <entry>` | appende `type:cfg:tag[:extra]` a `job_chain` |
-| `rewrite_queue <content>` | rimpiazza l'intera coda (entry separate da `\x1f`; stringa vuota = svuota) |
-| `pause` | crea `.chain_state/chain_stopped` (soft stop: nessuna nuova sottomissione) |
-| `resume` | rimuove `.chain_state/chain_stopped` |
-| `tick` | esegue `chain_tick.sh --quiet` |
+| Comando                     | Effetto                                                                     |
+| --------------------------- | --------------------------------------------------------------------------- |
+| `status` (default)        | stampa lo snapshot completo                                                 |
+| `enqueue <entry>`         | appende`type:cfg:tag[:extra]` a `job_chain`                             |
+| `rewrite_queue <content>` | rimpiazza l'intera coda (entry separate da`\x1f`; stringa vuota = svuota) |
+| `pause`                   | crea`.chain_state/chain_stopped` (soft stop: nessuna nuova sottomissione) |
+| `resume`                  | rimuove`.chain_state/chain_stopped`                                       |
+| `tick`                    | esegue`chain_tick.sh --quiet`                                             |
 
 Dopo ogni mutazione il helper stampa comunque lo snapshot fresco: il driver
 fa **una sola** connessione e riceve esito + stato insieme.
@@ -110,13 +110,13 @@ vanno su stderr (compreso l'evento di startup in `data/t2g_driver.db`).
 
 Env vars minime per il test locale:
 
-| Variabile | Obbligatoria | Note |
-| --------- | ------------ | ---- |
-| `T2G_AUTH_TOKEN` | sì | token richiesto dall'header `X-Auth-Token` |
-| `T2G_SSH_USER` | sì | codice fiscale su gcluster |
-| `T2G_SSH_HOST` | no | default `gcluster.dmi.unict.it` |
+| Variabile                                      | Obbligatoria | Note                                                |
+| ---------------------------------------------- | ------------ | --------------------------------------------------- |
+| `T2G_AUTH_TOKEN`                             | sì          | token richiesto dall'header`X-Auth-Token`         |
+| `T2G_SSH_USER`                               | sì          | codice fiscale su gcluster                          |
+| `T2G_SSH_HOST`                               | no           | default`gcluster.dmi.unict.it`                    |
 | `T2G_SSH_KEY_FILE` / `T2G_SSH_KEY_CONTENT` | **no** | assenti = chiave opzionale → ssh/config di default |
-| `T2G_SSH_PORT` / `T2G_SSH_TIMEOUT` / ... | no | vedi tabella completa in sezione 4 |
+| `T2G_SSH_PORT` / `T2G_SSH_TIMEOUT` / ...   | no           | vedi tabella completa in sezione 4                  |
 
 ### 2.3. Test con curl (pwsh)
 
@@ -220,6 +220,7 @@ ssh <codice-fiscale>@gcluster.dmi.unict.it \
    ```
    cd remote && uvicorn app:app --host 0.0.0.0 --port $PORT
    ```
+
    (alternativa senza `cd`: `uvicorn remote.app:app --host 0.0.0.0 --port $PORT`)
 6. **Instance Type**: Free.
 7. **Environment Variables** (sezione 4).
@@ -237,19 +238,19 @@ ssh <codice-fiscale>@gcluster.dmi.unict.it \
 
 ## 4. Env vars (Render)
 
-| Variabile | Obbligatoria | Default | Descrizione |
-| --------- | ------------ | ------- | ----------- |
-| `T2G_AUTH_TOKEN` | **sì** | — | Token API richiesto da ogni chiamata (header `X-Auth-Token`). Genera: `openssl rand -hex 32` |
-| `T2G_SSH_USER` | sì | — | Utente sul cluster (codice fiscale) |
-| `T2G_SSH_HOST` | no | `gcluster.dmi.unict.it` | Host del login node |
-| `T2G_SSH_PORT` | no | `22` | Porta ssh |
-| `T2G_SSH_KEY_CONTENT` | (1) | — | Chiave privata **intera** (righe separate da `\n` letterali) — scritta su file all'avvio con permessi 0600 |
-| `T2G_SSH_KEY_FILE` | (1) | `data/ssh_key` | Path della chiave (alternativa: chiave montata / già presente) |
-| `T2G_SSH_TIMEOUT` | no | `30` | Timeout (s) per ogni comando ssh |
-| `T2G_SSH_KNOWN_HOSTS` | no | `data/known_hosts` | File known_hosts locale (scrivibile) |
-| `T2G_DB_PATH` | no | `data/t2g_driver.db` | Path del DB SQLite (cache/diario) |
-| `T2G_DATA_DIR` | no | `data/` | Directory dati del servizio |
-| `T2G_HELPER_AUTO_INSTALL` | no | `1` | `1` = copia `cluster_helper.sh` sul cluster via scp se manca |
+| Variabile                   | Obbligatoria  | Default                   | Descrizione                                                                                                        |
+| --------------------------- | ------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `T2G_AUTH_TOKEN`          | **sì** | —                        | Token API richiesto da ogni chiamata (header`X-Auth-Token`). Genera: `openssl rand -hex 32`                    |
+| `T2G_SSH_USER`            | sì           | —                        | Utente sul cluster (codice fiscale)                                                                                |
+| `T2G_SSH_HOST`            | no            | `gcluster.dmi.unict.it` | Host del login node                                                                                                |
+| `T2G_SSH_PORT`            | no            | `22`                    | Porta ssh                                                                                                          |
+| `T2G_SSH_KEY_CONTENT`     | (1)           | —                        | Chiave privata**intera** (righe separate da `\n` letterali) — scritta su file all'avvio con permessi 0600 |
+| `T2G_SSH_KEY_FILE`        | (1)           | `data/ssh_key`          | Path della chiave (alternativa: chiave montata / già presente)                                                    |
+| `T2G_SSH_TIMEOUT`         | no            | `30`                    | Timeout (s) per ogni comando ssh                                                                                   |
+| `T2G_SSH_KNOWN_HOSTS`     | no            | `data/known_hosts`      | File known_hosts locale (scrivibile)                                                                               |
+| `T2G_DB_PATH`             | no            | `data/t2g_driver.db`    | Path del DB SQLite (cache/diario)                                                                                  |
+| `T2G_DATA_DIR`            | no            | `data/`                 | Directory dati del servizio                                                                                        |
+| `T2G_HELPER_AUTO_INSTALL` | no            | `1`                     | `1` = copia `cluster_helper.sh` sul cluster via scp se manca                                                   |
 
 (1) **Opzionale** (per il deploy locale NON serve alcuna chiave): imposta
 `T2G_SSH_KEY_CONTENT` (chiave incollata nella UI di Render — su Render free
@@ -277,6 +278,7 @@ vivono solo nelle env vars di Render.
    ```
    https://t2g-cluster-driver.onrender.com/tick
    ```
+
    (sostituisci con l'URL reale del tuo servizio Render).
 3. **Method**: `POST`.
 4. **Custom HTTP Headers**: aggiungi
@@ -295,17 +297,17 @@ vivono solo nelle env vars di Render.
 Tutte le route richiedono l'header `X-Auth-Token`. Base URL: il tuo servizio
 Render (`...onrender.com`).
 
-| Metodo & path | Descrizione |
-| ------------- | ----------- |
-| `GET /` | info servizio (niente auth) |
-| `GET /status` | `{active_job, queue, last_job, stopped, watcher_alive, errors_recent, last_tick_at, cluster_reachable, events}` — dalla cache DB, funziona anche a cluster giù |
-| `GET /jobs` | lista job in coda (dal DB sincronizzato) |
-| `POST /jobs` | accoda `{type: "train"\|"eval", config: "<nome o path>", tag?, mode?}` → 201 |
-| `POST /queue` | rimpiazza la coda: `{jobs: [...]}` oppure `{ablation: true}` (12 config nell'ordine esatto di `run_all.sh`) |
-| `DELETE /jobs/{tag}` | rimuove tutti i job col tag dato (riscrive `job_chain` filtrato) |
-| `POST /pause` | crea `chain_stopped` sul cluster |
-| `POST /resume` | rimuove `chain_stopped` + tick immediato |
-| `POST /tick` | tick manuale (comodo per testare senza cronjob.org) |
+| Metodo & path          | Descrizione                                                                                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /`              | info servizio (niente auth)                                                                                                                                        |
+| `GET /status`        | `{active_job, queue, last_job, stopped, watcher_alive, errors_recent, last_tick_at, cluster_reachable, events}` — dalla cache DB, funziona anche a cluster giù |
+| `GET /jobs`          | lista job in coda (dal DB sincronizzato)                                                                                                                           |
+| `POST /jobs`         | accoda`{type: "train"\|"eval", config: "<nome o path>", tag?, mode?}` → 201                                                                                      |
+| `POST /queue`        | rimpiazza la coda:`{jobs: [...]}` oppure `{ablation: true}` (12 config nell'ordine esatto di `run_all.sh`)                                                   |
+| `DELETE /jobs/{tag}` | rimuove tutti i job col tag dato (riscrive`job_chain` filtrato)                                                                                                  |
+| `POST /pause`        | crea`chain_stopped` sul cluster                                                                                                                                  |
+| `POST /resume`       | rimuove`chain_stopped` + tick immediato                                                                                                                          |
+| `POST /tick`         | tick manuale (comodo per testare senza cronjob.org)                                                                                                                |
 
 Esempi:
 
@@ -374,18 +376,18 @@ il filesystem. Conseguenze (documentate per design):
 
 ## 8. Troubleshooting
 
-| Sintomo | Causa | Soluzione |
-| ------- | ----- | --------- |
-| `GET /status` → `cluster_reachable: false` | ssh fallita all'ultimo tick | verifica env vars, chiave, e `BatchMode`; guarda gli `events` recenti in `/status` |
-| `POST /tick` → **502** con dettaglio | cluster giù / timeout / protocollo | il dettaglio non espone segreti; controlla che il cluster sia raggiungibile |
-| **401** su ogni chiamata | token errato | confronta `X-Auth-Token` con `T2G_AUTH_TOKEN` su Render |
-| **503** su ogni chiamata | `T2G_AUTH_TOKEN` non impostato | imposta la env var (sicurezza by-default) |
-| **502** "cluster_helper.sh non presente" | helper non copiato e auto-install disattivato | `scp remote/cluster_helper.sh <user>@gcluster:~/neuro_symbolic_t2g/cluster/` oppure imposta `T2G_HELPER_AUTO_INSTALL=1` |
-| "Host key verification failed" | known_hosts non scrivibile | assicurati che `T2G_SSH_KNOWN_HOSTS` punti sotto `T2G_DATA_DIR` (scrivibile) |
-| Primo tick dopo sleep molto lento | cold-start free tier | timeout generoso (90–120 s) su cron-job.org |
-| La catena non avanza | QoS (1 job attivo), coda vuota, o `chain_stopped` | `GET /status` mostra `stopped` e `queue`; se `stopped: true` fai `POST /resume` |
-| Tick log di cron-job.org mostra **201/200** ma nessun job parte | coda vuota (catena completata) | è il comportamento corretto: il tick è idempotente e innocuo |
-| Doppio submit dello stesso job | watcher fallback (`chain_next.sh`) attivo CONTEMPORANEAMENTE al tick del servizio: il watcher NON usa il flock di `chain_tick.sh` (usa solo il proprio PID guard) → in race possono sottomettere 2 job o perdere entry | quando il servizio esterno è il driver PRIMARIO, ferma il watcher sul cluster: `watcher-kill` (o `chain-stop`) e controlla `GET /status` → `watcher_alive: false`. Se vuoi lasciarlo attivo, il rischio è un doppio submit (QoS permette comunque 1 solo job: il secondo resta pending o viene rifiutato da sbatch, ma la coda può saltare un'entry) |
+| Sintomo                                                              | Causa                                                                                                                                                                                                                       | Soluzione                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /status` → `cluster_reachable: false`                      | ssh fallita all'ultimo tick                                                                                                                                                                                                 | verifica env vars, chiave, e`BatchMode`; guarda gli `events` recenti in `/status`                                                                                                                                                                                                                                                                         |
+| `POST /tick` → **502** con dettaglio                        | cluster giù / timeout / protocollo                                                                                                                                                                                         | il dettaglio non espone segreti; controlla che il cluster sia raggiungibile                                                                                                                                                                                                                                                                                     |
+| **401** su ogni chiamata                                       | token errato                                                                                                                                                                                                                | confronta`X-Auth-Token` con `T2G_AUTH_TOKEN` su Render                                                                                                                                                                                                                                                                                                      |
+| **503** su ogni chiamata                                       | `T2G_AUTH_TOKEN` non impostato                                                                                                                                                                                            | imposta la env var (sicurezza by-default)                                                                                                                                                                                                                                                                                                                       |
+| **502** "cluster_helper.sh non presente"                       | helper non copiato e auto-install disattivato                                                                                                                                                                               | `scp remote/cluster_helper.sh <user>@gcluster:~/neuro_symbolic_t2g/cluster/` oppure imposta `T2G_HELPER_AUTO_INSTALL=1`                                                                                                                                                                                                                                     |
+| "Host key verification failed"                                       | known_hosts non scrivibile                                                                                                                                                                                                  | assicurati che`T2G_SSH_KNOWN_HOSTS` punti sotto `T2G_DATA_DIR` (scrivibile)                                                                                                                                                                                                                                                                                 |
+| Primo tick dopo sleep molto lento                                    | cold-start free tier                                                                                                                                                                                                        | timeout generoso (90–120 s) su cron-job.org                                                                                                                                                                                                                                                                                                                    |
+| La catena non avanza                                                 | QoS (1 job attivo), coda vuota, o`chain_stopped`                                                                                                                                                                          | `GET /status` mostra `stopped` e `queue`; se `stopped: true` fai `POST /resume`                                                                                                                                                                                                                                                                       |
+| Tick log di cron-job.org mostra**201/200** ma nessun job parte | coda vuota (catena completata)                                                                                                                                                                                              | è il comportamento corretto: il tick è idempotente e innocuo                                                                                                                                                                                                                                                                                                  |
+| Doppio submit dello stesso job                                       | watcher fallback (`chain_next.sh`) attivo CONTEMPORANEAMENTE al tick del servizio: il watcher NON usa il flock di `chain_tick.sh` (usa solo il proprio PID guard) → in race possono sottomettere 2 job o perdere entry | quando il servizio esterno è il driver PRIMARIO, ferma il watcher sul cluster:`watcher-kill` (o `chain-stop`) e controlla `GET /status` → `watcher_alive: false`. Se vuoi lasciarlo attivo, il rischio è un doppio submit (QoS permette comunque 1 solo job: il secondo resta pending o viene rifiutato da sbatch, ma la coda può saltare un'entry) |
 
 ---
 
@@ -431,18 +433,18 @@ solo come riga `T2G_AUTH_TOKEN=...`.
 
 ### Mappa tasti
 
-| Tasto | Schermata | Azione |
-| ----- | --------- | ------ |
-| `r` | Dashboard / Queue | refresh manuale |
-| `g` | Dashboard | apri la coda |
-| `a` | Dashboard / Queue | apri il form "aggiungi job" |
-| `w` | Dashboard | apri "rimpiazza coda" |
-| `p` | Dashboard | `POST /pause` (soft stop: nessuna nuova sottomissione) |
-| `R` | Dashboard | `POST /resume` (rimuove `chain_stopped` + tick immediato) |
-| `t` | Dashboard | `POST /tick` manuale (spinner durante la chiamata) |
-| `d` | Queue | cancella per tag (con conferma) |
-| `Esc` | Queue / form | torna alla dashboard |
-| `q` | ovunque | esci |
+| Tasto   | Schermata         | Azione                                                        |
+| ------- | ----------------- | ------------------------------------------------------------- |
+| `r`   | Dashboard / Queue | refresh manuale                                               |
+| `g`   | Dashboard         | apri la coda                                                  |
+| `a`   | Dashboard / Queue | apri il form "aggiungi job"                                   |
+| `w`   | Dashboard         | apri "rimpiazza coda"                                         |
+| `p`   | Dashboard         | `POST /pause` (soft stop: nessuna nuova sottomissione)      |
+| `R`   | Dashboard         | `POST /resume` (rimuove `chain_stopped` + tick immediato) |
+| `t`   | Dashboard         | `POST /tick` manuale (spinner durante la chiamata)          |
+| `d`   | Queue             | cancella per tag (con conferma)                               |
+| `Esc` | Queue / form      | torna alla dashboard                                          |
+| `q`   | ovunque           | esci                                                          |
 
 ### Schermate
 
@@ -469,12 +471,12 @@ Gli esiti arrivano come toast Textual: **verde** per le operazioni riuscite,
 
 ### Troubleshooting TUI
 
-| Sintomo | Causa | Soluzione |
-| ------- | ----- | --------- |
-| toast rosso "Token non valido (401)" | `T2G_AUTH_TOKEN` errato | aggiornalo su Render e nel `.env` locale (o via `--token`) |
-| toast rosso "Impossibile connettersi" | URL sbagliato o servizio spento | verifica `T2G_SERVICE_URL`; su free tier Render va in sleep dopo ~15 min di inattività |
-| prima chiamata lenta (30–50s) | cold start free tier dopo lo sleep | è normale: la prima GET /status riflette il ritardo; il POST /tick usa un timeout di 90s |
-| `cluster_reachable: false` senza toast d'errore | il cluster non risponde ma il **servizio** è vivo | guarda gli eventi recenti in `/status` per il dettaglio ssh |
+| Sintomo                                           | Causa                                                   | Soluzione                                                                                 |
+| ------------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| toast rosso "Token non valido (401)"              | `T2G_AUTH_TOKEN` errato                               | aggiornalo su Render e nel`.env` locale (o via `--token`)                             |
+| toast rosso "Impossibile connettersi"             | URL sbagliato o servizio spento                         | verifica`T2G_SERVICE_URL`; su free tier Render va in sleep dopo ~15 min di inattività  |
+| prima chiamata lenta (30–50s)                    | cold start free tier dopo lo sleep                      | è normale: la prima GET /status riflette il ritardo; il POST /tick usa un timeout di 90s |
+| `cluster_reachable: false` senza toast d'errore | il cluster non risponde ma il**servizio** è vivo | guarda gli eventi recenti in`/status` per il dettaglio ssh                              |
 
 ---
 

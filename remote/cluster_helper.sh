@@ -25,12 +25,16 @@
 #
 # SUBCOMANDI:
 #   status                     (default) stampa lo snapshot completo
+#   monitor [nlines]           snapshot + LOG_TAIL_B64 (base64 delle ultime
+#                              nlines righe del log del job ATTIVO, default 200;
+#                              vuoto se nessun job attivo o log assente)
 #   enqueue <entry>            appende una entry "type:cfg:tag[:extra]" alla coda
 #   rewrite_queue <content>    rimpiazza la coda (entry separate da \x1f;
 #                              stringa vuota = svuota la coda)
 #   pause                      crea .chain_state/chain_stopped (stop soft)
 #   resume                     rimuove .chain_state/chain_stopped
 #   tick                       esegue chain_tick.sh --quiet poi lo snapshot
+#   scancel                    cancella il job SLURM attivo (exit 1 se nessuno)
 #
 # Dopo ogni mutazione (enqueue/rewrite_queue/pause/resume/tick) il helper
 # stampa COMUNQUE lo snapshot fresco: così il driver fa 1 sola connessione
@@ -95,6 +99,32 @@ dump_status() {
     printf 'ERRORS_TAIL=%s\n' "$errors_tail"
 }
 
+# ── Monitor: snapshot + log tail del job attivo (base64, single line) ───────
+# Il log del job attivo: il nome SLURM è train-<tag>/eval-<tag> (da
+# chain_submit_next in _lib.sh), lo script usa #SBATCH --output=logs/slurm-<x>-%j.log
+# con x=train/eval → logs/slurm-{train,eval}-<JOBID>.log (stessa convenzione
+# di chain_monitor.py::_find_log_file). Base64 evita qualunque problema di
+# escaping multi-riga nel protocollo KEY=VALUE.
+dump_monitor() {
+    local nlines="${1:-200}"
+    dump_status
+    local aid aname prefix logpath b64=""
+    aid=$(active_job_id)
+    if [ -n "$aid" ]; then
+        aname=$(active_job_name)
+        case "$aname" in
+            eval-*) prefix="eval" ;;
+            *)      prefix="train" ;;
+        esac
+        logpath="$PROJ_DIR/logs/slurm-${prefix}-${aid}.log"
+        if [ -f "$logpath" ]; then
+            b64=$(tail -n "$nlines" "$logpath" 2>/dev/null | base64 -w 0)
+        fi
+    fi
+    printf 'LOG_PATH=%s\n' "${logpath:-}"
+    printf 'LOG_TAIL_B64=%s\n' "$b64"
+}
+
 # ── Mutazioni ────────────────────────────────────────────────────────────────
 enqueue() {
     local entry="$1"
@@ -148,8 +178,25 @@ tick() {
     echo "OK_TICK=1"
 }
 
+# Kill del job attivo (per la TUI). Exit 1 + messaggio se nessun job attivo:
+# in quel caso non viene stampato STATUS_OK e il driver risolve in 409.
+scancel_active() {
+    local aid
+    aid=$(active_job_id)
+    if [ -z "$aid" ]; then
+        echo "ERR_NO_ACTIVE_JOB=1" >&2
+        exit 1
+    fi
+    if ! scancel "$aid" 2>/dev/null; then
+        echo "ERR_SCANCEL_FAILED=$aid" >&2
+        exit 1
+    fi
+    log_line "scancel (driver esterno): job $aid cancellato"
+    echo "OK_SCANCEL=$aid"
+}
+
 usage() {
-    echo "Uso: bash cluster/cluster_helper.sh [status|enqueue <entry>|rewrite_queue <content>|pause|resume|tick]" >&2
+    echo "Uso: bash cluster/cluster_helper.sh [status|monitor [n]|enqueue <entry>|rewrite_queue <content>|pause|resume|tick|scancel]" >&2
     exit 2
 }
 
@@ -157,16 +204,20 @@ usage() {
 CMD="${1:-status}"
 case "$CMD" in
     status)          dump_status ;;
+    monitor)         dump_monitor "${2:-200}" ;;
     enqueue)         [ $# -ge 2 ] || usage; enqueue "$2" ;;
     rewrite_queue)   [ $# -ge 2 ] || usage; rewrite_queue "$2" ;;
     pause)           pause ;;
     resume)          resume ;;
     tick)            tick ;;
+    scancel)         scancel_active ;;
     -h|--help|help)  usage ;;
     *)               usage ;;
 esac
 
 # Dopo una mutazione il driver riceve subito lo snapshot fresco (1 sola ssh).
+# scancel NON ristampa lo snapshot: il job resta RUNNING qualche secondo prima
+# di passare a CANCELLED — il driver farà lo status al prossimo tick.
 case "$CMD" in
     enqueue|rewrite_queue|pause|resume|tick) dump_status ;;
 esac

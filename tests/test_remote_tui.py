@@ -32,6 +32,39 @@ STATUS_BODY = {
     "events": [{"ts": "2026-08-26T09:59:00", "type": "tick", "detail": "tick eseguito"}],
 }
 
+MONITOR_BODY = {
+    **STATUS_BODY,
+    "job_detail": {
+        "id": "12345",
+        "name": "train-grpo",
+        "state": "RUNNING",
+        "elapsed_human": "01:23",
+        "log_path": "logs/slurm-train-12345.log",
+        "step": 100,
+        "total_steps": 200,
+        "loss": "0.5432",
+        "reward": "0.3500",
+        "lr": "3e-06",
+        "sft_active": False,
+        "sft_step": None,
+        "sft_total": None,
+        "sft_loss": None,
+        "sft_eval_loss": None,
+        "sft_eval_loss_best": None,
+        "eval_label": None,
+        "eval_progress": None,
+        "eval_metrics": {},
+    },
+    "samples": ["Sample 1 PROMPT: ... OUTPUT: ... GOLD: ..."],
+    "log_tail": ["  step=100  loss=0.5432  reward=0.3500", "STEP 7: GRPO Training"],
+    "ts": "2026-08-26T10:01:00",
+}
+
+LOGS_BODY = {
+    "log_path": "logs/slurm-train-12345.log",
+    "lines": ["line1", "  step=100  loss=0.5432", "line3"],
+}
+
 JOBS_BODY = [
     {
         "entry": "train:experiments/configs/t2g/grpo_optimal.yaml:run1",
@@ -59,6 +92,10 @@ def _default_handler(request: httpx.Request) -> httpx.Response:
     path = request.url.path
     if request.method == "GET" and path == "/status":
         return httpx.Response(200, json=STATUS_BODY)
+    if request.method == "GET" and path == "/monitor":
+        return httpx.Response(200, json=MONITOR_BODY)
+    if request.method == "GET" and path == "/logs":
+        return httpx.Response(200, json=LOGS_BODY)
     if request.method == "GET" and path == "/jobs":
         return httpx.Response(200, json=JOBS_BODY)
     if request.method == "POST" and path == "/jobs":
@@ -66,6 +103,10 @@ def _default_handler(request: httpx.Request) -> httpx.Response:
             201,
             json={"added": "train:experiments/configs/t2g/sft.yaml:run1", "status": STATUS_BODY},
         )
+    if request.method == "POST" and path == "/jobs/start":
+        return httpx.Response(201, json={**MONITOR_BODY, "started_now": True})
+    if request.method == "POST" and path == "/kill":
+        return httpx.Response(200, json=MONITOR_BODY)
     if request.method == "POST" and path == "/queue":
         return httpx.Response(
             200,
@@ -298,39 +339,59 @@ def _make_app(handler=None):
     )
 
 
+def _richlog_text(widget) -> str:
+    """Testo completo di un RichLog (Textual 8: render() torna un Panel)."""
+    return "\n".join(strip.text for strip in widget.lines)
+
+
 def test_screens_are_registered():
     app = _make_app()
-    assert {"dashboard", "queue", "add_job", "replace", "config"} <= set(app.SCREENS)
+    assert {
+        "dashboard",
+        "queue",
+        "add_job",
+        "start_job",
+        "replace",
+        "biglog",
+        "config",
+    } <= set(app.SCREENS)
 
 
-def test_app_mounts_dashboard_and_shows_status():
-    """Smoke: la dashboard monta e mostra lo stato dopo un refresh."""
+def test_app_mounts_monitor_and_shows_job_detail():
+    """Smoke: il monitor monta e mostra job_detail (step/loss/reward)."""
 
     async def _run() -> None:
         app = _make_app()
         async with app.run_test() as pilot:
             await pilot.pause()
             assert isinstance(app.screen, tui.DashboardScreen)
-            await app.refresh_status()
+            await app.refresh_monitor()
             for _ in range(20):
-                if app.status is not None:
+                if app.monitor_snapshot is not None:
                     break
                 await pilot.pause()
-            assert app.status is not None
-            assert app.status["cluster_reachable"] is True
-            status_box = app.screen.query_one("#status", tui.Static)
-            assert "cluster raggiungibile" in status_box.render().plain
+            assert app.monitor_snapshot is not None
+            assert app.monitor_snapshot["job_detail"]["step"] == 100
+            job_box = app.screen.query_one("#job-panel", tui.Static)
+            text = job_box.render().plain
+            assert "train-grpo" in text
+            assert "100/200" in text
+            assert "0.5432" in text
+            assert "0.3500" in text
+            # Samples e log tail nei RichLog
+            samples_log = app.screen.query_one("#samples-log", tui.RichLog)
+            assert "Sample 1" in _richlog_text(samples_log)
+            tail_log = app.screen.query_one("#tail-log", tui.RichLog)
+            assert "step=100" in _richlog_text(tail_log)
 
     asyncio.run(_run())
 
 
-def test_dashboard_shows_unreachable_banner():
-    """A cluster irraggiungibile la dashboard mostra il banner giallo con la
-    cache del servizio (cluster_reachable: false)."""
+def test_monitor_shows_placeholder_without_active_job():
+    """Nessun job attivo → placeholder + prossime entry della coda."""
 
     async def _run() -> None:
-        body = dict(STATUS_BODY)
-        body["cluster_reachable"] = False
+        body = {**MONITOR_BODY, "active_job": None, "job_detail": None}
 
         def handler(request):
             return httpx.Response(200, json=body)
@@ -342,16 +403,133 @@ def test_dashboard_shows_unreachable_banner():
         )
         async with app.run_test() as pilot:
             await pilot.pause()
-            await app.refresh_status()
+            await app.refresh_monitor()
             for _ in range(20):
-                if app.status is not None:
+                if app.monitor_snapshot is not None:
                     break
                 await pilot.pause()
-            assert app.status is not None
-            assert app.status["cluster_reachable"] is False
+            job_box = app.screen.query_one("#job-panel", tui.Static)
+            text = job_box.render().plain
+            assert "Nessun job attivo" in text
+            assert "grpo_optimal" in text  # prossima entry in coda
+
+    asyncio.run(_run())
+
+
+def test_dashboard_shows_unreachable_banner():
+    """A cluster irraggiungibile il monitor mostra il banner giallo con la
+    cache del servizio (cluster_reachable: false)."""
+
+    async def _run() -> None:
+        body = {**MONITOR_BODY, "cluster_reachable": False}
+
+        def handler(request):
+            return httpx.Response(200, json=body)
+
+        client, _ = _client(handler=handler)
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.refresh_monitor()
+            for _ in range(20):
+                if app.monitor_snapshot is not None:
+                    break
+                await pilot.pause()
+            assert app.monitor_snapshot is not None
+            assert app.monitor_snapshot["cluster_reachable"] is False
             banner = app.screen.query_one("#banner", tui.Static)
             assert banner.display is True
             assert "IRRAGGIUNGIBILE" in banner.render().plain
+
+    asyncio.run(_run())
+
+
+def test_kill_binding_calls_confirm_and_api():
+    """`k` → ConfirmScreen → conferma → POST /kill chiamato."""
+
+    async def _run() -> None:
+        client, recorder = _client()
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("k")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ConfirmScreen)
+            # Conferma (bottone id=confirm)
+            confirm_btn = app.screen.query_one("#confirm", tui.Button)
+            confirm_btn.press()
+            await pilot.pause()
+            for _ in range(20):
+                if any(r.url.path == "/kill" for r in recorder.requests):
+                    break
+                await pilot.pause()
+            assert any(r.url.path == "/kill" for r in recorder.requests)
+
+    asyncio.run(_run())
+
+
+def test_start_job_screen_submits_to_start_endpoint():
+    """`s` → AddJobScreen(start_mode) → submit → POST /jobs/start."""
+
+    async def _run() -> None:
+        client, recorder = _client()
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("s")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.AddJobScreen)
+            assert app.screen.start_mode is True
+            submit = app.screen.query_one("#submit", tui.Button)
+            submit.press()
+            await pilot.pause()
+            for _ in range(20):
+                if any(r.url.path == "/jobs/start" for r in recorder.requests):
+                    break
+                await pilot.pause()
+            start_calls = [r for r in recorder.requests if r.url.path == "/jobs/start"]
+            assert start_calls, "POST /jobs/start non chiamato"
+            payload = json.loads(start_calls[0].read())
+            assert payload["type"] == "train"
+            assert payload["config"] == "grpo_optimal"
+
+    asyncio.run(_run())
+
+
+def test_log_screen_shows_lines():
+    """`L` → LogScreen con le righe di GET /logs."""
+
+    async def _run() -> None:
+        client, recorder = _client()
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("L")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.LogScreen)
+            for _ in range(20):
+                if any(r.url.path == "/logs" for r in recorder.requests):
+                    break
+                await pilot.pause()
+            log_widget = app.screen.query_one("#big-richtext", tui.RichLog)
+            text = _richlog_text(log_widget)
+            assert "step=100" in text
+            # Esc torna al monitor
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.DashboardScreen)
 
     asyncio.run(_run())
 

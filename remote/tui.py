@@ -1,8 +1,9 @@
-"""Client TUI locale per il driver T2G su Render (remote/app.py).
+"""Client TUI locale per il driver T2G (remote/app.py).
 
-Pilota il micro-servizio di orchestrazione del cluster da terminale (Windows
-pwsh incluso): dashboard con stato, coda job, form per accodare e per
-rimpiazzare l'intera coda, pause/resume/tick manuale.
+Pannello di controllo COMPLETO del cluster: monitor live (metriche training,
+completion samples, log tail) + gestione coda + start/pause/kill dei job.
+Sostituisce il vecchio monitor testuale (chain_monitor.py resta come
+libreria ausiliaria lato servizio).
 
 Avvio:
 
@@ -10,9 +11,10 @@ Avvio:
 
 Configurazione (in ordine di precedenza): flag CLI → env vars
 ``T2G_SERVICE_URL`` / ``T2G_AUTH_TOKEN`` → file ``.env`` (cwd o repo root).
-Se mancano, l'app parte sulla schermata di configurazione che salva i valori
-in ``.env`` (sezione marcata ``# >>> t2g-tui >>>``). Il token non viene mai
-loggato né stampato.
+Il token è OPZIONALE (servizio locale senza auth): basta l'URL. Se manca
+pure l'URL, l'app parte sulla schermata di configurazione che salva i
+valori in ``.env`` (sezione marcata ``# >>> t2g-tui >>>``). Il token non
+viene mai loggato né stampato.
 
 Dipendenze: textual + httpx (extra ``tui`` di pyproject.toml); python-dotenv
 è già una dipendenza core del progetto.
@@ -41,6 +43,8 @@ from textual.widgets import (
     Header,
     Input,
     LoadingIndicator,
+    ProgressBar,
+    RichLog,
     Select,
     Static,
     TextArea,
@@ -156,16 +160,21 @@ def resolve_config(
 ) -> T2GConfig | None:
     """Risolve URL+token: CLI args → env vars → .env (cwd, poi repo root).
 
-    Ritorna None se anche solo uno dei due manca (l'app mostrerà la schermata
-    di configurazione).
+    Il token è OPZIONALE (il servizio locale gira anche senza auth): basta
+    l'URL. Ritorna None solo se manca l'URL (l'app mostrerà la schermata di
+    configurazione).
     """
     paths = list(dotenv_paths) if dotenv_paths is not None else env_file_candidates()
     file_values: dict[str, str] = {}
     for path in paths:
         file_values.update(read_env_file(path))
     url = cli_url or os.environ.get("T2G_SERVICE_URL") or file_values.get("T2G_SERVICE_URL", "")
-    token = cli_token or os.environ.get("T2G_AUTH_TOKEN") or file_values.get("T2G_AUTH_TOKEN", "")
-    if url and token:
+    token = (
+        cli_token
+        or os.environ.get("T2G_AUTH_TOKEN")
+        or file_values.get("T2G_AUTH_TOKEN", "")
+    ) or ""
+    if url:
         return T2GConfig(url=url.strip().rstrip("/"), token=token.strip())
     return None
 
@@ -222,11 +231,16 @@ class RemoteServiceClient:
 
     @property
     def client(self) -> httpx.Client:
-        """httpx.Client condiviso, creato lazy (supporta MockTransport nei test)."""
+        """httpx.Client condiviso, creato lazy (supporta MockTransport nei test).
+
+        Header X-Auth-Token inviato SOLO se un token è configurato: il
+        servizio locale può girare con auth disabilitata (token vuoto).
+        """
         if self._client is None or self._client.is_closed:
+            headers = {"X-Auth-Token": self._token} if self._token else {}
             self._client = httpx.Client(
                 base_url=self.base_url,
-                headers={"X-Auth-Token": self._token},
+                headers=headers,
                 timeout=self._timeout,
                 transport=self._transport,
             )
@@ -286,6 +300,38 @@ class RemoteServiceClient:
     def tick(self) -> dict[str, Any]:
         """POST /tick → tick manuale; timeout generoso (ssh + cold start)."""
         return self._request("POST", "/tick", timeout=90.0)
+
+    # ── Endpoint v2 (monitor live + controllo job) ──
+
+    def get_monitor(self) -> dict[str, Any]:
+        """GET /monitor → snapshot live: stato + job_detail + samples + log tail.
+
+        Timeout generoso: il servizio legge il log del job via ssh.
+        """
+        return self._request("GET", "/monitor", timeout=60.0)
+
+    def start_job(
+        self,
+        job_type: str,
+        config: str,
+        tag: str | None = None,
+    ) -> dict[str, Any]:
+        """POST /jobs/start → accoda + tick immediato (parte subito se libero).
+
+        Response: snapshot monitor + ``started_now``.
+        """
+        payload: dict[str, Any] = {"type": job_type, "config": config}
+        if tag:
+            payload["tag"] = tag
+        return self._request("POST", "/jobs/start", json=payload, timeout=90.0)
+
+    def kill_active(self) -> dict[str, Any]:
+        """POST /kill → scancel del job attivo (409 → ApiError se nessuno)."""
+        return self._request("POST", "/kill", timeout=60.0)
+
+    def get_logs(self, lines: int = 50) -> dict[str, Any]:
+        """GET /logs?lines=N → ultime N righe del log del job attivo."""
+        return self._request("GET", "/logs", params={"lines": lines}, timeout=60.0)
 
     # ── Interno ──
 
@@ -358,6 +404,56 @@ Screen {
     height: 3;
 }
 
+#job-panel {
+    height: auto;
+    border: round $primary;
+    padding: 0 1;
+    margin: 0 1 1 1;
+}
+
+#job-panel #job-progress {
+    height: 1;
+    margin: 0;
+}
+
+#samples-panel {
+    height: 1fr;
+    border: round $primary;
+    padding: 0 1;
+    margin: 0 1 1 1;
+}
+
+#tail-panel {
+    height: 1fr;
+    border: round $panel;
+    padding: 0 1;
+    margin: 0 1 1 1;
+}
+
+#samples-panel RichLog, #tail-panel RichLog {
+    height: 1fr;
+}
+
+#queue-panel {
+    height: auto;
+    border: round $panel;
+    padding: 0 1;
+    margin: 0 1 1 1;
+}
+
+#big-log {
+    height: 1fr;
+    border: round $primary;
+    padding: 0 1;
+    margin: 0 1 1 1;
+}
+
+#log-path {
+    height: auto;
+    padding: 0 1;
+    color: $text-muted;
+}
+
 #status {
     height: auto;
     border: round $primary;
@@ -427,48 +523,66 @@ class T2GScreen(Screen[None]):
 
 
 class DashboardScreen(T2GScreen):
-    """Dashboard principale: stato del cluster, errori ed eventi recenti.
+    """Monitor principale (ex-dashboard): stato + metriche live del job attivo.
 
-    Auto-refresh ogni ``refresh_interval`` secondi; refresh manuale con ``r``.
-    A cluster irraggiungibile il servizio risponde comunque con la cache
-    dell'ultimo tick e ``cluster_reachable: false``: la dashboard la mostra
-    con un banner giallo.
+    Auto-refresh ogni ``refresh_interval`` secondi (GET /monitor); refresh
+    manuale con ``r``. Pannelli: banner raggiungibilità, job attivo (con
+    ProgressBar step/total e metriche loss/reward/lr + sezioni SFT/eval),
+    completion samples, log tail, coda/errori/eventi. A cluster
+    irraggiungibile il servizio risponde con la cache dell'ultimo tick e
+    ``cluster_reachable: false`` → banner giallo.
+
+    Binding: r refresh · g queue · a add · s START · k kill · w replace ·
+    p pause · R resume · t tick · L log fullscreen.
     """
 
     BINDINGS = [
         Binding("r", "refresh", "Refresh"),
         Binding("g", "queue", "Queue"),
         Binding("a", "add_job", "Add job"),
+        Binding("s", "start_job", "START"),
+        Binding("k", "kill_job", "KILL job"),
         Binding("w", "replace_queue", "Replace queue"),
         Binding("p", "pause", "Pause"),
         Binding("R", "resume", "Resume"),
         Binding("t", "tick", "Tick"),
+        Binding("L", "log_full", "Log"),
     ]
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(id="banner")
         yield LoadingIndicator(id="loading")
-        yield Static(id="status", classes="panel")
-        yield Static(id="errors", classes="panel")
-        yield Static(id="events", classes="panel")
+        yield Static(id="job-panel")
+        yield Static("", classes="panel-title", id="samples-title")
+        with Vertical(id="samples-panel"):
+            yield RichLog(id="samples-log", highlight=False, markup=True)
+        with Vertical(id="tail-panel"):
+            yield RichLog(id="tail-log", highlight=False, markup=True)
+        yield Static(id="queue-panel")
         yield Footer()
 
     def on_mount(self) -> None:
-        self.set_interval(self.t2g_app.refresh_interval, self.t2g_app.refresh_status)
+        self.set_interval(self.t2g_app.refresh_interval, self.t2g_app.refresh_monitor)
         self.refresh_view()
-        self.t2g_app.run_worker(self.t2g_app.refresh_status())
+        self.t2g_app.run_worker(self.t2g_app.refresh_monitor())
 
     # ── Azioni (binding) ──
 
     def action_refresh(self) -> None:
-        self.t2g_app.run_worker(self.t2g_app.refresh_status())
+        self.t2g_app.run_worker(self.t2g_app.refresh_monitor())
 
     def action_queue(self) -> None:
         self.t2g_app.switch_screen("queue")
 
     def action_add_job(self) -> None:
         self.t2g_app.switch_screen("add_job")
+
+    def action_start_job(self) -> None:
+        self.t2g_app.switch_screen("start_job")
+
+    def action_kill_job(self) -> None:
+        self.t2g_app.confirm_kill()
 
     def action_replace_queue(self) -> None:
         self.t2g_app.switch_screen("replace")
@@ -482,6 +596,9 @@ class DashboardScreen(T2GScreen):
     def action_tick(self) -> None:
         self.t2g_app.run_worker(self.t2g_app.tick())
 
+    def action_log_full(self) -> None:
+        self.t2g_app.switch_screen("biglog")
+
     # ── Rendering ──
 
     def set_busy(self, busy: bool) -> None:
@@ -489,94 +606,143 @@ class DashboardScreen(T2GScreen):
         self.query_one("#loading", LoadingIndicator).display = busy
 
     def refresh_view(self) -> None:
-        """Ridisegna i pannelli a partire da ``app.status``."""
+        """Ridisegna i pannelli a partire da ``app.monitor_snapshot``."""
         if not self.is_mounted:
             return
-        banner = self.query_one("#banner", Static)
-        status_box = self.query_one("#status", Static)
-        errors_box = self.query_one("#errors", Static)
-        events_box = self.query_one("#events", Static)
-        status = self.t2g_app.status
-        if status is None:
-            banner.display = False
-            status_box.update("Caricamento stato dal servizio…")
-            errors_box.update("")
-            events_box.update("")
+        snap = self.t2g_app.monitor_snapshot or self.t2g_app.status
+        if snap is None:
+            self.query_one("#job-panel", Static).update("Caricamento dal servizio…")
             return
-        reachable = bool(status.get("cluster_reachable", False))
+
+        banner = self.query_one("#banner", Static)
+        job_box = self.query_one("#job-panel", Static)
+        samples_log = self.query_one("#samples-log", RichLog)
+        tail_log = self.query_one("#tail-log", RichLog)
+        queue_box = self.query_one("#queue-panel", Static)
+
+        reachable = bool(snap.get("cluster_reachable", False))
         self.t2g_app.sub_title = self.t2g_app.config.url if self.t2g_app.config else ""
         banner.display = not reachable
-        if reachable:
-            banner.update("")
-        else:
-            banner.update(
-                "[yellow]⚠ CLUSTER IRRAGGIUNGIBILE — mostrato l'ultimo stato "
-                "noto dalla cache del servizio[/yellow]"
-            )
-        status_box.update(self._status_text(status, reachable))
-        errors_box.update(self._errors_text(status))
-        events_box.update(self._events_text(status))
-
-    def _status_text(self, status: dict[str, Any], reachable: bool) -> str:
-        active = status.get("active_job")
-        queue_n = len(status.get("queue") or [])
-        stopped = bool(status.get("stopped"))
-        watcher = bool(status.get("watcher_alive"))
-        last_tick = escape(str(status.get("last_tick_at") or "mai"))
-        last_job = escape(str(status.get("last_job") or "—"))[:80]
-
-        reach_txt = "[green]cluster raggiungibile[/green]" if reachable else "[red]cluster IRRAGGIUNGIBILE[/red]"
-        stop_txt = "[red]in PAUSA[/red]" if stopped else "[green]attivo[/green]"
-        watch_txt = "[green]vivo[/green]" if watcher else "[yellow]spento[/yellow]"
-        if isinstance(active, dict) and active:
-            active_txt = (
-                f"[bold]{escape(str(active.get('name') or '?'))}[/bold] "
-                f"[dim](id {escape(str(active.get('id') or '?'))} · "
-                f"{escape(str(active.get('state') or '?'))})[/dim]"
-            )
-        else:
-            active_txt = "[dim]nessuno[/dim]"
-
-        return "\n".join(
-            [
-                f"{reach_txt} · catena {stop_txt} · watcher {watch_txt}",
-                f"Ultimo tick: {last_tick} · Ultimo job: {last_job}",
-                f"Job attivo: {active_txt}",
-                f"Job in coda: [bold]{queue_n}[/bold]  (apri la lista con [b]g[/b])",
-            ]
+        banner.update(
+            ""
+            if reachable
+            else "[yellow]⚠ CLUSTER IRRAGGIUNGIBILE — mostrato l'ultimo stato "
+            "noto dalla cache del servizio[/yellow]"
         )
 
-    def _errors_text(self, status: dict[str, Any]) -> str:
-        errors = (status.get("errors_recent") or [])[-5:]
+        job_box.update(self._job_text(snap))
+        samples_log.clear()
+        for line in (snap.get("samples") or [])[-8:]:
+            samples_log.write(line)
+        if not snap.get("samples"):
+            samples_log.write("[dim]— nessun sample disponibile —[/dim]")
+        tail_log.clear()
+        for line in snap.get("log_tail") or []:
+            tail_log.write(f"[dim]{escape(line)}[/dim]")
+        if not snap.get("log_tail"):
+            tail_log.write("[dim]— log vuoto —[/dim]")
+        queue_box.update(
+            "\n\n".join(
+                part
+                for part in [self._queue_text(snap), self._errors_text(snap), self._events_text(snap)]
+                if part
+            )
+        )
+
+    def _job_text(self, snap: dict[str, Any]) -> str:
+        active = snap.get("active_job")
+        detail = snap.get("job_detail")
+        stopped = bool(snap.get("stopped"))
+        watcher = bool(snap.get("watcher_alive"))
+        last_tick = escape(str(snap.get("last_tick_at") or "mai"))
+        reach = "[green]ok[/green]" if snap.get("cluster_reachable") else "[red]giù[/red]"
+        stop_txt = "[red]PAUSA[/red]" if stopped else "[green]attivo[/green]"
+        watch_txt = "[green]vivo[/green]" if watcher else "[yellow]spento[/yellow]"
+
+        header = f"cluster {reach} · catena {stop_txt} · watcher {watch_txt} · tick {last_tick}"
+        if not isinstance(active, dict) or not active:
+            queue = snap.get("queue") or []
+            nxt = "\n".join(f"  [dim]{escape(str(e))}[/dim]" for e in queue[:3])
+            hint = (
+                f"Prossimi {min(3, len(queue))} in coda:\n{nxt}" if queue else "Coda vuota."
+            )
+            return "\n".join(
+                [
+                    header,
+                    "[bold]Nessun job attivo[/bold] — premi [b]s[/b] per avviare, "
+                    f"[b]g[/b] per la coda ({len(queue)} job)",
+                    hint,
+                ]
+            )
+
+        lines = [
+            header,
+            f"Job: [bold]{escape(str(active.get('name') or '?'))}[/bold] "
+            f"[dim](id {escape(str(active.get('id') or '?'))} · "
+            f"{escape(str(active.get('state') or '?'))})[/dim]",
+        ]
+        if detail:
+            step = detail.get("step")
+            total = detail.get("total_steps")
+            if step is not None and total:
+                pct = min(100.0, 100.0 * float(step) / max(1, float(total)))
+                lines.append(f"step [bold]{step}/{total}[/bold] ({pct:.1f}%)")
+                self._update_progress(pct)
+            metrics = []
+            if detail.get("loss") is not None:
+                metrics.append(f"loss [bold]{escape(str(detail['loss']))}[/bold]")
+            if detail.get("reward") is not None:
+                metrics.append(f"reward [bold]{escape(str(detail['reward']))}[/bold]")
+            if detail.get("lr") is not None:
+                metrics.append(f"lr [dim]{escape(str(detail['lr']))}[/dim]")
+            if metrics:
+                lines.append(" | ".join(metrics))
+            if detail.get("sft_active"):
+                sft = [f"SFT: step {detail.get('sft_step') or '?'}/{detail.get('sft_total') or '?'}"]
+                if detail.get("sft_loss"):
+                    sft.append(f"loss {escape(str(detail['sft_loss']))}")
+                if detail.get("sft_eval_loss"):
+                    sft.append(f"eval {escape(str(detail['sft_eval_loss']))}")
+                if detail.get("sft_eval_loss_best"):
+                    sft.append(f"best {escape(str(detail['sft_eval_loss_best']))}")
+                lines.append("[yellow]" + " · ".join(sft) + "[/yellow]")
+            if detail.get("eval_label"):
+                lines.append(f"[cyan]eval: {escape(str(detail['eval_label']))}[/cyan]")
+            for key, value in (detail.get("eval_metrics") or {}).items():
+                lines.append(f"[cyan]  {escape(str(key))}: {escape(str(value))}[/cyan]")
+        else:
+            lines.append("[dim](dettagli non disponibili — log non ancora prodotto)[/dim]")
+        return "\n".join(lines)
+
+    def _update_progress(self, pct: float) -> None:
+        try:
+            bar = self.query_one("#job-progress", ProgressBar)
+        except Exception:
+            return
+        bar.update(total=100, progress=pct)
+
+    def _queue_text(self, snap: dict[str, Any]) -> str:
+        queue = snap.get("queue") or []
+        return f"Coda: [bold]{len(queue)}[/bold] job · [b]g[/b] lista"
+
+    def _errors_text(self, snap: dict[str, Any]) -> str:
+        errors = (snap.get("errors_recent") or [])[-3:]
         if not errors:
             return ""
         rows = "\n".join(f"[red]✖ {escape(str(e))[:100]}[/red]" for e in errors)
-        return f"[bold]Errori recenti ({len(errors)})[/bold]\n{rows}"
+        return rows
 
-    def _events_text(self, status: dict[str, Any]) -> str:
-        events = (status.get("events") or [])[-8:]
+    def _events_text(self, snap: dict[str, Any]) -> str:
+        events = (snap.get("events") or [])[-5:]
         if not events:
             return ""
-        color_of = {
-            "error": "red",
-            "enqueue": "green",
-            "dequeue": "green",
-            "queue_replace": "green",
-            "pause": "yellow",
-            "resume": "yellow",
-            "tick": "dim",
-        }
-        rows: list[str] = []
+        rows = []
         for event in events:
             ts = str(event.get("ts", ""))[11:19]
             etype = str(event.get("type", ""))
             detail = escape(str(event.get("detail", "")))[:80]
-            color = color_of.get(etype)
-            if color:
-                rows.append(f"[{color}]{ts} {etype:<16}[/{color}] {detail}")
-            else:
-                rows.append(f"{ts} {etype:<16} {detail}")
-        return "[bold]Eventi recenti[/bold]\n" + "\n".join(rows)
+            rows.append(f"[dim]{ts} {etype:<16} {detail}[/dim]")
+        return "\n".join(rows)
 
 
 class QueueScreen(T2GScreen):
@@ -657,13 +823,27 @@ class QueueScreen(T2GScreen):
 
 
 class AddJobScreen(T2GScreen):
-    """Form per accodare un singolo job (POST /jobs) e tornare alla dashboard."""
+    """Form per accodare (POST /jobs) o AVVIARE (POST /jobs/start) un job.
+
+    ``start_mode=True`` (binding ``s`` dal monitor): il submit chiama
+    ``/jobs/start`` — enqueue + tick immediato, il job parte SUBITO se la
+    coda è libera. Modalità normale (binding ``a``): semplice enqueue.
+    """
+
+    def __init__(self, start_mode: bool = False) -> None:
+        super().__init__()
+        self.start_mode = start_mode
 
     BINDINGS = [Binding("escape", "go_back", "Back")]
 
     def compose(self) -> ComposeResult:
+        title = (
+            "AVVIA un job (accoda + tick immediato — parte subito se libero)"
+            if self.start_mode
+            else "Aggiungi un job alla coda"
+        )
         yield Header()
-        yield Static("Aggiungi un job alla coda", classes="title")
+        yield Static(title, classes="title")
         yield Select(
             [("train", "train"), ("eval", "eval")],
             prompt="Tipo",
@@ -677,7 +857,8 @@ class AddJobScreen(T2GScreen):
             id="config",
         )
         yield Input(placeholder="Tag (opzionale — di default derivato dal config)", id="tag")
-        yield Button("Accoda", variant="primary", id="submit")
+        submit_label = "Avvia ora" if self.start_mode else "Accoda"
+        yield Button(submit_label, variant="primary", id="submit")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -718,11 +899,69 @@ class AddJobScreen(T2GScreen):
         job_type = str(self.query_one("#type", Select).value)
         config = self._config_value()
         tag = self.query_one("#tag", Input).value.strip() or None
-        self.t2g_app.run_worker(self._do_submit(job_type, config, tag))
+        if self.start_mode:
+            self.t2g_app.run_worker(self.t2g_app.start_job(job_type, config, tag))
+        else:
+            self.t2g_app.run_worker(self._do_submit(job_type, config, tag))
 
     async def _do_submit(self, job_type: str, config: str, tag: str | None) -> None:
         if await self.t2g_app.add_job(job_type, config, tag):
             self.t2g_app.switch_screen("dashboard")
+
+
+class LogScreen(T2GScreen):
+    """Log del job attivo a schermo intero (GET /logs, auto-refresh 10s).
+
+    Aperta con ``L`` dal monitor; ``Esc`` torna al monitor.
+    """
+
+    BINDINGS = [
+        Binding("r", "refresh", "Refresh"),
+        Binding("escape", "go_back", "Back"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static(id="log-path", classes="hint")
+        with Vertical(id="big-log"):
+            yield RichLog(id="big-richtext", highlight=False, markup=True)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.set_interval(self.t2g_app.refresh_interval, self.refresh_logs)
+        self.refresh_logs()
+
+    # ── Azioni (binding) ──
+
+    def action_refresh(self) -> None:
+        self.refresh_logs()
+
+    def action_go_back(self) -> None:
+        self.t2g_app.switch_screen("dashboard")
+
+    # ── Interno ──
+
+    def refresh_logs(self) -> None:
+        self.t2g_app.run_worker(self._do_refresh())
+
+    async def _do_refresh(self) -> None:
+        if self.t2g_app.client is None:
+            return
+        try:
+            result = await asyncio.to_thread(self.t2g_app.client.get_logs, 200)
+        except RemoteServiceError as exc:
+            self.t2g_app.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=8)
+            return
+        if not self.is_mounted:
+            return
+        path_box = self.query_one("#log-path", Static)
+        rich = self.query_one("#big-richtext", RichLog)
+        path_box.update(f"Log: {escape(str(result.get('log_path') or '?'))}")
+        rich.clear()
+        for line in result.get("lines") or []:
+            rich.write(escape(line))
+        if not result.get("lines"):
+            rich.write("[dim]— log vuoto o nessun job attivo —[/dim]")
 
 
 class ReplaceQueueScreen(T2GScreen):
@@ -866,26 +1105,29 @@ class ConfirmScreen(Screen[bool]):
 
 
 class ConfigScreen(T2GScreen):
-    """Prima configurazione: nessun URL/token trovato (env o .env).
+    """Prima configurazione: nessun URL trovato (env o .env).
 
-    Salva i valori nel .env locale (sezione marcata) e crea il client.
-    Il token viene inserito in un Input mascherato e non è mai loggato.
+    L'URL è obbligatorio; il token è OPZIONALE (il servizio locale può girare
+    senza auth — il campo restà vuoto). I valori vengono salvati nel .env
+    locale (sezione marcata). Il token viene inserito in un Input mascherato
+    e non è mai loggato.
     """
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static("Configura il servizio remoto", classes="title")
+        yield Static("Configura il servizio", classes="title")
         yield Static(
-            "Nessun T2G_SERVICE_URL / T2G_AUTH_TOKEN trovato in env o .env.\n"
-            "I valori verranno salvati nel file .env locale (sezione marcata).",
+            "Nessun T2G_SERVICE_URL trovato in env o .env.\n"
+            "I valori verranno salvati nel file .env locale (sezione marcata).\n"
+            "Il token è opzionale per il servizio locale (http://127.0.0.1:8000).",
             classes="hint",
         )
         yield Input(
-            placeholder="URL del servizio (es. https://t2g-cluster-driver.onrender.com)",
+            placeholder="URL del servizio (es. http://127.0.0.1:8000)",
             id="url",
         )
         yield Input(
-            placeholder="X-Auth-Token (header di autenticazione)",
+            placeholder="X-Auth-Token — opzionale in locale (vuoto = auth off)",
             id="token",
             password=True,
         )
@@ -900,8 +1142,8 @@ class ConfigScreen(T2GScreen):
             return
         url = self.query_one("#url", Input).value.strip()
         token = self.query_one("#token", Input).value.strip()
-        if not url or not token:
-            self.t2g_app.notify("[red]URL e token sono obbligatori[/red]", severity="error", timeout=6)
+        if not url:
+            self.t2g_app.notify("[red]L'URL è obbligatorio[/red]", severity="error", timeout=6)
             return
         if not url.startswith(("http://", "https://")):
             self.t2g_app.notify(
@@ -922,7 +1164,7 @@ class ConfigScreen(T2GScreen):
 
 
 class T2GDashApp(App[None]):
-    """App Textual: dashboard + coda + form per pilotare il driver remoto."""
+    """App Textual: monitor live + coda + form per pilotare il driver remoto."""
 
     TITLE = "T2G Cluster Driver"
     CSS = _CSS
@@ -930,7 +1172,9 @@ class T2GDashApp(App[None]):
         "dashboard": DashboardScreen,
         "queue": QueueScreen,
         "add_job": AddJobScreen,
+        "start_job": lambda: AddJobScreen(start_mode=True),
         "replace": ReplaceQueueScreen,
+        "biglog": LogScreen,
         "config": ConfigScreen,
     }
     BINDINGS = [Binding("q", "quit", "Quit")]
@@ -948,6 +1192,7 @@ class T2GDashApp(App[None]):
         )
         self.refresh_interval = refresh_interval
         self.status: dict[str, Any] | None = None
+        self.monitor_snapshot: dict[str, Any] | None = None
         self.jobs: list[dict[str, Any]] = []
         self._refreshing = False
 
@@ -980,6 +1225,31 @@ class T2GDashApp(App[None]):
         finally:
             self._refreshing = False
 
+    async def refresh_monitor(self) -> None:
+        """Ricarica GET /monitor (stato + job_detail + samples + log tail)."""
+        if self._refreshing or self.client is None:
+            return
+        self._refreshing = True
+        try:
+            try:
+                snapshot = await asyncio.to_thread(self.client.get_monitor)
+            except RemoteServiceError as exc:
+                self.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=8)
+            else:
+                self.monitor_snapshot = snapshot
+                self.status = snapshot  # campi status condivisi
+                screen = self.screen
+                if isinstance(screen, DashboardScreen):
+                    screen.refresh_view()
+        except Exception as exc:  # rete di sicurezza: mai crashare la UI
+            self.notify(
+                f"[red]Errore inatteso: {exc.__class__.__name__}[/red]",
+                severity="error",
+                timeout=8,
+            )
+        finally:
+            self._refreshing = False
+
     async def refresh_jobs(self) -> None:
         """Ricarica GET /jobs e aggiorna la schermata Queue se attiva."""
         if self.client is None:
@@ -995,6 +1265,76 @@ class T2GDashApp(App[None]):
             screen.reload()
 
     # ── Mutazioni ──
+
+    async def start_job(self, job_type: str, config: str, tag: str | None) -> None:
+        """POST /jobs/start: accoda + tick immediato (parte subito se libero)."""
+        if self.client is None:
+            return
+        try:
+            result = await asyncio.to_thread(self.client.start_job, job_type, config, tag)
+        except RemoteServiceError as exc:
+            self.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=10)
+            return
+        started_now = bool(result.get("started_now"))
+        if started_now:
+            self.notify(
+                f"[green]Job AVVIATO: {escape(job_type)} {escape(config)}[/green]",
+                severity="information",
+                timeout=6,
+            )
+        else:
+            self.notify(
+                f"[yellow]Aggiunto alla coda (job attivo): {escape(job_type)} "
+                f"{escape(config)}[/yellow]",
+                severity="warning",
+                timeout=6,
+            )
+        self.monitor_snapshot = result
+        self.status = result
+        self.switch_screen("dashboard")
+        await self.refresh_monitor()
+
+    def confirm_kill(self) -> None:
+        """Chiede conferma (dialogo rosso) e poi esegue POST /kill."""
+        self.push_screen(
+            ConfirmScreen(
+                "TERMINARE il job attivo?\n\n"
+                "Il job verrà cancellato con scancel. La coda CONTINUA col "
+                "prossimo job al prossimo tick.\n"
+                "Per fermare TUTTO: premi Annulla e usa pause (p)."
+            ),
+            self._confirmed_kill,
+        )
+
+    def _confirmed_kill(self, ok: bool) -> None:
+        if ok:
+            self.run_worker(self.kill_active())
+
+    async def kill_active(self) -> None:
+        """POST /kill: scancel del job attivo (409 → toast giallo)."""
+        if self.client is None:
+            return
+        try:
+            await asyncio.to_thread(self.client.kill_active)
+        except ApiError as exc:
+            if exc.status_code == 409:
+                self.notify(
+                    "[yellow]Nessun job attivo da terminare[/yellow]",
+                    severity="warning",
+                    timeout=6,
+                )
+            else:
+                self.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=10)
+            return
+        except RemoteServiceError as exc:
+            self.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=10)
+            return
+        self.notify(
+            "[green]Job terminato (scancel) — la coda continua al prossimo tick[/green]",
+            severity="information",
+            timeout=8,
+        )
+        await self.refresh_monitor()
 
     async def add_job(self, job_type: str, config: str, tag: str | None) -> bool:
         """POST /jobs: accoda un job; True se riuscito."""

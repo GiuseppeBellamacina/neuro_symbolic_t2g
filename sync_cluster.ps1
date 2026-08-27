@@ -23,17 +23,21 @@ function Download-RemoteDir($remoteSubpath, $localDest) {
 }
 
 function Filter-EnvForUpload($envPath) {
-    # Security: strip the local TUI credentials section (marker
-    # '# >>> t2g-tui >>>' ... '# <<< t2g-tui <<<', containing the Render
-    # service URL + auth token) before uploading .env to the cluster —
-    # the cluster never needs it and the token must not leave this machine.
+    # Security: strip secrets before uploading .env to the cluster.
+    # 1. The local TUI credentials section (marker '# >>> t2g-tui >>>' ...
+    #    '# <<< t2g-tui <<<', containing the Render service URL + auth token).
+    # 2. Standalone T2G_AUTH_TOKEN / T2G_SERVICE_URL lines — the API token
+    #    must never leave this machine (the cluster does not need it).
     if (-not (Test-Path $envPath)) { return $envPath }
     $tmp = Join-Path $env:TEMP "t2g_env_upload_$PID.env"
     $inSection = $false
     $kept = foreach ($line in Get-Content $envPath) {
         if ($line -match '^\s*# >>> t2g-tui >>>') { $inSection = $true; continue }
         if ($line -match '^\s*# <<< t2g-tui <<<') { $inSection = $false; continue }
-        if (-not $inSection) { $line }
+        if ($inSection) { continue }
+        if ($line -match '^\s*T2G_AUTH_TOKEN\s*=') { continue }
+        if ($line -match '^\s*T2G_SERVICE_URL\s*=') { continue }
+        $line
     }
     Set-Content -Path $tmp -Value $kept
     return $tmp

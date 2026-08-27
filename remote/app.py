@@ -19,6 +19,7 @@ di test, esattamente come fa sync_cluster.ps1.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -37,7 +38,20 @@ from pydantic import BaseModel
 
 _log = logging.getLogger("uvicorn.error")
 
-# ── Configurazione (env vars; obbligatorie: T2G_AUTH_TOKEN, T2G_SSH_USER) ──
+# ── dotenv: carica .env dalla repo root e dalla cwd (deploy locale) ──────────
+# python-dotenv è dipendenza core del progetto. override=False: le env vars
+# reali vincono sul file (comodo per override puntuali senza editare).
+try:
+    from dotenv import load_dotenv
+
+    for _candidate in (Path(__file__).resolve().parent.parent / ".env", Path.cwd() / ".env"):
+        if _candidate.is_file():
+            load_dotenv(_candidate, override=False)
+except ImportError:  # pragma: no cover - dotenv è core, fallback silenzioso
+    pass
+
+# ── Configurazione (env vars; NESSUNA credenziale del cluster: l'SSH usa ─────
+#    l'alias ~/.ssh/config, es. T2G_SSH_HOST=gcluster) ─────────────────────────
 
 
 def _env_int(name: str, default: int) -> int:
@@ -70,14 +84,19 @@ class Settings:
             # Contenuto incollato in env → scritto su file all'avvio.
             key_file = str(Path(data_dir) / "ssh_key")
         return cls(
-            ssh_host=os.environ.get("T2G_SSH_HOST", "gcluster.dmi.unict.it"),
+            # Default "gcluster": l'alias ~/.ssh/config dell'utente (senza
+            # user@ né -p: li risolve l'alias stesso). T2G_SSH_USER/T2G_SSH_PORT
+            # servono SOLO se non si usa un alias.
+            ssh_host=os.environ.get("T2G_SSH_HOST", "gcluster"),
             ssh_user=os.environ.get("T2G_SSH_USER", ""),
-            ssh_port=_env_int("T2G_SSH_PORT", 22),
+            ssh_port=_env_int("T2G_SSH_PORT", 0),
             # None = nessun `-i`: ssh-agent / identità default / ~/.ssh/config
             ssh_key_file=key_file,
             ssh_key_content=key_content,
             ssh_known_hosts=os.environ.get("T2G_SSH_KNOWN_HOSTS", str(Path(data_dir) / "known_hosts")),
             ssh_timeout=_env_int("T2G_SSH_TIMEOUT", 30),
+            # OPZIONALE in locale (bind 127.0.0.1): chiave API servizio↔TUI.
+            # OBBLIGATORIA su Render (0.0.0.0) — vedi warning in lifespan.
             auth_token=os.environ.get("T2G_AUTH_TOKEN", ""),
             db_path=os.environ.get("T2G_DB_PATH", str(Path(data_dir) / "t2g_driver.db")),
             data_dir=data_dir,
@@ -248,15 +267,21 @@ class ClusterSSH:
         self.base = ["ssh"]
         if settings.ssh_key_file:
             self.base += ["-i", settings.ssh_key_file]
+        # Alias ~/.ssh/config (default "gcluster"): niente user@ né -p — li
+        # risolve l'alias. user/porta espliciti SOLO se configurati via env.
         self.base += [
-            "-p", str(settings.ssh_port),
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=15",
             "-o", "StrictHostKeyChecking=accept-new",
             "-o", f"UserKnownHostsFile={settings.ssh_known_hosts}",
             "-o", "LogLevel=ERROR",
-            f"{settings.ssh_user}@{settings.ssh_host}",
         ]
+        if settings.ssh_port:
+            self.base += ["-p", str(settings.ssh_port)]
+        target = (
+            f"{settings.ssh_user}@{settings.ssh_host}" if settings.ssh_user else settings.ssh_host
+        )
+        self.base.append(target)
 
     @staticmethod
     def _run(args: list[str], timeout: int) -> SSHResult:
@@ -278,15 +303,20 @@ class ClusterSSH:
         if self.settings.ssh_key_file:
             args += ["-i", self.settings.ssh_key_file]
         args += [
-            "-P", str(self.settings.ssh_port),
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=15",
             "-o", "StrictHostKeyChecking=accept-new",
             "-o", f"UserKnownHostsFile={self.settings.ssh_known_hosts}",
             "-o", "LogLevel=ERROR",
-            local_path,
-            f"{self.settings.ssh_user}@{self.settings.ssh_host}:{remote_path}",
         ]
+        if self.settings.ssh_port:
+            args += ["-P", str(self.settings.ssh_port)]
+        target = (
+            f"{self.settings.ssh_user}@{self.settings.ssh_host}"
+            if self.settings.ssh_user
+            else self.settings.ssh_host
+        )
+        args += [local_path, f"{target}:{remote_path}"]
         return self._run(args, timeout)
 
     def __enter__(self) -> "ClusterSSH":
@@ -454,8 +484,8 @@ def _helper_do(ssh: ClusterSSH, subcommand: str, arg: str | None = None) -> dict
 @contextmanager
 def _cluster() -> Iterator[ClusterSSH]:
     """Apre ClusterSSH traducendo i fallimenti in HTTP 502 (mai crash)."""
-    if not settings.ssh_host or not settings.ssh_user:
-        raise HTTPException(502, "T2G_SSH_HOST / T2G_SSH_USER non configurati")
+    if not settings.ssh_host:
+        raise HTTPException(502, "T2G_SSH_HOST non configurato")
     if settings.ssh_key_file and not Path(settings.ssh_key_file).is_file():
         raise HTTPException(
             502, "Chiave SSH non trovata: imposta T2G_SSH_KEY_CONTENT o T2G_SSH_KEY_FILE"
@@ -575,9 +605,16 @@ async def lifespan(app: FastAPI):
     Path(settings.data_dir).mkdir(parents=True, exist_ok=True)
     _setup_key()
     _init_db()
-    if not settings.auth_token:
-        _log.warning("T2G_AUTH_TOKEN non configurato — le route risponderanno 503")
-    _add_event("startup", f"driver avviato ({settings.ssh_user}@{settings.ssh_host})")
+    if settings.auth_token:
+        _log.info("Auth ATTIVA (X-Auth-Token richiesto)")
+    else:
+        _log.warning(
+            "T2G_AUTH_TOKEN non configurato — auth DISABILITATA. Ok SOLO per "
+            "il deploy locale (bind 127.0.0.1). OBBLIGATORIA quando il "
+            "servizio viene esposto (Render)."
+        )
+    target = f"{settings.ssh_user}@{settings.ssh_host}" if settings.ssh_user else settings.ssh_host
+    _add_event("startup", f"driver avviato ({target})")
     yield
     _add_event("shutdown", "driver fermato")
 
@@ -586,18 +623,20 @@ app = FastAPI(
     title="T2G Cluster Driver",
     description=(
         "Driver esterno della catena T2G su gcluster: avanza la coda "
-        "(chain_tick.sh) e ne espone lo stato via API. Tick esterno: "
-        "POST /tick ogni 5 min da cronjob.org."
+        "(chain_tick.sh), ne espone lo stato via API e fornisce il monitor "
+        "live (metriche training, completion samples, log tail). "
+        "Tick esterno: POST /tick ogni 5 min da cronjob.org."
     ),
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
 
 def require_auth(x_auth_token: str | None = Header(default=None)) -> None:
-    """Dependency: tutte le route richiedono X-Auth-Token valido."""
+    """Dependency: X-Auth-Token valido — oppure nessuna auth se il token non
+    è configurato (deploy locale su 127.0.0.1)."""
     if not settings.auth_token:
-        raise HTTPException(503, "T2G_AUTH_TOKEN non configurato sul server")
+        return  # auth disabilitata: solo deploy locale
     if x_auth_token is None or not secrets.compare_digest(x_auth_token, settings.auth_token):
         raise HTTPException(401, "X-Auth-Token mancante o non valido")
 
@@ -618,10 +657,12 @@ class QueueIn(BaseModel):
 
 @app.get("/")
 def root() -> dict:
+    target = f"{settings.ssh_user}@{settings.ssh_host}" if settings.ssh_user else settings.ssh_host
     return {
         "service": "t2g-cluster-driver",
         "docs": "/docs",
-        "cluster": f"{settings.ssh_user}@{settings.ssh_host}",
+        "cluster": target,
+        "auth": bool(settings.auth_token),
     }
 
 
@@ -700,6 +741,250 @@ def tick() -> dict:
         _helper_do(ssh, "tick")
     _add_event("tick", "tick eseguito (chain_tick.sh --quiet)")
     return _cached_status()
+
+
+# ── API v2: monitor live + controllo job (la TUI è costruita su queste) ──────
+
+
+def _import_chain_monitor():
+    """Importa i parser del monitor (torch-free) — il servizio gira dalla
+    repo root, quindi `src.utils.chain_monitor` è importabile direttamente."""
+    import sys
+
+    repo_root = str(Path(__file__).resolve().parent.parent)
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+    from src.utils import chain_monitor
+
+    return chain_monitor
+
+
+def _job_detail_from_log(
+    active_job: dict | None,
+    log_tail_lines: list[str],
+    log_path: str | None,
+) -> dict | None:
+    """Costruisce job_detail riusando i parser di chain_monitor.
+
+    I parser leggono da FILE: il tail (già arrivato via LOG_TAIL_B64) viene
+    scritto su un file temporaneo nella data_dir e i parser `_parse_training_log`
+    / `_parse_eval_log` (intatti) lo analizzano. I loro `_tail_lines`/`_grep_lines`
+    su file così piccolo cadono nel fallback read_text — nessun subprocess.
+    """
+    if not active_job or not active_job.get("id"):
+        return None
+    name = active_job.get("name") or ""
+    job_type = "eval" if name.startswith("eval-") else "train"
+    tag = name.split("-", 1)[1] if "-" in name else name
+
+    detail: dict = {
+        "id": active_job.get("id"),
+        "name": name,
+        "state": active_job.get("state"),
+        "elapsed_human": None,
+        "log_path": log_path or None,
+        "step": None,
+        "total_steps": None,
+        "loss": None,
+        "reward": None,
+        "lr": None,
+        "sft_active": False,
+        "sft_step": None,
+        "sft_total": None,
+        "sft_loss": None,
+        "sft_eval_loss": None,
+        "sft_eval_loss_best": None,
+        "eval_label": None,
+        "eval_progress": None,
+        "eval_metrics": {},
+    }
+    if not log_tail_lines:
+        return detail
+
+    try:
+        cm = _import_chain_monitor()
+        tmp = Path(settings.data_dir) / "monitor_tail.log"
+        tmp.write_text("\n".join(log_tail_lines) + "\n", encoding="utf-8", errors="replace")
+        job = cm.JobInfo(job_type=job_type, config="", tag=tag)
+        if job_type == "eval":
+            cm._parse_eval_log(tmp, job)
+        else:
+            cm._parse_training_log(tmp, job)
+    except Exception as exc:  # parser robusto: mai fallire il monitor
+        _log.warning("chain_monitor parse fallito: %s", exc)
+        return detail
+
+    detail.update(
+        {
+            "step": job.step or None,
+            "total_steps": job.stage_total or None,
+            "reward": job.last_reward or None,
+            "sft_active": job.sft_active,
+            "sft_step": job.sft_step or None,
+            "sft_total": job.sft_total or None,
+            "sft_loss": job.sft_loss or None,
+            "sft_eval_loss": job.sft_eval_loss or None,
+            "sft_eval_loss_best": job.sft_eval_loss_best or None,
+            "eval_label": job.eval_label or None,
+            "eval_progress": (
+                f"{job.eval_label}" if job.eval_label and "samples" in job.eval_label else None
+            ),
+            "eval_metrics": job.eval_metrics or {},
+        }
+    )
+    # loss/lr: ultima riga KV che li contiene (il parser non li espone come
+    # campi dedicati — loss sta nel KV step, lr nella stessa riga HighPrecision).
+    for line in reversed(log_tail_lines):
+        m = re.search(r"\bloss=([\d.eE+-]+)", line)
+        if m and not job.sft_active:
+            detail["loss"] = m.group(1)
+            break
+    for line in reversed(log_tail_lines):
+        m = re.search(r"\b(?:lr|learning_rate)=([\d.eE+-]+)", line)
+        if m:
+            detail["lr"] = m.group(1)
+            break
+    return detail
+
+
+def _decode_log_tail(state: dict) -> tuple[list[str], str | None]:
+    """Estrae e decodifica LOG_TAIL_B64 dallo snapshot del subcomando monitor."""
+    b64 = state.get("log_tail_b64") or ""
+    log_path = state.get("log_path") or None
+    if not b64:
+        return [], log_path
+    try:
+        text = base64.b64decode(b64).decode("utf-8", errors="replace")
+    except (ValueError, TypeError):
+        return [], log_path
+    return text.splitlines(), log_path
+
+
+def _parse_monitor_status(text: str) -> dict:
+    """parse_status esteso: cattura anche LOG_PATH e LOG_TAIL_B64."""
+    state = parse_status(text)
+    for line in text.splitlines():
+        key, _, value = line.partition("=")
+        if key == "LOG_PATH":
+            state["log_path"] = value.strip()
+        elif key == "LOG_TAIL_B64":
+            state["log_tail_b64"] = value.strip()
+    return state
+
+
+def _helper_monitor(ssh: ClusterSSH, nlines: int = 200) -> dict:
+    """Subcomando `monitor`: snapshot + log tail; sincronizza il DB."""
+    res = ssh.run(_helper_cmd("monitor", str(nlines)))
+    if res.timed_out:
+        raise ClusterUnreachable(f"ssh timeout dopo {settings.ssh_timeout}s")
+    text = res.stdout or ""
+    if "HELPER_MISSING=1" in text and settings.helper_auto_install:
+        _install_helper(ssh)
+        res = ssh.run(_helper_cmd("monitor", str(nlines)))
+        text = res.stdout or ""
+    if res.rc != 0:
+        raise ClusterUnreachable(
+            f"ssh rc={res.rc}: {res.stderr.strip()[:200] or res.stdout.strip()[:200]}"
+        )
+    state = _parse_monitor_status(text)
+    if state.get("status_ok") != 1:
+        raise ClusterProtocolError(
+            f"helper 'monitor' senza STATUS_OK=1: {text[:200]!r}"
+        )
+    _store_snapshot(state)
+    return state
+
+
+def _monitor_snapshot(ssh: ClusterSSH) -> dict:
+    """Snapshot completo per /monitor: stato + job_detail + samples + log tail."""
+    state = _helper_monitor(ssh)
+    tail_lines, log_path = _decode_log_tail(state)
+    job_detail = _job_detail_from_log(state.get("active_job"), tail_lines, log_path)
+    snapshot = _cached_status()
+    snapshot.update(
+        {
+            "job_detail": job_detail,
+            "samples": [],
+            "log_tail": tail_lines[-40:],
+            "ts": datetime.now().isoformat(timespec="seconds"),
+        }
+    )
+    # Completion samples: riusa l'estrattore del monitor sulle righe del tail.
+    if tail_lines:
+        try:
+            cm = _import_chain_monitor()
+            samples = cm._extract_completion_samples(
+                tail_lines, max_lines=cm._SAMPLE_MAX_LINES
+            )
+            snapshot["samples"] = samples[-8:] if samples else []
+        except Exception as exc:
+            _log.warning("extract_completion_samples fallito: %s", exc)
+    return snapshot
+
+
+@app.get("/monitor", dependencies=[Depends(require_auth)])
+def monitor() -> dict:
+    """Snapshot live: stato catena + metriche job attivo + samples + log tail.
+
+    Riusa i parser di src/utils/chain_monitor.py sul log del job attivo
+    (trasportato via base64 dal helper — una sola connessione ssh).
+    """
+    with _cluster() as ssh:
+        return _monitor_snapshot(ssh)
+
+
+@app.post("/jobs/start", status_code=201, dependencies=[Depends(require_auth)])
+def start_job(payload: JobIn) -> dict:
+    """Accoda un job e fa un tick immediato: parte SUBITO se la coda è libera.
+
+    Response: snapshot /monitor + `started_now` (True se il tick ha sottomesso
+    proprio questo job — nessun altro job era attivo).
+    """
+    entry = build_entry(payload)
+    # tag derivato dal payload (stessa regola di build_entry) per verificare
+    # che il job attivo dopo il tick sia PROPRIO quello appena accodato —
+    # non basta il prefisso del tipo (un "train-altro" già attivo non è il nostro).
+    entry_tag = entry.split(":")[2] if entry.count(":") >= 2 else ""
+    expected_name = f"{payload.type}-{entry_tag}"
+    with _cluster() as ssh:
+        _helper_do(ssh, "enqueue", entry)
+        state = _helper_do(ssh, "tick")
+    active = state.get("active_job")
+    started_now = bool(active and active.get("name") == expected_name)
+    _add_event("enqueue+tick" if started_now else "enqueue", entry)
+    with _cluster() as ssh:
+        snapshot = _monitor_snapshot(ssh)
+    snapshot["started_now"] = started_now
+    return snapshot
+
+
+@app.post("/kill", dependencies=[Depends(require_auth)])
+def kill_active() -> dict:
+    """scancel del job SLURM attivo (409 se nessun job attivo).
+
+    Semantica: il job killato appare CANCELLED e al prossimo tick la catena
+    CONTINUA col job successivo (continue-on-failure). Per fermare TUTTO:
+    POST /pause prima (o subito dopo) del kill.
+    """
+    with _cluster() as ssh:
+        res = ssh.run(_helper_cmd("scancel"))
+    if res.rc != 0:
+        raise HTTPException(409, "Nessun job attivo da cancellare (o scancel fallito)")
+    _add_event("kill", f"scancel del job attivo: {res.stdout.strip()[:100]}")
+    with _cluster() as ssh:
+        return _monitor_snapshot(ssh)
+
+
+@app.get("/logs", dependencies=[Depends(require_auth)])
+def get_logs(lines: int = 50) -> dict:
+    """Ultime `lines` righe del log del job attivo (404 se nessun job attivo)."""
+    lines = max(1, min(lines, 500))
+    with _cluster() as ssh:
+        state = _helper_monitor(ssh, nlines=lines)
+    tail_lines, log_path = _decode_log_tail(state)
+    if not state.get("active_job"):
+        raise HTTPException(404, "Nessun job attivo: nessun log da leggere")
+    return {"log_path": log_path, "lines": tail_lines[-lines:]}
 
 
 if __name__ == "__main__":
