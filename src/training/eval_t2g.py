@@ -99,6 +99,7 @@ from src.training.retrieval_setup import (
     retrieve_few_shot_batch,
 )
 from src.utils.config import load_config
+from src.utils.live_status import live_status_reset, live_status_set
 from src.utils.metrics import (
     bleu_corpus,
     bleu_sentence,
@@ -559,6 +560,14 @@ def evaluate_checkpoint(
     )
     test_ds = test_ds.select(sample_indices)
 
+    # Live status: the eval phase begins (progress updated in the loop).
+    live_status_set(
+        phase="eval",
+        step=0,
+        total_steps=len(test_ds),
+        note=f"eval {len(test_ds)} sample",
+    )
+
     # Pre-compute few-shot examples for the selected test samples using the
     # SAME per-query anti-leakage as GRPO training (exclude the query's own
     # normalized text; drop near-duplicates above max_self_similarity).
@@ -610,6 +619,12 @@ def evaluate_checkpoint(
                 idx + 1,
                 len(test_ds),
                 (idx + 1) / max(len(test_ds), 1) * 100,
+            )
+            # Live status: eval progress (same cadence as the log line).
+            live_status_set(
+                step=idx + 1,
+                total_steps=len(test_ds),
+                eval_progress=f"{idx + 1}/{len(test_ds)}",
             )
 
         # Build prompt with centralized template (same as training).
@@ -744,6 +759,10 @@ def evaluate_checkpoint(
         if not is_valid:
             entry["error"] = err
         generations.append(entry)
+
+    # Live status: generation loop done (metrics computation follows, which
+    # is fast) — clear the phase so the monitor doesn't show a stale eval.
+    live_status_reset(note="eval completato")
 
     return (
         results,

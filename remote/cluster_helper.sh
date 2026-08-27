@@ -105,6 +105,9 @@ dump_status() {
 # con x=train/eval → logs/slurm-{train,eval}-<JOBID>.log (stessa convenzione
 # di chain_monitor.py::_find_log_file). Base64 evita qualunque problema di
 # escaping multi-riga nel protocollo KEY=VALUE.
+# LIVE_STATUS: contenuto grezzo di logs/live_status.json (una riga JSON già
+# pronta) se il file esiste ed è FRESCO (modificato negli ultimi 10 minuti —
+# oltre, il job che lo scriveva è morto e lo status è stale).
 dump_monitor() {
     local nlines="${1:-200}"
     dump_status
@@ -123,6 +126,12 @@ dump_monitor() {
     fi
     printf 'LOG_PATH=%s\n' "${logpath:-}"
     printf 'LOG_TAIL_B64=%s\n' "$b64"
+    local live="$PROJ_DIR/logs/live_status.json"
+    if [ -f "$live" ] && [ -z "$(find "$live" -mmin +10 2>/dev/null)" ]; then
+        # Single-line JSON: echo strips the trailing newline, safe on the
+        # KEY=VALUE protocol (no newlines inside).
+        printf 'LIVE_STATUS=%s\n' "$(cat "$live")"
+    fi
 }
 
 # ── Mutazioni ────────────────────────────────────────────────────────────────

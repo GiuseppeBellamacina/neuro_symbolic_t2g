@@ -61,6 +61,7 @@ from src.datasets.transition_matrix import (
 )
 from src.models.model_loader import load_model_and_tokenizer
 from src.utils.config import load_config
+from src.utils.live_status import live_status_reset, live_status_set
 from src.utils.prompting import SYSTEM_PROMPT
 
 load_dotenv()
@@ -781,6 +782,16 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     final_path_str: str
     try:
         logger.info("Starting SFT training...")
+        # Live status: SFT training loop starts (estimated total steps).
+        live_status_set(
+            phase="sft",
+            total_steps=(
+                int(training_cfg["max_steps"])
+                if training_cfg.get("max_steps")
+                else None
+            ),
+            note="SFT training",
+        )
         trainer.train(resume_from_checkpoint=resume_from)
 
         # ── Best metric (tracked by load_best_model_at_end) ─────────────
@@ -791,6 +802,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
                 best_metric,
                 trainer.state.best_model_checkpoint,
             )
+            live_status_set(eval_loss_best=float(best_metric))
         else:
             logger.info("[sft] No eval metric tracked (evaluation disabled).")
 
@@ -835,6 +847,9 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     logger.info("SFT T2G training complete!")
     logger.info("  Model: %s", final_path_str)
     logger.info("  Logs:  %s", log_dir)
+    # Live status: SFT done — back to idle (the GRPO phase, if any, will
+    # set its own phase right after).
+    live_status_reset(note=f"SFT completato: {final_path_str}")
     logger.info("=" * 60)
 
     return final_path_str

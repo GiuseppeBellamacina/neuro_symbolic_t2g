@@ -98,6 +98,7 @@ from src.training.retrieval_setup import (
     retrieve_few_shot_batch,
 )
 from src.utils.config import load_config
+from src.utils.live_status import live_status_set
 from src.utils.prompting import build_t2g_prompt
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -708,6 +709,8 @@ def main() -> None:
     if sft_pretrain_cfg.get("enabled", False):
         print(f"\n{'=' * 60}")
         print("STEP 1.5: SFT Pre-training")
+        # Live status: the SFT phase begins (adapter reuse skips this block).
+        live_status_set(phase="sft", note="SFT pre-training")
 
         from src.training.sft_train import (
             compute_sft_fingerprint,
@@ -1084,6 +1087,12 @@ def main() -> None:
     # ── Step 7: Training ─────────────────────────────────────────────────
     print(f"\n{'=' * 60}")
     print("STEP 7: GRPO Training")
+    # Live status: the GRPO phase begins (SFT phase, if any, is over).
+    live_status_set(
+        phase="grpo",
+        total_steps=int(config["training"].get("max_steps", 1500)),
+        note="GRPO training",
+    )
 
     # ── Workaround: transformers 5.3.0 + peft non espongono  ──────────
     # model.warnings_issued, ma trl 0.24.0 lo usa in GRPOTrainer.__init__.

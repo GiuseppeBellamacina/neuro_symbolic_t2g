@@ -15,6 +15,7 @@ from transformers import (
 )
 from transformers.trainer_callback import ProgressCallback
 
+from src.utils.live_status import live_status_add_samples, live_status_set
 from src.utils.text_utils import extract_user_text
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,20 @@ class HighPrecisionLogCallback(TrainerCallback):
         for k, v in logs.items():
             parts.append(f"{k}={v:.8f}" if isinstance(v, float) else f"{k}={v}")
         print("  " + "  ".join(parts))
+        # Live status file (logs/live_status.json) for the external monitor —
+        # throttled internally; fail-safe (never breaks training).
+        live_status_set(
+            step=state.global_step,
+            loss=logs.get("loss"),
+            reward=logs.get("reward"),
+            lr=logs.get("learning_rate"),
+            epoch=(
+                round(float(logs["epoch"]), 4)
+                if logs.get("epoch") is not None
+                else None
+            ),
+            eval_loss=logs.get("eval_loss"),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -339,7 +354,12 @@ class CompletionSampleLogger:
         return self._reward_fns
 
     def format_samples(self) -> str:
-        """Format buffered samples as a readable string for logging."""
+        """Format buffered samples as a readable string for logging.
+
+        Also pushes the formatted samples to the live status file (one
+        string per sample, PROMPT/OUTPUT/GOLD compact) so the external
+        monitor shows them without parsing the log.
+        """
         if not self._buffer:
             return ""
         lines = [
@@ -347,6 +367,7 @@ class CompletionSampleLogger:
             "  COMPLETION SAMPLES",
             f"{'═' * 70}",
         ]
+        live_lines: list[str] = []
         for idx, sample in enumerate(self._buffer, 1):
             instr = sample["instruction"]
             comp = sample["completion"]
@@ -366,9 +387,11 @@ class CompletionSampleLogger:
                 match = output.strip().upper() == gold.strip().upper()
                 indicator = "✓" if match else "✗"
                 lines.append(f"  Sample {idx}  [{indicator}]")
+                live_head = f"[{indicator}]"
             else:
                 lines.append(f"  Sample {idx}")
-            lines.append(f"{_SEPARATOR}")
+                live_head = ""
+            lines.append(_SEPARATOR)
             lines.append(f"  PROMPT: {instr}")
             if think:
                 lines.append("  THINK:")
@@ -383,12 +406,20 @@ class CompletionSampleLogger:
                 lines.append("  GOLD:")
                 for cl in gold.splitlines():
                     lines.append(f"    {cl}")
+                gold_txt = gold
             else:
                 lines.append("  GOLD: (gold non disponibile)")
+                gold_txt = ""
             lines.append(f"  REWARDS: {row1}")
             total = sum(self._weight_map.get(k, 0.0) * v for k, v in bd.items())
             lines.append(f"  TOTAL:   {total:+.4f}")
+            live_lines.append(
+                f"{live_head} {instr[:100]}\n  → {output[:100]}"
+                + (f"\n  gold: {gold_txt[:100]}" if gold_txt else "")
+            )
         lines.append(f"{'═' * 70}\n")
+        if live_lines:
+            live_status_add_samples(live_lines, kind="grpo")
         return "\n".join(lines)
 
 
@@ -752,6 +783,7 @@ class SFTSampleCallback(TrainerCallback):
             print(f"  SFT SAMPLE PREDICTIONS (step {state.global_step})")
             print(f"{'═' * 70}")
 
+            live_lines: list[str] = []
             for idx in indices:
                 sample = self._dataset[idx]
                 if not isinstance(sample, dict):
@@ -797,7 +829,18 @@ class SFTSampleCallback(TrainerCallback):
                 print(f"  PROMPT: {user_text[:120]}")
                 print(f"  GOLD:   {gold_part[:120]}")
                 print(f"  PRED:   {generated[:120]}")
+                match = (
+                    "✓"
+                    if generated.strip().upper() == gold_part.strip().upper()
+                    else "✗"
+                )
+                live_lines.append(
+                    f"{user_text[:100]}\n  [{match}] pred: {generated[:100]}"
+                    f"\n  gold: {gold_part[:100]}"
+                )
             print(f"{'═' * 70}\n")
+            if live_lines:
+                live_status_add_samples(live_lines, kind="sft")
         except Exception:
             logger.debug("Failed to generate SFT sample prediction", exc_info=True)
 

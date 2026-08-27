@@ -34,10 +34,11 @@ from dotenv import dotenv_values
 from rich.markup import escape
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import (
     Button,
+    Checkbox,
     DataTable,
     Footer,
     Header,
@@ -337,6 +338,17 @@ class RemoteServiceClient:
             payload["tag"] = tag
         return self._request("POST", "/jobs/start", json=payload, timeout=90.0)
 
+    def start_batch(
+        self, jobs: list[dict[str, Any]], start_now: bool = True
+    ) -> dict[str, Any]:
+        """POST /jobs/batch → accoda più job in ordine (+ tick se start_now).
+
+        Response: snapshot monitor + ``started_now`` + ``queued`` (entry).
+        Timeout generoso: enqueue multipli via ssh + tick.
+        """
+        payload: dict[str, Any] = {"jobs": jobs, "start_now": start_now}
+        return self._request("POST", "/jobs/batch", json=payload, timeout=120.0)
+
     def kill_active(self) -> dict[str, Any]:
         """POST /kill → scancel del job attivo (409 → ApiError se nessuno)."""
         return self._request("POST", "/kill", timeout=60.0)
@@ -546,15 +558,16 @@ class DashboardScreen(T2GScreen):
     irraggiungibile il servizio risponde con la cache dell'ultimo tick e
     ``cluster_reachable: false`` → banner giallo.
 
-    Binding: r refresh · g queue · a add · s START · k kill · w replace ·
-    p pause · R resume · t tick · L log fullscreen.
+    Binding: r refresh · g queue · a add · s job singolo · S batch · k kill ·
+    w replace · p pause · R resume · t tick · L log fullscreen.
     """
 
     BINDINGS = [
         Binding("r", "refresh", "Refresh"),
         Binding("g", "queue", "Queue"),
         Binding("a", "add_job", "Add job"),
-        Binding("s", "start_job", "START"),
+        Binding("s", "start_job", "Job"),
+        Binding("S", "start_batch", "Batch"),
         Binding("k", "kill_job", "KILL job"),
         Binding("w", "replace_queue", "Replace queue"),
         Binding("p", "pause", "Pause"),
@@ -594,6 +607,9 @@ class DashboardScreen(T2GScreen):
 
     def action_start_job(self) -> None:
         self.t2g_app.switch_screen("start_job")
+
+    def action_start_batch(self) -> None:
+        self.t2g_app.switch_screen("batch_start")
 
     def action_kill_job(self) -> None:
         self.t2g_app.confirm_kill()
@@ -691,8 +707,8 @@ class DashboardScreen(T2GScreen):
             return "\n".join(
                 [
                     header,
-                    "[bold]Nessun job attivo[/bold] — premi [b]s[/b] per avviare, "
-                    f"[b]g[/b] per la coda ({len(queue)} job)",
+                    "[bold]Nessun job attivo[/bold] — premi [b]s[/b] per un job, "
+                    f"[b]S[/b] per un batch, [b]g[/b] per la coda ({len(queue)} job)",
                     hint,
                 ]
             )
@@ -704,6 +720,18 @@ class DashboardScreen(T2GScreen):
             f"{escape(str(active.get('state') or '?'))})[/dim]",
         ]
         if detail:
+            # Phase badge (live status): sft=giallo, grpo=verde, eval=ciano.
+            phase = detail.get("phase")
+            if phase:
+                badge = {
+                    "sft": "[yellow]SFT[/yellow]",
+                    "sft_eval": "[yellow]SFT·eval[/yellow]",
+                    "grpo": "[green]GRPO[/green]",
+                    "grpo_eval": "[green]GRPO·eval[/green]",
+                    "eval": "[cyan]EVAL[/cyan]",
+                }.get(str(phase), escape(str(phase)))
+                src = " [dim]live[/dim]" if detail.get("source") == "live" else ""
+                lines.append(f"Fase: {badge}{src}")
             step = detail.get("step")
             total = detail.get("total_steps")
             if step is not None and total:
@@ -717,6 +745,10 @@ class DashboardScreen(T2GScreen):
                 metrics.append(f"reward [bold]{escape(str(detail['reward']))}[/bold]")
             if detail.get("lr") is not None:
                 metrics.append(f"lr [dim]{escape(str(detail['lr']))}[/dim]")
+            if detail.get("eval_progress"):
+                metrics.append(
+                    f"eval [cyan]{escape(str(detail['eval_progress']))}[/cyan]"
+                )
             if metrics:
                 lines.append(" | ".join(metrics))
             if detail.get("sft_active"):
@@ -749,7 +781,20 @@ class DashboardScreen(T2GScreen):
 
     def _queue_text(self, snap: dict[str, Any]) -> str:
         queue = snap.get("queue") or []
-        return f"Coda: [bold]{len(queue)}[/bold] job · [b]g[/b] lista"
+        if not queue:
+            return "Coda: [bold]vuota[/bold]"
+        rows = []
+        for entry in queue[:5]:
+            parts = str(entry).split(":")
+            tag = parts[2] if len(parts) > 2 else "?"
+            jtype = parts[0] if parts else "?"
+            rows.append(f"  [dim]{jtype:>5} · {escape(tag)}[/dim]")
+        more = f"\n  [dim]… e altri {len(queue) - 5}[/dim]" if len(queue) > 5 else ""
+        return (
+            f"Coda: [bold]{len(queue)}[/bold] job · [b]g[/b] lista completa\n"
+            + "\n".join(rows)
+            + more
+        )
 
     def _errors_text(self, snap: dict[str, Any]) -> str:
         errors = (snap.get("errors_recent") or [])[-3:]
@@ -860,8 +905,10 @@ class AddJobScreen(T2GScreen):
     """Form per accodare (POST /jobs) o AVVIARE (POST /jobs/start) un job.
 
     ``start_mode=True`` (binding ``s`` dal monitor): il submit chiama
-    ``/jobs/start`` — enqueue + tick immediato, il job parte SUBITO se la
-    coda è libera. Modalità normale (binding ``a``): semplice enqueue.
+    ``/jobs/start`` (enqueue + tick immediato) — e se il tipo è ``train``
+    con la checkbox "Accoda anche la eval" attiva (default), usa
+    ``/jobs/batch`` per accodare train+eval insieme. Modalità normale
+    (binding ``a``): semplice enqueue.
     """
 
     def __init__(self, start_mode: bool = False) -> None:
@@ -893,6 +940,15 @@ class AddJobScreen(T2GScreen):
         yield Input(
             placeholder="Tag (opzionale — di default derivato dal config)", id="tag"
         )
+        # Accodare anche l'eval dopo il train (start_mode + train): il batch
+        # endpoint enqueue train+eval e fa il tick — il job parte subito e la
+        # sua eval è già in coda.
+        if self.start_mode:
+            yield Checkbox(
+                "Accoda anche la eval dopo il train (train+eval insieme)",
+                value=True,
+                id="also-eval",
+            )
         submit_label = "Avvia ora" if self.start_mode else "Accoda"
         yield Button(submit_label, variant="primary", id="submit")
         yield Footer()
@@ -900,6 +956,7 @@ class AddJobScreen(T2GScreen):
     def on_mount(self) -> None:
         self._last_derived_tag: str | None = None
         self._prefill_tag()
+        self._sync_eval_checkbox()
         self.query_one("#type", Select).focus()
 
     # ── Azioni (binding) ──
@@ -912,6 +969,8 @@ class AddJobScreen(T2GScreen):
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "config":
             self._prefill_tag()
+        elif event.select.id == "type":
+            self._sync_eval_checkbox()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "submit":
@@ -921,6 +980,15 @@ class AddJobScreen(T2GScreen):
 
     def _config_value(self) -> str:
         return str(self.query_one("#config", Select).value)
+
+    def _type_value(self) -> str:
+        return str(self.query_one("#type", Select).value)
+
+    def _sync_eval_checkbox(self) -> None:
+        """La checkbox train+eval ha senso solo per type=train."""
+        checkbox = self.query_one("#also-eval", Checkbox) if self.start_mode else None
+        if checkbox is not None:
+            checkbox.display = self._type_value() == "train"
 
     def _prefill_tag(self) -> None:
         """Suggerisce il tag derivato dal config (stessa regola del driver)."""
@@ -932,10 +1000,17 @@ class AddJobScreen(T2GScreen):
             self._last_derived_tag = derived
 
     def _submit(self) -> None:
-        job_type = str(self.query_one("#type", Select).value)
+        job_type = self._type_value()
         config = self._config_value()
         tag = self.query_one("#tag", Input).value.strip() or None
+        also_eval = False
         if self.start_mode:
+            checkbox = self.query_one("#also-eval", Checkbox)
+            also_eval = bool(checkbox.value) and job_type == "train"
+        if self.start_mode and also_eval:
+            # Batch train+eval: un solo endpoint, la eval resta in coda dopo.
+            self.t2g_app.run_worker(self.t2g_app.start_batch_job(job_type, config, tag))
+        elif self.start_mode:
             self.t2g_app.run_worker(self.t2g_app.start_job(job_type, config, tag))
         else:
             self.t2g_app.run_worker(self._do_submit(job_type, config, tag))
@@ -943,6 +1018,104 @@ class AddJobScreen(T2GScreen):
     async def _do_submit(self, job_type: str, config: str, tag: str | None) -> None:
         if await self.t2g_app.add_job(job_type, config, tag):
             self.t2g_app.switch_screen("dashboard")
+
+
+class BatchStartScreen(T2GScreen):
+    """Avvio batch multi-config con checkbox (binding ``S`` dal monitor).
+
+    Una checkbox per ogni config noto; per ognuno selezionato si crea
+    ``train+eval`` (default), ``train`` o ``eval`` in base alla Select.
+    Submit → POST /jobs/batch (enqueue in ordine + tick): i job vengono
+    AGGIUNTI in coda a quella esistente (append, non replace).
+    """
+
+    BINDINGS = [Binding("escape", "go_back", "Back")]
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static("Avvio batch — seleziona i config", classes="title")
+        yield Static(
+            "I job vengono AGGIUNTI in coda (append): il primo parte subito "
+            "se la coda è libera, gli altri avanzano coi tick.",
+            classes="hint",
+        )
+        with VerticalScroll(id="config-list"):
+            for name in CONFIG_NAMES:
+                yield Checkbox(name, id=f"cfg-{name}")
+        yield Static("Per ogni config selezionato accoda:", classes="hint")
+        yield Select(
+            [
+                ("train + eval", "train+eval"),
+                ("solo train", "train"),
+                ("solo eval", "eval"),
+            ],
+            value="train+eval",
+            id="mode",
+        )
+        yield Checkbox("Avvia subito (tick immediato)", value=True, id="start-now")
+        yield Button("Accoda selezione", variant="primary", id="submit")
+        yield Footer()
+
+    # ── Azioni (binding) ──
+
+    def action_go_back(self) -> None:
+        self.t2g_app.switch_screen("dashboard")
+
+    # ── Eventi widget ──
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "submit":
+            self._submit()
+
+    # ── Interno ──
+
+    def _selected_configs(self) -> list[str]:
+        selected: list[str] = []
+        for name in CONFIG_NAMES:
+            try:
+                checkbox = self.query_one(f"#cfg-{name}", Checkbox)
+            except Exception:
+                continue
+            if checkbox.value:
+                selected.append(name)
+        return selected
+
+    def _submit(self) -> None:
+        selected = self._selected_configs()
+        if not selected:
+            self.t2g_app.notify(
+                "[yellow]Nessun config selezionato — spunta almeno una checkbox[/yellow]",
+                severity="warning",
+                timeout=5,
+            )
+            return
+        mode = str(self.query_one("#mode", Select).value)
+        start_now = bool(self.query_one("#start-now", Checkbox).value)
+
+        jobs: list[dict[str, str]] = []
+        for name in selected:
+            if mode in ("train+eval", "train"):
+                jobs.append({"type": "train", "config": name})
+            if mode in ("train+eval", "eval"):
+                jobs.append({"type": "eval", "config": name})
+
+        label_mode = {
+            "train+eval": "train+eval",
+            "train": "solo train",
+            "eval": "solo eval",
+        }
+        self.t2g_app.push_screen(
+            ConfirmScreen(
+                f"Accodare {len(jobs)} job ({len(selected)} config × "
+                f"{label_mode.get(mode, mode)})?\n"
+                "La coda esistente riceve i job IN CODA (append)."
+            ),
+            lambda ok: self._confirmed(bool(ok), jobs, start_now),
+        )
+
+    def _confirmed(self, ok: bool, jobs: list[dict[str, str]], start_now: bool) -> None:
+        if ok:
+            self.t2g_app.run_worker(self.t2g_app.start_batch(jobs, start_now))
 
 
 class LogScreen(T2GScreen):
@@ -1227,6 +1400,7 @@ class T2GDashApp(App[None]):
         "queue": QueueScreen,
         "add_job": AddJobScreen,
         "start_job": lambda: AddJobScreen(start_mode=True),
+        "batch_start": BatchStartScreen,
         "replace": ReplaceQueueScreen,
         "biglog": LogScreen,
         "config": ConfigScreen,
@@ -1323,6 +1497,58 @@ class T2GDashApp(App[None]):
             screen.reload()
 
     # ── Mutazioni ──
+
+    async def start_batch_job(
+        self, job_type: str, config: str, tag: str | None
+    ) -> None:
+        """POST /jobs/batch per un singolo config: train+eval insieme.
+
+        Usata dal form AddJobScreen (start_mode, train + checkbox eval): il
+        train parte subito (tick) e la sua eval resta in coda.
+        """
+        jobs: list[dict[str, Any]] = [{"type": job_type, "config": config}]
+        if tag:
+            jobs[0]["tag"] = tag
+        if job_type == "train":
+            eval_job: dict[str, Any] = {"type": "eval", "config": config}
+            if tag:
+                eval_job["tag"] = tag
+            jobs.append(eval_job)
+        await self._run_batch(jobs, start_now=True)
+
+    async def start_batch(
+        self, jobs: list[dict[str, Any]], start_now: bool = True
+    ) -> None:
+        """POST /jobs/batch: enqueue multipli (+ tick se start_now)."""
+        await self._run_batch(jobs, start_now=start_now)
+
+    async def _run_batch(self, jobs: list[dict[str, Any]], start_now: bool) -> None:
+        if self.client is None:
+            return
+        try:
+            result = await asyncio.to_thread(self.client.start_batch, jobs, start_now)
+        except RemoteServiceError as exc:
+            self.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=10)
+            return
+        started_now = bool(result.get("started_now"))
+        n = len(jobs)
+        if started_now:
+            self.notify(
+                f"[green]Batch: {n} job accodati, il primo è PARTITO[/green]",
+                severity="information",
+                timeout=6,
+            )
+        else:
+            self.notify(
+                f"[yellow]Batch: {n} job accodati (job attivo — partiranno coi "
+                "tick)[/yellow]",
+                severity="warning",
+                timeout=6,
+            )
+        self.monitor_snapshot = result
+        self.status = result
+        self.switch_screen("dashboard")
+        await self.refresh_monitor()
 
     async def start_job(self, job_type: str, config: str, tag: str | None) -> None:
         """POST /jobs/start: accoda + tick immediato (parte subito se libero)."""

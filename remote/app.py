@@ -714,6 +714,13 @@ class QueueIn(BaseModel):
     ablation: bool = False
 
 
+class BatchStartIn(BaseModel):
+    """POST /jobs/batch: enqueue di più job (+ tick immediato opzionale)."""
+
+    jobs: list[JobIn]
+    start_now: bool = True
+
+
 @app.get("/")
 def root() -> dict:
     target = (
@@ -932,7 +939,7 @@ def _decode_log_tail(state: dict) -> tuple[list[str], str | None]:
 
 
 def _parse_monitor_status(text: str) -> dict:
-    """parse_status esteso: cattura anche LOG_PATH e LOG_TAIL_B64."""
+    """parse_status esteso: cattura LOG_PATH, LOG_TAIL_B64 e LIVE_STATUS."""
     state = parse_status(text)
     for line in text.splitlines():
         key, _, value = line.partition("=")
@@ -940,6 +947,13 @@ def _parse_monitor_status(text: str) -> dict:
             state["log_path"] = value.strip()
         elif key == "LOG_TAIL_B64":
             state["log_tail_b64"] = value.strip()
+        elif key == "LIVE_STATUS":
+            # One-line JSON written by src/utils/live_status.py — if it does
+            # not parse, simply ignore it (fallback to log parsing).
+            try:
+                state["live_status"] = json.loads(value.strip())
+            except (ValueError, TypeError):
+                state["live_status"] = None
     return state
 
 
@@ -966,11 +980,68 @@ def _helper_monitor(ssh: ClusterSSH, nlines: int = 200) -> dict:
     return state
 
 
+def _job_detail_from_live(
+    active_job: dict | None,
+    live: dict | None,
+    log_path: str | None,
+) -> dict | None:
+    """Costruisce job_detail dal live status file (fonte primaria).
+
+    Il training scrive logs/live_status.json via src/utils/live_status.py —
+    molto più robusto del log parsing. Ritorna None se il live status non è
+    disponibile (fallback al parsing del log).
+    """
+    if not active_job or not active_job.get("id"):
+        return None
+    if not live or not live.get("phase"):
+        return None
+    name = active_job.get("name") or ""
+    phase = str(live.get("phase"))
+    sft_active = phase in ("sft", "sft_eval")
+    return {
+        "id": active_job.get("id"),
+        "name": name,
+        "state": active_job.get("state"),
+        "elapsed_human": None,
+        "log_path": log_path or None,
+        "phase": phase,
+        "eval_active": phase in ("sft_eval", "grpo_eval", "eval"),
+        "step": live.get("step"),
+        "total_steps": live.get("total_steps"),
+        "loss": (
+            f"{live['loss']:.6f}"
+            if isinstance(live.get("loss"), (int, float))
+            else live.get("loss")
+        ),
+        "reward": live.get("reward"),
+        "lr": live.get("lr"),
+        "sft_active": sft_active,
+        "sft_step": live.get("step") if sft_active else None,
+        "sft_total": live.get("total_steps") if sft_active else None,
+        "sft_loss": live.get("loss") if sft_active else None,
+        "sft_eval_loss": live.get("eval_loss"),
+        "sft_eval_loss_best": live.get("eval_loss_best"),
+        "eval_label": live.get("note") or phase,
+        "eval_progress": live.get("eval_progress"),
+        "eval_metrics": {},
+        "source": "live",
+    }
+
+
 def _monitor_snapshot(ssh: ClusterSSH) -> dict:
-    """Snapshot completo per /monitor: stato + job_detail + samples + log tail."""
+    """Snapshot completo per /monitor: stato + job_detail + samples + log tail.
+
+    job_detail: dal live status file (fonte primaria, ``source: "live"``)
+    con fallback al parsing del log SLURM via chain_monitor (``source:
+    "log"``). samples: dal live status (formattati dal produttore) se
+    presenti, altrimenti estratti dal log tail.
+    """
     state = _helper_monitor(ssh)
     tail_lines, log_path = _decode_log_tail(state)
-    job_detail = _job_detail_from_log(state.get("active_job"), tail_lines, log_path)
+    live = state.get("live_status")
+    job_detail = _job_detail_from_live(state.get("active_job"), live, log_path)
+    if job_detail is None:
+        job_detail = _job_detail_from_log(state.get("active_job"), tail_lines, log_path)
     snapshot = _cached_status()
     snapshot.update(
         {
@@ -980,8 +1051,10 @@ def _monitor_snapshot(ssh: ClusterSSH) -> dict:
             "ts": datetime.now().isoformat(timespec="seconds"),
         }
     )
-    # Completion samples: riusa l'estrattore del monitor sulle righe del tail.
-    if tail_lines:
+    # Samples: prima dal live status (già formattati), poi dal log tail.
+    if live and live.get("samples"):
+        snapshot["samples"] = list(live["samples"])[-8:]
+    elif tail_lines:
         try:
             cm = _import_chain_monitor()
             samples = cm._extract_completion_samples(
@@ -1026,6 +1099,51 @@ def start_job(payload: JobIn) -> dict:
     with _cluster() as ssh:
         snapshot = _monitor_snapshot(ssh)
     snapshot["started_now"] = started_now
+    return snapshot
+
+
+@app.post("/jobs/batch", status_code=201, dependencies=[Depends(require_auth)])
+def start_batch(payload: BatchStartIn) -> dict:
+    """Accoda più job in ordine (+ tick immediato se start_now).
+
+    Atomico: TUTTE le entry vengono validate PRIMA di toccare il cluster —
+    un config invalido → 422 e niente viene accodato. Il tick (se start_now)
+    sottomette il primo job quando la coda è libera; gli altri restano in
+    coda e avanzano col chain tick successivo.
+
+    Response: snapshot /monitor + `started_now` (True se il tick ha sottomesso
+    il primo job della lista) + `queued` (le entry accodate).
+    """
+    if not payload.jobs:
+        raise HTTPException(422, "jobs vuoto: almeno un job richiesto")
+    # Validazione atomica: build_entry alza 422 al primo invalido — nessuna
+    # scrittura sul cluster avviene prima che TUTTE le entry siano valide.
+    entries = [build_entry(job) for job in payload.jobs]
+
+    with _cluster() as ssh:
+        for entry in entries:
+            _helper_do(ssh, "enqueue", entry)
+        state = (
+            _helper_do(ssh, "tick") if payload.start_now else _helper_do(ssh, "status")
+        )
+
+    started_now = False
+    if payload.start_now and entries:
+        first = entries[0]
+        parts = first.split(":")
+        expected_name = f"{parts[0]}-{parts[2]}" if len(parts) >= 3 else ""
+        active = state.get("active_job")
+        started_now = bool(active and active.get("name") == expected_name)
+
+    _add_event(
+        "enqueue+tick" if started_now else "enqueue",
+        f"batch: {len(entries)} job ({', '.join(_parse_entry(e)['tag'] for e in entries[:5])}"
+        f"{'…' if len(entries) > 5 else ''})",
+    )
+    with _cluster() as ssh:
+        snapshot = _monitor_snapshot(ssh)
+    snapshot["started_now"] = started_now
+    snapshot["queued"] = entries
     return snapshot
 
 

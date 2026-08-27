@@ -599,6 +599,188 @@ def test_root_no_auth(client):
     assert "docs" in resp.json()
 
 
+# ── API v3: LIVE_STATUS + /jobs/batch ────────────────────────────────────────
+
+LIVE_STATUS_BODY = {
+    "phase": "sft",
+    "step": 1400,
+    "total_steps": 4934,
+    "loss": 0.49,
+    "reward": None,
+    "lr": 1.5e-08,
+    "eval_loss": 0.51,
+    "eval_loss_best": 0.46,
+    "epoch": 0.28,
+    "eval_active": False,
+    "eval_progress": None,
+    "samples": [
+        "it is simply what the transitional period entails .\n  [✓] pred: X-IT BE DESC-SIMPLY …"
+    ],
+    "samples_kind": "sft",
+    "note": "SFT training",
+    "ts": "2026-08-27T14:30:00",
+    "hostname": "gnode10",
+    "pid": 12345,
+}
+
+
+def _fake_with_live(fake, live: dict | None) -> None:
+    """Configura il fake per includere LIVE_STATUS nel subcomando monitor."""
+    fake.live_status = live
+
+    orig_run = fake.run
+
+    def _run(remote_cmd, timeout=None):
+        result = orig_run(remote_cmd, timeout)
+        sub = fake._subcommand(remote_cmd)
+        if sub == "monitor" and live is not None:
+            line = f"LIVE_STATUS={json.dumps(live, ensure_ascii=False)}\n"
+            result = app_module.SSHResult(
+                result.rc, result.stdout + line, result.stderr
+            )
+        return result
+
+    fake.run = _run
+
+
+def test_monitor_uses_live_status_when_present(client):
+    """LIVE_STATUS valido → job_detail da live (source=live) + samples dal live."""
+    test_client, fake = client
+    fake.active_job = "12345|train-grpo-optimal|RUNNING"
+    fake.log_lines = TRAIN_LOG_LINES
+    _fake_with_live(fake, LIVE_STATUS_BODY)
+
+    resp = test_client.get("/monitor", headers=AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    detail = body["job_detail"]
+    assert detail["source"] == "live"
+    assert detail["phase"] == "sft"
+    assert detail["sft_active"] is True
+    assert detail["step"] == 1400
+    assert detail["total_steps"] == 4934
+    assert detail["sft_eval_loss_best"] == 0.46
+    # samples arrivano dal live status (formattati dal produttore)
+    assert any("transitional" in s for s in body["samples"])
+
+
+def test_monitor_falls_back_to_log_without_live_status(client):
+    """Senza LIVE_STATUS → job_detail dal parsing del log (source=log)."""
+    test_client, fake = client
+    fake.active_job = "12345|train-grpo-optimal|RUNNING"
+    fake.log_lines = TRAIN_LOG_LINES
+    _fake_with_live(fake, None)  # nessun live status
+
+    resp = test_client.get("/monitor", headers=AUTH)
+    assert resp.status_code == 200
+    detail = resp.json()["job_detail"]
+    assert detail is not None
+    assert detail.get("source") in (None, "log")
+
+
+def test_monitor_live_status_with_broken_json_falls_back(client):
+    """LIVE_STATUS non-JSON → ignorato, fallback al log senza crash."""
+    test_client, fake = client
+    fake.active_job = "12345|train-grpo-optimal|RUNNING"
+    fake.log_lines = TRAIN_LOG_LINES
+
+    orig_run = fake.run
+
+    def _run(remote_cmd, timeout=None):
+        result = orig_run(remote_cmd, timeout)
+        if fake._subcommand(remote_cmd) == "monitor":
+            result = app_module.SSHResult(
+                result.rc, result.stdout + "LIVE_STATUS={not json}\n", result.stderr
+            )
+        return result
+
+    fake.run = _run
+    resp = test_client.get("/monitor", headers=AUTH)
+    assert resp.status_code == 200
+    assert resp.json()["job_detail"] is not None
+
+
+def test_jobs_batch_enqueues_in_order_and_ticks(client):
+    """POST /jobs/batch: train+eval accodati in ordine + tick; started_now."""
+    test_client, fake = client
+
+    def _tick_side_effect(remote_cmd, timeout=None):
+        fake.commands.append(remote_cmd)
+        sub = fake._subcommand(remote_cmd)
+        if sub == "enqueue":
+            fake.queue.append(fake._arg(remote_cmd))
+        elif sub == "tick":
+            if fake.queue and not fake.active_job:
+                entry = fake.queue.pop(0)
+                parts = entry.split(":")
+                fake.active_job = f"777|{parts[0]}-{parts[2]}|RUNNING"
+                fake.last_job = f"777:{entry}:0"
+        return app_module.SSHResult(0, fake._snapshot(), "")
+
+    fake.run = _tick_side_effect  # type: ignore[method-assign]
+
+    resp = test_client.post(
+        "/jobs/batch",
+        headers=AUTH,
+        json={
+            "jobs": [
+                {"type": "train", "config": "grpo_optimal"},
+                {"type": "eval", "config": "grpo_optimal"},
+            ],
+            "start_now": True,
+        },
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["started_now"] is True
+    assert body["active_job"]["name"] == "train-grpo-optimal"
+    # train consumato dal tick, eval in coda
+    assert fake.queue == ["eval:experiments/configs/t2g/grpo_optimal.yaml:grpo-optimal"]
+    assert len(body["queued"]) == 2
+    joined = " ".join(fake.commands)
+    assert joined.count("enqueue") >= 2
+    assert " tick" in joined
+
+
+def test_jobs_batch_atomic_validation(client):
+    """Config invalido → 422 e NESSUN job accodato (atomicità)."""
+    test_client, fake = client
+
+    resp = test_client.post(
+        "/jobs/batch",
+        headers=AUTH,
+        json={
+            "jobs": [
+                {"type": "train", "config": "grpo_optimal"},
+                {"type": "train", "config": "config_inesistente"},
+            ]
+        },
+    )
+    assert resp.status_code == 422
+    assert fake.queue == []  # niente scritture sul cluster
+
+
+def test_jobs_batch_empty_rejected(client):
+    test_client, _ = client
+    resp = test_client.post("/jobs/batch", headers=AUTH, json={"jobs": []})
+    assert resp.status_code == 422
+
+
+def test_jobs_batch_without_start_now_only_enqueues(client):
+    """start_now=False → solo enqueue, nessun tick."""
+    test_client, fake = client
+
+    resp = test_client.post(
+        "/jobs/batch",
+        headers=AUTH,
+        json={"jobs": [{"type": "eval", "config": "zero_shot"}], "start_now": False},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["started_now"] is False
+    assert len(fake.queue) == 1
+    assert not any(" tick" in c for c in fake.commands)
+
+
 # ── API v2: /monitor /jobs/start /kill /logs ──────────────────────────────────
 
 

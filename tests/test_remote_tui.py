@@ -110,6 +110,18 @@ def _default_handler(request: httpx.Request) -> httpx.Response:
         )
     if request.method == "POST" and path == "/jobs/start":
         return httpx.Response(201, json={**MONITOR_BODY, "started_now": True})
+    if request.method == "POST" and path == "/jobs/batch":
+        return httpx.Response(
+            201,
+            json={
+                **MONITOR_BODY,
+                "started_now": True,
+                "queued": [
+                    "train:experiments/configs/t2g/grpo_optimal.yaml:grpo-optimal",
+                    "eval:experiments/configs/t2g/grpo_optimal.yaml:grpo-optimal",
+                ],
+            },
+        )
     if request.method == "POST" and path == "/kill":
         return httpx.Response(200, json=MONITOR_BODY)
     if request.method == "POST" and path == "/queue":
@@ -508,7 +520,8 @@ def test_kill_binding_calls_confirm_and_api():
 
 
 def test_start_job_screen_submits_to_start_endpoint():
-    """`s` → AddJobScreen(start_mode) → submit → POST /jobs/start."""
+    """`s` → AddJobScreen(start_mode) → submit (checkbox eval ON di default)
+    → POST /jobs/batch con train+eval. Con checkbox OFF → /jobs/start."""
 
     async def _run() -> None:
         client, recorder = _client()
@@ -522,6 +535,42 @@ def test_start_job_screen_submits_to_start_endpoint():
             await pilot.pause()
             assert isinstance(app.screen, tui.AddJobScreen)
             assert app.screen.start_mode is True
+            # Default: "Accoda anche la eval" ON → batch train+eval
+            checkbox = app.screen.query_one("#also-eval", tui.Checkbox)
+            assert checkbox.value is True
+            submit = app.screen.query_one("#submit", tui.Button)
+            submit.press()
+            await pilot.pause()
+            for _ in range(20):
+                if any(r.url.path == "/jobs/batch" for r in recorder.requests):
+                    break
+                await pilot.pause()
+            batch_calls = [r for r in recorder.requests if r.url.path == "/jobs/batch"]
+            assert batch_calls, "POST /jobs/batch non chiamato"
+            payload = json.loads(batch_calls[0].read())
+            assert payload["start_now"] is True
+            assert [j["type"] for j in payload["jobs"]] == ["train", "eval"]
+            assert payload["jobs"][0]["config"] == "grpo_optimal"
+
+    asyncio.run(_run())
+
+
+def test_start_job_screen_without_eval_uses_start_endpoint():
+    """Checkbox eval OFF → solo POST /jobs/start (job singolo)."""
+
+    async def _run() -> None:
+        client, recorder = _client()
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("s")
+            await pilot.pause()
+            checkbox = app.screen.query_one("#also-eval", tui.Checkbox)
+            checkbox.value = False  # niente eval accodata
+            await pilot.pause()
             submit = app.screen.query_one("#submit", tui.Button)
             submit.press()
             await pilot.pause()
@@ -534,6 +583,100 @@ def test_start_job_screen_submits_to_start_endpoint():
             payload = json.loads(start_calls[0].read())
             assert payload["type"] == "train"
             assert payload["config"] == "grpo_optimal"
+            # nessun batch in questo flusso
+            assert not any(r.url.path == "/jobs/batch" for r in recorder.requests)
+
+    asyncio.run(_run())
+
+
+def test_batch_start_screen_submits_selected_configs():
+    """`S` → BatchStartScreen: 2 checkbox → train+eval → POST /jobs/batch (4 job)."""
+
+    async def _run() -> None:
+        client, recorder = _client()
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("S")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.BatchStartScreen)
+            # Seleziona due config
+            app.screen.query_one("#cfg-grpo_optimal", tui.Checkbox).value = True
+            app.screen.query_one("#cfg-sft", tui.Checkbox).value = True
+            await pilot.pause()
+            submit = app.screen.query_one("#submit", tui.Button)
+            submit.press()
+            await pilot.pause()
+            await pilot.pause()
+            # ConfirmScreen di riepilogo → conferma (query_one come nel test
+            # del kill: il dialogo è lo screen attivo)
+            assert isinstance(app.screen, tui.ConfirmScreen)
+            confirm_btn = app.screen.query_one("#confirm", tui.Button)
+            confirm_btn.press()
+            await pilot.pause()
+            await pilot.pause()
+            for _ in range(20):
+                if any(r.url.path == "/jobs/batch" for r in recorder.requests):
+                    break
+                await pilot.pause()
+            batch_calls = [r for r in recorder.requests if r.url.path == "/jobs/batch"]
+            assert batch_calls, "POST /jobs/batch non chiamato"
+            payload = json.loads(batch_calls[0].read())
+            assert payload["start_now"] is True
+            assert [j["type"] for j in payload["jobs"]] == [
+                "train",
+                "eval",
+                "train",
+                "eval",
+            ]
+            assert [j["config"] for j in payload["jobs"]] == [
+                "grpo_optimal",
+                "grpo_optimal",
+                "sft",
+                "sft",
+            ]
+
+    asyncio.run(_run())
+
+
+def test_monitor_shows_phase_and_queue():
+    """Monitor: job_detail con phase → badge fase; coda con 5+ entry visibili."""
+
+    async def _run() -> None:
+        body = dict(MONITOR_BODY)
+        body["job_detail"] = {
+            **MONITOR_BODY["job_detail"],
+            "phase": "sft_eval",
+            "eval_active": True,
+            "source": "live",
+        }
+        body["queue"] = [
+            f"eval:cfg:{tag}" for tag in ("a", "b", "c", "d", "e", "f", "g")
+        ]
+
+        def handler(request):
+            return httpx.Response(200, json=body)
+
+        client, _ = _client(handler=handler)
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.refresh_monitor()
+            for _ in range(20):
+                if app.monitor_snapshot is not None:
+                    break
+                await pilot.pause()
+            job_text = app.screen.query_one("#job-panel", tui.Static).render().plain
+            assert "SFT" in job_text  # badge fase (sft_eval)
+            queue_text = app.screen.query_one("#queue-panel", tui.Static).render().plain
+            assert "7 job" in queue_text
+            assert "altri 2" in queue_text  # 5 mostrati + 2 extra
 
     asyncio.run(_run())
 
