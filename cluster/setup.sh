@@ -52,11 +52,41 @@ fi
 # sentence-transformers scaricherà il modello MiniLM in modo LAZY al primo uso
 # del backend minilm (retrieval.backend: "minilm"); il default resta tfidf →
 # zero costi se non attivi il backend.
+#
+# ⚠️ CONSTRAINT TORCH: il container ha già lo stack CUDA preinstallato e
+# ALLINEATO al driver del cluster (es. torch 2.7.1+cu118 su driver 12.4).
+# Senza constraint, pip risolve le versioni piene di unsloth/xformers contro
+# PyPI e reinstalla una torch più recente (es. 2.11+cu130) in ~/.local, che
+# HA LA PRECEDENZA sul torch del container → "CUDA initialization: driver
+# too old" → Unsloth "cannot find any torch accelerator". Fix: generiamo i
+# constraint dal container stesso (pip freeze del solo stack torch) così pip
+# mantiene le versioni preinstallate.
 echo ""
 echo "📦 Installazione dipendenze (core + retrieval, niente dev)..."
+TORCH_CONSTRAINTS=$(mktemp /tmp/t2g_constraints.XXXXXX)
+$PY -m pip freeze 2>/dev/null | grep -E '^(torch|torchvision|torchaudio|triton|xformers|nvidia-|triton-|cuda-|bitsandbytes)==' > "$TORCH_CONSTRAINTS" || true
+if [ -s "$TORCH_CONSTRAINTS" ]; then
+    echo "   Constraint GPU (versioni del container, non toccate):"
+    sed 's/^/     /' "$TORCH_CONSTRAINTS"
+    PIP_CONSTRAINT=("$TORCH_CONSTRAINTS")
+else
+    echo "   ⚠️ Nessun constraint GPU generato (container senza torch?) — installazione libera"
+    PIP_CONSTRAINT=()
+fi
 $PY -m pip cache purge 2>/dev/null || true
 echo "   Cache pip ripulita"
-$PY -m pip install --user -e ".[retrieval]" --retries 10 --timeout 60
+$PY -m pip install --user -e ".[retrieval]" --retries 10 --timeout 60 \
+    ${PIP_CONSTRAINT:+--constraint "$TORCH_CONSTRAINTS"}
+rm -f "$TORCH_CONSTRAINTS"
+
+# Verifica post-install: la torch attiva deve essere quella del container
+# (stessa versione e stessa stringa CUDA di prima dell'install).
+TORCH_AFTER=$($PY -c "import torch; print(torch.__version__)" 2>/dev/null || echo "IMPORT-FAIL")
+echo "   torch attiva dopo l'install: $TORCH_AFTER"
+if [ "$TORCH_AFTER" = "IMPORT-FAIL" ]; then
+    echo "❌ torch non importabile dopo l'installazione — controllare i log sopra."
+    exit 1
+fi
 
 # ── 3+4. Dataset, vocabolario e matrici di transizione ────────────────────────
 # Funzione shared da _lib.sh (era triplicata in setup.sh/train.sh/eval.sh).

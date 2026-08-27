@@ -38,7 +38,16 @@ fi
 # ── Setup ambiente ───────────────────────────────────────────────────────────
 set -e
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# SLURM copia lo script nella sua spool dir (/var/lib/slurm/slurmd/<job>/)
+# e lo esegue da lì: BASH_SOURCE NON punta al repo e `source _lib.sh`
+# fallirebbe ("File o directory non esistente"). La directory di
+# sottomissione (SLURM_SUBMIT_DIR — la cwd al momento dello sbatch, che è
+# sempre la repo root, sia da shell che da chain_tick.sh) è il posto giusto.
+_lib_dir=$(dirname "${BASH_SOURCE[0]}")
+if [ ! -f "${_lib_dir}/_lib.sh" ]; then
+    _lib_dir="${SLURM_SUBMIT_DIR:-$HOME/neuro_symbolic_t2g}/cluster"
+fi
+SCRIPT_DIR=$(cd "${_lib_dir}" && pwd)
 # shellcheck source=cluster/_lib.sh
 source "$SCRIPT_DIR/_lib.sh"
 cd "$PROJ_DIR"
