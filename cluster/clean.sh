@@ -42,22 +42,16 @@ fi
 echo "Pulizia workspace: $PWD"
 echo ""
 
-# ── 1. data/ (dataset scaricato, verrà riscaricato) ──────────────────────
-# PRESERVA la cache del retriever (TF-IDF su 78k doc, rebuild costoso) e i
-# sidecar *.meta.json a meno di --all-cache.
-echo "[1/10] data/ (dataset ASLG-PC12) — cache retriever preservata"
+# ── 1. data/ (cache dataset + vocab + bigram + retriever) ────────────────
+# PRESERVATA INTERAMENTE di default: su un cluster senza web il dataset HF
+# non è riscaricabile dai compute node (DNS assente) e vocab/bigram/retriever
+# costano minuti di calcolo. Solo --all-cache azzera data/.
+echo "[1/10] data/ — cache dati PRESERVATA di default (dataset, vocab, bigram, retriever)"
 if [ -d "data" ]; then
     if [ "$ALL_CACHE" -eq 1 ]; then
         $CMD data/*
     else
-        for p in data/*; do
-            case "$(basename "$p")" in
-                retriever_index|retriever_index.*|*.meta.json)
-                    echo "  preserved: $p" ;;
-                *)
-                    $CMD "$p" ;;
-            esac
-        done
+        echo "  preserved: data/ intera (usa --all-cache per azzerarla)"
     fi
 fi
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -119,6 +120,14 @@ def download_aslg_dataset(
     """
     cache = cache_dir or DEFAULT_CACHE_DIR
     logger.info(f"Loading dataset '{DATASET_NAME}' (cache: {cache})...")
+
+    # Compute nodes have NO internet (DNS failure): the hub check must never
+    # be the reason a training job dies. HF_DATASETS_OFFLINE=1 makes
+    # load_dataset go straight to the local cache (populated by cluster/
+    # setup.sh on a node WITH network) instead of retrying HEAD requests
+    # 5 times (~30s of timeouts) or crashing. When the cache is genuinely
+    # missing the error is the same clear "Failed to load dataset".
+    os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
     try:
         ds: DatasetDict = load_dataset(  # type: ignore[assignment]
