@@ -358,7 +358,14 @@ def bleu_corpus(generated: list[str], references: list[str]) -> float:
     if not generated or not references:
         return 0.0
     hyps = [extract_gloss_text(g) for g in generated]
-    refs = [[r.strip()] for r in references]
+    # sacrebleu corpus_score expects a list of reference STREAMS, where each
+    # stream is the full corpus translated once: refs = [[r1, r2, ..., rN]].
+    # The previous format [[r1], [r2], ...] (one stream per sentence) made
+    # sacrebleu treat the corpus as N "parallel references" of a single
+    # sentence, degenerating to a near-sentence-level score on a tiny slice
+    # (sys_len/ref_len ≈ one sentence) — e.g. corpus BLEU 0.87 with sentence
+    # mean 0.18. Fixed 2026-08-29.
+    refs = [[r.strip() for r in references]]
     return float(_get_sacrebleu_bleu().corpus_score(hyps, refs).score) / 100.0
 
 
@@ -396,7 +403,11 @@ def corpus_chrf(generated: list[str], references: list[str]) -> float:
     if not generated or not references:
         return 0.0
     hyps = [extract_gloss_text(g) for g in generated]
-    refs = [[r.strip()] for r in references]
+    # Same fix as bleu_corpus: single reference STREAM (see comment there).
+    # The previous [[r1],[r2],...] format degenerated to a tiny slice of
+    # the corpus (chrF 96 with sentence mean 44 — impossible for a real
+    # corpus). Fixed 2026-08-29.
+    refs = [[r.strip() for r in references]]
     return float(_get_sacrebleu_chrf().corpus_score(hyps, refs).score)
 
 

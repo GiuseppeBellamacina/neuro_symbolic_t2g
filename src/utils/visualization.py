@@ -757,10 +757,14 @@ def dump_completion_examples(
     rows and a companion JSON file for programmatic consumption.
 
     Args:
-        completions: Generated gloss sequences.
-        references: Gold reference glosses.
+        completions: Generated gloss sequences (flat: one per completion).
+        references: Gold reference glosses, ONE PER COMPLETION (aligned
+            with ``completions``; in multi-sample evals a prompt's gold
+            repeats ``num_samples`` times). Passing a per-PROMPT reference
+            list here misaligns gold vs prompt whenever ``num_samples > 1``.
         rouge_scores: ROUGE-L scores per completion.
-        prompts: English prompts (optional). If provided, shown in the table.
+        prompts: English prompts (optional). If provided, shown in the
+            table and used to group completions by prompt.
         n_examples: Total examples (half best, half worst).
         model_name: Short model name for the title.
         output_dir: Directory for ``completion_examples.json`` and ``.html``.
@@ -775,22 +779,51 @@ def dump_completion_examples(
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Select best + worst ─────────────────────────────────────────────
-    indexed = list(
-        zip(
-            range(len(rouge_scores)),
-            completions,
-            references,
-            rouge_scores,
-            strict=False,
+    # ── Validate alignment ──────────────────────────────────────────────
+    # completions/references/rouge_scores must be FLAT and aligned (one
+    # entry per completion). A per-PROMPT reference list (the classic
+    # multi-sample mistake) silently misaligns gold vs prompt — fail fast
+    # instead of rendering a wrong table.
+    if not (len(completions) == len(references) == len(rouge_scores)):
+        raise ValueError(
+            "dump_completion_examples: misaligned inputs — completions="
+            f"{len(completions)}, references={len(references)}, "
+            f"rouge_scores={len(rouge_scores)}. All three must be FLAT and "
+            "aligned (one entry per completion, gold repeated per sample)."
         )
-    )
-    indexed.sort(key=lambda x: x[3])  # sort by ROUGE-L ascending
+    if prompts is not None and len(prompts) != len(completions):
+        raise ValueError(
+            "dump_completion_examples: prompts length "
+            f"({len(prompts)}) != completions length ({len(completions)}). "
+            "Pass one prompt per completion (repeated per sample) or None."
+        )
+
+    # ── Select best + worst ─────────────────────────────────────────────
+    # Multi-sample evals (num_samples > 1) produce several completions per
+    # prompt: completions/references/rouge_scores/prompts are all FLAT and
+    # aligned (one entry per completion). Group them by prompt so each
+    # best/worst slot shows a DISTINCT prompt — the prompt's best (resp.
+    # worst) completion. With num_samples == 1 every group holds a single
+    # entry and selection degrades to plain per-completion ranking.
+    groups: dict[str, list[tuple[int, str, str, float]]] = {}
+    for i, (comp, ref, rl) in enumerate(
+        zip(completions, references, rouge_scores, strict=True)
+    ):
+        key = prompts[i] if prompts else ref
+        groups.setdefault(key, []).append((i, comp, ref, rl))
+
     n_half = n_examples // 2
-    worst = indexed[:n_half]
-    best = indexed[-n_half:]
-    # Reverse best so highest ROUGE-L is first
-    best = list(reversed(best))
+    # Best: highest-ROUGE completion of the top prompts (max first)
+    best = sorted(
+        (max(entries, key=lambda e: e[3]) for entries in groups.values()),
+        key=lambda e: e[3],
+        reverse=True,
+    )[:n_half]
+    # Worst: lowest-ROUGE completion of the bottom prompts (min first)
+    worst = sorted(
+        (min(entries, key=lambda e: e[3]) for entries in groups.values()),
+        key=lambda e: e[3],
+    )[:n_half]
 
     # ── Build entries ───────────────────────────────────────────────────
     def _build_entries(group: list, label: str) -> list[dict]:

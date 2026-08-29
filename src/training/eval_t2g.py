@@ -1075,11 +1075,17 @@ def main() -> None:
     )
 
     # ── Log sample predictions ──────────────────────────────────────────
+    # ``completions`` is FLAT (one per completion) while ``all_references``
+    # is one per prompt: they misalign when num_samples > 1. Use the aligned
+    # per-completion gold carried by ``generations`` instead.
+    flat_refs = (
+        [g["gold_gloss"] for g in generations] if generations else list(all_references)
+    )
     logger.info("Sample predictions (first 5):")
     for i in range(min(5, len(completions))):
         comp = completions[i]
         is_valid, reason = validity[i]
-        ref = all_references[i] if i < len(all_references) else "N/A"
+        ref = flat_refs[i] if i < len(flat_refs) else "N/A"
         logger.info(f"  [{i+1}] valid={is_valid} ({reason})")
         logger.info(f"      gold: {ref[:120]}{'...' if len(ref) > 120 else ''}")
         logger.info(f"      pred: {comp[:120]}{'...' if len(comp) > 120 else ''}")
@@ -1314,10 +1320,15 @@ def main() -> None:
         )
 
         # 8. Completion examples (best & worst) — JSON + HTML
+        # ``completions``/``rouge_scores`` are FLAT (one per completion):
+        # pass the aligned per-completion gold from ``generations``.
+        # ``all_references`` is ONE PER PROMPT and would misalign gold vs
+        # prompt whenever num_samples > 1 (gold shown from another sample).
         prompts = [g["text"] for g in generations]
+        flat_refs = [g["gold_gloss"] for g in generations]
         dump_completion_examples(
             completions,
-            all_references,
+            flat_refs,
             rouge_scores,
             prompts=prompts,
             n_examples=10,
