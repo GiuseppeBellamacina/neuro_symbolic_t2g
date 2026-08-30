@@ -104,7 +104,7 @@ def find_eval_results(results_dir: Path) -> list[dict]:
             continue
 
         # Prefer eval_final.json (final metrics) — plain alphabetical sorting
-        # would pick eval_zero_shot.json whenever both exist ("final" <
+        # could pick another eval file when several exist
         # "zero_shot"). Otherwise take the most recently modified eval file.
         final_candidates = [f for f in eval_files if f.name == "eval_final.json"]
         if final_candidates:

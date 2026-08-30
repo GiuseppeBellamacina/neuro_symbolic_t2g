@@ -33,16 +33,16 @@ Optionally generates plots via ``visualization.py`` (plotnine):
 
 Usage:
     # Single checkpoint eval
-    python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --checkpoint path/to/ckpt --plot
+    python -m src.training.eval_t2g --config experiments/configs/t2g/sft-grpo.yaml --checkpoint path/to/ckpt --plot
 
     # Compare baseline (zero-shot) vs checkpoint — SAME decoding for both
-    python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --checkpoint path/to/ckpt --compare
+    python -m src.training.eval_t2g --config experiments/configs/t2g/sft-grpo.yaml --checkpoint path/to/ckpt --compare
 
     # Best-of-N selection (DIAGNOSTIC ONLY — oracle; reported separately)
-    python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --checkpoint path/to/ckpt --best-of-n
+    python -m src.training.eval_t2g --config experiments/configs/t2g/sft-grpo.yaml --checkpoint path/to/ckpt --best-of-n
 
     # Baseline-only eval (generates baseline JSON for later comparison)
-    python -m src.training.eval_t2g --config experiments/configs/t2g/grpo_qwen05.yaml --eval-baseline-only --plot
+    python -m src.training.eval_t2g --config experiments/configs/t2g/sft-grpo.yaml --eval-baseline-only --plot
 """
 
 from __future__ import annotations
@@ -93,6 +93,7 @@ from src.grammar.grammar_logits_processor import (
     GlossVocabularyLogitsProcessor,
     GrammarPDALogitsProcessor,
 )
+from src.models.model_loader import resolve_model_source
 from src.rewards.t2g_rewards import initialize_rewards
 from src.training.retrieval_setup import (
     build_train_retriever,
@@ -100,7 +101,9 @@ from src.training.retrieval_setup import (
 )
 from src.utils.config import load_config
 from src.utils.live_status import live_status_reset, live_status_set
+from src.utils.log_dedup import dedupe_library_loggers
 from src.utils.metrics import (
+    METRICS_VERSION,
     bleu_corpus,
     bleu_sentence,
     check_gloss_validity,
@@ -115,7 +118,7 @@ from src.utils.metrics import (
     rouge_l_score,
     seeded_sample_indices,
 )
-from src.utils.prompting import build_t2g_prompt
+from src.utils.prompting import SYSTEM_PROMPT, build_t2g_prompt
 
 logger = logging.getLogger("t2g-eval")
 
@@ -152,7 +155,9 @@ def load_model_for_eval(
     if is_peft:
         logger.info(f"  Loading base model: {base_model_name}")
         model = AutoModelForCausalLM.from_pretrained(
-            base_model_name,
+            # Local snapshot when cached — no hub HEAD retries on DNS-less
+            # nodes (see src.models.model_loader.resolve_model_source).
+            resolve_model_source(base_model_name),
             torch_dtype=torch.float16,
             device_map="auto",
             trust_remote_code=True,
@@ -221,6 +226,153 @@ def _generate_batch(
         ).strip()
         completions.append(text)
     return completions
+
+
+# ---------------------------------------------------------------------------
+# Cached-baseline reuse (compare mode)
+# ---------------------------------------------------------------------------
+
+
+def _prompt_context_fingerprint(config: dict[str, Any], num_samples: int) -> str:
+    """Stable identity of the zero-shot baseline eval context.
+
+    The baseline depends only on: base model, dataset + seed, system
+    prompt, few-shot retrieval settings, constrained-decoding setup and the
+    decoding ``num_samples``.  Hashing these lets a cached
+    ``eval_baseline.json`` be reused across SIBLING runs of the same model
+    tag (the baseline is re-evaluated identically in every one of them) —
+    while config changes that alter baseline generations (retrieval or
+    grammar toggles, different num_samples, new system prompt) invalidate
+    the cache and force a re-evaluation.
+    """
+    grammar_cfg = config.get("grammar", {})
+    payload = {
+        "version": 1,
+        "model": config.get("model", {}).get("name"),
+        "dataset_name": config.get("dataset", {}).get("dataset_name"),
+        "seed": config.get("dataset", {}).get("seed", 42),
+        "system_prompt": SYSTEM_PROMPT,
+        "retrieval": config.get("retrieval", {}),
+        "grammar": {
+            "enabled": grammar_cfg.get("enabled", True),
+            "use_grammarllm_pda": grammar_cfg.get("use_grammarllm_pda", False),
+        },
+        "num_samples": num_samples,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _try_cached_baseline(
+    results_dir: Path,
+    num_samples: int,
+    max_samples: int | None,
+    fingerprint: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]] | None] | None:
+    """Check ONE results dir for a compatible cached eval_baseline.json.
+
+    Compatible = same metric definitions (``metrics_version``), same prompt
+    context (``prompt_context_fingerprint``), same decoding
+    (``num_completions_per_prompt``) and same prompt count (``max_samples``
+    or full test set).  Returns the baseline (+ generations) or None.
+    """
+    bl_path = results_dir / "eval_baseline.json"
+    if not bl_path.exists():
+        return None
+    try:
+        baseline = json.loads(bl_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+    if baseline.get("metrics_version") != METRICS_VERSION:
+        return None  # computed with older metric definitions — recompute
+    if baseline.get("prompt_context_fingerprint") != fingerprint:
+        return None  # different prompting context (retrieval/grammar/…) — recompute
+    if baseline.get("num_completions_per_prompt") != num_samples:
+        return None  # different decoding — comparison would be unfair
+    n_eval = baseline.get("num_samples_evaluated")
+    if max_samples is not None:
+        if n_eval != max_samples:
+            return None
+    elif n_eval != baseline.get("test_set_size"):
+        return None  # cached was a subset, current wants the full test set
+
+    generations: list[dict[str, Any]] | None = None
+    gen_path = results_dir / "generations_baseline.json"
+    if gen_path.exists():
+        try:
+            generations = json.loads(gen_path.read_text(encoding="utf-8"))
+        except Exception:
+            generations = None
+    return baseline, generations
+
+
+def _load_cached_baseline(
+    results_dir: Path,
+    num_samples: int,
+    max_samples: int | None,
+    fingerprint: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]] | None, Path] | None:
+    """Load a compatible cached ``eval_baseline.json`` — this run first,
+    then SIBLING runs of the same model tag (newest first), then runs under
+    OTHER model tags (cross-tag, fingerprint-guarded — ablation cells share
+    the same zero-shot baseline).
+
+    The zero-shot baseline is identical for every run of the same prompt
+    context (same base model, dataset, prompting, decoding): re-evaluating
+    it (~28 min GPU on 500 prompts) for each new training run is pure waste.
+    Sibling reuse is guarded by the compatibility checks in
+    :func:`_try_cached_baseline`.
+
+    Returns ``(baseline_results, generations_or_None, source_dir)`` or
+    ``None`` when absent/stale/incompatible (caller re-evaluates).
+    """
+    # Current run dir first
+    cached = _try_cached_baseline(
+        Path(results_dir), num_samples, max_samples, fingerprint
+    )
+    if cached is not None:
+        return *cached, Path(results_dir)
+
+    # Sibling run dirs of the same model tag, newest first
+    parent = Path(results_dir).parent
+    if parent.is_dir():
+        siblings = sorted(
+            (
+                d
+                for d in parent.iterdir()
+                if d.is_dir() and d.name.startswith("run_") and d != Path(results_dir)
+            ),
+            key=lambda d: d.stat().st_mtime,
+            reverse=True,
+        )
+        for d in siblings:
+            cached = _try_cached_baseline(d, num_samples, max_samples, fingerprint)
+            if cached is not None:
+                return *cached, d
+
+    # Cross-tag: other model tags under experiments/results/. The baseline
+    # is the same zero-shot BASE model evaluated with the same prompt
+    # context — ablation cells (sft-grpo-*, grpo-only, ...
+    # with sft-grpo, so re-evaluating it per tag is pure waste
+    # (~28 GPU-min each). The prompt-context fingerprint check in
+    # _try_cached_baseline guarantees the context matches exactly.
+    results_root = parent.parent
+    if results_root.is_dir():
+        for tag_dir in sorted(
+            (t for t in results_root.iterdir() if t.is_dir() and t != parent),
+            key=lambda t: t.stat().st_mtime,
+            reverse=True,
+        ):
+            for d in sorted(
+                (r for r in tag_dir.glob("run_*") if r.is_dir()),
+                key=lambda r: r.stat().st_mtime,
+                reverse=True,
+            ):
+                cached = _try_cached_baseline(d, num_samples, max_samples, fingerprint)
+                if cached is not None:
+                    return *cached, d
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -487,15 +639,24 @@ def evaluate_checkpoint(
         logger.info(f"Zero-shot mode: loading base model {config['model']['name']}")
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
+        # Offline-first: resolve the hub id to its LOCAL snapshot when
+        # cached. transformers 5.3's tokenizer init calls model_info()
+        # (network) for non-local ids (_patch_mistral_regex) — on DNS-less
+        # compute nodes this CRASHED the eval job (slurm-eval-7077). A
+        # local path short-circuits the check and skips all HEAD retries.
+        base_src = resolve_model_source(config["model"]["name"])
+        if base_src != config["model"]["name"]:
+            logger.info(f"  Using cached snapshot: {base_src}")
+
         tokenizer = AutoTokenizer.from_pretrained(
-            config["model"]["name"],
+            base_src,
             trust_remote_code=True,
         )
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
         tokenizer.padding_side = "left"
         model = AutoModelForCausalLM.from_pretrained(
-            config["model"]["name"],
+            base_src,
             torch_dtype=torch.float16,
             device_map="auto",
             trust_remote_code=True,
@@ -699,6 +860,16 @@ def evaluate_checkpoint(
     results["test_set_size"] = test_set_size
     results["num_completions_per_prompt"] = num_samples
     results["best_of_n"] = best_of_n
+    # Stamp the metric definitions used — cached-baseline reuse (see
+    # _load_cached_baseline) refuses to reuse results computed with a
+    # different version (e.g. pre corpus-BLEU-fix numbers).
+    results["metrics_version"] = METRICS_VERSION
+    # Stamp the prompting context (model/dataset/system prompt/retrieval/
+    # grammar/decoding) — guards sibling-run baseline reuse against config
+    # changes that would alter baseline generations.
+    results["prompt_context_fingerprint"] = _prompt_context_fingerprint(
+        config, num_samples
+    )
     results["decoding"] = {
         "do_sample": do_sample,
         "temperature": (0.7 if do_sample else None),
@@ -843,12 +1014,24 @@ def main() -> None:
         help="Evaluate only the base model (zero-shot, no checkpoint). "
         "Useful for generating the baseline JSON to compare against later.",
     )
+    parser.add_argument(
+        "--force-baseline-eval",
+        action="store_true",
+        help="In --compare mode, re-evaluate the zero-shot baseline even "
+        "when a compatible eval_baseline.json is cached in the results dir "
+        "(metrics_version + decoding + sample count all match). Default: "
+        "reuse the cached baseline (~28 min GPU saved per re-eval).",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
+    # HF libraries attach their own StreamHandler AND propagate to root —
+    # every library warning printed twice (slurm-eval-7077). Strip the
+    # library-owned handlers so each record prints exactly once.
+    dedupe_library_loggers()
 
     config = load_config(args.config)
 
@@ -980,7 +1163,22 @@ def main() -> None:
                 baseline_generations = json.loads(
                     bl_gen_path.read_text(encoding="utf-8")
                 )
-        else:
+        elif not args.force_baseline_eval:
+            cached = _load_cached_baseline(
+                results_dir,
+                num_samples=num_samples,
+                max_samples=max_samples,
+                fingerprint=_prompt_context_fingerprint(config, num_samples),
+            )
+            if cached is not None:
+                baseline_results, baseline_generations, cached_from = cached
+                logger.info(
+                    "=" * 60
+                    + f"\n  REUSING CACHED BASELINE: {cached_from}/eval_baseline.json"
+                    + "\n  (compatible metrics/prompt-context/decoding/sample count —"
+                    "\n   pass --force-baseline-eval to re-evaluate)" + "\n" + "=" * 60
+                )
+        if baseline_results is None:
             logger.info("=" * 60)
             logger.info("BASELINE EVALUATION (zero-shot base model)")
             logger.info("=" * 60)

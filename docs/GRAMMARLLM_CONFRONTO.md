@@ -14,7 +14,7 @@
 | --- | --- |
 | **Esterna è un miglioramento stretto?** | ✅ Sì — tutti i bug di `docs/ERRORI_E_MIGLIORIE.md` sono fixati o riscritti |
 | **Swap diretto drop-in?** | ❌ No — 3 breaking change nei nomi modulo + API del logit processor |
-| **Path PDA usato di default?** | ❌ No — `grpo_optimal.yaml` ha `use_grammarllm_pda: false` (usa `GlossVocabularyMask`) |
+| **Path PDA usato di default?** | ❌ No — `sft-grpo.yaml` ha `use_grammarllm_pda: false` (usa `GlossVocabularyMask`) |
 | **Costo migrare tutto?** | Alto (2 file da riscrivere, API completamente diversa, 784 righe di nuovo processor) |
 | **Costo adottare solo i bug-fix?** | Basso (5 fix isolati, drop-in, low-risk) |
 | **Raccomandazione** | **Adottare i 5 bug-fix nella copia interna** (vedi §6). Non migrare alla API esterna ora — il path PDA è raramente esercitato e il `GlossVocabularyMask` (Trie dual-root) è sufficiente. |
@@ -311,7 +311,7 @@ Wrappa `MaskLogitsProcessor` da `grammarllm.modules.SimpleLogitProcessor_`. **Qu
 - **Sforzo migrazione**: 2 import site, `create_grammarllm_pipeline()` rewrite, `GrammarPDALogitsProcessor` rewrite
 - **Dipendenza `config.py`**: adattare le chiamate `setup_logging()`
 - **Nuova complessità**: `StatelessLogitsProcessor` è 784 righe con cache LRU, beam retirement, lookahead — più surface area per bug
-- **Impatto path corrente**: il default `grpo_optimal.yaml` usa `use_grammarllm_pda: false`, quindi il path PDA è raramente esercitato. Uno swap completo sarebbe alto sforzo per basso payoff immediato.
+- **Impatto path corrente**: il default `sft-grpo.yaml` usa `use_grammarllm_pda: false`, quindi il path PDA è raramente esercitato. Uno swap completo sarebbe alto sforzo per basso payoff immediato.
 
 ### Conclusioni
 Per il progetto T2G così com'è oggi (path PDA disabilitato di default), **portare i 5 bug-fix nella copia interna** è la strategia ottimale: basso rischio, alto valore (correttezza + riproducibilità), zero migrazione API. Riservare la migrazione completa a quando il path PDA diventerà il default o si vorrà sperimentare con beam search/lookahead.
@@ -323,4 +323,4 @@ Per il progetto T2G così com'è oggi (path PDA disabilitato di default), **port
 - `grammarllm/bug_analysis.md` (esterna) — registro di 20+ bug con stato risoluzione
 - `src/grammar/gloss_grammar.py` — integration point `create_grammarllm_pipeline()`
 - `src/grammar/grammar_logits_processor.py` — wrapper `GrammarPDALogitsProcessor`
-- `experiments/configs/t2g/grpo_optimal.yaml` — `grammar.use_grammarllm_pda: false` (default)
+- `experiments/configs/t2g/sft-grpo.yaml` — `grammar.use_grammarllm_pda: false` (default)

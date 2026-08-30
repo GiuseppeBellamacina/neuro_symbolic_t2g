@@ -3,9 +3,9 @@
 # SLURM batch script — T2G Evaluation sul cluster
 #
 # Uso:
-#   CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/eval.sh
-#   CONFIG=experiments/configs/t2g/grpo_qwen05.yaml CHECKPOINT="path/to/ckpt" sbatch cluster/eval.sh
-#   CONFIG=experiments/configs/t2g/grpo_qwen05.yaml CHECKPOINT="path/to/ckpt" BEST_OF_N=1 sbatch cluster/eval.sh
+#   CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/eval.sh
+#   CONFIG=experiments/configs/t2g/sft-grpo.yaml CHECKPOINT="path/to/ckpt" sbatch cluster/eval.sh
+#   CONFIG=experiments/configs/t2g/sft-grpo.yaml CHECKPOINT="path/to/ckpt" BEST_OF_N=1 sbatch cluster/eval.sh
 #
 # --compare è sempre attivo: valuta baseline (zero-shot) + GRPO e genera
 #   grafici di confronto + comparison.json + wandb con tag dedicati.
@@ -34,7 +34,7 @@ CHECKPOINT="${CHECKPOINT:-}"
 
 if [ -z "$CONFIG" ]; then
     echo "❌ CONFIG non impostato. Uso:"
-    echo "  CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/eval.sh"
+    echo "  CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/eval.sh"
     exit 1
 fi
 
@@ -75,7 +75,7 @@ mkdir -p logs
 #   - config di training (ha training.output_dir) ma NESSUN checkpoint trovato
 #     → FAIL LOUD (exit 1). Un eval in zero-shot su modello non addestrato
 #     produrrebbe numeri senza senso senza alcun errore.
-#   - config eval-only (zero_shot*, SENZA training.output_dir) → zero-shot
+#   - config SENZA training.output_dir → zero-shot (eval senza checkpoint)
 #     legittimo e voluto.
 resolve_output_dir() {
     local out=""
@@ -157,14 +157,52 @@ if [ -z "$CHECKPOINT" ]; then
             exit 1
         fi
     else
-        echo "ℹ️  Config senza training.output_dir (eval-only, es. zero_shot*) — zero-shot inteso"
+        echo "Config senza training.output_dir - zero-shot inteso"
     fi
 fi
 
 # Prepara dataset/vocab/bigram se mancanti (funzione shared da _lib.sh,
 # idempotente — era triplicata tra setup.sh/train.sh/eval.sh)
 prepare_data
-EVAL_ARGS="--config ${CONFIG} --plot --compare"
+
+# ── Offline-first: i compute node NON hanno DNS ──────────────────────────────
+# Tutto il necessario è pre-cacheato da setup.sh/prepare_data. Senza questi
+# export ogni richiesta hub costa ~30s di retry (HEAD dataset/modello, lookup
+# peft al save) o CRASHA il job: transformers 5.3 in tokenizer init chiama
+# model_info() per id non-locali (_patch_mistral_regex) → ConnectError
+# (vedi slurm-eval-7077). Con HF_HUB_OFFLINE=1 transformers forza is_local=True
+# e salta il check di rete; datasets usa la cache locale direttamente.
+# Dopo prepare_data (non prima!) così il fallback download al primo avvio
+# conserva la rete.
+export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 PYTHONUNBUFFERED=1
+
+# ── Modalità eval ─────────────────────────────────────────────────────────────
+# - Config di TRAINING (ha output_dir + checkpoint auto/explicito): --compare
+#   (baseline zero-shot cachata/riusata + checkpoint).
+# - Config EVAL-ONLY (zero-shot, SENZA training.output_dir) e nessun
+#   checkpoint esplicito: --eval-baseline-only — singolo eval del base
+#   model. Con --compare il base model verrebbe valutato DUE volte (Step A
+#   baseline + Step B "checkpoint" = entrambi zero-shot).
+# NB: OUTPUT_DIR è risolta nel blocco auto-detect sopra (solo quando
+# CHECKPOINT è vuoto — con un checkpoint esplicito il confronto ha senso).
+if [ -z "${CHECKPOINT}" ] && [ -z "${OUTPUT_DIR:-}" ]; then
+    EVAL_ONLY_MODE=1
+fi
+
+if [ "${EVAL_ONLY_MODE:-0}" = "1" ]; then
+    EVAL_ARGS="--config ${CONFIG} --plot --eval-baseline-only"
+    echo "Eval-only config (zero-shot): --eval-baseline-only (niente --compare)"
+else
+    EVAL_ARGS="--config ${CONFIG} --plot --compare"
+fi
+
+# Override opzionale del numero di campioni (default: config = SET COMPLETO).
+# Per un eval rapido: MAX_SAMPLES=500 CONFIG=... sbatch cluster/eval.sh
+if [ -n "${MAX_SAMPLES:-}" ]; then
+    EVAL_ARGS="${EVAL_ARGS} --max-samples ${MAX_SAMPLES}"
+    echo "MAX_SAMPLES override: ${MAX_SAMPLES}"
+fi
+
 if [ -n "$CHECKPOINT" ]; then
     EVAL_ARGS="${EVAL_ARGS} --checkpoint ${CHECKPOINT}"
 else
@@ -190,6 +228,10 @@ echo ""
 if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
     apptainer run --nv \
         --env WANDB_MODE=offline \
+        --env PYTHONUNBUFFERED=1 \
+        --env HF_HUB_OFFLINE=1 \
+        --env TRANSFORMERS_OFFLINE=1 \
+        --env HF_DATASETS_OFFLINE=1 \
         --env PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8 \
         /shared/sifs/latest.sif \
         python -m src.training.eval_t2g ${EVAL_ARGS}

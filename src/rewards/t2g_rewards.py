@@ -74,6 +74,25 @@ _viterbi_diversity_params: dict[str, float | int] = {
 #  (and once per test setup).
 _warned_missing_gold: bool = False
 
+# ── Structural-reward caches ─────────────────────────────────────────────────
+# The Viterbi/soft-Viterbi bounds are properties of the AUTOMATON and the
+# path length ONLY — never of the completion being scored.  Caching them by
+# length turns the per-completion O(L·V²) decodes (the 391 s/it GRPO steps
+# of run 7078: ~64 completions/step × 2 decodes each) into ~a dozen decodes
+# per run, amortized to zero.  Gold stats depend only on the gold text (the
+# same gold is scored once per completion in a group — 8× reuse per prompt).
+_viterbi_bound_cache: dict[int, float] = (
+    {}
+)  # path_length -> per-transition diverse-Viterbi bound
+_soft_bound_cache: dict[int, float] = {}  # path_length -> per-transition log-partition
+_gold_stats_cache: dict[str, tuple[float, int, int]] = (
+    {}
+)  # gold text -> (s_avg, path_length, in_vocab)
+
+#: Cap for the gold-stats cache (cleared when exceeded — a fresh epoch just
+#: recomputes; entries are ~100 bytes so this is a few MB at most).
+_GOLD_CACHE_MAX = 65536
+
 
 # ---------------------------------------------------------------------------
 # Initialization
@@ -95,9 +114,19 @@ def initialize_rewards(
     """
     global _bigram_matrix, _gloss_vocab, _token_to_idx, _ROUGE_SCORER
     global _viterbi_diversity_params, _warned_missing_gold
+    global _viterbi_bound_cache, _soft_bound_cache, _gold_stats_cache
     _bigram_matrix = bigram_matrix
     _gloss_vocab = vocab
     _token_to_idx = {t: i for i, t in enumerate(vocab)}
+
+    # Structural-reward caches: the Viterbi/soft-Viterbi bounds depend ONLY
+    # on (matrix, BOS/EOS, path length, diversity params) and the gold stats
+    # only on the gold text — both are fixed for the lifetime of one
+    # initialize_rewards() call, so clear them here (a new matrix/config
+    # must never see stale bounds).
+    _viterbi_bound_cache.clear()
+    _soft_bound_cache.clear()
+    _gold_stats_cache.clear()
 
     # Use ROUGE-L F1 as the primary quality metric
     _ROUGE_SCORER = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=False)
@@ -177,125 +206,265 @@ def translation_quality_reward(
 
 
 # ---------------------------------------------------------------------------
-# Reward Component 2: Structural Dense Reward (Viterbi Proxy)
+# Reward Component 2: Structural Dense Reward (Viterbi proxy)
 # ---------------------------------------------------------------------------
 
 
-def structural_dense_reward(
-    completion: str,
-    normalize: bool | str = True,
-    temperature: float = 1.0,
-) -> float:
-    """Score a gloss sequence using the precomputed bigram transition matrix.
+def _indices_skip_oov(tokens: list[str]) -> tuple[list[int], int]:
+    """BOS/EOS-wrapped in-vocab indices + OOV count.
 
-    This is the **Viterbi proxy**: a dense reward that measures how
-    "structurally plausible" a generated gloss sequence is, based on
-    N‑gram probabilities observed in real ASL data.
-
-    The reward is the average log‑probability of bigram transitions
-    in the sequence, mapped to ``[-1, 1]`` (symmetric range).
-
-    Three normalization modes are supported:
-
-    - ``normalize="exp"`` (default, backward-compatible with ``True``):
-      :math:`\\exp(\\text{avg\\_log\\_prob} / T)`, then mapped to ``[-1, 1]``.
-      With temperature :math:`T=1` this is the classic formulation.
-      **Problem**: for sequences with low bigram probability,
-      :math:`\\text{avg\\_log\\_prob} \\approx -15`, so
-      :math:`e^{-15} \\approx 0`, making the reward vanish.
-
-    - ``normalize="softmax"``:
-      :math:`\\frac{\\exp(\\text{avg\\_log\\_prob} / T)}
-                 {1 + \\exp(\\text{avg\\_log\\_prob} / T)}`,
-      then mapped to ``[-1, 1]``.
-      This is a sigmoid-softened version that maps any log-prob to
-      :math:`(0, 1)` without collapsing to 0 for low-probability sequences.
-
-    - ``normalize=False``:
-      Return the raw average log‑probability (can be negative),
-      clamped to ``[-1, 1]``.
-
-    .. math::
-
-        \\text{reward} = \\exp\\left(
-            \\frac{1}{L-1} \\sum_{i=1}^{L-1}
-            \\log P(\\text{gloss}_i \\mid \\text{gloss}_{i-1})
-        \\right)
-
-    where :math:`L` is the sequence length and :math:`P` comes from
-    the Laplace‑smoothed bigram matrix.
-
-    Args:
-        completion: Generated gloss sequence.
-        normalize: Normalization mode. ``True`` or ``"exp"`` for classic
-            exponentiation, ``"softmax"`` for sigmoid-softened, ``False``
-            for raw log-prob.
-        temperature: Temperature for the exponent. Higher values (e.g. 5)
-            make the reward less aggressive: :math:`e^{-15/5} = e^{-3} \\approx 0.05`
-            instead of :math:`e^{-15} \\approx 0`.
-
-    Returns:
-        Structural plausibility score in ``[-1, 1]`` (symmetric).
-        ``-1`` = worst structural quality, ``1`` = best structural quality.
+    OOV tokens are skipped (NOT mapped to ``<UNK>``) so garbage tokens
+    cannot get partial credit via ``<UNK>`` bigram probabilities — the
+    same anti-hacking pattern as ``gold_structure_reward``.
     """
+    indices: list[int] = []
+    oov = 0
+    bos = _token_to_idx.get("<BOS>", -1)
+    eos = _token_to_idx.get("<EOS>", -1)
+    if bos >= 0:
+        indices.append(bos)
+    for t in tokens:
+        idx = _token_to_idx.get(t, -1)
+        if idx >= 0:
+            indices.append(idx)
+        else:
+            oov += 1
+    if eos >= 0:
+        indices.append(eos)
+    return indices, oov
+
+
+def _gold_stats(gold_text: str) -> tuple[float, int, int] | None:
+    """Per-transition bigram stats of the gold reference, cached by text.
+
+    Returns ``(s_avg, path_length, in_vocab_tokens)`` or ``None`` for a
+    degenerate gold (< 2 in-vocab tokens).  The same gold is scored once
+    per completion in a GRPO group (num_generations × reuse) — the cache
+    turns that into a single computation.
+    """
+    cached = _gold_stats_cache.get(gold_text)
+    if cached is not None:
+        return cached
+    matrix = _bigram_matrix
+    assert matrix is not None  # callers check; initialize_rewards contract
+    tokens = gold_text.strip().split()
+    indices, oov = _indices_skip_oov(tokens)
+    in_vocab = len(tokens) - oov
+    if len(indices) < 3 or in_vocab < 2:
+        return None
+    from src.datasets.transition_matrix import sequence_score_bigram
+
+    lp = sequence_score_bigram(matrix, indices)
+    stats = (lp / (len(indices) - 1), len(indices), in_vocab)
+    if len(_gold_stats_cache) >= _GOLD_CACHE_MAX:
+        _gold_stats_cache.clear()
+    _gold_stats_cache[gold_text] = stats
+    return stats
+
+
+def _viterbi_bound_avg(path_length: int) -> float:
+    """Per-transition diverse-Viterbi bound for *path_length* (cached).
+
+    The bound is a property of the automaton + length only — see the
+    module-level cache docs.  Raises if path_length < 2.
+    """
+    if path_length not in _viterbi_bound_cache:
+        from src.datasets.transition_matrix import viterbi_optimal_score_diverse
+
+        matrix = _bigram_matrix
+        assert matrix is not None  # callers check; initialize_rewards contract
+        bound = viterbi_optimal_score_diverse(
+            matrix,
+            _token_to_idx["<BOS>"],
+            _token_to_idx["<EOS>"],
+            path_length,
+            self_loop_penalty=float(
+                _viterbi_diversity_params.get("self_loop_penalty", 0.5)
+            ),
+            max_occurrences=int(_viterbi_diversity_params.get("max_occurrences", 2)),
+            diversity_threshold=float(
+                _viterbi_diversity_params.get("diversity_threshold", 0.3)
+            ),
+            max_iters=int(_viterbi_diversity_params.get("max_iters", 3)),
+        )
+        _viterbi_bound_cache[path_length] = bound / (path_length - 1)
+    return _viterbi_bound_cache[path_length]
+
+
+def _soft_bound_avg(path_length: int) -> float:
+    """Per-transition log-partition (soft Viterbi) for *path_length* (cached)."""
+    if path_length not in _soft_bound_cache:
+        from src.datasets.transition_matrix import soft_viterbi_score
+
+        matrix = _bigram_matrix
+        assert matrix is not None  # callers check; initialize_rewards contract
+        bound = soft_viterbi_score(
+            matrix,
+            _token_to_idx["<BOS>"],
+            _token_to_idx["<EOS>"],
+            path_length,
+        )
+        _soft_bound_cache[path_length] = bound / (path_length - 1)
+    return _soft_bound_cache[path_length]
+
+
+def _gold_anchored_structural_reward(
+    completion: str,
+    gold_gloss: str,
+    anchor: str,
+    temperature: float = 1.5,
+    normalize: bool = True,
+) -> float:
+    """Core of the three structural modules (gold-anchored calibration).
+
+    **Why gold-anchored.**  The pre-fix versions anchored ``exp()`` at
+    unattainable optima — absolute 0 (perfect certainty), the
+    diverse-Viterbi bound (the theoretical best path) or the
+    log-partition (soft bound).  Natural glosses sit 3–6 nats below those
+    anchors per transition, so ``2·exp(gap) − 1`` saturated: on run 7078
+    even PERFECT completions scored −0.79…−1.00 with std ≈ 0.0001 (zero
+    GRPO advantage signal).  Anchoring at the GOLD's own value instead:
+
+    * completion == gold → ``+1`` (calibrated);
+    * delta in per-transition nats divided by ``temperature`` τ:
+      with τ=1.5 a single-word error ≈ neutral, a shuffled gloss ≈ −0.4,
+      random tokens ≈ −0.7 (measured on the real 15518² matrix).
+
+    ``anchor`` selects the geometry:
+
+    * ``"absolute"``: delta = s(completion) − s(gold) — relative bigram
+      plausibility (structural_dense / ViterbiPlanNet-DVL flavour);
+    * ``"viterbi"``: delta = gap(gold) − gap(completion) where
+      gap(x) = diverseViterbi_bound(L_x) − s(x) — how much of the
+      achievable headroom the completion uses, relative to the gold;
+    * ``"soft_viterbi"``: same with the log-partition (smooth) bound.
+
+    Guards (shared with ``gold_structure_reward``): < 2 in-vocab tokens →
+    hard −1 (short/garbage cannot carry a structural comparison); OOV
+    ratio and in-vocab length-mismatch penalties applied before the
+    symmetric mapping (shorter-than-gold outputs stop getting free
+    average-log-prob credit).
+
+    Missing/empty gold → neutral ``0.0`` (warned once): without the
+    anchor the reward cannot be calibrated, and a constant −1 would
+    silently poison every rollout.
+    """
+    global _warned_missing_gold
+
     if _bigram_matrix is None or not _gloss_vocab:
         logger.warning("Transition matrix not initialized; returning -1.0")
         return -1.0
 
+    gold_text = (gold_gloss or "").strip()
+    if not gold_text:
+        if not _warned_missing_gold:
+            _warned_missing_gold = True
+            logger.warning(
+                "gold_gloss missing/empty for '%s'; returning neutral 0.0 "
+                "(gold-anchored structural rewards need the gold reference).",
+                anchor,
+            )
+        return 0.0
+
+    gold = _gold_stats(gold_text)
+    if gold is None:
+        if not _warned_missing_gold:
+            _warned_missing_gold = True
+            logger.warning(
+                "Degenerate gold (< 2 in-vocab tokens) for '%s': %r — "
+                "returning neutral 0.0.",
+                anchor,
+                gold_text[:60],
+            )
+        return 0.0
+    s_gold, gold_path_length, gold_in_vocab = gold
+
     text = extract_gloss_text(completion)
-    tokens = text.strip().split()
+    tokens = text.strip().split() if text else []
+    indices, oov = _indices_skip_oov(tokens)
+    in_vocab = len(tokens) - oov
+    if in_vocab < 2:
+        return -1.0  # hard fail — anti reward-hacking (cf. gold_structure)
 
-    if len(tokens) < 2:
+    from src.datasets.transition_matrix import sequence_score_bigram
+
+    n_trans = len(indices) - 1
+    if n_trans <= 0:
         return -1.0
+    s_comp = sequence_score_bigram(_bigram_matrix, indices) / n_trans  # type: ignore[arg-type]
 
-    # Wrap with BOS and EOS if they exist in the vocab
-    bos_idx = _token_to_idx.get("<BOS>", -1)
-    eos_idx = _token_to_idx.get("<EOS>", -1)
+    if anchor == "absolute":
+        delta = s_comp - s_gold
+    else:
+        bound = _viterbi_bound_avg if anchor == "viterbi" else _soft_bound_avg
+        gap_c = bound(len(indices)) - s_comp
+        gap_g = bound(gold_path_length) - s_gold
+        delta = gap_g - gap_c  # > 0 → completion uses headroom better than gold
 
-    token_indices: list[int] = []
-    if bos_idx >= 0:
-        token_indices.append(bos_idx)
+    if not normalize:
+        return _clamp_symmetric(delta)
 
-    for token in tokens:
-        idx = _token_to_idx.get(token, _token_to_idx.get("<UNK>", 0))
-        token_indices.append(idx)
+    tau = max(float(temperature), 1e-8)
+    reward = min(float(np.exp(delta / tau)), 1.0)  # ≥ gold capped at +1
+    # OOV penalty: garbage tokens lose credit proportionally.
+    if tokens:
+        reward *= 1.0 - (oov / len(tokens))
+    # Length-mismatch penalty: shorter-than-gold outputs stop receiving
+    # free average-log-prob credit (fewer transitions ≈ higher average).
+    reward *= min(1.0, min(in_vocab, gold_in_vocab) / max(in_vocab, gold_in_vocab, 1))
+    return _to_symmetric(reward)
 
-    if eos_idx >= 0:
-        token_indices.append(eos_idx)
 
-    # Compute average log-probability
-    log_sum: float = 0.0
-    count: int = 0
-    small_eps = 1e-10
+def structural_dense_reward(
+    completion: str,
+    gold_gloss: str = "",
+    temperature: float = 1.5,
+    normalize: bool = True,
+) -> float:
+    """Gold-anchored relative bigram plausibility of the completion.
 
-    for i in range(len(token_indices) - 1):
-        p = max(_bigram_matrix[token_indices[i], token_indices[i + 1]], small_eps)
-        log_sum += np.log(p)
-        count += 1
+    Measures whether the generated gloss is as structurally plausible
+    (under the corpus bigram model) as the gold reference:
 
-    if count == 0:
-        return -1.0
+    .. math::
 
-    avg_log_prob = log_sum / count
+        \\text{reward} = 2\\exp\\left(
+            \\frac{s_{\\text{completion}} - s_{\\text{gold}}}{\\tau}
+        \\right) - 1
 
-    # Normalize and map to [-1, 1]
-    if normalize is False or normalize is None:
-        return _clamp_symmetric(avg_log_prob)
+    where ``s`` is the average per-transition bigram log-probability and
+    ``τ`` (``temperature``) controls the sharpness.  At the default
+    τ=1.5, measured on the real ASLG-PC12 bigram matrix: gold → +1,
+    single-word corruption ≈ +0.05, shuffled ≈ −0.4, random tokens ≈ −0.75.
 
-    # Temperature-scaled exponentiation
-    scaled = avg_log_prob / max(temperature, 1e-8)
+    .. warning::
+       **v2 — gold-anchored.**  The previous absolute formulation
+       (``2·exp(s) − 1``) saturated at ≈ −1 for EVERY natural sequence
+       (gold included: real bigram averages are −5…−8 nats): miscalibrated
+       AND with std ≈ 0 across completions, i.e. zero GRPO signal (run
+       7078).  At ``temperature=1`` this component coincides with
+       ``gold_structure_reward``; keep it for the tunable-sharpness (DVL)
+       variant in ablations.
 
-    if normalize == "softmax":
-        # Sigmoid: maps any log-prob to (0, 1) without collapsing to 0
-        # sigmoid(x) = exp(x) / (1 + exp(x))
-        # For x = -15/5 = -3 → sigmoid(-3) ≈ 0.047 (not 0!)
-        # For x = 0 → sigmoid(0) = 0.5
-        # For x = 2 → sigmoid(2) ≈ 0.88
-        return _to_symmetric(float(1.0 / (1.0 + np.exp(-scaled))))
+    Args:
+        completion: Generated gloss sequence.
+        gold_gloss: Ground-truth gloss sequence (the calibration anchor).
+        temperature: τ — nats of per-transition difference per unit of
+            reward.  Smaller = sharper discrimination.
+        normalize: If ``True`` return the calibrated ``[-1, 1]`` reward;
+            if ``False`` the raw per-transition delta (nats), clamped.
 
-    # Default: exp (backward-compatible with normalize=True)
-    # e^0 = 1.0 (max), e^{-10} ≈ 0 (min)
-    return _to_symmetric(float(np.exp(scaled)))
+    Returns:
+        Structural plausibility reward in ``[-1, 1]``: ``+1`` when the
+        completion is as plausible as (or more than) the gold.
+    """
+    return _gold_anchored_structural_reward(
+        completion,
+        gold_gloss,
+        anchor="absolute",
+        temperature=temperature,
+        normalize=normalize,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -548,104 +717,61 @@ def gloss_order_reward(
 
 def viterbi_distance_reward(
     completion: str,
+    gold_gloss: str = "",
+    temperature: float = 1.5,
     normalize: bool = True,
 ) -> float:
-    """Reward based on distance from the Viterbi-optimal path.
+    """Gold-anchored distance from the Viterbi-optimal path.
 
-    Computes the globally most-probable (Viterbi) path of the **same length**
-    as the LLM-generated sequence through the bigram transition matrix,
-    constrained to start at ``<BOS>`` and end at ``<EOS>``.  Returns a
-    normalized score indicating how close the LLM's path is to this
-    theoretical upper bound.
+    For a sequence ``x`` of length ``L_x``, the *headroom gap* is
 
     .. math::
 
-        \\text{reward} = \\exp\\left(
-            \\frac{\\text{llm_log_prob} - \\text{viterbi_log_prob}}{L}
-        \\right)
+        \\text{gap}(x) = \\text{viterbi\\_bound}(L_x)/L_x - s(x)
 
-    where :math:`L` is the number of bigram transitions.
+    i.e. how far below the (diversity-constrained) theoretical optimum
+    ``x`` sits, per transition.  The reward anchors at the GOLD's own gap:
 
-    - ``1.0`` → LLM path matches the Viterbi optimum exactly.
-    - ``-1.0`` → LLM path is far from the Viterbi optimum.
+    .. math::
+
+        \\text{reward} = 2\\exp\\left(
+            \\frac{\\text{gap}(\\text{gold}) - \\text{gap}(\\text{completion})}{\\tau}
+        \\right) - 1
+
+    * completion == gold → ``+1`` (calibrated);
+    * completion exploits the headroom worse than the gold → toward ``-1``;
+    * better than the gold (rare — closer to the optimum than the
+      human reference) → capped at ``+1``.
 
     .. warning::
-       **Path diversity**: This function now uses ``viterbi_optimal_score_diverse``
-       (with self-loop penalty and iterative token banning) to compute
-       the Viterbi baseline.  The pure Markov-chain Viterbi would
-       degenerate into repetitive loops (e.g., ``IX → IX → …``).
-       The diversity-constrained path provides a more realistic upper
-       bound for ASL gloss sequences.
+       **v2 — gold-anchored.**  The previous formulation
+       (``2·exp(s − viterbi_bound) − 1``) compared every completion
+       against the unattainable theoretical optimum: real glosses sit
+       3–4.5 nats/transition below it, so the reward saturated at
+       ≈ −0.9 for everything INCLUDING the gold (run 7078: mean −0.909,
+       std 0.0009 → zero GRPO signal).  Anchoring at the gold's own gap
+       restores calibration and discrimination.  The length-keyed bound
+       cache (``_viterbi_bound_cache``) makes the expensive decode a
+       once-per-length cost instead of once-per-completion — the main
+       fix for the 391 s/it GRPO steps of run 7078.
 
     Args:
         completion: Generated gloss sequence.
-        normalize: If ``True``, exponentiate to ``(0, 1]`` range then map
-            to ``[-1, 1]``.  If ``False``, return raw average-log-prob
-            difference clamped to ``[-1, 1]``.
+        gold_gloss: Ground-truth gloss sequence (the calibration anchor).
+        temperature: τ — nats of gap difference per unit of reward.
+        normalize: If ``False`` return the raw per-transition gap delta
+            (nats, clamped) instead of the calibrated reward.
 
     Returns:
-        Viterbi proximity reward in ``[-1, 1]`` (symmetric).
+        Viterbi-proximity reward in ``[-1, 1]`` (symmetric).
     """
-    if _bigram_matrix is None or not _gloss_vocab:
-        logger.warning("Transition matrix not initialized; returning -1.0")
-        return -1.0
-
-    text = extract_gloss_text(completion)
-    tokens = text.strip().split()
-
-    if len(tokens) < 2:
-        return -1.0
-
-    bos_idx = _token_to_idx.get("<BOS>", -1)
-    eos_idx = _token_to_idx.get("<EOS>", -1)
-
-    if bos_idx < 0 or eos_idx < 0:
-        logger.warning("BOS/EOS not in vocabulary; returning -1.0")
-        return -1.0
-
-    # Build LLM path indices (BOS + tokens + EOS)
-    llm_indices: list[int] = [bos_idx]
-    for token in tokens:
-        idx = _token_to_idx.get(token, _token_to_idx.get("<UNK>", 0))
-        llm_indices.append(idx)
-    llm_indices.append(eos_idx)
-
-    path_length = len(llm_indices)  # includes BOS and EOS
-
-    # Compute Viterbi optimal log-probability for the same length
-    # with diversity constraints (self-loop penalty + iterative token ban)
-    from src.datasets.transition_matrix import (
-        sequence_score_bigram,
-        viterbi_optimal_score_diverse,
+    return _gold_anchored_structural_reward(
+        completion,
+        gold_gloss,
+        anchor="viterbi",
+        temperature=temperature,
+        normalize=normalize,
     )
-
-    llm_log_prob = sequence_score_bigram(_bigram_matrix, llm_indices)
-
-    viterbi_log_prob = viterbi_optimal_score_diverse(
-        _bigram_matrix,
-        bos_idx,
-        eos_idx,
-        path_length,
-        self_loop_penalty=float(
-            _viterbi_diversity_params.get("self_loop_penalty", 0.5)
-        ),
-        max_occurrences=int(_viterbi_diversity_params.get("max_occurrences", 2)),
-        diversity_threshold=float(
-            _viterbi_diversity_params.get("diversity_threshold", 0.3)
-        ),
-        max_iters=int(_viterbi_diversity_params.get("max_iters", 3)),
-    )
-
-    n_trans = path_length - 1  # number of transitions
-    if n_trans <= 0:
-        return -1.0
-
-    if normalize:
-        llm_avg = llm_log_prob / n_trans
-        viterbi_avg = viterbi_log_prob / n_trans
-        return _to_symmetric(float(np.exp(llm_avg - viterbi_avg)))
-
-    return _clamp_symmetric((llm_log_prob - viterbi_log_prob) / n_trans)
 
 
 # ---------------------------------------------------------------------------
@@ -655,96 +781,49 @@ def viterbi_distance_reward(
 
 def soft_viterbi_distance_reward(
     completion: str,
+    gold_gloss: str = "",
+    temperature: float = 1.5,
     normalize: bool = True,
 ) -> float:
-    """Differentiable reward based on soft Viterbi (forward-backward) distance.
+    """Gold-anchored soft-Viterbi (log-partition) distance reward.
 
-    Inspired by ViterbiPlanNet's Differentiable Viterbi Layer (DVL)
-    (arXiv:2603.04265), this replaces the non-differentiable argmax
-    Viterbi with a smooth log-sum-exp relaxation (forward-backward).
-
-    The soft Viterbi score is the **log-partition function** — the
-    log-probability of *all* paths of the given length, weighted by
-    their probability.  This provides a smoother and tighter upper bound
-    than the hard Viterbi (which only considers the single best path),
-    and allows gradient flow through the structural reward.
+    Differentiable-flavoured variant of :func:`viterbi_distance_reward`
+    (inspired by ViterbiPlanNet's Differentiable Viterbi Layer,
+    arXiv:2603.04265): the headroom gap is measured against the
+    **log-partition function** (forward pass over all paths of the same
+    length) instead of the single best path:
 
     .. math::
 
-        \\text{reward} = \\exp\\left(
-            \\frac{\\text{llm\\_log\\_prob} - \\text{soft\\_viterbi\\_log\\_prob}}{L}
-        \\right)
+        \\text{gap}(x) = \\log Z(L_x)/L_x - s(x)
 
-    where :math:`\\text{soft\\_viterbi\\_log\\_prob} = \\log Z` is the
-    log-partition function computed via forward-backward.
+    and the reward is anchored at the GOLD's own gap (see
+    :func:`viterbi_distance_reward` for the v2 rationale — the previous
+    absolute formulation saturated at ≈ −0.99 with std ≈ 0 on run 7078
+    because every natural sequence sits ~5 nats/transition below the
+    partition function).
 
-    - ``1.0`` → LLM path matches the soft Viterbi optimum.
-    - ``-1.0`` → LLM path is far from the soft optimum.
-
-    .. note::
-       The soft Viterbi score is always >= the hard Viterbi score
-       (logsumexp >= max), so this reward is generally lower than
-       ``viterbi_distance_reward`` for the same sequence.  This is
-       expected — the soft bound is tighter.
+    The log-partition is a property of automaton+length only, so it is
+    cached per path length (``_soft_bound_cache``) — one forward pass
+    per length per run instead of one per completion.
 
     Args:
         completion: Generated gloss sequence.
-        normalize: If ``True``, exponentiate to ``(0, 1]`` range then map
-            to ``[-1, 1]``.  If ``False``, return raw average-log-prob
-            difference clamped to ``[-1, 1]``.
+        gold_gloss: Ground-truth gloss sequence (the calibration anchor).
+        temperature: τ — nats of gap difference per unit of reward.
+        normalize: If ``False`` return the raw per-transition gap delta
+            (nats, clamped) instead of the calibrated reward.
 
     Returns:
         Soft Viterbi proximity reward in ``[-1, 1]`` (symmetric).
     """
-    if _bigram_matrix is None or not _gloss_vocab:
-        logger.warning("Transition matrix not initialized; returning -1.0")
-        return -1.0
-
-    text = extract_gloss_text(completion)
-    tokens = text.strip().split()
-
-    if len(tokens) < 2:
-        return -1.0
-
-    bos_idx = _token_to_idx.get("<BOS>", -1)
-    eos_idx = _token_to_idx.get("<EOS>", -1)
-
-    if bos_idx < 0 or eos_idx < 0:
-        logger.warning("BOS/EOS not in vocabulary; returning -1.0")
-        return -1.0
-
-    # Build LLM path indices (BOS + tokens + EOS)
-    llm_indices: list[int] = [bos_idx]
-    for token in tokens:
-        idx = _token_to_idx.get(token, _token_to_idx.get("<UNK>", 0))
-        llm_indices.append(idx)
-    llm_indices.append(eos_idx)
-
-    path_length = len(llm_indices)
-
-    from src.datasets.transition_matrix import (
-        sequence_score_bigram,
-        soft_viterbi_score,
+    return _gold_anchored_structural_reward(
+        completion,
+        gold_gloss,
+        anchor="soft_viterbi",
+        temperature=temperature,
+        normalize=normalize,
     )
-
-    llm_log_prob = sequence_score_bigram(_bigram_matrix, llm_indices)
-    soft_viterbi_log_prob = soft_viterbi_score(
-        _bigram_matrix,
-        bos_idx,
-        eos_idx,
-        path_length,
-    )
-
-    n_trans = path_length - 1
-    if n_trans <= 0:
-        return -1.0
-
-    if normalize:
-        llm_avg = llm_log_prob / n_trans
-        soft_viterbi_avg = soft_viterbi_log_prob / n_trans
-        return _to_symmetric(float(np.exp(llm_avg - soft_viterbi_avg)))
-
-    return _clamp_symmetric((llm_log_prob - soft_viterbi_log_prob) / n_trans)
 
 
 # ---------------------------------------------------------------------------
@@ -1226,10 +1305,12 @@ def build_t2g_reward_functions(
         funcs.append(_make_gloss_reward_fn(bleu_reward, needs_gold_gloss=True))
         weights.append(w)
 
-    # Structural dense reward (absolute bigram score — no baseline)
+    # Structural dense reward (gold-anchored relative bigram plausibility)
     w = reward_config.get("weight_structure", 0.0)
     if w > 0:
-        funcs.append(_make_gloss_reward_fn(structural_dense_reward))
+        funcs.append(
+            _make_gloss_reward_fn(structural_dense_reward, needs_gold_gloss=True)
+        )
         weights.append(w)
 
     # Gold-structure reward (bigram score vs gold reference baseline)
@@ -1241,18 +1322,22 @@ def build_t2g_reward_functions(
         )
         weights.append(w)
 
-    # Viterbi distance reward (bigram score vs Viterbi theoretical optimum)
-    # *** Experimental — see caveat in viterbi_distance_reward docstring ***
+    # Viterbi distance reward (gold-anchored headroom-gap vs the
+    # diversity-Viterbi bound — v2, calibrated; see its docstring)
     w = reward_config.get("weight_viterbi", 0.0)
     if w > 0:
-        funcs.append(_make_gloss_reward_fn(viterbi_distance_reward))
+        funcs.append(
+            _make_gloss_reward_fn(viterbi_distance_reward, needs_gold_gloss=True)
+        )
         weights.append(w)
 
-    # Soft Viterbi distance reward (differentiable, forward-backward)
-    # *** Inspired by ViterbiPlanNet's DVL (arXiv:2603.04265) ***
+    # Soft Viterbi distance reward (gold-anchored, log-partition bound;
+    # ViterbiPlanNet DVL-inspired — v2, calibrated)
     w = reward_config.get("weight_soft_viterbi", 0.0)
     if w > 0:
-        funcs.append(_make_gloss_reward_fn(soft_viterbi_distance_reward))
+        funcs.append(
+            _make_gloss_reward_fn(soft_viterbi_distance_reward, needs_gold_gloss=True)
+        )
         weights.append(w)
 
     # Verifier-scaled reward (RECIPE-inspired)

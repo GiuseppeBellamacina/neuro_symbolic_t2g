@@ -232,7 +232,7 @@ La nuova versione include 6 file pytest (16+ test) che validano: FIRST-of-stack 
 
 ## 5. Note di compatibilità
 
-- **Path PDA di default**: `grpo_optimal.yaml` ha `grammar.use_grammarllm_pda: false` → usa `GlossVocabularyMask` (Trie dual-root). Il path PDA completo è attivabile con `use_grammarllm_pda: true` e ora beneficia di tutti i fix sopra.
+- **Path PDA di default**: `sft-grpo.yaml` ha `grammar.use_grammarllm_pda: false` → usa `GlossVocabularyMask` (Trie dual-root). Il path PDA completo è attivabile con `use_grammarllm_pda: true` e ora beneficia di tutti i fix sopra.
 - **API pubblica preservata**: `generate_grammar_parameters`, `get_parsing_table_and_map_tt`, `setup_logging`, `generate_text` mantengono la stessa signature pubblica (ma `generate_grammar_parameters` ritorna `list[PDA]` invece di `MaskLogitsProcessor`).
 - **`generate_text()` return format**: ora ritorna `dict`/`list[dict]` con `text`, `probability`, `log_prob`, `pda_history`, `pda_stack` invece di `str`. Non usato direttamente dal progetto T2G (che usa `model.generate()` con logits_processor), ma rilevante se si volesse usare l'API high-level.
 - **`config.py` rimosso**: la vecchia `setup_logging()` usava `config.LOG_FILE`; la nuova prende `log_dir` parameter. `gloss_grammar.py` chiama `setup_logging()` senza argomenti (default `'grammarllm/temp'`), invariato.

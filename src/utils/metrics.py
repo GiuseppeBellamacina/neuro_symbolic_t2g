@@ -18,6 +18,12 @@ from rouge_score import rouge_scorer
 
 from src.utils.text_utils import extract_gloss_text
 
+# Version of the metric definitions. Bump whenever a metric formula changes
+# (e.g. v2 = corpus BLEU/chrF reference-format fix). Eval results carry this
+# stamp so cached baselines computed with older definitions are detected and
+# recomputed instead of silently compared against new ones.
+METRICS_VERSION = 2
+
 
 def check_gloss_validity(completion: str) -> tuple[bool, str]:
     """Check if a completion is a valid gloss sequence.

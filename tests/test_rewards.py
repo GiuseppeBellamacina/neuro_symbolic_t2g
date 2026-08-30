@@ -57,29 +57,61 @@ def test_translation_quality(reward_setup):
 
 
 def test_structural_dense(reward_setup):
+    """v2 gold-anchored: gold → exactly +1, corrupted < gold, guards hold."""
     from src.rewards.t2g_rewards import structural_dense_reward
 
-    plausible = "IX MAN WALK HOUSE"
-    score_plausible = structural_dense_reward(plausible, normalize=True)
-    assert (
-        -1.0 <= score_plausible <= 1.0
-    ), f"Plausible in [-1,1], got {score_plausible:.4f}"
-    assert score_plausible > 0.0
+    gold = "IX MAN WALK HOUSE"
 
-    implausible = "DOG fs-JOHN BOOK CAN"
-    score_implausible = structural_dense_reward(implausible, normalize=True)
-    assert (
-        -1.0 <= score_implausible <= 1.0
-    ), f"Implausible in [-1,1], got {score_implausible:.4f}"
-    assert (
-        score_plausible > score_implausible
-    ), f"Plausible > implausible: {score_plausible:.4f} vs {score_implausible:.4f}"
+    # Perfect completion == gold → calibrated +1 (was ≈ −0.99 pre-fix)
+    assert structural_dense_reward(gold, gold) == 1.0, "gold-on-gold must be +1"
 
-    assert structural_dense_reward("IX", normalize=True) == -1.0, "Single token = -1.0"
-    assert structural_dense_reward("", normalize=True) == -1.0, "Empty = -1.0"
+    # Corrupted chain (breaks MAN→WALK, WALK→HOUSE) clearly below gold
+    swap = "IX MAN HOUSE WALK"
+    s_swap = structural_dense_reward(swap, gold)
+    assert -1.0 <= s_swap < 1.0, f"swap in [-1,1), got {s_swap:.4f}"
+    assert s_swap < 1.0
 
-    raw = structural_dense_reward(plausible, normalize=False)
-    assert raw < 0.0, f"Raw score < 0 (log-prob), got {raw:.4f}"
+    # Off-chain garbage also below gold
+    garbage = "DOG fs-JOHN BOOK CAN"
+    s_garbage = structural_dense_reward(garbage, gold)
+    assert s_garbage < 1.0
+    assert -1.0 <= s_garbage <= 1.0
+
+    # Guards: single in-vocab token / empty → hard -1
+    assert structural_dense_reward("IX", gold) == -1.0, "Single token = -1.0"
+    assert structural_dense_reward("", gold) == -1.0, "Empty = -1.0"
+
+    # Missing gold → neutral 0.0 (cannot calibrate without the anchor)
+    assert structural_dense_reward(gold, "") == 0.0, "Missing gold = 0.0"
+
+    # Raw mode: per-transition delta in nats (worse than gold → negative)
+    raw = structural_dense_reward(swap, gold, normalize=False)
+    assert raw < 0.0, f"Raw delta < 0 (worse than gold), got {raw:.4f}"
+
+
+def test_structural_dense_variance_signal(reward_setup):
+    """The run-7078 bug: std ≈ 0 across completions → zero GRPO advantage.
+
+    A mixed group (gold, corrupted, garbage) must now spread widely and
+    the gold must top the group."""
+    import numpy as np
+
+    from src.rewards.t2g_rewards import structural_dense_reward
+
+    gold = "IX MAN WALK HOUSE"
+    group = [gold, "IX MAN HOUSE WALK", "DOG fs-JOHN BOOK CAN", "WANT GO COME NOT"]
+    vals = [structural_dense_reward(c, gold) for c in group]
+    assert np.std(vals) > 0.1, f"Group std must be >> 0 (was ~0.001 pre-fix): {vals}"
+    assert vals[0] == max(vals), f"Gold must top the group: {vals}"
+
+
+def test_structural_dense_missing_gold_neutral(reward_setup, caplog):
+    """No gold → 0.0 for every sample (advantage-neutral in the GRPO group),
+    with a single warning — never a constant −1 that poisons rollouts."""
+    from src.rewards.t2g_rewards import structural_dense_reward
+
+    for completion in ("IX MAN WALK HOUSE", "DOG CAT BIRD"):
+        assert structural_dense_reward(completion, "") == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -223,10 +255,16 @@ def test_reward_wrapper_receives_gold_via_kwargs(reward_setup):
 
 def test_reward_wrapper_missing_gold_is_neutral(reward_setup, caplog):
     """Missing/None gold_gloss → neutral 0.0 (never -1.0), warn once."""
+    import src.rewards.t2g_rewards as _R
     from src.rewards.t2g_rewards import (
         _make_gloss_reward_fn,
         translation_quality_reward,
     )
+
+    # The warn-once flag is session-global and earlier tests may have
+    # consumed the warning (missing-gold paths of the structural rewards).
+    # This test asserts the warn-ONCE semantics: reset for determinism.
+    _R._warned_missing_gold = False
 
     fn = _make_gloss_reward_fn(translation_quality_reward, needs_gold_gloss=True)
 
@@ -254,26 +292,68 @@ def test_reward_wrapper_missing_gold_is_neutral(reward_setup, caplog):
 
 
 def test_viterbi_distance_reward(reward_setup):
+    """v2 gold-anchored: gold → +1, off-chain < gold, guards + raw mode."""
     from src.rewards.t2g_rewards import viterbi_distance_reward
 
-    plausible = "IX MAN WALK HOUSE"
-    score = viterbi_distance_reward(plausible, normalize=True)
-    assert -1.0 <= score <= 1.0, f"Viterbi distance in [-1,1], got {score:.4f}"
-    assert score > 0.0
+    gold = "IX MAN WALK HOUSE"
 
-    assert (
-        viterbi_distance_reward("IX", normalize=True) == -1.0
-    ), "Short (<2 tokens) = -1.0"
-    assert viterbi_distance_reward("", normalize=True) == -1.0, "Empty = -1.0"
+    # Perfect completion == gold → +1 (was ≈ −0.91 pre-fix on the real matrix)
+    assert viterbi_distance_reward(gold, gold) == 1.0, "gold-on-gold must be +1"
 
-    bad = "DOG fs-JOHN BOOK CAN NOT WANT"
-    score_bad = viterbi_distance_reward(bad, normalize=True)
-    assert score_bad < score, f"Bad < plausible: {score_bad:.4f} < {score:.4f}"
-    assert -1.0 <= score_bad <= 1.0
-    assert score > 0.05, f"Plausible > 0.05 (diverse baseline), got {score:.4f}"
+    swap = "IX MAN HOUSE WALK"
+    s_swap = viterbi_distance_reward(swap, gold)
+    assert -1.0 <= s_swap < 1.0, f"swap in [-1,1), got {s_swap:.4f}"
 
-    raw = viterbi_distance_reward(plausible, normalize=False)
-    assert raw <= 0.0, f"Raw <= 0.0, got {raw:.4f}"
+    garbage = "DOG fs-JOHN BOOK CAN NOT WANT"
+    s_garbage = viterbi_distance_reward(garbage, gold)
+    assert s_garbage < 1.0, f"garbage < gold: {s_garbage:.4f}"
+    assert -1.0 <= s_garbage <= 1.0
+
+    assert viterbi_distance_reward("IX", gold) == -1.0, "Short (<2 tokens) = -1.0"
+    assert viterbi_distance_reward("", gold) == -1.0, "Empty = -1.0"
+    assert viterbi_distance_reward(gold, "") == 0.0, "Missing gold = 0.0"
+
+    # Raw mode: per-transition gap delta (worse than gold → negative)
+    raw = viterbi_distance_reward(swap, gold, normalize=False)
+    assert raw < 0.0, f"Raw gap delta < 0, got {raw:.4f}"
+
+
+def test_viterbi_bound_cached_by_length(reward_setup, monkeypatch):
+    """The bound is a property of automaton+length only: one decode per
+    length (the per-completion decodes were the 391 s/it killer in 7078)."""
+    import src.datasets.transition_matrix as tm
+    from src.rewards.t2g_rewards import (
+        initialize_rewards,
+        viterbi_distance_reward,
+    )
+
+    vocab, bigram, _ = reward_setup
+    # Fresh caches for this test
+    initialize_rewards(bigram, vocab)
+
+    calls = {"n": 0}
+    orig = tm.viterbi_optimal_score_diverse
+
+    def counting(*args, **kwargs):
+        calls["n"] += 1
+        return orig(*args, **kwargs)
+
+    monkeypatch.setattr(tm, "viterbi_optimal_score_diverse", counting)
+
+    gold = "IX MAN WALK HOUSE"
+    for _ in range(5):
+        viterbi_distance_reward(gold, gold)
+    assert calls["n"] == 1, f"same length must decode ONCE, got {calls['n']}"
+
+    # A different completion length → exactly one more decode
+    viterbi_distance_reward("IX MAN WALK", gold)
+    assert calls["n"] == 2, f"new length = one more decode, got {calls['n']}"
+
+    # ...and the gold itself is scored once, not once per call
+    # (gold stats cached by text)
+    from src.rewards import t2g_rewards as R
+
+    assert gold in R._gold_stats_cache
 
 
 # ---------------------------------------------------------------------------
@@ -361,25 +441,55 @@ def test_build_reward_functions(reward_setup):
 
 
 def test_soft_viterbi_distance_reward(reward_setup):
+    """v2 gold-anchored: gold → +1, off-chain < gold, guards + raw mode."""
     from src.rewards.t2g_rewards import soft_viterbi_distance_reward
 
-    plausible = "IX MAN WALK HOUSE"
-    score = soft_viterbi_distance_reward(plausible, normalize=True)
-    assert -1.0 <= score <= 1.0, f"Soft Viterbi in [-1,1], got {score:.4f}"
-    assert score > 0.0
+    gold = "IX MAN WALK HOUSE"
 
-    assert (
-        soft_viterbi_distance_reward("IX", normalize=True) == -1.0
-    ), "Short (<2 tokens) = -1.0"
-    assert soft_viterbi_distance_reward("", normalize=True) == -1.0, "Empty = -1.0"
+    assert soft_viterbi_distance_reward(gold, gold) == 1.0, "gold-on-gold must be +1"
+
+    swap = "IX MAN HOUSE WALK"
+    s_swap = soft_viterbi_distance_reward(swap, gold)
+    assert -1.0 <= s_swap < 1.0, f"swap in [-1,1), got {s_swap:.4f}"
 
     bad = "DOG fs-JOHN BOOK CAN NOT WANT"
-    score_bad = soft_viterbi_distance_reward(bad, normalize=True)
-    assert score_bad < score, f"Bad < plausible: {score_bad:.4f} < {score:.4f}"
+    score_bad = soft_viterbi_distance_reward(bad, gold)
+    assert score_bad < 1.0, f"Bad < gold: {score_bad:.4f}"
     assert -1.0 <= score_bad <= 1.0
 
-    raw = soft_viterbi_distance_reward(plausible, normalize=False)
-    assert raw <= 0.0, f"Soft Viterbi raw <= 0.0, got {raw:.4f}"
+    assert soft_viterbi_distance_reward("IX", gold) == -1.0, "Short (<2 tokens) = -1.0"
+    assert soft_viterbi_distance_reward("", gold) == -1.0, "Empty = -1.0"
+    assert soft_viterbi_distance_reward(gold, "") == 0.0, "Missing gold = 0.0"
+
+    raw = soft_viterbi_distance_reward(swap, gold, normalize=False)
+    assert raw < 0.0, f"Raw gap delta < 0, got {raw:.4f}"
+
+
+def test_soft_bound_cached_by_length(reward_setup, monkeypatch):
+    """The log-partition is automaton+length only → one forward pass per
+    length, cached forever."""
+    import src.datasets.transition_matrix as tm
+    from src.rewards.t2g_rewards import (
+        initialize_rewards,
+        soft_viterbi_distance_reward,
+    )
+
+    vocab, bigram, _ = reward_setup
+    initialize_rewards(bigram, vocab)
+
+    calls = {"n": 0}
+    orig = tm.soft_viterbi_score
+
+    def counting(*args, **kwargs):
+        calls["n"] += 1
+        return orig(*args, **kwargs)
+
+    monkeypatch.setattr(tm, "soft_viterbi_score", counting)
+
+    gold = "IX MAN WALK HOUSE"
+    for _ in range(4):
+        soft_viterbi_distance_reward(gold, gold)
+    assert calls["n"] == 1, f"same length = one forward pass, got {calls['n']}"
 
 
 # ---------------------------------------------------------------------------

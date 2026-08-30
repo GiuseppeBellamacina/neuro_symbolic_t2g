@@ -95,13 +95,13 @@ sui risultati; **[futuro]** = candidata per esperimenti successivi;
 | https://gcluster.dmi.unict.it/docs/ (sezione Jobs Management / QoS) | **[implementato]** Vincoli cluster: 1 job per utente (inclusi pending → escluso self-chaining/array job), QoS time limits (gpu-small 4h, medium 6h, large/xlarge 12h), divieto processi su login node — input per il redesign della chain a tick (`cluster/chain_tick.sh`, `_lib.sh`, hook bashrc). |
 | https://huggingface.co/docs/trl (GRPOTrainer/GRPOConfig, via context7) | **[implementato]** Contratto kwargs reward (colonne dataset → reward fn), `completion_only_loss` SFT, valori default. |
 | https://unsloth.ai/blog/grpo | **[implementato]** Iperparametri GRPO+LoRA su piccoli modelli; VRAM. |
-| grammarllm (libreria vendored del collega, v0.5.0 + backport — vedi `grammarllm/VENDORED_STATUS.md`) | **[implementato]** PDA LL(1) + StatelessLogitsProcessor per il path ablation `grpo_pda*`. |
+| grammarllm (libreria vendored del collega, v0.5.0 + backport — vedi `grammarllm/VENDORED_STATUS.md`) | **[implementato]** PDA LL(1) + StatelessLogitsProcessor per il path PDA (config non in campagna: rigenerabile con extends: sft-grpo.yaml + use_grammarllm_pda: true).
 
 ## 9. Correzioni bibliografiche applicate (2026-08-26)
 
 1. **"T2G-Reasoner (2025)"** — citazione rimossa ovunque (docstring `bleu_reward`,
    README.md, TRAINING.md, docs/RESEARCH_REPORT.md, commenti in
-   base.yaml/grpo_optimal.yaml/grpo_experimental_all.yaml): la fonte non risulta
+   base.yaml/sft-grpo.yaml/sft-grpo-all-rewards.yaml): la fonte non risulta
    esistente (0 risultati su arXiv e web). Sostituita con RVLF (arXiv:2512.07273)
    e Mosquera et al. (arXiv:2508.19481), entrambe verificate.
 2. **"G²RPO-A (2026)"** come curriculum learning — attribuzione errata: il paper

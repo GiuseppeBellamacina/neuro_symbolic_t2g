@@ -472,7 +472,7 @@ gold_gloss)` in `src/rewards/t2g_rewards.py`, che calcola la distanza
    default, quindi **nessun cambio di comportamento se non richiamata
    esplicitamente** — il default di `build_t2g_reward_functions()` senza
    argomenti resta a 4 funzioni, invariato). Abilitata esplicitamente nei
-   config `experiments/configs/t2g/grpo_qwen05.yaml` e `.../sft.yaml` con
+   config `experiments/configs/t2g/sft-grpo.yaml` e `.../sft-only.yaml` con
    pesi ribilanciati:
    `weight_translation=0.30, weight_gold_structure=0.35,
 weight_gloss_order=0.15, weight_format=0.10, weight_repetition=0.10`
@@ -594,8 +594,8 @@ sessione precedente (§§3, 4, 5.3) sono state implementate:
   `weight_gloss_order` (default `0.0` — nessun cambio di comportamento se
   non richiamata esplicitamente; `build_t2g_reward_functions()` senza
   argomenti resta a 4 funzioni come prima).
-- `neuro_symbolic_t2g/experiments/configs/t2g/grpo_qwen05.yaml` e
-  `.../sft.yaml` — abilitato `weight_gloss_order: 0.15` con pesi
+- `neuro_symbolic_t2g/experiments/configs/t2g/sft-grpo.yaml` e
+  `.../sft-only.yaml` — abilitato `weight_gloss_order: 0.15` con pesi
   ribilanciati (`weight_translation: 0.40→0.30`,
   `weight_gold_structure: 0.40→0.35`, `weight_format`/`weight_repetition`
   invariati a `0.10` ciascuno; somma pesi = 1.0).
@@ -953,20 +953,20 @@ quality (ROUGE-L).
 
 Aggiunti due nuovi config di ablation:
 
-1. `experiments/configs/t2g/ablation/grpo_soft_viterbi.yaml` —
+1. `experiments/configs/t2g/sft-grpo-soft-viterbi.yaml` —
    testa `weight_soft_viterbi` al posto di `weight_gold_structure`.
-2. `experiments/configs/t2g/ablation/grpo_verifier_scaled.yaml` —
+2. `experiments/configs/t2g/sft-grpo.yaml` —
    testa `weight_verifier_scaled` (RECIPE) al posto di
    `weight_translation` + `weight_gold_structure`.
 
-Aggiornato anche `grpo_qwen05.yaml` con commenti per i nuovi weight
+Aggiornato anche `sft-grpo.yaml` con commenti per i nuovi weight
 keys di ablation (`weight_soft_viterbi`, `weight_verifier_scaled`,
 `weight_viterbi`, `weight_structure`) e `verifier_gamma` nella
 sezione `grammar.viterbi_diversity`.
 
-**File**: `experiments/configs/t2g/grpo_qwen05.yaml`,
-`experiments/configs/t2g/ablation/grpo_soft_viterbi.yaml`,
-`experiments/configs/t2g/ablation/grpo_verifier_scaled.yaml`
+**File**: `experiments/configs/t2g/sft-grpo.yaml`,
+`experiments/configs/t2g/sft-grpo-soft-viterbi.yaml`,
+`experiments/configs/t2g/sft-grpo.yaml`
 
 ### 11.4 Fix test falliti
 
@@ -1010,9 +1010,9 @@ moduli (`soft_viterbi_score`, `forward_log_probs`, `backward_log_probs`,
 1. `src/datasets/transition_matrix.py` — forward-backward, soft Viterbi (§11.1)
 2. `src/rewards/t2g_rewards.py` — soft_viterbi_distance_reward, verifier_scaled_reward (§11.1, §11.2)
 3. `src/utils/metrics.py` — check_gloss_validity repetition check (§11.4.2)
-4. `experiments/configs/t2g/grpo_qwen05.yaml` — ablation weight keys + verifier_gamma (§11.3)
-5. `experiments/configs/t2g/ablation/grpo_soft_viterbi.yaml` — nuovo config (§11.3)
-6. `experiments/configs/t2g/ablation/grpo_verifier_scaled.yaml` — nuovo config (§11.3)
+4. `experiments/configs/t2g/sft-grpo.yaml` — ablation weight keys + verifier_gamma (§11.3)
+5. `experiments/configs/t2g/sft-grpo-soft-viterbi.yaml` — nuovo config (§11.3)
+6. `experiments/configs/t2g/sft-grpo.yaml` — nuovo config (§11.3)
 7. `tests/test_rewards.py` — test soft Viterbi + verifier-scaled (§11.1, §11.2)
 8. `tests/test_grammar.py` — track_diagnostics=True nella sezione 5 (§11.4.1)
 9. `tests/test_metrics.py` — aggiornato assertion free_text (§11.4.2)
@@ -1037,7 +1037,7 @@ moduli (`soft_viterbi_score`, `forward_log_probs`, `backward_log_probs`,
 
 ## 12. Sessione 2026-07-08 (quarta parte): config ottimale e integrazione evaluation
 
-### 12.1 Config ottimale (`grpo_optimal.yaml`)
+### 12.1 Config ottimale (`sft-grpo.yaml`)
 
 Creato config omnicomprensivo per ottenere i migliori risultati:
 
@@ -1058,13 +1058,13 @@ Creato config omnicomprensivo per ottenere i migliori risultati:
 
 ```bash
 # Train + Eval (catena automatica)
-CONFIG=experiments/configs/t2g/grpo_optimal.yaml sbatch cluster/run_all.sh
+CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/run_all.sh
 
 # Solo training
-CONFIG=experiments/configs/t2g/grpo_optimal.yaml sbatch cluster/train.sh
+CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/train.sh
 
 # Solo evaluation
-CONFIG=experiments/configs/t2g/grpo_optimal.yaml sbatch cluster/eval.sh
+CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/eval.sh
 ```
 
 ### 12.2 Integrazione evaluation con BLEU e bootstrap CI
@@ -1095,13 +1095,13 @@ Aggiunti 3 nuovi ablation study al `--ablation` mode:
 
 - `grpo-soft-viterbi` — Soft Viterbi (ViterbiPlanNet DVL)
 - `grpo-verifier` — Verifier-Scaled (RECIPE)
-- `grpo-optimal` — Config ottimale completo
+- `sft-grpo` — Config ottimale completo
 
-Il default (senza `--ablation`) ora usa `grpo_optimal.yaml`.
+Il default (senza `--ablation`) ora usa `sft-grpo.yaml`.
 
 ### 12.6 File modificati in questa sessione (quarta parte)
 
-1. `experiments/configs/t2g/grpo_optimal.yaml` — nuovo config ottimale
+1. `experiments/configs/t2g/sft-grpo.yaml` — nuovo config ottimale
 2. `src/training/eval_t2g.py` — integrazione BLEU/CI + config-driven params
 3. `src/utils/metrics.py` — `compute_reward_breakdown` esteso con nuove reward
 4. `tests/test_metrics.py` — aggiornato assertion (8 keys)

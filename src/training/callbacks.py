@@ -51,6 +51,15 @@ class HighPrecisionLogCallback(TrainerCallback):
     with enough precision to see the actual values.
     """
 
+    def __init__(self) -> None:
+        # Running average of the logged GRPO batch rewards ("reward" key).
+        # Each trl logging event reports the MEAN reward of its batches; with
+        # equal batch sizes the running mean of event-means equals the
+        # overall mean. Restarted/resumed runs restart the average (it is a
+        # live monitoring aid, not a persisted metric).
+        self._reward_sum: float = 0.0
+        self._reward_count: int = 0
+
     def on_log(
         self,
         args: TrainingArguments,
@@ -68,18 +77,83 @@ class HighPrecisionLogCallback(TrainerCallback):
         print("  " + "  ".join(parts))
         # Live status file (logs/live_status.json) for the external monitor —
         # throttled internally; fail-safe (never breaks training).
-        live_status_set(
-            step=state.global_step,
-            loss=logs.get("loss"),
-            reward=logs.get("reward"),
-            lr=logs.get("learning_rate"),
-            epoch=(
-                round(float(logs["epoch"]), 4)
-                if logs.get("epoch") is not None
-                else None
-            ),
-            eval_loss=logs.get("eval_loss"),
-        )
+        #
+        # ONLY pass fields that are PRESENT in this log event: a partial log
+        # (e.g. the routine holdout eval emits {'eval_loss': …} with NO
+        # loss/lr/epoch, and some early/edge events carry only lr) must NOT
+        # overwrite the last valid train metrics with None — otherwise the
+        # monitor top bar loses the loss the moment an eval event arrives
+        # (or shows only lr for partial early logs). None in live_status_set
+        # is an explicit reset, so we filter it here.
+        fields: dict[str, Any] = {"step": state.global_step}
+        for log_key, status_key in (
+            ("loss", "loss"),
+            ("reward", "reward"),
+            ("learning_rate", "lr"),
+            ("eval_loss", "eval_loss"),
+        ):
+            value = logs.get(log_key)
+            if value is not None:
+                fields[status_key] = value
+        if logs.get("epoch") is not None:
+            fields["epoch"] = round(float(logs["epoch"]), 4)
+        # Running average of the GRPO batch rewards — the monitor shows it in
+        # the top bar ("avg reward") so the trend is visible at a glance.
+        reward = logs.get("reward")
+        if reward is not None:
+            self._reward_sum += float(reward)
+            self._reward_count += 1
+            fields["reward_avg"] = round(self._reward_sum / self._reward_count, 6)
+        live_status_set(**fields)
+
+    def on_prediction_step(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs: Any,
+    ) -> None:
+        """Routine in-train eval (SFT holdout): flag WITHOUT touching the
+        train step counter/metrics.
+
+        Called once per eval batch by transformers. Sets ``eval_active`` so
+        the monitor can show an ADDITIONAL 'routine eval in corso' line —
+        the train step/loss/lr in the top bar stay exactly as they were
+        (they are only updated by ``on_log``). Throttled internally by
+        live_status_set; fail-safe (never breaks training).
+        """
+        try:
+            if state.is_local_process_zero:
+                live_status_set(eval_active=True)
+        except Exception:
+            pass
+
+    def on_evaluate(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        metrics: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """End of the routine in-train eval: publish eval_loss, clear flag.
+
+        The printed line matches the format parsed by
+        ``src/utils/chain_monitor.py`` ("  step=N  eval_loss=…"). Train
+        metrics (loss/lr/step) are NOT touched: the next ``on_log`` owns
+        them.
+        """
+        try:
+            metrics = metrics or {}
+            eval_loss = metrics.get("eval_loss")
+            if eval_loss is not None:
+                print(f"  step={state.global_step}  eval_loss={float(eval_loss):.8f}")
+            live_status_set(
+                eval_active=False,
+                **({"eval_loss": float(eval_loss)} if eval_loss is not None else {}),
+            )
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -526,6 +600,14 @@ class CompletionSampleCallback(TrainerCallback):
                         ent = stats.get("avg_masked_entropy", 0.0)
                         ent_allowed = stats.get("avg_masked_entropy_allowed", 0.0)
 
+                        # NO explicit step=: unsloth's GRPO profiler + trl log
+                        # to wandb ~17x/step WITHOUT step=, racing the run's
+                        # internal step counter ahead of global_step. Our
+                        # explicit-step logs were then REJECTED ("Tried to
+                        # log to step N < current M" — 482 warnings in
+                        # slurm-train-7073) and the panel data DROPPED.
+                        # Auto-step keeps the data (panels use their own
+                        # xs for plots; scalars stay monotonic).
                         wandb.log(
                             {
                                 "grammar/masked_mass_avg": mass,
@@ -533,7 +615,6 @@ class CompletionSampleCallback(TrainerCallback):
                                 "grammar/masked_entropy_allowed_avg": ent_allowed,
                                 "grammar/masked_mass_steps": stats["total_steps"],
                             },
-                            step=step,
                         )
 
                         # ── Buffer & plot convergence diagnostics ────────
@@ -569,7 +650,6 @@ class CompletionSampleCallback(TrainerCallback):
                                         xname="Step",
                                     )
                                 },
-                                step=step,
                             )
                 except Exception:
                     logger.debug("Failed to log masked mass to wandb", exc_info=True)
@@ -607,13 +687,13 @@ class CompletionSampleCallback(TrainerCallback):
                             c: reward_sums[c] / n_samples for c in active_components
                         }
 
-                        # Log individual scalars
+                        # Log individual scalars (no explicit step= — see
+                        # grammar panel above for the auto-step rationale)
                         wandb.log(
                             {
                                 f"rewards/{comp}": reward_avgs[comp]
                                 for comp in active_components
                             },
-                            step=step,
                         )
 
                         # Buffer & plot reward breakdown panel
@@ -643,7 +723,6 @@ class CompletionSampleCallback(TrainerCallback):
                                         xname="Step",
                                     )
                                 },
-                                step=step,
                             )
                 except Exception:
                     logger.debug(

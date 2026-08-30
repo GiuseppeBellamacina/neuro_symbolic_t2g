@@ -5,7 +5,7 @@ e chiavi obbligatorie.
 Uso:
     python -m tests.validate_configs
     python -m tests.validate_configs --verbose
-    python -m tests.validate_configs --config experiments/configs/t2g/grpo_qwen05.yaml
+    python -m tests.validate_configs --config experiments/configs/t2g/sft-grpo.yaml
 
 I config vengono caricati via ``src.utils.config.resolve_config``, quindi le
 catene ``extends`` vengono risolte prima della validazione.

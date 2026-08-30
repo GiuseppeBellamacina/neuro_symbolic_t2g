@@ -1,0 +1,36 @@
+# ============================================================================
+# ZERO-SHOT — Base model senza constrained decoding (solo eval)
+#
+# Cella della tabella di decomposizione: modello base Qwen2.5-0.5B-Instruct
+# SENZA training e SENZA constrained decoding (nessuna vocabulary mask).
+# È il lower bound assoluto: quantifica quanto il modello sa fare da solo.
+#
+# Eval-only: NON ha training.output_dir → eval.sh gira in zero-shot
+# legittimo con --eval-baseline-only (NIENTE --compare: valuterebbe il
+# base model due volte). L'eval usa il set COMPLETO (evaluation.max_samples
+# eredita null da base) con num_samples=5, stesso protocollo delle celle
+# trainabili → tabella decomposizione confrontabile.
+#
+# Uso:
+#   CONFIG=experiments/configs/t2g/zero-shot.yaml sbatch cluster/eval.sh
+#   bash cluster/run_all.sh zero-shot            # via coda chain
+# ============================================================================
+
+extends: base.yaml
+
+# --- Unica differenza: constrained decoding OFF ---
+grammar:
+  enabled: false
+
+# --- Weights & Biases ---
+wandb:
+  run_name: "t2g-zero-shot"
+  tags:
+    [
+      "zero-shot",
+      "decomposition",
+      "no-grammar",
+      "eval-only",
+      "Qwen2.5-0.5B",
+      "ASL",
+    ]

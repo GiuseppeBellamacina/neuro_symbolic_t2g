@@ -15,8 +15,8 @@
 # run_all RIFIUTA e chiede chain-resume (o --force per ricominciare).
 #
 # Uso:
-#   bash cluster/run_all.sh                          # train+eval (default: grpo_optimal)
-#   bash cluster/run_all.sh grpo_qwen05              # train+eval con config specifico
+#   bash cluster/run_all.sh                          # train+eval (default: sft-grpo)
+#   bash cluster/run_all.sh sft-grpo              # train+eval con config specifico
 #   bash cluster/run_all.sh --ablation               # ablation study completo
 #   bash cluster/run_all.sh --eval-only              # solo evaluation
 #   bash cluster/run_all.sh --train-only             # solo training
@@ -26,31 +26,21 @@
 #   bash cluster/run_all.sh --force                  # azzera lo stato (catena interrotta)
 #
 # Config specifici (passa il nome senza .yaml):
-#   bash cluster/run_all.sh grpo_qwen05              # config base
-#   bash cluster/run_all.sh grpo_optimal             # config ottimale (default)
+#   bash cluster/run_all.sh sft-grpo              # config base
+#   bash cluster/run_all.sh sft-grpo             # config ottimale (default)
 #   bash cluster/run_all.sh sft                      # SFT baseline
 #   bash cluster/run_all.sh grpo_no_grammar          # ablation senza grammar
-#   (cerca in experiments/configs/t2g/ e experiments/configs/t2g/ablation/)
+#   (cerca in experiments/configs/t2g/ e experiments/configs/t2g/)
 #
-# Ablation Study (--ablation):
-#   1. Base Model Zero-shot (senza grammar)              [eval only]
-#   2. Base Model + GRAMMAR-LLM (con grammar, no training) [eval only]
-#   3. GRPO senza grammar (train + eval)
-#   4. GRPO senza SFT pre-training (train + eval)
-#   5. GRPO + GRAMMAR-LLM (train + eval — metodo base)
-#   6. SFT (train + eval — baseline supervisionata)
-#   7. GRPO + GrammarLLM PDA (train + eval — LL(1) constrained)
-#   8. GRPO + PDA + Token-Boundary Lookahead (train + eval — grammarllm v0.5.0)
-#   9. GRPO + Soft Viterbi (train + eval — DVL differentiable)
-#  10. GRPO + Verifier-Scaled (train + eval — RECIPE-inspired)
-#  11. GRPO + Experimental All Modules (train + eval — tutti i 9 moduli)
-#  12. GRPO + Optimal (train + eval — config ottimale v2.1)
-#
-# Monitorare:
-#   tail -f logs/chain_watcher.log           # log del tick/watcher
-#   monitor                                  # monitor live
-#   myjobs                                   # job attivo su SLURM
-#
+# Campagna (--ablation): decomposizione + ablation moduli + zero-shot
+#   1. GRPO-only (base, senza SFT)               [train + eval]
+#   2. SFT+GRPO pipeline principale              [train + eval]
+#   3-6. SFT+GRPO + singolo modulo sperimentale  [train + eval]
+#   7. SFT+GRPO + tutti i moduli                 [train + eval]
+#   8. SFT+GRPO senza constrained decoding       [train + eval]
+#   9. Zero-shot base (senza grammar)            [eval only]
+#  10. Zero-shot base + grammar                  [eval only]
+
 # Interrompere:
 #   chain-stop                               # ferma (preserva stato + tick at)
 #   killalljobs                              # cancella anche il job SLURM attivo
@@ -85,9 +75,9 @@ for arg in "$@"; do
             echo "Uso: bash cluster/run_all.sh [opzioni] [config_name]"
             echo ""
             echo "Opzioni:"
-            echo "  (nessun argomento)  Default: grpo_optimal (train + eval)"
-            echo "  config_name         Nome del config senza .yaml (es. grpo_qwen05)"
-            echo "  --ablation          Ablation study completo (12 varianti)"
+            echo "  (nessun argomento)  Default: sft-grpo (train + eval)"
+            echo "  config_name         Nome del config senza .yaml (es. sft-grpo)"
+            echo "  --ablation          Campagna completa (7 celle train+eval + 2 zero-shot)"
             echo "  --eval-only         Solo evaluation (skip training)"
             echo "  --train-only        Solo training (skip eval)"
             echo "  --resume            Riprendi dalla coda esistente (non richiede chain_failed)"
@@ -96,23 +86,21 @@ for arg in "$@"; do
             echo "  --force             Azzera lo stato anche se ci sono job pendenti"
             echo ""
             echo "Config disponibili (passa il nome senza .yaml):"
-            echo "  grpo_optimal           GRPO + tutti i moduli v2.1 (default, post-OOM-fix)"
-            echo "  grpo_qwen05            GRPO + grammar (config base)"
-            echo "  sft                    SFT supervised baseline"
-            echo "  grpo_experimental_all  GRPO + tutti i 9 moduli reward (experimental)"
-            echo "  grpo_no_grammar        Ablation: GRPO senza grammar"
-            echo "  grpo_no_sft            Ablation: GRPO senza SFT pre-training"
-            echo "  grpo_pda               Ablation: GRPO + PDA (LL(1) baseline)"
-            echo "  grpo_pda_lookahead     Ablation: GRPO + PDA + token-boundary lookahead (v0.5.0)"
-            echo "  grpo_soft_viterbi      Ablation: GRPO + Soft Viterbi"
-            echo "  grpo_verifier_scaled   Ablation: GRPO + Verifier-Scaled"
-            echo "  zero_shot              Ablation: zero-shot senza grammar"
-            echo "  zero_shot_grammar      Ablation: zero-shot con grammar"
+            echo "  sft-grpo               Pipeline principale SFT+GRPO (default)"
+            echo "  sft-only               SFT supervised da solo (cella decomposizione)"
+            echo "  grpo-only              GRPO dal base, senza SFT (cella decomposizione)"
+            echo "  sft-grpo-structure     SFT+GRPO + structural_dense (ablation moduli)"
+            echo "  sft-grpo-viterbi       SFT+GRPO + viterbi_distance (ablation moduli)"
+            echo "  sft-grpo-soft-viterbi  SFT+GRPO + soft_viterbi (ablation moduli)"
+            echo "  sft-grpo-all-rewards   SFT+GRPO + tutti e 3 i moduli sperimentali"
+            echo "  sft-grpo-no-grammar     SFT+GRPO senza constrained decoding"
+            echo "  zero-shot               Base model senza grammar (solo eval)"
+            echo "  zero-shot-grammar       Base model con grammar (solo eval)"
             echo ""
             echo "Esempi:"
-            echo "  bash cluster/run_all.sh grpo_qwen05              # train + eval con config base"
-            echo "  bash cluster/run_all.sh grpo_qwen05 --train-only  # solo training"
-            echo "  bash cluster/run_all.sh --ablation               # tutti i 12 config"
+            echo "  bash cluster/run_all.sh sft-grpo               # train + eval pipeline principale"
+            echo "  bash cluster/run_all.sh sft-grpo --train-only  # solo training"
+            echo "  bash cluster/run_all.sh --ablation             # tutte le 7 celle"
             exit 0
             ;;
         -*)  # ignora flag non riconosciuti
@@ -128,39 +116,37 @@ done
 
 # ── Modelli T2G ───────────────────────────────────────────────────────────────
 if [ "$ABLATION" -eq 1 ]; then
-    # Ablation study: 12 varianti in ordine (dai più semplici ai più complessi)
+    # Campagna di decomposizione + ablation moduli: 7 celle train+eval.
+    # Ordine ALLINEATO ad app.py:ABLATION_MODELS (il TUI batch usa la stessa
+    # lista). sft-only NON è in coda: la sua cella si valuta con l'adapter
+    # già addestrato della pipeline (CHECKPOINT esplicito, vedi sft-only.yaml).
     # Formato: TAG:CONFIG[:MODE]
     # MODE: te=train+eval (default), e=eval-only, t=train-only
     MODELS=(
-        "zero-shot:experiments/configs/t2g/ablation/zero_shot.yaml:e"
-        "zero-shot-gram:experiments/configs/t2g/ablation/zero_shot_grammar.yaml:e"
-        "grpo-no-grammar:experiments/configs/t2g/ablation/grpo_no_grammar.yaml:te"
-        "grpo-no-sft:experiments/configs/t2g/ablation/grpo_no_sft.yaml:te"
-        "grpo-grammar:experiments/configs/t2g/grpo_qwen05.yaml:te"
-        "sft:experiments/configs/t2g/sft.yaml:te"
-        "grpo-pda:experiments/configs/t2g/ablation/grpo_pda.yaml:te"
-        "grpo-pda-lookahead:experiments/configs/t2g/ablation/grpo_pda_lookahead.yaml:te"
-        "grpo-soft-viterbi:experiments/configs/t2g/ablation/grpo_soft_viterbi.yaml:te"
-        "grpo-verifier:experiments/configs/t2g/ablation/grpo_verifier_scaled.yaml:te"
-        "grpo-experimental-all:experiments/configs/t2g/grpo_experimental_all.yaml:te"
-        "grpo-optimal:experiments/configs/t2g/grpo_optimal.yaml:te"
+        "grpo-only:experiments/configs/t2g/grpo-only.yaml:te"
+        "sft-grpo:experiments/configs/t2g/sft-grpo.yaml:te"
+        "sft-grpo-soft-viterbi:experiments/configs/t2g/sft-grpo-soft-viterbi.yaml:te"
+        "sft-grpo-all-rewards:experiments/configs/t2g/sft-grpo-all-rewards.yaml:te"
+        "sft-grpo-structure:experiments/configs/t2g/sft-grpo-structure.yaml:te"
+        "sft-grpo-viterbi:experiments/configs/t2g/sft-grpo-viterbi.yaml:te"
+        "sft-grpo-no-grammar:experiments/configs/t2g/sft-grpo-no-grammar.yaml:te"
+        "zero-shot:experiments/configs/t2g/zero-shot.yaml:e"
+        "zero-shot-grammar:experiments/configs/t2g/zero-shot-grammar.yaml:e"
     )
 elif [ -n "$CONFIG_NAME" ]; then
-    # Config specifico passato come argomento (es. "grpo_qwen05")
-    # Cerca in experiments/configs/t2g/ e experiments/configs/t2g/ablation/
+    # Config specifico passato come argomento (es. "sft-grpo")
+    # Cerca in experiments/configs/t2g/
     CONFIG_PATH=""
-    for dir in "experiments/configs/t2g" "experiments/configs/t2g/ablation"; do
-        for ext in ".yaml" ""; do
-            candidate="${dir}/${CONFIG_NAME}${ext}"
-            if [ -f "$candidate" ]; then
-                CONFIG_PATH="$candidate"
-                break 2
-            fi
-        done
+    for ext in ".yaml" ""; do
+        candidate="experiments/configs/t2g/${CONFIG_NAME}${ext}"
+        if [ -f "$candidate" ]; then
+            CONFIG_PATH="$candidate"
+            break
+        fi
     done
     if [ -z "$CONFIG_PATH" ]; then
         echo "❌ Config non trovato: $CONFIG_NAME"
-        echo "   Cercato in: experiments/configs/t2g/ e experiments/configs/t2g/ablation/"
+        echo "   Cercato in: experiments/configs/t2g/"
         echo "   Usa: bash cluster/run_all.sh --help per la lista dei config"
         exit 1
     fi
@@ -168,9 +154,8 @@ elif [ -n "$CONFIG_NAME" ]; then
     TAG=$(basename "$CONFIG_PATH" .yaml | tr '_' '-')
     MODELS=("${TAG}:${CONFIG_PATH}")
 else
-    # Default: config ottimale. Il TAG deve essere COERENTE col config
-    # (il default storico "qwen05" non matchano output_dir/clean_model).
-    MODELS=("grpo-optimal:experiments/configs/t2g/grpo_optimal.yaml")
+    # Default: pipeline principale SFT+GRPO.
+    MODELS=("sft-grpo:experiments/configs/t2g/sft-grpo.yaml")
 fi
 
 mkdir -p "$STATE_DIR" logs

@@ -7,6 +7,7 @@ Uses standard HuggingFace backend (transformers + peft + bitsandbytes).
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -25,6 +26,40 @@ from transformers import (
 from src.utils.distributed import is_main_process
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Offline-first source resolution
+# ---------------------------------------------------------------------------
+
+
+def resolve_model_source(model_name: str) -> str:
+    """Return a LOCAL path when ``model_name`` is a hub id with a cached
+    snapshot, else the original value.
+
+    Why: transformers 5.3's tokenizer init calls ``model_info()`` (network)
+    for non-local ids via ``_patch_mistral_regex`` — on DNS-less compute
+    nodes this CRASHES the job (slurm-eval-7077:
+    ``httpx.ConnectError: [Errno -3] Temporary failure in name
+    resolution``) and where DNS is flaky it wastes ~30s of HEAD retries
+    per load.  Loading from a local path short-circuits the check
+    (``is_local``) and reads straight from disk.
+
+    With ``HF_HUB_OFFLINE=1`` (exported by cluster/train.sh and eval.sh)
+    transformers skips the check anyway (``is_offline_mode() →
+    is_local=True``); this helper is defense-in-depth for runs without
+    that env var (e.g. local dev, direct ``python -m`` invocations).
+    """
+    if not model_name or Path(model_name).exists():
+        return model_name  # already a local path (or empty)
+    try:
+        from huggingface_hub import snapshot_download
+
+        return snapshot_download(model_name, local_files_only=True)
+    except Exception:
+        # Not cached (fresh setup — network required there anyway) or
+        # huggingface_hub unavailable: fall back to the original id.
+        return model_name
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +169,11 @@ def load_tokenizer(model_name: str) -> Any:
     """
     if is_main_process():
         logger.info(f"Loading tokenizer: {model_name}")
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    # Local snapshot when cached → skips transformers 5.3's network
+    # mistral-check + HEAD retries on DNS-less nodes (see resolve_model_source).
+    tokenizer = AutoTokenizer.from_pretrained(
+        resolve_model_source(model_name), trust_remote_code=True
+    )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         logger.info(
@@ -169,7 +208,8 @@ def load_model(
         )
 
     model = AutoModelForCausalLM.from_pretrained(
-        model_name,
+        # Local snapshot when cached (offline-first, see resolve_model_source)
+        resolve_model_source(model_name),
         quantization_config=quant_config,
         dtype=torch_dtype,  # transformers 5.3.0: 'torch_dtype' → 'dtype'
         device_map=device_map,

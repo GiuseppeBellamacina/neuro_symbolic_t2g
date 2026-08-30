@@ -1,19 +1,19 @@
 # ============================================================================
 # BASE CONFIG — Parti comuni a tutti i config T2G (ereditata via `extends`)
 #
-# Ogni config specifico inizia con `extends: base.yaml` (o `../base.yaml`
-# dagli ablation/) e sovrascrive SOLO le proprie differenze. La resolution
+# Ogni config specifico inizia con `extends: base.yaml` e sovrascrive
+# SOLO le proprie differenze. La resolution
 # avviene in src/utils/config.py::resolve_config (deep merge: i dict annidati
 # vengono fusi ricorsivamente, liste e scalari vengono sostituiti).
 #
 # RIALLINEAMENTO IPERPARAMETRI (reference GRPO che converge):
-#   - grpo.beta            = 0.04  (era 0.0 nei config "optimal"/"pda_lookahead")
+#   - grpo.beta            = 0.04  (storicamente 0.0: KL a 0 e policy drift senza ancora)
 #   - grpo.temperature     = 0.7   (era 0.9)
 #   - training.max_grad_norm = 0.1 (era 0.05)
 #   - learning_rate        = 3e-6  (invariato)
 #   - warmup_steps         = 200   (invariato)
 #   Motivazione: i valori provengono dal config di riferimento GRPO
-#   convergente (grpo_qwen05). Con beta=0 la KL verso il reference model
+#   convergente di riferimento. Con beta=0 la KL verso il reference model
 #   restava a 0 e il policy driftava senza ancora; temperature=0.9 rendeva i
 #   rollout troppo rumorosi e max_grad_norm=0.05 troppo conservativo.
 #   I config che vogliono valori diversi li sovrascrivono esplicitamente.
@@ -21,7 +21,7 @@
 # NOTA: `extends` viene rimosso dal dict fuso — i trainer non lo vedono mai.
 #
 # NOTA SFT pre-training (Phase 0): i config con `sft_pretrain.enabled: true`
-# (es. grpo_optimal.yaml) attivano l'SFT prima del GRPO. Il riuso
+# (es. sft-grpo.yaml) attivano l'SFT prima del GRPO. Il riuso
 # dell'adapter SFT è ATTIVO di default (`sft_pretrain.reuse_adapter: true`):
 # se sul cluster esiste già un adapter SFT con la stessa fingerprint (stessa
 # config SFT: modello/lora/dataset/prompt/iperparametri), viene riusato senza
@@ -40,7 +40,7 @@ model:
 
 # --- LoRA adapters ---
 # r=32/alpha=64/dropout 0.05 = profilo "optimal". I config più leggeri
-# (es. grpo_qwen05) sovrascrivono r/lora_alpha/lora_dropout.
+# (es. sft-only.yaml) sovrascrivono r/lora_alpha/lora_dropout.
 lora:
   r: 32
   lora_alpha: 64
@@ -134,7 +134,7 @@ grammar:
     max_iters: 3
 
 # --- Curriculum Learning (disabilitato di default) ---
-# I config che lo usano (grpo_optimal, grpo_pda_lookahead) lo attivano.
+# I config che lo usano (sft-grpo e le sue celle di ablation) lo attivano.
 curriculum:
   enabled: false
 
@@ -144,7 +144,7 @@ evaluation:
   max_samples: null # override per config (es. 500 per eval rapida)
   num_samples: 5 # 5 completions per prompt per Pass@k
   # Best-of-N selection: seleziona il miglior completamento per prompt.
-  # I config eval-only (zero_shot*) o leggeri lo disabilitano.
+  # I config piu` leggeri lo disabilitano.
   best_of_n: true
 
 # --- Few-shot retrieval (opzionale, anti-leakage) ---
@@ -165,7 +165,7 @@ evaluation:
 # Con il few-shot attivo alzare grpo.max_prompt_length (es. 768): 3 esempi
 # (~40-60 token l'uno) + query superano i 256 token di default.
 retrieval:
-  enabled: false # few-shot OFF di default; attivo in grpo_optimal.yaml
+  enabled: false # few-shot OFF di default; attivo in sft-grpo.yaml
   backend: "tfidf"
   model_name: null # solo per backend "minilm" (default: all-MiniLM-L6-v2)
   top_k: 3 # esempi per prompt

@@ -139,7 +139,7 @@ ckpts() {
 
 # Lancia training (uso: train [--config PATH] [extra args...])
 train() {
-    local config="experiments/configs/t2g/grpo_qwen05.yaml"
+    local config="experiments/configs/t2g/sft-grpo.yaml"
     local extra_args=""
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -152,7 +152,7 @@ train() {
 
 # Lancia eval (uso: run-eval [--config PATH] [--checkpoint PATH])
 run-eval() {
-    local config="experiments/configs/t2g/grpo_qwen05.yaml"
+    local config="experiments/configs/t2g/sft-grpo.yaml"
     local checkpoint=""
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -323,7 +323,7 @@ chain-stop() {
     fi
 
     # Config ATTIVO dallo stato: ultimo job loggato o testa della coda.
-    # Il vecchio hardcode di grpo_qwen05 faceva ripartire chain-start col
+    # Il vecchio hardcode di sft-grpo faceva ripartire chain-start col
     # config SBAGLIATO — ora il config è sempre quello reale della catena.
     local st_type="" st_cfg="" st_tag="" entry="" last=""
     if [ -s "$STATE_DIR/last_job" ]; then
@@ -590,25 +590,26 @@ diego() {
     echo ""
     echo "── Training & eval ──"
     echo "   train [--config PATH] [extra args...]"
-    echo "                     — lancia training (default: experiments/configs/t2g/grpo_qwen05.yaml)"
+    echo "                     — lancia training (default: experiments/configs/t2g/sft-grpo.yaml)"
     echo "   run-eval [--config PATH] [--checkpoint PATH]"
     echo "                     — lancia evaluation"
     echo "   run-all [config_name] [--ablation|--train-only|--eval-only|--resume|--append|--force]"
     echo "                     — lancia pipeline train+eval (hook/watcher; at solo se presente)"
     echo ""
     echo "   Config disponibili (passa il nome senza .yaml):"
-    echo "     grpo_optimal            GRPO v2.1 (default, post-OOM-fix)"
-    echo "     grpo_qwen05             GRPO base"
+    echo "     sft-grpo            GRPO v2.1 (default, post-OOM-fix)"
+    echo "     sft-grpo             GRPO base"
     echo "     sft                     SFT baseline"
-    echo "     grpo_experimental_all   GRPO + all 9 reward modules"
-    echo "     grpo_pda                Ablation: GRPO + PDA"
-    echo "     grpo_pda_lookahead      Ablation: GRPO + PDA + token-boundary lookahead (v0.5.0)"
-    echo "     grpo_no_grammar         Ablation: GRPO senza grammar"
-    echo "     grpo_no_sft             Ablation: GRPO senza SFT"
-    echo "     grpo_soft_viterbi       Ablation: GRPO + Soft Viterbi"
-    echo "     grpo_verifier_scaled    Ablation: GRPO + Verifier-Scaled"
-    echo "     zero_shot               Ablation: zero-shot"
-    echo "     zero_shot_grammar       Ablation: zero-shot + grammar"
+    echo "     sft-grpo-all-rewards   GRPO + all 9 reward modules"
+    echo "     sft-only               SFT supervised da solo (decomposizione)"
+    echo "     grpo-only              GRPO senza SFT (decomposizione)"
+    echo "     sft-grpo-structure     SFT+GRPO + structural_dense (ablation)"
+    echo "     sft-grpo-viterbi       SFT+GRPO + viterbi_distance (ablation)"
+    echo "     sft-grpo-soft-viterbi  SFT+GRPO + soft_viterbi (ablation)"
+    echo "     sft-grpo-all-rewards   SFT+GRPO + tutti i moduli sperimentali"
+    echo "     sft-grpo-no-grammar    SFT+GRPO senza constrained decoding
+    echo "     zero-shot              Base model senza grammar (solo eval)"
+    echo "     zero-shot-grammar      Base model con grammar (solo eval)"
     echo ""
     echo "── Pipeline (tick-based) ──"
     echo "   chain-show   — mostra stato pipeline + job in coda"

@@ -267,22 +267,24 @@ ablation-summary  # alias dopo source cluster/aliases.sh
 
 ### 7.1 Ablation Matrix
 
-| #   | Config                    | Training | Grammar          | Reward                          | Scopo                         |
-| --- | ------------------------- | -------- | ---------------- | ------------------------------- | ----------------------------- |
-| 1   | `grpo_optimal`            | GRPO+SFT | Trie             | 7 reward [-1,1] + BLEU-4       | Config ottimale v2.1          |
-| 2   | `grpo_experimental_all`   | GRPO+SFT | Trie             | 10 reward (all modules)        | Full reward ablation          |
-| 3   | `grpo_qwen05`             | GRPO+SFT | Trie             | 4 reward                       | Config base                   |
-| 4   | `sft`                     | SFT      | Trie (eval)      | —                               | Baseline supervisionata       |
-| 5   | `zero_shot`               | ❌       | ❌               | translation (1.0)              | Lower bound                   |
-| 6   | `zero_shot_grammar`       | ❌       | Trie             | translation (1.0)              | Grammar senza training        |
-| 7   | `grpo_no_grammar`         | GRPO     | ❌               | 4 reward                       | GRPO senza constrained dec.   |
-| 8   | `grpo_no_sft`             | GRPO     | Trie             | 6 reward                       | SFT ablation                  |
-| 9   | `grpo_pda`                | GRPO     | PDA LL(1)        | 4 reward                       | GRPO + PDA baseline           |
-| 10  | `grpo_pda_lookahead` ⭐   | GRPO+SFT | PDA + lookahead  | 7 reward + BLEU-4              | GRPO + native BPE emission    |
-| 11  | `grpo_soft_viterbi`       | GRPO+SFT | Trie             | +soft_viterbi                   | Soft Viterbi ablation         |
-| 12  | `grpo_verifier_scaled`    | GRPO+SFT | Trie             | +verifier_scaled               | Verifier ablation             |
+| #   | Config                    | Training | Grammar | Reward                      | Scopo                             |
+| --- | ------------------------- | -------- | ------- | --------------------------- | --------------------------------- |
+| 1   | `sft-grpo`                | GRPO+SFT | Trie    | 7 reward [-1,1] + BLEU-4   | Pipeline principale (controllo)   |
+| 2   | `sft-only`                | SFT      | Trie (eval) | —                       | Decomposizione: SFT da solo       |
+| 3   | `grpo-only`               | GRPO     | Trie    | 7 reward + BLEU-4           | Decomposizione: GRPO senza SFT    |
+| 4   | `sft-grpo-structure`      | GRPO+SFT | Trie    | core ×0.90 + structure 0.10 | Ablation: structural_dense       |
+| 5   | `sft-grpo-viterbi`        | GRPO+SFT | Trie    | core ×0.90 + viterbi 0.10   | Ablation: viterbi_distance       |
+| 6   | `sft-grpo-soft-viterbi`   | GRPO+SFT | Trie    | core ×0.90 + soft_viterbi 0.10 | Ablation: soft_viterbi (DVL) |
+| 7   | `sft-grpo-all-rewards`    | GRPO+SFT | Trie    | core ×0.80 + 3 moduli 0.20  | Ablation: tutti i moduli         |
+| 8   | `sft-grpo-no-grammar`     | GRPO+SFT | —       | 7 reward + BLEU-4           | Constrained decoding OFF         |
+| 9   | `zero-shot`              | —        | —       | —                           | Base model (lower bound)         |
+| 10  | `zero-shot-grammar`       | —        | Trie    | —                           | Base + grammar (solo eval)       |
 
-### 7.2 Config Optimal v2.1 (`grpo_optimal.yaml`)
+La baseline zero-shot del `--compare` coincide con `zero-shot-grammar`
+(stesso modello, stesso contesto prompt): l'eval job di quella cella
+produce l'artifact autonomo per la riga "Base + grammar".
+
+### 7.2 Config Optimal v2.1 (`sft-grpo.yaml`)
 
 - LoRA r=32, alpha=64
 - 7 reward simmetriche [-1, 1] + BLEU-4 (somma=1.0)
@@ -291,35 +293,16 @@ ablation-summary  # alias dopo source cluster/aliases.sh
 - gradient_checkpointing=true (OOM mitigation)
 - num_generations=8 (post-OOM-fix)
 
-### 7.3 Config PDA + Lookahead (`grpo_pda_lookahead.yaml`) ⭐ NUOVO
+### 7.3 Config No-Grammar (`sft-grpo-no-grammar.yaml`)
 
-- use_grammarllm_pda=true + token_lookahead=true
-- Sfrutta grammarllm v0.5.0: StatelessLogitsProcessor + VocabTrie lookahead
-- Il modello emette token BPE nativi invece di spelling
-- Confrontare con grpo_optimal (Trie) per misurare il delta del lookahead
+- Pipeline identica a `sft-grpo` ma `grammar.enabled: false`
+- Quantifica ESATTAMENTE il contributo del constrained decoding
+  (Trie dual-root) sul risultato finale
+- Confrontare con `sft-grpo` per misurare il delta del constrained decoding
 
----
-
-## 8. grammarllm v0.5.0 (Migrazione)
-
-Il progetto usa la libreria `grammarllm` per il constrained decoding via PDA.
-Versione precedente: snapshot pre-release vendored (v0.4.x). Versione attuale:
-**v0.5.0** con:
-
-- **StatelessLogitsProcessor** (784 righe): cache LRU + re-simulation, beam-search safe
-- **Token-boundary lookahead** (`lookahead.py`): VocabTrie per native BPE token emission
-- **Beam search support**: `num_beams > 1` con re-simulation
-- **5 bug fix** (BUG-13 start_symbol configurable, BUG-17 cross-row conflict check,
-  BUG-20 clone() invece di deepcopy, BUG-4/19 EOS validation, BUG-16 duplicate-key assert)
-- **6 file di test** (16+ test di regressione)
-- **Bound check** per token IDs fuori range (Qwen eos_token_id=151643 ≥ vocab_size=151643)
-
-Documentazione completa in `docs/GRAMMARLLM_CONFRONTO.md` e
-`docs/GRAMMARLLM_MIGRAZIONE.md`.
-
----
-
-## 9. Cluster Pipeline
+Nota: i config PDA (Trie-vs-PDA, grammarllm) non sono in campagna -
+rigenerabili in 5 righe con `extends: sft-grpo.yaml` +
+`use_grammarllm_pda: true` quando servirà il confronto.
 
 ### 9.1 Architettura
 

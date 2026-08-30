@@ -5,9 +5,9 @@
 # Rileva automaticamente il tipo di training dal YAML (training.trainer: sft|grpo).
 #
 # Uso:
-#   CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/train.sh
-#   CONFIG=experiments/configs/t2g/sft.yaml sbatch cluster/train.sh
-#   CONFIG=experiments/configs/t2g/grpo_qwen05.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+#   CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/train.sh
+#   CONFIG=experiments/configs/t2g/sft-only.yaml sbatch cluster/train.sh
+#   CONFIG=experiments/configs/t2g/sft-grpo.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 #
 # Per il primo avvio eseguire prima:  bash cluster/setup.sh
 # ============================================================================
@@ -31,7 +31,7 @@ EXTRA_ARGS="${EXTRA_ARGS:-}"
 
 if [ -z "$CONFIG" ]; then
     echo "❌ CONFIG non impostato. Uso:"
-    echo "  CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/train.sh"
+    echo "  CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/train.sh"
     exit 1
 fi
 
@@ -72,6 +72,15 @@ export PYTHONUNBUFFERED=1
 # training silenzioso su dati mancanti).
 prepare_data
 
+# ── Offline-first: i compute node NON hanno DNS ──────────────────────────────
+# Tutto il necessario è pre-cacheato da setup.sh/prepare_data. Senza questi
+# export ogni richiesta hub costa ~30s di retry (HEAD dataset/modello, lookup
+# peft al save) o può CRASHARE (transformers 5.3 tokenizer _patch_mistral_regex
+# → model_info → ConnectError, vedi slurm-eval-7077). Con HF_HUB_OFFLINE=1
+# transformers tratta ogni modello come locale e salta i check di rete.
+# DOPO prepare_data: il fallback download al primo avvio conserva la rete.
+export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1
+
 echo ""
 echo "Avvio training..."
 echo ""
@@ -82,6 +91,9 @@ if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
     apptainer run --nv \
         --env WANDB_MODE=offline \
         --env PYTHONUNBUFFERED=1 \
+        --env HF_HUB_OFFLINE=1 \
+        --env TRANSFORMERS_OFFLINE=1 \
+        --env HF_DATASETS_OFFLINE=1 \
         --env PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8 \
         /shared/sifs/latest.sif \
         python -m src.training --config "${CONFIG}" ${EXTRA_ARGS}

@@ -40,7 +40,7 @@ R_total = w_translation       × R_translation
         + w_repetition         × R_repetition
 ```
 
-Ogni componente restituisce un punteggio che viene poi pesato e sommato. I pesi sono configurabili via YAML (vedi [Configurazione](#configurazione)). La config `grpo_experimental_all.yaml` attiva tutti i 9 moduli con pesi bilanciati (somma = 1.0).
+Ogni componente restituisce un punteggio che viene poi pesato e sommato. I pesi sono configurabili via YAML (vedi [Configurazione](#configurazione)). La config `sft-grpo-all-rewards.yaml` attiva tutti i 9 moduli con pesi bilanciati (somma = 1.0).
 
 **Stato globale condiviso**:
 
@@ -246,7 +246,7 @@ Per training GRPO produttivo, usare **`gold_structure_reward`** (Reward 3). `vit
 
 **Funzione**: `soft_viterbi_distance_reward(completion, normalize=True) → float`
 
-**Peso default**: `weight_soft_viterbi = 0.0` (attivo in `grpo_optimal` e `grpo_experimental_all`)
+**Peso default**: `weight_soft_viterbi = 0.0` (attivo in `sft-grpo` e `sft-grpo-all-rewards`)
 
 ### Scopo
 
@@ -275,7 +275,7 @@ dove $\text{soft\_viterbi\_log\_prob} = \log Z$ è la log-partition function.
 
 **Funzione**: `verifier_scaled_reward(completion, gold_gloss) → float`
 
-**Peso default**: `weight_verifier_scaled = 0.0` (attivo in `grpo_optimal` e `grpo_experimental_all`)
+**Peso default**: `weight_verifier_scaled = 0.0` (attivo in `sft-grpo` e `sft-grpo-all-rewards`)
 
 ### Scopo
 
@@ -316,7 +316,7 @@ Il parametro `verifier_temperature` (default 5.0, in `grammar.viterbi_diversity`
 
 **Funzione**: `gloss_order_reward(completion, gold_gloss) → float`
 
-**Peso default**: `weight_gloss_order = 0.0` (attivo in `grpo_optimal` e `grpo_experimental_all`)
+**Peso default**: `weight_gloss_order = 0.0` (attivo in `sft-grpo` e `sft-grpo-all-rewards`)
 
 ### Scopo
 
@@ -423,7 +423,7 @@ Penalizzare sequenze degenerate con token ripetuti (loop). Durante GRPO, il mode
 
 ## Configurazione
 
-### YAML Config (`experiments/configs/t2g/grpo_qwen05.yaml`)
+### YAML Config (`experiments/configs/t2g/sft-grpo.yaml`)
 
 ```yaml
 reward:
@@ -517,5 +517,5 @@ Versione ottimizzata del Viterbi diversificato che restituisce **solo il puntegg
 - **Codice**: `src/rewards/t2g_rewards.py` — tutte le funzioni di reward
 - **Matrice di transizione**: `src/datasets/transition_matrix.py` — bigram matrix + Viterbi
 - **Test**: `tests/test_rewards.py` — test per tutte le reward
-- **Config**: `experiments/configs/t2g/grpo_qwen05.yaml` — pesi configurabili
+- **Config**: `experiments/configs/t2g/sft-grpo.yaml` — pesi configurabili
 - **Dataset**: `src/datasets/aslg_dataset.py` — ASLG-PC12, vocabolario gloss

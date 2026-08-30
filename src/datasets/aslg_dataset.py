@@ -121,12 +121,14 @@ def download_aslg_dataset(
     cache = cache_dir or DEFAULT_CACHE_DIR
     logger.info(f"Loading dataset '{DATASET_NAME}' (cache: {cache})...")
 
-    # Compute nodes have NO internet (DNS failure): the hub check must never
-    # be the reason a training job dies. HF_DATASETS_OFFLINE=1 makes
-    # load_dataset go straight to the local cache (populated by cluster/
-    # setup.sh on a node WITH network) instead of retrying HEAD requests
-    # 5 times (~30s of timeouts) or crashing. When the cache is genuinely
-    # missing the error is the same clear "Failed to load dataset".
+    # NOTE (offline-first): the REAL offline enforcement lives in
+    # cluster/train.sh + cluster/eval.sh (export HF_HUB_OFFLINE=1 +
+    # TRANSFORMERS_OFFLINE=1, set before python starts — huggingface_hub
+    # reads these at import time). The setdefault below is only a
+    # belt-and-braces for old `datasets` stacks: datasets >= 3 ignores
+    # HF_DATASETS_OFFLINE (proven by the HEAD retries in
+    # slurm-train-7073/7077 despite this line), and it must stay
+    # setdefault-only so setup.sh's first download keeps network access.
     os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
     try:

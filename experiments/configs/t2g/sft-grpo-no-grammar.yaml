@@ -1,0 +1,42 @@
+# ============================================================================
+# SFT-GRPO NO-GRAMMAR — constrained decoding OFF (cella constrained decoding)
+#
+# Cella per il capitolo "constrained decoding": la pipeline SFT+GRPO
+# identica a sft-grpo (stessi iperparametri, curriculum, retrieval, reward)
+# MA SENZA la vocabulary mask / Trie durante i rollout GRPO e l'eval.
+# Differenza a fattore unico: grammar.enabled: false → quantifica ESATTAMENTE
+# il contributo del constrained decoding sul risultato finale.
+#
+# RISCRITTA (v2): la versione precedente (eliminata) usava iperparametri
+# non allineati (LoRA r=16, 1500 step,
+# lr=5e-6, G=4, reward storiche) — non confrontabile con la pipeline
+# principale. Questa cella eredita TUTTO da sft-grpo.yaml.
+#
+# Uso:
+#   CONFIG=experiments/configs/t2g/sft-grpo-no-grammar.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: sft-grpo.yaml
+
+# --- Unica differenza: constrained decoding OFF ---
+grammar:
+  enabled: false
+
+# --- Directory dedicate ---
+training:
+  output_dir: "experiments/checkpoints/qwen25-05b-sft-grpo-no-grammar"
+  log_dir: "experiments/logs/qwen25-05b-sft-grpo-no-grammar"
+
+# --- Weights & Biases ---
+wandb:
+  run_name: "t2g-sft-grpo-no-grammar"
+  tags:
+    [
+      "sft-grpo-no-grammar",
+      "decomposition",
+      "no-constrained-decoding",
+      "curriculum",
+      "retrieval",
+      "Qwen2.5-0.5B",
+      "ASL",
+    ]

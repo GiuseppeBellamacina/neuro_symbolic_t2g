@@ -14,8 +14,8 @@ Architecture:
        to ASL gloss tokens only.
 
 Usage:
-    python -m src.training --config experiments/configs/t2g/grpo_qwen05.yaml
-    CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/train.sh
+    python -m src.training --config experiments/configs/t2g/sft-grpo.yaml
+    CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/train.sh
 """
 
 from __future__ import annotations
@@ -552,7 +552,9 @@ class CurriculumCallback(TrainerCallback):
             )
             print(f"{'=' * 60}\n")
 
-            # Log curriculum metrics to wandb
+            # Log curriculum metrics to wandb (no explicit step= — auto-step:
+            # explicit steps get rejected/dropped when unsloth's profiler
+            # races the run's internal counter, see callbacks.py)
             try:
                 import wandb
 
@@ -562,7 +564,6 @@ class CurriculumCallback(TrainerCallback):
                             "curriculum/stage": float(current_stage + 1),
                             "curriculum/difficulty_distribution": distribution,
                         },
-                        step=state.global_step,
                     )
             except Exception:
                 logger.debug("Failed to log curriculum metrics to wandb", exc_info=True)
@@ -648,6 +649,12 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("datasets").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
+    # HF libraries attach their own StreamHandler AND propagate to root —
+    # every library warning printed twice (slurm-train-7073). Strip the
+    # library-owned handlers so each record prints exactly once.
+    from src.utils.log_dedup import dedupe_library_loggers
+
+    dedupe_library_loggers()
 
     # ── Set random seeds for reproducibility ─────────────────────────────
     seed = config["dataset"].get("seed", 42)
@@ -713,8 +720,10 @@ def main() -> None:
         live_status_set(phase="sft", note="SFT pre-training")
 
         from src.training.sft_train import (
+            clone_sft_adapter,
             compute_sft_fingerprint,
             find_reusable_sft_adapter,
+            find_reusable_sft_adapter_cross_tag,
             is_complete_adapter_dir,
             run_sft,
         )
@@ -766,8 +775,15 @@ def main() -> None:
                 )
         elif reuse_adapter and not args.force_sft:
             fingerprint = compute_sft_fingerprint(sft_config)
-            # Sibling runs of the same model checkpoint root, e.g.
-            # experiments/checkpoints/qwen25-05b-optimal/run_*/sft_pretrain/final.
+            # Search order: (1) sibling runs of the SAME tag, e.g.
+            # experiments/checkpoints/qwen25-05b-sft-grpo/run_*/sft_pretrain/final;
+            # (2) ANY other tag under experiments/checkpoints/ — a new tag
+            # config with an IDENTICAL sft_pretrain section (e.g.
+            # sft-grpo-all-rewards) trains a bit-identical SFT, so we reuse
+            # the existing adapter and skip the ~1h retrain (the fingerprint
+            # is tag-independent: model/lora/dataset/hyperparams/system prompt).
+            # Cross-tag matches are COPIED into this run's sft_pretrain/final
+            # so the run stays self-contained.
             model_root = Path(config["training"]["output_dir"]).parent
             found = find_reusable_sft_adapter(model_root, fingerprint)
             if found is not None:
@@ -777,6 +793,24 @@ def main() -> None:
                     f"{Path(reused_adapter).parent.parent.name} "
                     "(fingerprint match) — skipping SFT training"
                 )
+            else:
+                cross = find_reusable_sft_adapter_cross_tag(
+                    model_root.parent, model_root, fingerprint
+                )
+                if cross is not None:
+                    src_adapter, src_tag = cross
+                    dest = (
+                        Path(config["training"]["output_dir"])
+                        / "sft_pretrain"
+                        / "final"
+                    )
+                    clone_sft_adapter(src_adapter, dest)
+                    reused_adapter = str(dest)
+                    print(
+                        f"  Reusing SFT adapter from tag '{src_tag}' "
+                        "(identical SFT config — fingerprint match), "
+                        f"copied to {dest} — skipping SFT training"
+                    )
 
         if reused_adapter is not None:
             sft_adapter_path = reused_adapter

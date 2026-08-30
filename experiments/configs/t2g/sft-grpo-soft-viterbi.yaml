@@ -1,0 +1,54 @@
+# ============================================================================
+# ABLATION CELL — + soft_viterbi (1 dei 3 moduli sperimentali, da solo)
+#
+# Cella dell'ablation dei moduli sperimentali sulla pipeline SFT+GRPO
+# (sft-grpo = controllo). Differenza a fattore unico: 10% della massa
+# reward spostata su soft_viterbi (pesi core diluiti ×0.90, proporzioni
+# invariate — vedi sft-grpo-structure.yaml per il rationale).
+#
+# soft_viterbi v2 (gold-anchored): gap vs la log-partition (forward su tutti
+# i cammini di quella lunghezza, ispirato al DVL di ViterbiPlanNet),
+# ancorato al gap del gold. Log-partition cachata per lunghezza.
+# È il modulo più "novel" dei tre (relaxation differenziale) → il
+# rappresentante preferito se si dovesse sceglierne UNO.
+#
+# Uso:
+#   CONFIG=experiments/configs/t2g/sft-grpo-soft-viterbi.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: sft-grpo.yaml
+
+# --- Directory dedicate ---
+training:
+  output_dir: "experiments/checkpoints/qwen25-05b-sft-grpo-soft-viterbi"
+  log_dir: "experiments/logs/qwen25-05b-sft-grpo-soft-viterbi"
+
+# --- Reward: core ×0.90 + modulo in test 0.10 (somma = 1.0) ---
+reward:
+  weight_translation: 0.18
+  weight_bleu: 0.18
+  weight_gold_structure: 0.18
+  weight_gloss_order: 0.09
+  weight_verifier_scaled: 0.09
+  weight_format: 0.09
+  weight_repetition: 0.09
+  # ── modulo sperimentale in test ──
+  weight_soft_viterbi: 0.10
+
+# --- Weights & Biases ---
+wandb:
+  run_name: "t2g-sft-grpo-soft-viterbi"
+  tags:
+    [
+      "grpo",
+      "T2G",
+      "ablation",
+      "soft-viterbi",
+      "dvl-inspired",
+      "gold-anchored-v2",
+      "curriculum",
+      "retrieval",
+      "constrained-decoding",
+      "Qwen2.5-0.5B",
+      "ASL",
+    ]

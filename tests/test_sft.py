@@ -21,8 +21,10 @@ import yaml
 from datasets import Dataset
 from src.training.sft_train import (
     _build_prompt_completion_example,
+    clone_sft_adapter,
     compute_sft_fingerprint,
     find_reusable_sft_adapter,
+    find_reusable_sft_adapter_cross_tag,
     is_complete_adapter_dir,
     split_eval_holdout,
     write_sft_fingerprint,
@@ -34,7 +36,7 @@ SFT_CONFIG_PATH = (
     / "experiments"
     / "configs"
     / "t2g"
-    / "sft.yaml"
+    / "sft-only.yaml"
 )
 
 
@@ -277,8 +279,8 @@ def _sft_fingerprint_config(**training_overrides: object) -> dict:
             },
         },
         "training": {
-            "output_dir": "experiments/checkpoints/qwen25-05b-optimal",
-            "log_dir": "experiments/logs/qwen25-05b-optimal",
+            "output_dir": "experiments/checkpoints/qwen25-05b-sft-grpo",
+            "log_dir": "experiments/logs/qwen25-05b-sft-grpo",
             "run_timestamp": "20260714_233901",
             "max_steps": 2000,
         },
@@ -488,6 +490,81 @@ def test_find_reusable_sft_adapter_newer_wrong_does_not_shadow(tmp_path) -> None
     older_correct = _make_adapter_run(tmp_path, "run_a", fp, mtime=datetime(2024, 1, 1))
     _make_adapter_run(tmp_path, "run_b", "deadbeef", mtime=datetime(2026, 6, 1))
     assert find_reusable_sft_adapter(tmp_path, fp) == older_correct
+
+
+# --- Cross-tag reuse (sft-grpo-all-rewards reuses optimal's SFT) ----------
+
+
+def test_find_reusable_sft_adapter_cross_tag_match(tmp_path) -> None:
+    """A NEW tag with an identical sft_pretrain section finds the adapter
+    trained under a DIFFERENT tag (job 7078 retrained it needlessly)."""
+    ckpts = tmp_path / "checkpoints"
+    fp = compute_sft_fingerprint(_sft_fingerprint_config())
+    adapter = _make_adapter_run(ckpts / "qwen25-05b-sft-grpo", "run_1", fp)
+    (ckpts / "qwen25-05b-sft-grpo-all-rewards").mkdir(parents=True)
+
+    found = find_reusable_sft_adapter_cross_tag(
+        ckpts, ckpts / "qwen25-05b-sft-grpo-all-rewards", fp
+    )
+    assert found == (adapter, "qwen25-05b-sft-grpo")
+
+
+def test_find_reusable_sft_adapter_cross_tag_excludes_current(tmp_path) -> None:
+    """The current tag's dir is excluded (already searched same-tag)."""
+    ckpts = tmp_path / "checkpoints"
+    fp = compute_sft_fingerprint(_sft_fingerprint_config())
+    _make_adapter_run(ckpts / "tagA", "run_1", fp)
+    (ckpts / "tagB").mkdir()
+
+    assert find_reusable_sft_adapter_cross_tag(ckpts, ckpts / "tagA", fp) is None
+
+
+def test_find_reusable_sft_adapter_cross_tag_no_match(tmp_path) -> None:
+    """Different fingerprints under every other tag → None."""
+    ckpts = tmp_path / "checkpoints"
+    fp = compute_sft_fingerprint(_sft_fingerprint_config())
+    _make_adapter_run(ckpts / "tagA", "run_1", "deadbeef")
+    (ckpts / "tagB").mkdir()
+    assert find_reusable_sft_adapter_cross_tag(ckpts, ckpts / "tagB", fp) is None
+    assert (
+        find_reusable_sft_adapter_cross_tag(ckpts / "missing", ckpts / "tagB", fp)
+        is None
+    )
+
+
+def test_find_reusable_sft_adapter_cross_tag_prefers_newest(tmp_path) -> None:
+    """Multiple matching tags → the most recently modified adapter wins."""
+    from datetime import datetime
+
+    ckpts = tmp_path / "checkpoints"
+    fp = compute_sft_fingerprint(_sft_fingerprint_config())
+    old = _make_adapter_run(ckpts / "tagA", "run_1", fp, mtime=datetime(2024, 1, 1))
+    new = _make_adapter_run(ckpts / "tagC", "run_1", fp, mtime=datetime(2026, 6, 1))
+    (ckpts / "tagB").mkdir()
+
+    found = find_reusable_sft_adapter_cross_tag(ckpts, ckpts / "tagB", fp)
+    assert found == (new, "tagC")
+    assert found != (old, "tagA")
+
+
+def test_clone_sft_adapter_copies_files_only(tmp_path) -> None:
+    """clone_sft_adapter makes the new run self-contained: adapter files +
+    fingerprint copied, checkpoint-*/wandb subdirs skipped."""
+    src = _make_adapter_run(tmp_path / "tagA", "run_1", "fp")
+    (src / "checkpoint-200").mkdir()
+    (src / "checkpoint-200" / "adapter_model.safetensors").write_bytes(b"x")
+    (src / "wandb").mkdir()
+
+    dest = tmp_path / "tagB" / "run_2" / "sft_pretrain" / "final"
+    out = clone_sft_adapter(src, dest)
+
+    assert out == dest
+    assert is_complete_adapter_dir(dest)
+    assert (dest / "sft_fingerprint.json").is_file()
+    assert not (dest / "checkpoint-200").exists()
+    assert not (dest / "wandb").exists()
+    # The clone is itself findable by the SAME-TAG search of future runs:
+    assert find_reusable_sft_adapter(dest.parent.parent.parent, "fp") == dest
 
 
 def test_grpo_cli_force_sft_flag() -> None:

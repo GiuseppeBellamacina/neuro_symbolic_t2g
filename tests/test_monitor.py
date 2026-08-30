@@ -485,3 +485,73 @@ def test_live_table_skips_sample_blocks(monkeypatch, capsys):
     assert "COMPLETION SAMPLES" not in out, "COMPLETION block skipped"
     assert "1.2346" in out, "first KV row rendered"
     assert "1.1111" in out, "second KV row rendered"
+
+
+# ---------------------------------------------------------------------------
+# HighPrecisionLogCallback: live-status fields (reward_avg, None filtering)
+# ---------------------------------------------------------------------------
+
+
+class _FakeState:
+    def __init__(self, step: int = 5):
+        self.global_step = step
+        self.is_local_process_zero = True
+
+
+def test_high_precision_callback_reward_running_avg(monkeypatch, capsys):
+    """on_log accumulates the running mean of logged GRPO rewards; partial
+    logs (routine eval, no reward) never reset or overwrite it."""
+    from src.training import callbacks as cb
+
+    captured: list[dict] = []
+    monkeypatch.setattr(cb, "live_status_set", lambda **kw: captured.append(kw))
+
+    c = cb.HighPrecisionLogCallback()
+    c.on_log(
+        None,
+        _FakeState(5),
+        None,
+        logs={"loss": 1.0, "reward": 0.5, "learning_rate": 1e-6},
+    )
+    c.on_log(
+        None,
+        _FakeState(10),
+        None,
+        logs={"loss": 0.9, "reward": 0.7, "learning_rate": 1e-6},
+    )
+    # Routine-eval log: NO reward/loss/lr — must not touch reward_avg/loss/lr
+    c.on_log(None, _FakeState(10), None, logs={"eval_loss": 0.3})
+
+    with_reward = [k for k in captured if "reward_avg" in k]
+    assert with_reward[-1]["reward_avg"] == 0.6, "mean(0.5, 0.7) = 0.6"
+    last = captured[-1]
+    assert "reward_avg" not in last, "partial log must not touch reward_avg"
+    assert "loss" not in last and "lr" not in last, "partial log must not reset loss/lr"
+    assert last["eval_loss"] == 0.3 and last["step"] == 10
+
+    # Third reward event continues the SAME running average
+    c.on_log(None, _FakeState(15), None, logs={"loss": 0.8, "reward": 0.9})
+    with_reward = [k for k in captured if "reward_avg" in k]
+    assert with_reward[-1]["reward_avg"] == 0.7, "mean(0.5, 0.7, 0.9) = 0.7"
+
+
+def test_high_precision_callback_sft_logs_have_no_reward_avg(monkeypatch, capsys):
+    """SFT logs (no 'reward' key) never produce reward_avg — the avg stays
+    absent so the TUI shows nothing extra during SFT."""
+    from src.training import callbacks as cb
+
+    captured: list[dict] = []
+    monkeypatch.setattr(cb, "live_status_set", lambda **kw: captured.append(kw))
+
+    c = cb.HighPrecisionLogCallback()
+    for step, loss in ((10, 3.4), (20, 3.0)):
+        c.on_log(
+            None,
+            _FakeState(step),
+            None,
+            logs={"loss": loss, "learning_rate": 2e-5, "epoch": 0.01},
+        )
+
+    assert all("reward_avg" not in k for k in captured)
+    assert all("reward" not in k for k in captured)
+    assert captured[-1]["loss"] == 3.0

@@ -101,7 +101,7 @@ Lo script (rilancia se stesso dentro srun + Apptainer):
 
 - Installa le dipendenze da `pyproject.toml`
   (`pip install --user -e ".[retrieval]"`): core **include scikit-learn**
-  (backend retrieval tfidf, default in `grpo_optimal.yaml`) + extra
+  (backend retrieval tfidf, default in `sft-grpo.yaml`) + extra
   `retrieval` (sentence-transformers); l'extra `dev` (formattazione/test) è
   escluso di proposito
 - Scarica il dataset ASLG-PC12 (~50 MB), estrae il vocabolario gloss (15K
@@ -183,7 +183,7 @@ grpo:
 ```bash
 cd ~/neuro_symbolic_t2g
 mkdir -p logs
-CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/train.sh
+CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/train.sh
 ```
 
 Il checkpoint viene salvato in `experiments/checkpoints/<model>/run_<timestamp>/`
@@ -192,7 +192,7 @@ Il checkpoint viene salvato in `experiments/checkpoints/<model>/run_<timestamp>/
 ### 5.2. Evaluation su checkpoint
 
 ```bash
-CONFIG=experiments/configs/t2g/grpo_qwen05.yaml CHECKPOINT=experiments/checkpoints/qwen25-05b/run_20260403_120000/final sbatch cluster/eval.sh
+CONFIG=experiments/configs/t2g/sft-grpo.yaml CHECKPOINT=experiments/checkpoints/qwen25-05b/run_20260403_120000/final sbatch cluster/eval.sh
 ```
 
 Senza `CHECKPOINT`, `eval.sh` **auto-detecta** il checkpoint con
@@ -200,13 +200,13 @@ Senza `CHECKPOINT`, `eval.sh` **auto-detecta** il checkpoint con
 `yaml.safe_load` sul solo file figlio). Se la config dichiara
 `training.output_dir` ma il checkpoint non esiste, l'eval **FALLISCE LOUD**
 (exit 1) invece di fare zero-shot silenzioso su un modello non addestrato.
-Solo i config eval-only (es. `zero_shot.yaml`, senza `output_dir`) girano
-legittimamente in zero-shot.
+La valutazione zero-shot legittima è la baseline del `--compare`
+(calcolata dentro il job eval stesso).
 
 ### 5.3. Riprendere da un checkpoint
 
 ```bash
-CONFIG=experiments/configs/t2g/grpo_qwen05.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+CONFIG=experiments/configs/t2g/sft-grpo.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 ```
 
 ---
@@ -214,7 +214,7 @@ CONFIG=experiments/configs/t2g/grpo_qwen05.yaml EXTRA_ARGS="--resume" sbatch clu
 ## 6. Chain / Pipeline orchestration
 
 > **Questa è la parte centrale.** La catena è un file `~/.chain_state/job_chain`
-> (una entry `type:config:tag[:extra]` per riga, es. `train:experiments/configs/t2g/grpo_optimal.yaml:grpo-optimal`).
+> (una entry `type:config:tag[:extra]` per riga, es. `train:experiments/configs/t2g/sft-grpo.yaml:sft-grpo`).
 > Un **tick one-shot idempotente** (`cluster/chain_tick.sh`) la fa avanzare di
 > un passo per invocazione e NON esiste più un daemon long-lived da tenere vivo.
 
@@ -295,9 +295,9 @@ command -v at          # vuoto = ok, non serve; installa comunque l'hook
 | La catena si ferma quando ti scolleghi | hook bashrc non installato (gcluster non ha `at`) | `chain-hook-install && source ~/.bashrc` (PRIMARIO) |
 | `atq` vuoto | normale su gcluster: `at` NON è disponibile | ignorare: il watcher parte da solo; per la resilienza usare l'hook bashrc |
 | Eval che prima girava "zero-shot senza errori" | checkpoint mancante | ora è FAIL LOUD: addestra prima, oppure passa `CHECKPOINT=` esplicito |
-| `chain-stop`/`chain-start` col config sbagliato | hardcode grpo_qwen05 | risolto: il config è letto da `.chain_state` (`last_job`/testa coda) |
+| `chain-stop`/`chain-start` col config sbagliato | hardcode sft-grpo | risolto: il config è letto da `.chain_state` (`last_job`/testa coda) |
 | Training `ModuleNotFoundError: sklearn` | ambiente pip --user non allineato al pyproject | `pip-reset` (clean + reinstall da `pyproject.toml`) |
-| `clean-model grpo-optimal` non trovava nulla | glob/nome sbagliato | ora mappa tag→output_dir dai config e i log SLURM via sacct |
+| `clean-model sft-grpo` non trovava nulla | glob/nome sbagliato | ora mappa tag→output_dir dai config e i log SLURM via sacct |
 
 ### 6.5. Retry automatico (TIMEOUT / OOM / CUDA)
 
@@ -355,11 +355,11 @@ l'hook bashrc come fallback; se vuoi l'unico driver = Render, rimuovilo con
 # Carica gli alias (una volta per sessione)
 source ~/neuro_symbolic_t2g/cluster/aliases.sh
 
-# Avvia pipeline train+eval (default: grpo_optimal)
+# Avvia pipeline train+eval (default: sft-grpo)
 run-all            # alias per: bash cluster/run_all.sh
 
 # Oppure con un config specifico / ablation:
-run-all grpo_qwen05
+run-all sft-grpo
 run-all --ablation
 ```
 
@@ -468,7 +468,7 @@ sotto `experiments/checkpoints/`):
 │   │   │   ├── checkpoint-200/
 │   │   │   └── final/
 │   │   └── latest -> run_20260403_120000
-│   └── qwen25-05b-optimal/
+│   └── qwen25-05b-sft-grpo/
 │       └── ...
 ├── experiments/results/<model>/<run_id>/    (eval JSON)
 ├── experiments/figures/<model>/<run_id>/    (plot)
@@ -486,7 +486,7 @@ La catena reinserisce automaticamente il training con `EXTRA_ARGS="--resume"`
 (max 2 tentativi). Manualmente:
 
 ```bash
-CONFIG=experiments/configs/t2g/grpo_qwen05.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+CONFIG=experiments/configs/t2g/sft-grpo.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 ```
 
 ### Resume di una catena interrotta
@@ -597,8 +597,8 @@ Oppure riduci `gpu_memory_utilization` nel config.
 
 La config dichiara `training.output_dir` ma non esiste alcun checkpoint:
 il modello non è stato addestrato (oppure `output_dir` non è quello atteso).
-Addestra prima, oppure passa `CHECKPOINT=<path>` esplicito. I config eval-only
-(`zero_shot*`) non hanno `output_dir` e girano in zero-shot senza questo errore.
+Addestra prima, oppure passa `CHECKPOINT=<path>` esplicito. La baseline
+zero-shot del `--compare` non richiede checkpoint: è il modello base.
 
 ### Dataset non trovato
 
@@ -655,8 +655,8 @@ rm data/bigram_transition.npy data/bigram_transition.npy.meta.json
 clean                     # dry-run
 clean --force             # cancella (PRESERVA data/retriever_index* e *.meta.json)
 clean --force --all-cache # cancella anche le cache costose (rebuild TF-IDF ~minuti)
-clean-model grpo-optimal  # dry-run per un modello (accetta tag o nome cartella)
-clean-model grpo-optimal --all   # cancella davvero
+clean-model sft-grpo  # dry-run per un modello (accetta tag o nome cartella)
+clean-model sft-grpo --all   # cancella davvero
 ```
 
 ---
@@ -675,7 +675,7 @@ install-aliases
 chain-hook-install && source ~/.bashrc                  # PRIMARIO: resilienza della catena
 
 # === OGNI VOLTA ===
-run-all                  # oppure: run-all grpo_qwen05 / run-all --ablation
+run-all                  # oppure: run-all sft-grpo / run-all --ablation
 monitor                  # monitor live
 # se la catena si ferma: chain-resume
 .\sync_cluster.ps1 -Action download                     # scarica i risultati

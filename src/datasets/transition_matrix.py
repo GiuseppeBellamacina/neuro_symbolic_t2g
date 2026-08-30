@@ -550,33 +550,51 @@ def compute_diverse_viterbi_path(
 
     V = transition_matrix.shape[0]
     small_eps = 1e-10
-    penalty_matrix = transition_matrix.copy()
+
+    # ── Vectorized max-plus DP ────────────────────────────────────────────
+    # The previous implementation recomputed np.log over a full V-length
+    # column INSIDE the per-state loop — O(L·V²) log evaluations per decode
+    # (~21G ops on the 15518² matrix) plus a 963 MB matrix copy. That was
+    # the main cause of the 391 s/it GRPO steps in run 7078.
+    # Here: the log matrix is computed ONCE per call, the DP is a single
+    # (V, V) max-plus per trellis step, and the diversity penalties are
+    # applied additively in log space (log(p·0.3) = log p + log 0.3).
+    # NOTE: the self-loop penalty applies ONLY to intermediate transitions
+    # (the original never penalized the final step into end_idx) — it is
+    # subtracted on the diagonal of the per-step score matrix instead of
+    # being baked into log_mat.
+    log_mat = np.log(np.maximum(transition_matrix, small_eps)).astype(np.float32)
+    diag = np.arange(V)
 
     # Exclude special tokens (BOS, EOS) from diversity checks
     special_tokens = {start_idx, end_idx}
 
+    dp = np.full((length, V), -np.inf, dtype=np.float32)
+    backtrack = np.zeros((length, V), dtype=np.int32)
+    dp[0, start_idx] = 0.0
+
+    # Defensive init (the loop below always returns or binds these, but
+    # max_iters=-1 would skip it entirely).
+    path: list[int] = [start_idx, end_idx]
+    viterbi_log_prob = float("-inf")
+
     for iteration in range(max_iters + 1):
-        # ── DP with self-loop penalty ──────────────────────────────────
-        dp = np.full((length, V), -np.inf, dtype=np.float64)
-        backtrack = np.zeros((length, V), dtype=np.int32)
-        dp[0, start_idx] = 0.0
-
+        # ── DP with self-loop penalty (vectorized) ────────────────────
+        # dp[t, s] = max_prev (dp[t-1, prev] + log_mat[prev, s])
         for t in range(1, length - 1):
-            for s in range(V):
-                trans_log = np.log(np.maximum(penalty_matrix[:, s], small_eps))
-                # Apply self-loop penalty
-                trans_log[s] -= self_loop_penalty
-                scores = dp[t - 1, :] + trans_log
-                best_prev = int(np.argmax(scores))
-                dp[t, s] = scores[best_prev]
-                backtrack[t, s] = best_prev
+            scores = dp[t - 1][:, np.newaxis] + log_mat  # (V, V)
+            # Self-loop penalty on intermediate transitions only (prev==s)
+            scores[diag, diag] -= np.float32(self_loop_penalty)
+            best_prev = scores.argmax(axis=0)  # (V,)
+            dp[t, :] = scores[best_prev, diag]
+            backtrack[t, :] = best_prev
 
-        # Final step: into end_idx
+        # Final step: into end_idx — NO self-loop penalty (matches the
+        # original implementation's semantics).
         t_final = length - 1
-        trans_log = np.log(np.maximum(penalty_matrix[:, end_idx], small_eps))
-        scores = dp[t_final - 1, :] + trans_log
-        best_prev = int(np.argmax(scores))
-        dp[t_final, end_idx] = scores[best_prev]
+        final_scores = dp[t_final - 1] + log_mat[:, end_idx]
+        best_prev = int(np.argmax(final_scores))
+        dp[t_final, end_idx] = final_scores[best_prev]
         backtrack[t_final, end_idx] = best_prev
 
         viterbi_log_prob = float(dp[t_final, end_idx])
@@ -627,9 +645,10 @@ def compute_diverse_viterbi_path(
             return path, viterbi_log_prob
 
         # Reduce self-transition probabilities for over-represented
-        # tokens to discourage them from being chosen again.
+        # tokens to discourage them from being chosen again
+        # (prob-space ×0.3 == log-space +log 0.3).
         for token_idx in overrep:
-            penalty_matrix[token_idx, token_idx] *= 0.3
+            log_mat[token_idx, token_idx] += np.float32(np.log(0.3))
         logger.debug(
             "Diverse Viterbi iteration %d: penalizing %d over-represented "
             "tokens (diversity=%.3f)",

@@ -49,6 +49,7 @@ _BASE_PAYLOAD: dict[str, Any] = {
     "total_steps": None,
     "loss": None,
     "reward": None,
+    "reward_avg": None,  # running mean of logged GRPO rewards (callback-side)
     "lr": None,
     "eval_loss": None,
     "eval_loss_best": None,

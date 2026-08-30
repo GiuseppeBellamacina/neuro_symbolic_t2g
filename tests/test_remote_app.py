@@ -25,37 +25,30 @@ import remote.app as app_module
 
 AUTH = {"X-Auth-Token": "test-token"}
 
-# Ordine ESATTO di cluster/run_all.sh:134-147 (TAG:CONFIG:MODE) — se cambia,
-# aggiornare sia app.ABLATION_MODELS sia questa lista.
+# Ordine ESATTO di remote/app.py:ABLATION_MODELS (= cluster/run_all.sh) -
+# se cambia, aggiornare sia app.ABLATION_MODELS sia questa lista.
 EXPECTED_ABLATION_MODELS: list[tuple[str, str, str]] = [
-    ("zero-shot", "experiments/configs/t2g/ablation/zero_shot.yaml", "e"),
-    ("zero-shot-gram", "experiments/configs/t2g/ablation/zero_shot_grammar.yaml", "e"),
-    ("grpo-no-grammar", "experiments/configs/t2g/ablation/grpo_no_grammar.yaml", "te"),
-    ("grpo-no-sft", "experiments/configs/t2g/ablation/grpo_no_sft.yaml", "te"),
-    ("grpo-grammar", "experiments/configs/t2g/grpo_qwen05.yaml", "te"),
-    ("sft", "experiments/configs/t2g/sft.yaml", "te"),
-    ("grpo-pda", "experiments/configs/t2g/ablation/grpo_pda.yaml", "te"),
+    ("grpo-only", "experiments/configs/t2g/grpo-only.yaml", "te"),
+    ("sft-grpo", "experiments/configs/t2g/sft-grpo.yaml", "te"),
     (
-        "grpo-pda-lookahead",
-        "experiments/configs/t2g/ablation/grpo_pda_lookahead.yaml",
+        "sft-grpo-soft-viterbi",
+        "experiments/configs/t2g/sft-grpo-soft-viterbi.yaml",
         "te",
     ),
     (
-        "grpo-soft-viterbi",
-        "experiments/configs/t2g/ablation/grpo_soft_viterbi.yaml",
+        "sft-grpo-all-rewards",
+        "experiments/configs/t2g/sft-grpo-all-rewards.yaml",
         "te",
     ),
+    ("sft-grpo-structure", "experiments/configs/t2g/sft-grpo-structure.yaml", "te"),
+    ("sft-grpo-viterbi", "experiments/configs/t2g/sft-grpo-viterbi.yaml", "te"),
     (
-        "grpo-verifier",
-        "experiments/configs/t2g/ablation/grpo_verifier_scaled.yaml",
+        "sft-grpo-no-grammar",
+        "experiments/configs/t2g/sft-grpo-no-grammar.yaml",
         "te",
     ),
-    (
-        "grpo-experimental-all",
-        "experiments/configs/t2g/grpo_experimental_all.yaml",
-        "te",
-    ),
-    ("grpo-optimal", "experiments/configs/t2g/grpo_optimal.yaml", "te"),
+    ("zero-shot", "experiments/configs/t2g/zero-shot.yaml", "e"),
+    ("zero-shot-grammar", "experiments/configs/t2g/zero-shot-grammar.yaml", "e"),
 ]
 
 
@@ -297,8 +290,8 @@ def test_shq_preserves_unit_separator():
 def test_status_format_after_tick(client):
     test_client, fake = client
     fake.active_job = "12345|train-foo|RUNNING"
-    fake.queue = ["train:experiments/configs/t2g/grpo_optimal.yaml:run1"]
-    fake.last_job = "12345:train:experiments/configs/t2g/grpo_optimal.yaml:run1:0"
+    fake.queue = ["train:experiments/configs/t2g/sft-grpo.yaml:run1"]
+    fake.last_job = "12345:train:experiments/configs/t2g/sft-grpo.yaml:run1:0"
 
     resp = test_client.post("/tick", headers=AUTH)
     assert resp.status_code == 200
@@ -320,13 +313,13 @@ def test_status_format_after_tick(client):
         "name": "train-foo",
         "state": "RUNNING",
     }
-    assert body["queue"] == ["train:experiments/configs/t2g/grpo_optimal.yaml:run1"]
+    assert body["queue"] == ["train:experiments/configs/t2g/sft-grpo.yaml:run1"]
     assert body["stopped"] is False
     assert body["cluster_reachable"] is True
     assert any(e["type"] == "tick" for e in body["events"])
 
     st = test_client.get("/status", headers=AUTH).json()
-    assert st["queue"] == ["train:experiments/configs/t2g/grpo_optimal.yaml:run1"]
+    assert st["queue"] == ["train:experiments/configs/t2g/sft-grpo.yaml:run1"]
     assert st["cluster_reachable"] is True
     assert st["last_tick_at"]
 
@@ -381,21 +374,19 @@ def test_jobs_add_and_list(client):
     resp = test_client.post(
         "/jobs",
         headers=AUTH,
-        json={"type": "train", "config": "grpo_optimal", "tag": "run1"},
+        json={"type": "train", "config": "sft-grpo", "tag": "run1"},
     )
     assert resp.status_code == 201
-    assert (
-        resp.json()["added"] == "train:experiments/configs/t2g/grpo_optimal.yaml:run1"
-    )
-    assert fake.queue == ["train:experiments/configs/t2g/grpo_optimal.yaml:run1"]
+    assert resp.json()["added"] == "train:experiments/configs/t2g/sft-grpo.yaml:run1"
+    assert fake.queue == ["train:experiments/configs/t2g/sft-grpo.yaml:run1"]
     assert " enqueue " in fake.commands[-1]
 
     jobs = test_client.get("/jobs", headers=AUTH).json()
     assert jobs == [
         {
-            "entry": "train:experiments/configs/t2g/grpo_optimal.yaml:run1",
+            "entry": "train:experiments/configs/t2g/sft-grpo.yaml:run1",
             "type": "train",
-            "config": "experiments/configs/t2g/grpo_optimal.yaml",
+            "config": "experiments/configs/t2g/sft-grpo.yaml",
             "tag": "run1",
             "extra": None,
         }
@@ -405,23 +396,20 @@ def test_jobs_add_and_list(client):
 def test_jobs_tag_derived_and_mode(client):
     test_client, _ = client
     resp = test_client.post(
-        "/jobs", headers=AUTH, json={"type": "eval", "config": "zero_shot"}
+        "/jobs", headers=AUTH, json={"type": "eval", "config": "sft-only"}
     )
     assert resp.status_code == 201
-    assert (
-        resp.json()["added"]
-        == "eval:experiments/configs/t2g/ablation/zero_shot.yaml:zero-shot"
-    )
+    assert resp.json()["added"] == "eval:experiments/configs/t2g/sft-only.yaml:sft-only"
 
     resp = test_client.post(
         "/jobs",
         headers=AUTH,
-        json={"type": "train", "config": "grpo_qwen05", "tag": "x", "mode": "--resume"},
+        json={"type": "train", "config": "grpo-only", "tag": "x", "mode": "--resume"},
     )
     assert resp.status_code == 201
     assert (
         resp.json()["added"]
-        == "train:experiments/configs/t2g/grpo_qwen05.yaml:x:--resume"
+        == "train:experiments/configs/t2g/grpo-only.yaml:x:--resume"
     )
 
 
@@ -455,7 +443,7 @@ def test_queue_replace_ablation_shortcut(client):
     resp = test_client.post("/queue", headers=AUTH, json={"ablation": True})
     assert resp.status_code == 200
     body = resp.json()
-    assert body["count"] == 22  # 12 config → 2 eval-only + 10 train+eval
+    assert body["count"] == 16  # 7 celle train+eval + 2 zero-shot eval-only
     expected = _ablation_queue()
     assert body["queue"] == expected
     assert fake.queue == expected
@@ -469,15 +457,15 @@ def test_queue_replace_explicit_jobs(client):
         headers=AUTH,
         json={
             "jobs": [
-                {"type": "eval", "config": "zero_shot"},
-                {"type": "train", "config": "grpo_qwen05", "tag": "exp1"},
+                {"type": "eval", "config": "sft-only"},
+                {"type": "train", "config": "grpo-only", "tag": "exp1"},
             ]
         },
     )
     assert resp.status_code == 200
     assert resp.json()["queue"] == [
-        "eval:experiments/configs/t2g/ablation/zero_shot.yaml:zero-shot",
-        "train:experiments/configs/t2g/grpo_qwen05.yaml:exp1",
+        "eval:experiments/configs/t2g/sft-only.yaml:sft-only",
+        "train:experiments/configs/t2g/grpo-only.yaml:exp1",
     ]
 
 
@@ -503,9 +491,9 @@ def test_delete_jobs_by_tag(client):
         headers=AUTH,
         json={
             "jobs": [
-                {"type": "train", "config": "grpo_optimal", "tag": "t1"},
-                {"type": "eval", "config": "grpo_optimal", "tag": "t1"},
-                {"type": "eval", "config": "zero_shot", "tag": "t2"},
+                {"type": "train", "config": "sft-grpo", "tag": "t1"},
+                {"type": "eval", "config": "sft-grpo", "tag": "t1"},
+                {"type": "eval", "config": "sft-only", "tag": "t2"},
             ]
         },
     )
@@ -513,9 +501,9 @@ def test_delete_jobs_by_tag(client):
     assert resp.status_code == 200
     assert resp.json()["removed"] == 2
     assert resp.json()["status"]["queue"] == [
-        "eval:experiments/configs/t2g/ablation/zero_shot.yaml:t2"
+        "eval:experiments/configs/t2g/sft-only.yaml:t2"
     ]
-    assert fake.queue == ["eval:experiments/configs/t2g/ablation/zero_shot.yaml:t2"]
+    assert fake.queue == ["eval:experiments/configs/t2g/sft-only.yaml:t2"]
 
 
 def test_delete_jobs_unknown_tag_no_rewrite(client):
@@ -526,7 +514,7 @@ def test_delete_jobs_unknown_tag_no_rewrite(client):
     assert resp.status_code == 200
     assert resp.json()["removed"] == 0
     assert len(fake.commands) == n_before + 1  # solo lo status, niente rewrite
-    assert len(fake.queue) == 22
+    assert len(fake.queue) == 16
 
 
 # ── /pause / /resume ───────────────────────────────────────────────────────────
@@ -646,7 +634,7 @@ def _fake_with_live(fake, live: dict | None) -> None:
 def test_monitor_uses_live_status_when_present(client):
     """LIVE_STATUS valido → job_detail da live (source=live) + samples dal live."""
     test_client, fake = client
-    fake.active_job = "12345|train-grpo-optimal|RUNNING"
+    fake.active_job = "12345|train-sft-grpo|RUNNING"
     fake.log_lines = TRAIN_LOG_LINES
     _fake_with_live(fake, LIVE_STATUS_BODY)
 
@@ -667,7 +655,7 @@ def test_monitor_uses_live_status_when_present(client):
 def test_monitor_falls_back_to_log_without_live_status(client):
     """Senza LIVE_STATUS → job_detail dal parsing del log (source=log)."""
     test_client, fake = client
-    fake.active_job = "12345|train-grpo-optimal|RUNNING"
+    fake.active_job = "12345|train-sft-grpo|RUNNING"
     fake.log_lines = TRAIN_LOG_LINES
     _fake_with_live(fake, None)  # nessun live status
 
@@ -681,7 +669,7 @@ def test_monitor_falls_back_to_log_without_live_status(client):
 def test_monitor_live_status_with_broken_json_falls_back(client):
     """LIVE_STATUS non-JSON → ignorato, fallback al log senza crash."""
     test_client, fake = client
-    fake.active_job = "12345|train-grpo-optimal|RUNNING"
+    fake.active_job = "12345|train-sft-grpo|RUNNING"
     fake.log_lines = TRAIN_LOG_LINES
 
     orig_run = fake.run
@@ -724,8 +712,8 @@ def test_jobs_batch_enqueues_in_order_and_ticks(client):
         headers=AUTH,
         json={
             "jobs": [
-                {"type": "train", "config": "grpo_optimal"},
-                {"type": "eval", "config": "grpo_optimal"},
+                {"type": "train", "config": "sft-grpo"},
+                {"type": "eval", "config": "sft-grpo"},
             ],
             "start_now": True,
         },
@@ -733,9 +721,9 @@ def test_jobs_batch_enqueues_in_order_and_ticks(client):
     assert resp.status_code == 201
     body = resp.json()
     assert body["started_now"] is True
-    assert body["active_job"]["name"] == "train-grpo-optimal"
+    assert body["active_job"]["name"] == "train-sft-grpo"
     # train consumato dal tick, eval in coda
-    assert fake.queue == ["eval:experiments/configs/t2g/grpo_optimal.yaml:grpo-optimal"]
+    assert fake.queue == ["eval:experiments/configs/t2g/sft-grpo.yaml:sft-grpo"]
     assert len(body["queued"]) == 2
     joined = " ".join(fake.commands)
     assert joined.count("enqueue") >= 2
@@ -751,7 +739,7 @@ def test_jobs_batch_atomic_validation(client):
         headers=AUTH,
         json={
             "jobs": [
-                {"type": "train", "config": "grpo_optimal"},
+                {"type": "train", "config": "sft-grpo"},
                 {"type": "train", "config": "config_inesistente"},
             ]
         },
@@ -773,7 +761,7 @@ def test_jobs_batch_without_start_now_only_enqueues(client):
     resp = test_client.post(
         "/jobs/batch",
         headers=AUTH,
-        json={"jobs": [{"type": "eval", "config": "zero_shot"}], "start_now": False},
+        json={"jobs": [{"type": "eval", "config": "sft-only"}], "start_now": False},
     )
     assert resp.status_code == 201
     assert resp.json()["started_now"] is False
@@ -810,7 +798,7 @@ def test_monitor_without_active_job(client):
 def test_monitor_parses_job_detail_from_log(client):
     """Con un job attivo: job_detail popolato dai parser di chain_monitor."""
     test_client, fake = client
-    fake.active_job = "12345|train-grpo-optimal|RUNNING"
+    fake.active_job = "12345|train-sft-grpo|RUNNING"
     fake.log_lines = TRAIN_LOG_LINES
 
     resp = test_client.get("/monitor", headers=AUTH)
@@ -819,7 +807,7 @@ def test_monitor_parses_job_detail_from_log(client):
     detail = body["job_detail"]
     assert detail is not None
     assert detail["id"] == "12345"
-    assert detail["name"] == "train-grpo-optimal"
+    assert detail["name"] == "train-sft-grpo"
     assert detail["state"] == "RUNNING"
     assert detail["step"] == 105  # ultima riga KV step
     assert detail["loss"] == "0.5311"
@@ -834,13 +822,13 @@ def test_monitor_parses_job_detail_from_log(client):
 def test_monitor_eval_job_uses_eval_parser(client):
     """Job eval-*: riconosciuto dal nome (prefisso eval) senza crash."""
     test_client, fake = client
-    fake.active_job = "999|eval-grpo-optimal|RUNNING"
+    fake.active_job = "999|eval-sft-grpo|RUNNING"
     fake.log_lines = ["Evaluating 100/8771 samples (seeded sample)", "  Pass@1: 0.1234"]
 
     resp = test_client.get("/monitor", headers=AUTH)
     assert resp.status_code == 200
     body = resp.json()
-    assert body["job_detail"]["name"] == "eval-grpo-optimal"
+    assert body["job_detail"]["name"] == "eval-sft-grpo"
 
 
 def test_start_job_enqueues_and_ticks(client):
@@ -864,12 +852,12 @@ def test_start_job_enqueues_and_ticks(client):
     fake.run = _tick_side_effect  # type: ignore[method-assign]
 
     resp = test_client.post(
-        "/jobs/start", headers=AUTH, json={"type": "train", "config": "grpo_optimal"}
+        "/jobs/start", headers=AUTH, json={"type": "train", "config": "sft-grpo"}
     )
     assert resp.status_code == 201
     body = resp.json()
     assert body["started_now"] is True
-    assert body["active_job"]["name"] == "train-grpo-optimal"
+    assert body["active_job"]["name"] == "train-sft-grpo"
     joined = " ".join(fake.commands)
     assert "enqueue" in joined
     assert " tick" in joined
@@ -881,19 +869,17 @@ def test_start_job_enqueued_when_busy(client):
     fake.active_job = "111|train-altro|RUNNING"
 
     resp = test_client.post(
-        "/jobs/start", headers=AUTH, json={"type": "train", "config": "grpo_optimal"}
+        "/jobs/start", headers=AUTH, json={"type": "train", "config": "sft-grpo"}
     )
     assert resp.status_code == 201
     assert resp.json()["started_now"] is False
-    assert fake.queue == [
-        "train:experiments/configs/t2g/grpo_optimal.yaml:grpo-optimal"
-    ]
+    assert fake.queue == ["train:experiments/configs/t2g/sft-grpo.yaml:sft-grpo"]
 
 
 def test_kill_cancels_active_job(client):
     """POST /kill: scancel dell'id attivo; snapshot di ritorno."""
     test_client, fake = client
-    fake.active_job = "12345|train-grpo-optimal|RUNNING"
+    fake.active_job = "12345|train-sft-grpo|RUNNING"
 
     resp = test_client.post("/kill", headers=AUTH)
     assert resp.status_code == 200
@@ -912,7 +898,7 @@ def test_kill_without_active_job_409(client):
 
 def test_logs_endpoint_returns_tail(client):
     test_client, fake = client
-    fake.active_job = "12345|train-grpo-optimal|RUNNING"
+    fake.active_job = "12345|train-sft-grpo|RUNNING"
     fake.log_lines = [f"linea-{i}" for i in range(300)]
 
     resp = test_client.get("/logs", headers=AUTH, params={"lines": 50})

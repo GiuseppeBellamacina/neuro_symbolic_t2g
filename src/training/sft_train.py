@@ -14,8 +14,8 @@ overfitting.  Prompt formatting is identical to the GRPO rollout prompts
 (see ``src/utils/prompting.py``).
 
 Usage:
-    python -m src.training --config experiments/configs/t2g/sft.yaml
-    CONFIG=experiments/configs/t2g/sft.yaml sbatch cluster/train.sh
+    python -m src.training --config experiments/configs/t2g/sft-only.yaml
+    CONFIG=experiments/configs/t2g/sft-only.yaml sbatch cluster/train.sh
 """
 
 from __future__ import annotations
@@ -218,7 +218,7 @@ def _sft_training_fingerprint_source(config: dict[str, Any]) -> dict[str, Any]:
     In the GRPO flow ``sft_config["sft_pretrain"]["training"]`` carries the
     SFT hyperparameters, while the merged ``training`` section additionally
     holds GRPO-only keys such as ``max_steps`` that must NOT invalidate the
-    SFT adapter.  The standalone ``sft.yaml`` flow has no ``sft_pretrain``
+    SFT adapter.  The standalone ``sft-only.yaml`` flow has no ``sft_pretrain``
     section, so the effective ``training`` section is used instead.
     """
     pretrain_training = config.get("sft_pretrain", {}).get("training", {})
@@ -363,13 +363,38 @@ def _sft_fingerprint_candidates(parent: Path) -> list[Path]:
     )
 
 
+def _adapter_if_matching(candidate: Path, fingerprint: str) -> Path | None:
+    """Return the adapter dir when *candidate*'s fingerprint matches.
+
+    Shared by the same-tag and cross-tag searches: skips unreadable
+    fingerprint files and fingerprint matches with missing weight files.
+    """
+    try:
+        meta = json.loads(candidate.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        logger.warning(
+            "[sft-reuse] Unreadable sft_fingerprint.json, skipping: %s", candidate
+        )
+        return None
+    if meta.get("fingerprint") != fingerprint:
+        return None
+    adapter_dir = candidate.parent
+    if not is_complete_adapter_dir(adapter_dir):
+        logger.warning(
+            "[sft-reuse] Fingerprint match but adapter files missing, " "skipping: %s",
+            adapter_dir,
+        )
+        return None
+    return adapter_dir
+
+
 def find_reusable_sft_adapter(
     model_ckpt_parent: str | Path, fingerprint: str
 ) -> Path | None:
     """Find a previously-trained SFT adapter matching *fingerprint*.
 
     Scans sibling ``run_*/sft_pretrain/final`` directories under
-    *model_ckpt_parent* (e.g. ``experiments/checkpoints/qwen25-05b-optimal``)
+    *model_ckpt_parent* (e.g. ``experiments/checkpoints/qwen25-05b-sft-grpo``)
     and returns the most recently modified adapter whose
     ``sft_fingerprint.json`` matches and whose weight files are intact.  A
     candidate whose fingerprint matches but whose adapter files are missing
@@ -390,32 +415,94 @@ def find_reusable_sft_adapter(
         return None
     candidates = _sft_fingerprint_candidates(parent)
     for candidate in candidates:
-        try:
-            meta = json.loads(candidate.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            logger.warning(
-                "[sft-reuse] Unreadable sft_fingerprint.json, skipping: %s", candidate
-            )
-            continue
-        if meta.get("fingerprint") != fingerprint:
-            continue
-        adapter_dir = candidate.parent
-        if not is_complete_adapter_dir(adapter_dir):
-            logger.warning(
-                "[sft-reuse] Fingerprint match but adapter files missing, "
-                "skipping: %s",
-                adapter_dir,
-            )
-            continue
-        logger.info("[sft-reuse] Reusable SFT adapter found: %s", adapter_dir)
-        return adapter_dir
+        adapter_dir = _adapter_if_matching(candidate, fingerprint)
+        if adapter_dir is not None:
+            logger.info("[sft-reuse] Reusable SFT adapter found: %s", adapter_dir)
+            return adapter_dir
     if candidates:
-        logger.warning(
-            "[sft-reuse] No matching SFT adapter found "
-            "(checked %d candidate run(s)) — training SFT",
+        logger.info(
+            "[sft-reuse] No matching SFT adapter under %s (checked %d run(s))",
+            parent,
             len(candidates),
         )
     return None
+
+
+def find_reusable_sft_adapter_cross_tag(
+    checkpoints_root: str | Path,
+    exclude_parent: str | Path,
+    fingerprint: str,
+) -> tuple[Path, str] | None:
+    """Find a matching SFT adapter under a DIFFERENT model tag directory.
+
+    The same-tag search (:func:`find_reusable_sft_adapter`) only looks
+    under one tag dir (e.g. ``experiments/checkpoints/qwen25-05b-sft-grpo``).
+    When a NEW tag config (e.g. ``sft-grpo-all-rewards`` →
+    ``qwen25-05b-sft-grpo-all-rewards``) declares an identical ``sft_pretrain``
+    section, its SFT training is identical — retraining it is pure waste
+    (job 7078 retrained an SFT bit-identical to optimal's).  The SFT
+    fingerprint is tag-independent (model/lora/dataset/hyperparams/system
+    prompt — no paths), so a match under any other tag is a valid adapter.
+
+    Args:
+        checkpoints_root: Directory containing ALL model tag dirs
+            (``experiments/checkpoints``).
+        exclude_parent: The current config's tag dir (already searched).
+        fingerprint: Expected SFT fingerprint.
+
+    Returns:
+        ``(adapter_dir, tag_name)`` of the newest match, or ``None``.
+    """
+    root = Path(checkpoints_root)
+    excluded = Path(exclude_parent).resolve()
+    if not root.is_dir():
+        return None
+    candidates = sorted(
+        root.glob("*/run_*/sft_pretrain/final/sft_fingerprint.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for candidate in candidates:
+        # <root>/<tag>/run_*/sft_pretrain/final/sft_fingerprint.json
+        tag_dir = candidate.parents[3]
+        if tag_dir.resolve() == excluded:
+            continue
+        adapter_dir = _adapter_if_matching(candidate, fingerprint)
+        if adapter_dir is not None:
+            logger.info(
+                "[sft-reuse] Cross-tag match: reusing SFT adapter from " "tag '%s': %s",
+                tag_dir.name,
+                adapter_dir,
+            )
+            return adapter_dir, tag_dir.name
+    return None
+
+
+def clone_sft_adapter(source: str | Path, destination: str | Path) -> Path:
+    """Copy a reusable SFT adapter into the current run's ``sft_pretrain/final``.
+
+    Cross-tag reuse points at another tag's directory; copying makes the
+    new run self-contained (its ``sft_fingerprint.json`` lands where the
+    same-tag search looks, and the run no longer depends on the source
+    tag's lifecycle).  Only files are copied — ``checkpoint-*`` subdirs and
+    wandb/logs are skipped.
+
+    Args:
+        source: The matched adapter directory (``.../sft_pretrain/final``).
+        destination: The current run's destination directory
+            (``<run_dir>/sft_pretrain/final``).
+
+    Returns:
+        The destination directory.
+    """
+    import shutil
+
+    src, dst = Path(source), Path(destination)
+    dst.mkdir(parents=True, exist_ok=True)
+    for item in src.iterdir():
+        if item.is_file():
+            shutil.copy2(item, dst / item.name)
+    return dst
 
 
 # ---------------------------------------------------------------------------
@@ -446,6 +533,12 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("datasets").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
+    # HF libraries attach their own StreamHandler AND propagate to root —
+    # every library warning printed twice (slurm-train-7073). Strip the
+    # library-owned handlers so each record prints exactly once.
+    from src.utils.log_dedup import dedupe_library_loggers
+
+    dedupe_library_loggers()
 
     # ── Set random seeds for reproducibility ─────────────────────────────
     seed = config["dataset"].get("seed", 42)

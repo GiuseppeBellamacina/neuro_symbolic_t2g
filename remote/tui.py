@@ -51,21 +51,19 @@ from textual.widgets import (
     TextArea,
 )
 
-# ── Config noti al driver (stessi 12 nomi di remote/app.py:CONFIG_MAP) ───────
+# ── Config noti al driver (stessi nomi di remote/app.py:CONFIG_MAP) ──────────
 
 CONFIG_NAMES: tuple[str, ...] = (
-    "grpo_optimal",
-    "grpo_qwen05",
-    "sft",
-    "grpo_experimental_all",
-    "zero_shot",
-    "zero_shot_grammar",
-    "grpo_no_grammar",
-    "grpo_no_sft",
-    "grpo_pda",
-    "grpo_pda_lookahead",
-    "grpo_soft_viterbi",
-    "grpo_verifier_scaled",
+    "sft-grpo",
+    "sft-only",
+    "grpo-only",
+    "sft-grpo-structure",
+    "sft-grpo-viterbi",
+    "sft-grpo-soft-viterbi",
+    "sft-grpo-all-rewards",
+    "sft-grpo-no-grammar",
+    "zero-shot",
+    "zero-shot-grammar",
 )
 CONFIG_NAME_SET: frozenset[str] = frozenset(CONFIG_NAMES)
 
@@ -743,6 +741,10 @@ class DashboardScreen(T2GScreen):
                 metrics.append(f"loss [bold]{escape(str(detail['loss']))}[/bold]")
             if detail.get("reward") is not None:
                 metrics.append(f"reward [bold]{escape(str(detail['reward']))}[/bold]")
+            if detail.get("reward_avg") is not None:
+                metrics.append(
+                    f"avg reward [dim]{escape(str(detail['reward_avg']))}[/dim]"
+                )
             if detail.get("lr") is not None:
                 metrics.append(f"lr [dim]{escape(str(detail['lr']))}[/dim]")
             if detail.get("eval_progress"):
@@ -751,6 +753,13 @@ class DashboardScreen(T2GScreen):
                 )
             if metrics:
                 lines.append(" | ".join(metrics))
+            # Routine in-train eval (SFT holdout): ADDITIONAL line — the train
+            # step counter above is NOT overwritten (the eval loop never
+            # touches step/loss/lr in the live status, see HighPrecisionLogCallback).
+            if detail.get("eval_active") and str(phase) in ("sft", "grpo"):
+                lines.append(
+                    "[cyan]⏳ eval di routine in corso (il contatore di training resta attivo)[/cyan]"
+                )
             if detail.get("sft_active"):
                 sft = [
                     f"SFT: step {detail.get('sft_step') or '?'}/{detail.get('sft_total') or '?'}"
@@ -809,7 +818,9 @@ class DashboardScreen(T2GScreen):
             return ""
         rows = []
         for event in events:
-            ts = str(event.get("ts", ""))[11:19]
+            # Full date+time (was time-only: events across days were
+            # indistinguishable). ts is ISO "YYYY-MM-DDTHH:MM:SS".
+            ts = str(event.get("ts", ""))[:19].replace("T", " ")
             etype = str(event.get("type", ""))
             detail = escape(str(event.get("detail", "")))[:80]
             rows.append(f"[dim]{ts} {etype:<16} {detail}[/dim]")
@@ -1199,12 +1210,12 @@ class ReplaceQueueScreen(T2GScreen):
             "…oppure definisci una coda custom (una entry per riga):", classes="hint"
         )
         yield Static(
-            "Formato [b]tipo:config[:tag][/b] — es. [b]train:grpo_optimal[/b] "
-            "o [b]train:grpo_optimal:my-run[/b]",
+            "Formato [b]tipo:config[:tag][/b] — es. [b]train:sft-grpo[/b] "
+            "o [b]train:sft-grpo:my-run[/b]",
             classes="hint",
         )
         yield TextArea(
-            "train:grpo_optimal\n# le righe che iniziano con # sono ignorate\neval:zero_shot",
+            "train:sft-grpo\n# le righe che iniziano con # sono ignorate\neval:grpo-only",
             id="custom",
         )
         yield Button("Invia coda custom", variant="error", id="submit")

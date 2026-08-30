@@ -1,0 +1,42 @@
+# ============================================================================
+# ZERO-SHOT-GRAMMAR — Base model CON constrained decoding (solo eval)
+#
+# Cella della tabella di decomposizione: modello base Qwen2.5-0.5B-Instruct
+# senza training, CON la vocabulary mask (Trie dual-root) alla generazione.
+# Confrontare con zero-shot.yaml per misurare il delta del constrained
+# decoding sull'inferenza (grammar come scaffolding, senza apprendimento).
+#
+# NOTA: questi numeri coincidono con la baseline del `--compare` delle celle
+# trainabili (stesso modello, stesso contesto prompt, stesso decoding):
+# l'eval di questo config produce un artifact autonomo (eval_baseline.json
+# nella sua results dir) — utile per la riga "Base + grammar" della
+# tabella. Se hai già un baseline cache valida, considera che è ridondante.
+#
+# Eval-only: NON ha training.output_dir → eval.sh gira con
+# --eval-baseline-only. Set COMPLETO (max_samples null da base),
+# num_samples=5 — stesso protocollo delle celle trainabili.
+#
+# Uso:
+#   CONFIG=experiments/configs/t2g/zero-shot-grammar.yaml sbatch cluster/eval.sh
+#   bash cluster/run_all.sh zero-shot-grammar    # via coda chain
+# ============================================================================
+
+extends: base.yaml
+
+# --- Constrained decoding ON (esplicito: è il punto della cella) ---
+grammar:
+  enabled: true
+
+# --- Weights & Biases ---
+wandb:
+  run_name: "t2g-zero-shot-grammar"
+  tags:
+    [
+      "zero-shot",
+      "decomposition",
+      "grammar",
+      "constrained-decoding",
+      "eval-only",
+      "Qwen2.5-0.5B",
+      "ASL",
+    ]

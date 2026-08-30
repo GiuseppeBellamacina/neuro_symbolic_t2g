@@ -1,8 +1,8 @@
 #!/bin/bash
 # ============================================================================
 # Pulizia selettiva — rimuove checkpoints, logs, results, figures e log SLURM
-# di un modello specifico. Accetta sia il TAG di pipeline (es. grpo-optimal)
-# sia il nome reale della cartella (es. qwen25-05b-optimal).
+# di un modello specifico. Accetta sia il TAG di pipeline (es. sft-grpo)
+# sia il nome reale della cartella (es. qwen25-05b-sft-grpo).
 #
 # Cerca in:
 #   experiments/checkpoints/*<MODEL>*        (struttura flat)
@@ -14,12 +14,12 @@
 # Mapping tag→cartella reale, shell-only (il login node NON ha python): se il
 # tag corrisponde a un config experiments/configs/t2g/*.yaml, il basename di
 # training.output_dir viene estratto con grep e usato come candidato aggiuntivo
-# (es. clean-model grpo-optimal trova experiments/checkpoints/qwen25-05b-optimal).
+# (es. clean-model sft-grpo trova experiments/checkpoints/qwen25-05b-sft-grpo).
 #
 # Uso:
 #   bash cluster/clean_model.sh                    # lista tutti i tag
-#   bash cluster/clean_model.sh grpo-optimal       # dry-run
-#   bash cluster/clean_model.sh grpo-optimal --all # cancella davvero
+#   bash cluster/clean_model.sh sft-grpo       # dry-run
+#   bash cluster/clean_model.sh sft-grpo --all # cancella davvero
 # ============================================================================
 
 set -euo pipefail
@@ -33,8 +33,8 @@ for arg in "$@"; do
         --help|-h)
             echo "Uso: bash cluster/clean_model.sh <TAG> [--all]"
             echo ""
-            echo "TAG = tag del config (es. grpo-optimal, grpo-pda, sft, ...)"
-            echo "     oppure nome reale della cartella (es. qwen25-05b-optimal)"
+            echo "TAG = tag del config (es. sft-grpo, grpo-only, sft-only, ...)"
+            echo "     oppure nome reale della cartella (es. qwen25-05b-sft-grpo)"
             echo "Senza argomenti: lista tutti i tag trovati"
             exit 0
             ;;
@@ -54,7 +54,7 @@ done
 model_candidates() {
     local cfg tag dir
     echo "$MODEL"
-    for cfg in experiments/configs/t2g/*.yaml experiments/configs/t2g/ablation/*.yaml; do
+    for cfg in experiments/configs/t2g/*.yaml experiments/configs/t2g/*.yaml; do
         [ -f "$cfg" ] || continue
         tag=$(basename "$cfg" .yaml | tr '_' '-')
         if [ "$tag" = "$MODEL" ]; then

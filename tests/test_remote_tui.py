@@ -22,8 +22,8 @@ from remote import tui
 
 STATUS_BODY = {
     "active_job": {"id": "12345", "name": "train-grpo", "state": "RUNNING"},
-    "queue": ["train:experiments/configs/t2g/grpo_optimal.yaml:run1"],
-    "last_job": "12345:train:experiments/configs/t2g/grpo_optimal.yaml:run1:0",
+    "queue": ["train:experiments/configs/t2g/sft-grpo.yaml:run1"],
+    "last_job": "12345:train:experiments/configs/t2g/sft-grpo.yaml:run1:0",
     "stopped": False,
     "watcher_alive": True,
     "errors_recent": [],
@@ -69,9 +69,9 @@ LOGS_BODY = {
 
 JOBS_BODY = [
     {
-        "entry": "train:experiments/configs/t2g/grpo_optimal.yaml:run1",
+        "entry": "train:experiments/configs/t2g/sft-grpo.yaml:run1",
         "type": "train",
-        "config": "experiments/configs/t2g/grpo_optimal.yaml",
+        "config": "experiments/configs/t2g/sft-grpo.yaml",
         "tag": "run1",
         "extra": None,
     }
@@ -117,8 +117,8 @@ def _default_handler(request: httpx.Request) -> httpx.Response:
                 **MONITOR_BODY,
                 "started_now": True,
                 "queued": [
-                    "train:experiments/configs/t2g/grpo_optimal.yaml:grpo-optimal",
-                    "eval:experiments/configs/t2g/grpo_optimal.yaml:grpo-optimal",
+                    "train:experiments/configs/t2g/sft-grpo.yaml:sft-grpo",
+                    "eval:experiments/configs/t2g/sft-grpo.yaml:sft-grpo",
                 ],
             },
         )
@@ -168,7 +168,7 @@ def test_get_status_parses_fields():
         "name": "train-grpo",
         "state": "RUNNING",
     }
-    assert status["queue"] == ["train:experiments/configs/t2g/grpo_optimal.yaml:run1"]
+    assert status["queue"] == ["train:experiments/configs/t2g/sft-grpo.yaml:run1"]
     assert status["watcher_alive"] is True
     assert status["stopped"] is False
     assert status["events"][0]["type"] == "tick"
@@ -184,34 +184,34 @@ def test_get_jobs_parses_entries():
 
 def test_add_job_payload_and_auth_header():
     client, recorder = _client()
-    client.add_job("train", "grpo_optimal", tag="run1")
+    client.add_job("train", "sft-grpo", tag="run1")
     request = recorder.requests[-1]
     assert request.method == "POST"
     assert request.url.path == "/jobs"
     assert request.headers["X-Auth-Token"] == "test-token"
     assert json.loads(request.content) == {
         "type": "train",
-        "config": "grpo_optimal",
+        "config": "sft-grpo",
         "tag": "run1",
     }
 
 
 def test_add_job_omits_optional_fields():
     client, recorder = _client()
-    client.add_job("eval", "zero_shot")
+    client.add_job("eval", "sft-only")
     assert json.loads(recorder.requests[-1].content) == {
         "type": "eval",
-        "config": "zero_shot",
+        "config": "sft-only",
     }
 
 
 def test_add_job_with_mode():
     client, recorder = _client()
-    client.add_job("train", "grpo_qwen05", tag="x", mode="--resume")
+    client.add_job("train", "grpo-only", tag="x", mode="--resume")
     body = json.loads(recorder.requests[-1].content)
     assert body == {
         "type": "train",
-        "config": "grpo_qwen05",
+        "config": "grpo-only",
         "tag": "x",
         "mode": "--resume",
     }
@@ -229,8 +229,8 @@ def test_replace_queue_ablation_payload():
 def test_replace_queue_jobs_payload():
     client, recorder = _client()
     jobs = [
-        {"type": "train", "config": "grpo_optimal"},
-        {"type": "eval", "config": "zero_shot", "tag": "zs"},
+        {"type": "train", "config": "sft-grpo"},
+        {"type": "eval", "config": "sft-only", "tag": "zs"},
     ]
     client.replace_queue(jobs=jobs)
     assert json.loads(recorder.requests[-1].content) == {"jobs": jobs}
@@ -456,7 +456,7 @@ def test_monitor_shows_placeholder_without_active_job():
             job_box = app.screen.query_one("#job-panel", tui.Static)
             text = job_box.render().plain
             assert "Nessun job attivo" in text
-            assert "grpo_optimal" in text  # prossima entry in coda
+            assert "sft-grpo" in text  # prossima entry in coda
 
     asyncio.run(_run())
 
@@ -550,7 +550,7 @@ def test_start_job_screen_submits_to_start_endpoint():
             payload = json.loads(batch_calls[0].read())
             assert payload["start_now"] is True
             assert [j["type"] for j in payload["jobs"]] == ["train", "eval"]
-            assert payload["jobs"][0]["config"] == "grpo_optimal"
+            assert payload["jobs"][0]["config"] == "sft-grpo"
 
     asyncio.run(_run())
 
@@ -582,7 +582,7 @@ def test_start_job_screen_without_eval_uses_start_endpoint():
             assert start_calls, "POST /jobs/start non chiamato"
             payload = json.loads(start_calls[0].read())
             assert payload["type"] == "train"
-            assert payload["config"] == "grpo_optimal"
+            assert payload["config"] == "sft-grpo"
             # nessun batch in questo flusso
             assert not any(r.url.path == "/jobs/batch" for r in recorder.requests)
 
@@ -604,8 +604,8 @@ def test_batch_start_screen_submits_selected_configs():
             await pilot.pause()
             assert isinstance(app.screen, tui.BatchStartScreen)
             # Seleziona due config
-            app.screen.query_one("#cfg-grpo_optimal", tui.Checkbox).value = True
-            app.screen.query_one("#cfg-sft", tui.Checkbox).value = True
+            app.screen.query_one("#cfg-sft-grpo", tui.Checkbox).value = True
+            app.screen.query_one("#cfg-grpo-only", tui.Checkbox).value = True
             await pilot.pause()
             submit = app.screen.query_one("#submit", tui.Button)
             submit.press()
@@ -633,10 +633,10 @@ def test_batch_start_screen_submits_selected_configs():
                 "eval",
             ]
             assert [j["config"] for j in payload["jobs"]] == [
-                "grpo_optimal",
-                "grpo_optimal",
-                "sft",
-                "sft",
+                "sft-grpo",
+                "sft-grpo",
+                "grpo-only",
+                "grpo-only",
             ]
 
     asyncio.run(_run())

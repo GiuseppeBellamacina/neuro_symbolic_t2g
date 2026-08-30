@@ -1,17 +1,24 @@
 # ============================================================================
-# SFT Training Config — Qwen2.5-0.5B-Instruct — Text-to-Gloss (T2G)
+# SFT-ONLY — Supervised Fine-Tuning da solo (cella di decomposizione)
 #
-# Supervised Fine-Tuning baseline per confronto con GRPO nell'ablation study.
-# L'SFT addestra il modello via teacher forcing sulle gloss di riferimento,
-# senza reward shaping né constrained decoding durante il training.
+# Baseline supervised per la tabella Base / SFT-only / GRPO-only / SFT+GRPO:
+# teacher forcing sulle gloss di riferimento, senza reward shaping né RL.
 #
-# Eredita da base.yaml, ma sovrascrive `training` con i parametri SFT
-# (trainer: sft, epoche, eval holdout + early stopping, max_seq_length 768).
-# Le chiavi reward non sono usate in training (solo in eval).
+# NB: per la TABELLA di decomposizione NON serve rilanciare questo config —
+# l'adapter SFT della pipeline (identica sezione sft_pretrain di sft-grpo)
+# è già addestrato e va valutato direttamente:
+#   CHECKPOINT=experiments/checkpoints/qwen25-05b-sft-grpo/run_*/sft_pretrain/final \
+#     CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/eval.sh
+# Questo config serve solo per un RE-TRAIN standalone di SFT.
+#
+# Eredita da base.yaml; sovrascrive `training` (trainer: sft, epoche, eval
+# holdout + early stopping, max_seq_length 768). Le chiavi reward non sono
+# usate in training (solo in eval). Eval allineata al protocollo delle
+# celle GRPO (num_samples=5, temp 0.7) per confrontabilità diretta.
 #
 # Usato da:
-#   CONFIG=experiments/configs/t2g/sft.yaml sbatch cluster/train.sh
-#   python -m src.training.sft_train --config experiments/configs/t2g/sft.yaml
+#   CONFIG=experiments/configs/t2g/sft-only.yaml sbatch cluster/train.sh
+#   python -m src.training --config experiments/configs/t2g/sft-only.yaml
 # ============================================================================
 
 extends: base.yaml
@@ -52,8 +59,8 @@ training:
   eval_fraction: 0.02 # 2% del train (~1.6K campioni su ~78K)
   eval_steps: 200 # valutazione ogni 200 update steps
   early_stopping_patience: 3
-  output_dir: "experiments/checkpoints/qwen25-05b-sft"
-  log_dir: "experiments/logs/qwen25-05b-sft"
+  output_dir: "experiments/checkpoints/qwen25-05b-sft-only"
+  log_dir: "experiments/logs/qwen25-05b-sft-only"
 
 # --- Parametri di generazione (eval-only: usati da eval_t2g.py) ---
 generation:
@@ -73,13 +80,13 @@ reward:
   weight_format: 0.10
   weight_repetition: 0.10
 
-# --- Evaluation ---
+# --- Evaluation (stesso protocollo delle celle GRPO: confrontabile) ---
 evaluation:
-  max_samples: 500 # 500 campioni per evaluation rapida, null per tutto il test set
-  num_samples: 1 # SFT usa greedy (1 completion per prompt)
+  max_samples: null # eval job = INTERO test set (override: eval.sh MAX_SAMPLES)
+  num_samples: 5 # 5 completion per prompt — identico alle celle GRPO
   best_of_n: false
 
 # --- Weights & Biases ---
 wandb:
-  run_name: "ablation-sft-baseline"
-  tags: ["ablation", "SFT", "supervised", "T2G", "Qwen2.5-0.5B", "ASL"]
+  run_name: "t2g-sft-only"
+  tags: ["sft-only", "decomposition", "SFT", "supervised", "T2G", "Qwen2.5-0.5B", "ASL"]

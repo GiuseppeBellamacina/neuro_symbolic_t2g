@@ -46,7 +46,7 @@ active in the optimal config (plus 3 ablation-only modules) and **10 in total**.
   gold-structure (⭐ recommended), gloss-order (edit-distance),
   verifier-scaled (RECIPE-inspired), format, and repetition penalty — plus 3
   ablation-only modules (structural dense, soft-Viterbi, hard Viterbi) in
-  `grpo_experimental_all.yaml`. No neural reward model overhead.
+  `sft-grpo-all-rewards.yaml`. No neural reward model overhead.
 - **Best-of-N Selection**: Evaluation supports `best_of_n` mode — generates N samples
   per prompt and selects the best by reward, with `--compare` flag for automatic
   baseline-vs-GRPO comparison plots and JSON reports.
@@ -71,7 +71,7 @@ active in the optimal config (plus 3 ablation-only modules) and **10 in total**.
 - **Comprehensive Test Suite**: 96/96 pytest tests passing (data, grammar,
   rewards, metrics, monitor, config-inheritance, integration) with shared
   `conftest.py` fixtures.
-- **Experimental Config**: `grpo_experimental_all.yaml` activates all 10
+- **Experimental Config**: `sft-grpo-all-rewards.yaml` activates all 10
   reward weight keys simultaneously for ablation of the full reward space.
 
 ---
@@ -80,18 +80,18 @@ active in the optimal config (plus 3 ablation-only modules) and **10 in total**.
 
 ```text
 neuro_symbolic_t2g/
-├── experiments/configs/t2g/
-│   ├── base.yaml                  # Template ereditato (extends) — parti comuni
-│   ├── grpo_optimal.yaml          # Optimal config (extends base, LoRA r=32, 7 reward)
-│   ├── grpo_experimental_all.yaml # Experimental: tutti i 10 pesi reward attivi
-│   ├── grpo_qwen05.yaml           # Main training config (extends base)
-│   ├── sft.yaml                   # SFT baseline config (extends base)
-│   └── ablation/                      # Ablation study variants
-│       ├── zero_shot.yaml
-│       ├── zero_shot_grammar.yaml
-│       ├── grpo_no_grammar.yaml
-│       ├── grpo_no_sft.yaml           # Ablation: GRPO directly on base model without SFT
-│       └── grpo_pda.yaml
+├── ├── experiments/configs/t2g/
+├── │   ├── base.yaml                   # Template ereditato (extends) — parti comuni
+├── │   ├── sft-grpo.yaml               # Pipeline principale SFT+GRPO (extends base)
+├── │   ├── sft-only.yaml               # SFT da solo (cella decomposizione)
+├── │   ├── grpo-only.yaml              # GRPO senza SFT (cella decomposizione)
+├── │   ├── sft-grpo-structure.yaml      # + structural_dense (ablation moduli)
+├── │   ├── sft-grpo-viterbi.yaml        # + viterbi_distance (ablation moduli)
+├── │   ├── sft-grpo-soft-viterbi.yaml   # + soft_viterbi (ablation moduli)
+├── │   ├── sft-grpo-all-rewards.yaml    # + tutti i 3 moduli sperimentali
+├── │   └── sft-grpo-no-grammar.yaml     # constrained decoding OFF (ablation)
+│   ├── zero-shot.yaml                # Base model senza grammar (solo eval)
+│   └── zero-shot-grammar.yaml         # Base model con grammar (solo eval)
 ├── src/
 │   ├── cluster/                       # SLURM scripts and cluster orchestration
 │   │   ├── setup.sh                   # One-shot environment setup
@@ -174,10 +174,10 @@ neuro_symbolic_t2g/
 | **Verifier-Scaled** (RECIPE)          | 0.10                  | log1p(structural) used as confidence multiplier for translation quality      |
 | **Format**                            | 0.10                  | Ensures output is only gloss tokens (penalizes free text, punctuation, JSON) |
 | **Repetition**                        | 0.05                  | Penalizes degenerate loops (token/trigram repetition > 50%)                  |
-| — *ablation-only:* Structural Dense / Soft-Viterbi / Viterbi | 0 (off) | Attivati solo da `grpo_experimental_all.yaml` e dai config di ablation |
+| — *ablation-only:* Structural Dense / Soft-Viterbi / Viterbi | 0 (off) | Attivati solo da `sft-grpo-all-rewards.yaml` e dai config di ablation |
 
 All rewards are **deterministic and rule-based** — no neural reward model, no
-human feedback required. The `grpo_experimental_all.yaml` config activates all
+human feedback required. The `sft-grpo-all-rewards.yaml` config activates all
 10 weight keys simultaneously for full reward-space ablation.
 
 See [docs/REWARDS.md](docs/REWARDS.md) for full details.
@@ -255,10 +255,10 @@ t2g-monitor
 
 ```bash
 # Single-model training
-CONFIG=experiments/configs/t2g/grpo_qwen05.yaml sbatch cluster/train.sh
+CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/train.sh
 
 # Resume from checkpoint
-CONFIG=experiments/configs/t2g/grpo_qwen05.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+CONFIG=experiments/configs/t2g/sft-grpo.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 ```
 
 ### Pipeline (train → eval, automatic)
@@ -292,19 +292,19 @@ t2g-monitor --all    # Full: table + metrics + completion samples
 ```bash
 # Evaluate a specific checkpoint
 uv run python -m src.training.eval_t2g \
-    --config experiments/configs/t2g/grpo_optimal.yaml \
+    --config experiments/configs/t2g/sft-grpo.yaml \
     --checkpoint experiments/checkpoints/grpo/t2g/qwen05/final \
     --max_samples 500
 
 # Best-of-N evaluation (generate N samples, select best by reward)
 uv run python -m src.training.eval_t2g \
-    --config experiments/configs/t2g/grpo_optimal.yaml \
+    --config experiments/configs/t2g/sft-grpo.yaml \
     --checkpoint experiments/checkpoints/grpo/t2g/qwen05/final \
     --best-of-n --num-samples 5
 
 # Compare baseline vs GRPO (auto-eval both, generate comparison plots + JSON)
 uv run python -m src.training.eval_t2g \
-    --config experiments/configs/t2g/grpo_optimal.yaml \
+    --config experiments/configs/t2g/sft-grpo.yaml \
     --checkpoint experiments/checkpoints/grpo/t2g/qwen05/final \
     --compare
 ```
@@ -374,19 +374,19 @@ ricorsivo: dict fusi, liste/scalari sostituiti) avviene in
 per i trainer, che non vedono mai la chiave `extends`.
 
 ```yaml
-# experiments/configs/t2g/grpo_optimal.yaml
+# experiments/configs/t2g/sft-grpo.yaml
 extends: base.yaml                 # eredita modello/LoRA/dataset/reward/grammar…
 
 training:
   max_steps: 2000                  # sovrascrive SOLO ciò che cambia
-  output_dir: "experiments/checkpoints/qwen25-05b-optimal"
-  log_dir: "experiments/logs/qwen25-05b-optimal"
+  output_dir: "experiments/checkpoints/qwen25-05b-sft-grpo"
+  log_dir: "experiments/logs/qwen25-05b-sft-grpo"
 
 curriculum:
   enabled: true
 ```
 
-Le chiavi di esempio (dal config `grpo_qwen05.yaml` / `base.yaml`):
+Le chiavi di esempio (dal config `sft-grpo.yaml` / `base.yaml`):
 
 ```yaml
 model:
@@ -432,7 +432,7 @@ grammar:
 > **Riallineamento iperparametri (base.yaml)**: i valori di riferimento GRPO
 > sono stati allineati al config che converge (beta=0.04, temperature=0.7,
 > max_grad_norm=0.1). Nei config che non li sovrascrivono esplicitamente
-> (es. `grpo_optimal`) questo è un cambio intenzionale rispetto a beta=0.0 /
+> (es. `sft-grpo`) questo è un cambio intenzionale rispetto a beta=0.0 /
 > temperature=0.9 / max_grad_norm=0.05 — beta=0 causava kl=0 e drift del
 > policy senza ancora. Vedi il commento in `base.yaml`.
 

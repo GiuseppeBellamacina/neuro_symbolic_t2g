@@ -114,56 +114,52 @@ class Settings:
 
 settings = Settings.from_env()
 
-# ── Config noti (nome → path). Stessi nomi validi della coda di run_all.sh ──
+# ── Config noti (nome → path). Nomi cella = schema pipeline-first. ──────────
 
 CONFIG_MAP: dict[str, str] = {
-    "grpo_optimal": "experiments/configs/t2g/grpo_optimal.yaml",
-    "grpo_qwen05": "experiments/configs/t2g/grpo_qwen05.yaml",
-    "sft": "experiments/configs/t2g/sft.yaml",
-    "grpo_experimental_all": "experiments/configs/t2g/grpo_experimental_all.yaml",
-    "zero_shot": "experiments/configs/t2g/ablation/zero_shot.yaml",
-    "zero_shot_grammar": "experiments/configs/t2g/ablation/zero_shot_grammar.yaml",
-    "grpo_no_grammar": "experiments/configs/t2g/ablation/grpo_no_grammar.yaml",
-    "grpo_no_sft": "experiments/configs/t2g/ablation/grpo_no_sft.yaml",
-    "grpo_pda": "experiments/configs/t2g/ablation/grpo_pda.yaml",
-    "grpo_pda_lookahead": "experiments/configs/t2g/ablation/grpo_pda_lookahead.yaml",
-    "grpo_soft_viterbi": "experiments/configs/t2g/ablation/grpo_soft_viterbi.yaml",
-    "grpo_verifier_scaled": "experiments/configs/t2g/ablation/grpo_verifier_scaled.yaml",
+    "sft-grpo": "experiments/configs/t2g/sft-grpo.yaml",
+    "sft-only": "experiments/configs/t2g/sft-only.yaml",
+    "grpo-only": "experiments/configs/t2g/grpo-only.yaml",
+    "sft-grpo-structure": "experiments/configs/t2g/sft-grpo-structure.yaml",
+    "sft-grpo-viterbi": "experiments/configs/t2g/sft-grpo-viterbi.yaml",
+    "sft-grpo-soft-viterbi": "experiments/configs/t2g/sft-grpo-soft-viterbi.yaml",
+    "sft-grpo-all-rewards": "experiments/configs/t2g/sft-grpo-all-rewards.yaml",
+    "sft-grpo-no-grammar": "experiments/configs/t2g/sft-grpo-no-grammar.yaml",
+    "zero-shot": "experiments/configs/t2g/zero-shot.yaml",
+    "zero-shot-grammar": "experiments/configs/t2g/zero-shot-grammar.yaml",
 }
 
 CONFIG_PATHS: set[str] = set(CONFIG_MAP.values())
 
-# Ablation study: ordine ESATTO di run_all.sh:134-147 (TAG:CONFIG:MODE).
-# MODE: e = eval-only · te = train+eval → 12 righe diventano 22 entry di coda.
+# Campagna di decomposizione + ablation: ordine ESATTO di run_all.sh
+# (TAG:CONFIG:MODE). MODE: e = eval-only · te = train+eval.
+# sft-only NON è in coda: la sua cella si valuta con l'adapter già addestrato
+# della pipeline (CHECKPOINT esplicito — vedi header di sft-only.yaml).
+# Le celle zero-shot (eval-only) stanno in CODA: i train portano risultati
+# prima; la zero-shot-grammar è ridondante con la baseline --compare (stesso
+# modello/contesto) ma produce l'artifact autonomo per la riga "Base+grammar".
 ABLATION_MODELS: list[tuple[str, str, str]] = [
-    ("zero-shot", "experiments/configs/t2g/ablation/zero_shot.yaml", "e"),
-    ("zero-shot-gram", "experiments/configs/t2g/ablation/zero_shot_grammar.yaml", "e"),
-    ("grpo-no-grammar", "experiments/configs/t2g/ablation/grpo_no_grammar.yaml", "te"),
-    ("grpo-no-sft", "experiments/configs/t2g/ablation/grpo_no_sft.yaml", "te"),
-    ("grpo-grammar", "experiments/configs/t2g/grpo_qwen05.yaml", "te"),
-    ("sft", "experiments/configs/t2g/sft.yaml", "te"),
-    ("grpo-pda", "experiments/configs/t2g/ablation/grpo_pda.yaml", "te"),
+    ("grpo-only", "experiments/configs/t2g/grpo-only.yaml", "te"),
+    ("sft-grpo", "experiments/configs/t2g/sft-grpo.yaml", "te"),
     (
-        "grpo-pda-lookahead",
-        "experiments/configs/t2g/ablation/grpo_pda_lookahead.yaml",
+        "sft-grpo-soft-viterbi",
+        "experiments/configs/t2g/sft-grpo-soft-viterbi.yaml",
         "te",
     ),
     (
-        "grpo-soft-viterbi",
-        "experiments/configs/t2g/ablation/grpo_soft_viterbi.yaml",
+        "sft-grpo-all-rewards",
+        "experiments/configs/t2g/sft-grpo-all-rewards.yaml",
         "te",
     ),
+    ("sft-grpo-structure", "experiments/configs/t2g/sft-grpo-structure.yaml", "te"),
+    ("sft-grpo-viterbi", "experiments/configs/t2g/sft-grpo-viterbi.yaml", "te"),
     (
-        "grpo-verifier",
-        "experiments/configs/t2g/ablation/grpo_verifier_scaled.yaml",
+        "sft-grpo-no-grammar",
+        "experiments/configs/t2g/sft-grpo-no-grammar.yaml",
         "te",
     ),
-    (
-        "grpo-experimental-all",
-        "experiments/configs/t2g/grpo_experimental_all.yaml",
-        "te",
-    ),
-    ("grpo-optimal", "experiments/configs/t2g/grpo_optimal.yaml", "te"),
+    ("zero-shot", "experiments/configs/t2g/zero-shot.yaml", "e"),
+    ("zero-shot-grammar", "experiments/configs/t2g/zero-shot-grammar.yaml", "e"),
 ]
 
 HELPER_NAME = "cluster_helper.sh"  # file locale in remote/ (per auto-install scp)
@@ -589,7 +585,7 @@ def resolve_config(config: str) -> str:
         return CONFIG_MAP[config]
     if config in CONFIG_PATHS:
         return config
-    wanted = Path(config).name  # tollera "zero_shot.yaml" o "ablation/grpo_pda.yaml"
+    wanted = Path(config).name  # tollera "sft-grpo.yaml" o il path completo
     for path in CONFIG_PATHS:
         if Path(path).name == wanted:
             return path
@@ -620,7 +616,7 @@ def build_queue_lines(payload: "QueueIn") -> list[str]:
     if payload.ablation:
         lines: list[str] = []
         for tag, cfg, mode in ABLATION_MODELS:
-            if mode == "e":  # eval-only (zero_shot*)
+            if mode == "e":  # eval-only
                 lines.append(f"eval:{cfg}:{tag}")
             else:  # "te" → train + eval
                 lines.append(f"train:{cfg}:{tag}")
@@ -1005,7 +1001,8 @@ def _job_detail_from_live(
         "elapsed_human": None,
         "log_path": log_path or None,
         "phase": phase,
-        "eval_active": phase in ("sft_eval", "grpo_eval", "eval"),
+        "eval_active": bool(live.get("eval_active"))
+        or phase in ("sft_eval", "grpo_eval", "eval"),
         "step": live.get("step"),
         "total_steps": live.get("total_steps"),
         "loss": (
@@ -1014,6 +1011,7 @@ def _job_detail_from_live(
             else live.get("loss")
         ),
         "reward": live.get("reward"),
+        "reward_avg": live.get("reward_avg"),
         "lr": live.get("lr"),
         "sft_active": sft_active,
         "sft_step": live.get("step") if sft_active else None,

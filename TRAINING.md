@@ -81,8 +81,8 @@ Vedi `docs/REWARDS.md` per dettagli completi.
 - **gradient_checkpointing**: attivo in tutti i config — ricomputa le attivazioni
   del forward nel backward pass, riducendo peak VRAM del ~30% a costo di ~20% più lento.
   Essenziale per G=8 su GPU 22GB (cluster).
-- **Curriculum learning**: 3-stage (simple→medium→hard) abilitato in `grpo_optimal`
-  e `grpo_pda_lookahead`. Calibrato sulla distribuzione reale di ASLG-PC12.
+- **Curriculum learning**: 3-stage (simple→medium→hard) abilitato in `sft-grpo`
+  e in tutte le sue celle di ablation. Calibrato sulla distribuzione reale di ASLG-PC12.
 
 ### Monitorare il training
 
@@ -123,7 +123,7 @@ logs/
 run-all --resume
 
 # Oppure manualmente
-CONFIG=experiments/configs/t2g/grpo_optimal.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+CONFIG=experiments/configs/t2g/sft-grpo.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 ```
 
 # Ablation study completa (12 config)
@@ -137,7 +137,7 @@ ablation-summary            # tabella + grafico cross-config post-pipeline
 
 ### Configurazione
 
-Modifica `experiments/configs/t2g/grpo_optimal.yaml` per:
+Modifica `experiments/configs/t2g/sft-grpo.yaml` per:
 
 - **Durata**: `training.max_steps` (default 2000)
 - **Velocità**: `grpo.num_generations` (default 8, riduci a 4 per GPU piccole)

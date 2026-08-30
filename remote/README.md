@@ -144,7 +144,7 @@ Per accodare davvero un job (modifica la coda sul cluster):
 
 ```powershell
 curl.exe -X POST -H "X-Auth-Token: test-token-locale" -H "Content-Type: application/json" `
-  -d '{"type":"train","config":"grpo_optimal","tag":"test-locale"}' http://localhost:8000/jobs
+  -d '{"type":"train","config":"sft-grpo","tag":"test-locale"}' http://localhost:8000/jobs
 ```
 
 ### 2.4. Puntare la TUI al servizio locale
@@ -319,11 +319,11 @@ curl -H "X-Auth-Token: $TOKEN" $BASE/status
 
 # accoda un training
 curl -X POST -H "X-Auth-Token: $TOKEN" -H "Content-Type: application/json" \
-     -d '{"type":"train","config":"grpo_qwen05","tag":"my-run"}' $BASE/jobs
+     -d '{"type":"train","config":"sft-grpo","tag":"my-run"}' $BASE/jobs
 
 # accoda con retry-esplicito (extra = --resume)
 curl -X POST -H "X-Auth-Token: $TOKEN" -H "Content-Type: application/json" \
-     -d '{"type":"train","config":"grpo_optimal","mode":"--resume"}' $BASE/jobs
+     -d '{"type":"train","config":"sft-grpo","mode":"--resume"}' $BASE/jobs
 
 # ablation completa (stesso ordine di run_all.sh --ablation)
 curl -X POST -H "X-Auth-Token: $TOKEN" -H "Content-Type: application/json" \
@@ -339,12 +339,12 @@ curl -X POST -H "X-Auth-Token: $TOKEN" $BASE/tick
 
 ### Config validi per la coda
 
-I 12 nomi noti (l'API accetta anche il path o il solo nome file):
+Gli 8 nomi noti (l'API accetta anche il path o il solo nome file):
 
 ```
-grpo_optimal, grpo_qwen05, sft, grpo_experimental_all,
-zero_shot, zero_shot_grammar, grpo_no_grammar, grpo_no_sft,
-grpo_pda, grpo_pda_lookahead, grpo_soft_viterbi, grpo_verifier_scaled
+sft-grpo, sft-only, grpo-only, sft-grpo-structure,
+sft-grpo-viterbi, sft-grpo-soft-viterbi,
+sft-grpo-all-rewards, sft-grpo-no-grammar
 ```
 
 Il tag è obbligatorio per distinguere i run e per `DELETE /jobs/{tag}`: se
