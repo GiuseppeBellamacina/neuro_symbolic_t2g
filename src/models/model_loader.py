@@ -196,7 +196,7 @@ def load_model(
     device_map: str = "auto",
 ) -> Any:
     """Load a causal LM with optional quantization."""
-    torch_dtype = getattr(torch, dtype, torch.bfloat16)
+    dtype = getattr(torch, dtype, torch.bfloat16)
     quant_config = get_quantization_config(quantization, dtype=dtype)
     if is_main_process():
         logger.info(
@@ -211,7 +211,7 @@ def load_model(
         # Local snapshot when cached (offline-first, see resolve_model_source)
         resolve_model_source(model_name),
         quantization_config=quant_config,
-        dtype=torch_dtype,  # transformers 5.3.0: 'torch_dtype' → 'dtype'
+        dtype=dtype,
         device_map=device_map,
         trust_remote_code=True,
     )

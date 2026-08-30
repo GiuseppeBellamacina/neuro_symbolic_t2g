@@ -80,11 +80,9 @@ reward:
   weight_format: 0.10
   weight_repetition: 0.10
 
-# --- Evaluation (stesso protocollo delle celle GRPO: confrontabile) ---
+# --- Evaluation: eredita da base (max_samples=2000, num_samples=5) ---
 evaluation:
-  max_samples: null # eval job = INTERO test set (override: eval.sh MAX_SAMPLES)
-  num_samples: 5 # 5 completion per prompt — identico alle celle GRPO
-  best_of_n: false
+  best_of_n: false # SFT: niente selezione oracle
 
 # --- Weights & Biases ---
 wandb:

@@ -13,8 +13,8 @@
 # tabella. Se hai già un baseline cache valida, considera che è ridondante.
 #
 # Eval-only: NON ha training.output_dir → eval.sh gira con
-# --eval-baseline-only. Set COMPLETO (max_samples null da base),
-# num_samples=5 — stesso protocollo delle celle trainabili.
+# --eval-baseline-only. Stesso protocollo delle celle trainabili
+# (max_samples=2000 e num_samples=5 ereditati da base).
 #
 # Uso:
 #   CONFIG=experiments/configs/t2g/zero-shot-grammar.yaml sbatch cluster/eval.sh

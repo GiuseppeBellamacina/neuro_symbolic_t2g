@@ -74,12 +74,7 @@ grpo:
 curriculum:
   enabled: true
 
-# --- Evaluation (eredita da base: SET COMPLETO, num_samples=5) ---
-# Gli eval job valutano l'intero test set (8109): la baseline zero-shot è
-# cachata e riusata cross-tag, quindi il costo pieno si paga una volta sola.
-# Per un eval rapido manuale: MAX_SAMPLES=500 sbatch cluster/eval.sh
-evaluation:
-  max_samples: null # eval job = INTERO test set (vedi eval.sh MAX_SAMPLES per override)
+# --- Evaluation: eredita da base (max_samples=2000, num_samples=5) ---
 
 # --- Weights & Biases ---
 wandb:

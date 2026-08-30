@@ -196,8 +196,8 @@ else
     EVAL_ARGS="--config ${CONFIG} --plot --compare"
 fi
 
-# Override opzionale del numero di campioni (default: config = SET COMPLETO).
-# Per un eval rapido: MAX_SAMPLES=500 CONFIG=... sbatch cluster/eval.sh
+# Override opzionale del numero di campioni (default: quello del config,
+# oggi 2000 da base.yaml). Esempio eval rapido: MAX_SAMPLES=500 CONFIG=...
 if [ -n "${MAX_SAMPLES:-}" ]; then
     EVAL_ARGS="${EVAL_ARGS} --max-samples ${MAX_SAMPLES}"
     echo "MAX_SAMPLES override: ${MAX_SAMPLES}"

@@ -158,7 +158,7 @@ def load_model_for_eval(
             # Local snapshot when cached — no hub HEAD retries on DNS-less
             # nodes (see src.models.model_loader.resolve_model_source).
             resolve_model_source(base_model_name),
-            torch_dtype=torch.float16,
+            dtype=torch.float16,
             device_map="auto",
             trust_remote_code=True,
         )
@@ -170,7 +170,7 @@ def load_model_for_eval(
     else:
         model = AutoModelForCausalLM.from_pretrained(
             str(ckpt_path),
-            torch_dtype=torch.float16,
+            dtype=torch.float16,
             device_map="auto",
             trust_remote_code=True,
         )
@@ -657,7 +657,7 @@ def evaluate_checkpoint(
         tokenizer.padding_side = "left"
         model = AutoModelForCausalLM.from_pretrained(
             base_src,
-            torch_dtype=torch.float16,
+            dtype=torch.float16,
             device_map="auto",
             trust_remote_code=True,
         )

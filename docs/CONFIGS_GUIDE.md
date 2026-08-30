@@ -30,7 +30,7 @@ via fingerprint del contesto prompt (vedi `eval_t2g.py::_load_cached_baseline`).
 ```
 base.yaml
   └── sft-grpo.yaml          (pipeline principale: SFT reuse + GRPO 2000 step
-        │                     + curriculum + retrieval + eval set completo)
+        │                     + curriculum + retrieval + eval 2000 samples)
         ├── grpo-only.yaml           (sft_pretrain.enabled: false)
         ├── sft-grpo-structure.yaml  (reward: core ×0.90 + structure)
         ├── sft-grpo-viterbi.yaml    (reward: core ×0.90 + viterbi)

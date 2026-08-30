@@ -7,9 +7,9 @@
 #
 # Eval-only: NON ha training.output_dir → eval.sh gira in zero-shot
 # legittimo con --eval-baseline-only (NIENTE --compare: valuterebbe il
-# base model due volte). L'eval usa il set COMPLETO (evaluation.max_samples
-# eredita null da base) con num_samples=5, stesso protocollo delle celle
-# trainabili → tabella decomposizione confrontabile.
+# base model due volte). L'eval usa lo stesso protocollo delle celle
+# trainabili (max_samples=2000 e num_samples=5 ereditati da base)
+# → tabella decomposizione confrontabile.
 #
 # Uso:
 #   CONFIG=experiments/configs/t2g/zero-shot.yaml sbatch cluster/eval.sh

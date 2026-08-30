@@ -141,7 +141,7 @@ curriculum:
 # --- Evaluation ---
 evaluation:
   batch_size: 8
-  max_samples: null # override per config (es. 500 per eval rapida)
+  max_samples: 2000 # eval job: 2000 campioni (override: eval.sh MAX_SAMPLES=...)
   num_samples: 5 # 5 completions per prompt per Pass@k
   # Best-of-N selection: seleziona il miglior completamento per prompt.
   # I config piu` leggeri lo disabilitano.
