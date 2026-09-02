@@ -3,7 +3,7 @@
 # _lib.sh — Shared library for the T2G cluster scripts.
 #
 # SINGLE SOURCE OF TRUTH for the .chain_state paths and the core chain
-# primitives used by run_all.sh, chain_tick.sh, chain_next.sh and aliases.sh.
+# primitives used by run_all.sh, chain_tick.sh and aliases.sh.
 #
 # NOTE: this file is also sourced by INTERACTIVE shells (via aliases.sh), so
 # it MUST NOT: print anything, cd, `set -e`, or create files at source time.
@@ -25,11 +25,9 @@ FAILED_FILE="$STATE_DIR/chain_failed"    # legacy: last non-resumable failure
 ERRORS_FILE="$STATE_DIR/chain_errors"    # JSONL failure log (read by the monitor)
 LAST_JOB_FILE="$STATE_DIR/last_job"      # "id:type:cfg:tag:retries" of last submission
 STOPPED_FILE="$STATE_DIR/chain_stopped"  # present ⇒ pipeline paused by chain-stop
-HEARTBEAT_FILE="$STATE_DIR/heartbeat"    # touched by tick/watcher while a job runs
 TICK_LOCK="$STATE_DIR/tick.lock"         # flock file — max 1 tick at a time
 TICK_STAMP="$STATE_DIR/tick_stamp"       # epoch int, throttle for the bashrc hook
-CHAIN_PID_FILE="$STATE_DIR/chain_pid"    # fallback watcher PID (chain_next.sh)
-CHAIN_LOG="$PROJ_DIR/logs/chain_watcher.log"
+CHAIN_LOG="$PROJ_DIR/logs/chain.log"
 
 # Max auto-resume for TIMEOUT/OOM/CUDA on the SAME train job.
 MAX_RETRIES=2
@@ -217,34 +215,7 @@ is_cuda_transient_failure() {
     return 1
 }
 
-# ── Watcher helpers ──────────────────────────────────────────────────────────
-# 0 = the fallback watcher (chain_next.sh) is running. Cleans stale pid files.
-watcher_alive() {
-    if [ -f "$CHAIN_PID_FILE" ]; then
-        local pid
-        pid=$(cat "$CHAIN_PID_FILE" 2>/dev/null || echo "")
-        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-            return 0
-        fi
-        rm -f "$CHAIN_PID_FILE"
-    fi
-    # Last-resort live check (pid file can be lost after a re-exec).
-    if pgrep -f 'cluster/chain_next.sh' >/dev/null 2>&1; then
-        return 0
-    fi
-    return 1
-}
-
-# Exit with 1 if another watcher instance is already running.
-pid_guard() {
-    if watcher_alive; then
-        echo "[chain] Watcher già attivo — esco."
-        return 1
-    fi
-    return 0
-}
-
-# ── Core chain logic (shared by chain_tick.sh and chain_next.sh) ─────────────
+# ── Core chain logic (shared by chain_tick.sh) ─────────────────────────────────
 # Classify the last finished job (globals from chain_read_last_job +
 # _SACCT_STATE/_SACCT_EXIT_CODE) and apply the pipeline policy:
 #   - train + TIMEOUT/OOM/CUDA-transient + retries<MAX_RETRIES
@@ -358,46 +329,6 @@ chain_submit_next() {
 
     log_submit "$type $tag ($cfg) extra='$extra'"
     log_job_id "$job_id"
-    return 0
-}
-
-# ── `at`-based self-rescheduling (opportunistic — NON presente su gcluster) ──
-# Remove every pending `at` job that invokes chain_tick.sh (max 1 pending tick).
-_at_clear() {
-    command -v atq >/dev/null 2>&1 || return 0
-    local id
-    for id in $(atq 2>/dev/null | awk '{print $1}'); do
-        if at -c "$id" 2>/dev/null | grep -q 'chain_tick.sh'; then
-            atrm "$id" 2>/dev/null || true
-        fi
-    done
-}
-
-# 0 = at least one chain_tick.sh `at` job is currently scheduled.
-_at_tick_pending() {
-    command -v atq >/dev/null 2>&1 || return 1
-    local id
-    for id in $(atq 2>/dev/null | awk '{print $1}'); do
-        if at -c "$id" 2>/dev/null | grep -q 'chain_tick.sh'; then
-            return 0
-        fi
-    done
-    return 1
-}
-
-# Schedule the next tick (dedup'd — always exactly ≤1 pending). Minutes = $1.
-# Returns 3 when `at` is unavailable (caller must fall back to watcher/hook).
-_schedule_next() {
-    local minutes="${1:-3}"
-    case "$minutes" in
-        ''|*[!0-9]*) minutes=3 ;;
-    esac
-    [ "$minutes" -le 0 ] && return 0
-    command -v at >/dev/null 2>&1 || return 3
-    _at_clear
-    if ! echo "bash '$PROJ_DIR/cluster/chain_tick.sh' --quiet --schedule=${minutes}" | at now + "${minutes}" minutes >/dev/null 2>&1; then
-        return 3
-    fi
     return 0
 }
 

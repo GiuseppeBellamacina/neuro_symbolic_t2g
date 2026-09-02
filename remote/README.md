@@ -52,7 +52,6 @@ QUEUE=<e1>\x1f<e2>\x1f...               # coda completa (una riga), vuota = ""
 QUEUE_COUNT=<n>
 LAST_JOB=<id>:<type>:<cfg>:<tag>:<retries>   # vuoto se nessuno
 STOPPED=0|1                             # chain_stopped presente = pausa
-WATCHER_ALIVE=0|1                       # watcher fallback vivo
 ERRORS_COUNT=<n>                        # righe totali di chain_errors
 ERRORS_TAIL=[...]                       # ultime 5 righe raw come JSON array
 ```
@@ -300,7 +299,6 @@ Render (`...onrender.com`).
 | Metodo & path          | Descrizione                                                                                                                                                        |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `GET /`              | info servizio (niente auth)                                                                                                                                        |
-| `GET /status`        | `{active_job, queue, last_job, stopped, watcher_alive, errors_recent, last_tick_at, cluster_reachable, events}` — dalla cache DB, funziona anche a cluster giù |
 | `GET /jobs`          | lista job in coda (dal DB sincronizzato)                                                                                                                           |
 | `POST /jobs`         | accoda`{type: "train"\|"eval", config: "<nome o path>", tag?, mode?}` → 201                                                                                      |
 | `POST /queue`        | rimpiazza la coda:`{jobs: [...]}` oppure `{ablation: true}` (12 config nell'ordine esatto di `run_all.sh`)                                                   |

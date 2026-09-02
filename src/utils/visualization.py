@@ -546,6 +546,280 @@ def plot_rouge_distribution(
     print(f"Saved: {output_path}")
 
 
+def plot_score_distribution(
+    scores: list[float],
+    metric_name: str,
+    xlabel: str,
+    model_name: str = "",
+    output_path: str = "",
+    valid_mask: list[bool] | None = None,
+) -> None:
+    """Histogram of per-completion scores for ANY metric (BLEU, chrF, …).
+
+    Mirrors ``plot_rouge_distribution`` (mean/median lines) with an
+    optional valid/invalid overlay (green/red) when ``valid_mask`` is
+    provided — the same visual language as the completion length plot.
+
+    Args:
+        scores: Per-completion scores.
+        metric_name: Metric display name for the title.
+        xlabel: X-axis label.
+        model_name: Short model name for the title.
+        output_path: Where to save the figure.
+        valid_mask: Optional per-completion validity flags — when given,
+            valid scores are drawn in green, invalid in red.
+    """
+    import matplotlib.pyplot as plt
+
+    if not scores:
+        print(f"No {metric_name} scores to plot.")
+        return
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    if valid_mask is not None and len(valid_mask) == len(scores):
+        valid_scores = [s for s, v in zip(scores, valid_mask) if v]
+        invalid_scores = [s for s, v in zip(scores, valid_mask) if not v]
+        ax.hist(
+            valid_scores,
+            bins=50,
+            edgecolor="black",
+            color="#55A868",
+            alpha=0.7,
+            label=f"Valid (n={len(valid_scores)})",
+        )
+        if invalid_scores:
+            ax.hist(
+                invalid_scores,
+                bins=50,
+                edgecolor="black",
+                color="#C44E52",
+                alpha=0.7,
+                label=f"Invalid (n={len(invalid_scores)})",
+            )
+    else:
+        ax.hist(scores, bins=50, edgecolor="black", color="#4C72B0", alpha=0.7)
+
+    mean_val = float(np.mean(scores))
+    median_val = float(np.median(scores))
+    ax.axvline(
+        mean_val,
+        color="#C44E52",
+        linestyle="--",
+        linewidth=2,
+        label=f"Mean={mean_val:.4f}",
+    )
+    ax.axvline(
+        median_val,
+        color="#55A868",
+        linestyle="--",
+        linewidth=2,
+        label=f"Median={median_val:.4f}",
+    )
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Count")
+    title = f"{metric_name} Distribution"
+    if model_name:
+        title += f" — {model_name}"
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    ax.legend(fontsize=9)
+    plt.tight_layout()
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved: {output_path}")
+
+
+def plot_metrics_dashboard(
+    baseline_metrics: dict[str, Any] | None,
+    final_metrics: dict[str, Any],
+    model_name: str = "",
+    label: str = "Checkpoint",
+    output_path: str = "",
+) -> None:
+    """THE comparison figure: headline metrics, baseline vs checkpoint.
+
+    One row of panels — ordered by the literature-based metric hierarchy
+    (BLEU-4 corpus first, then chrF corpus, ROUGE-L, Pass@1, Gloss F1,
+    validity) — each panel a two-bar chart with the delta annotated.
+    Designed as the single "thesis headline" figure summarizing a run.
+
+    Args:
+        baseline_metrics: Baseline eval results (None → final-only panels).
+        final_metrics: Checkpoint eval results.
+        model_name: Short model name for the suptitle.
+        label: Display name for the checkpoint bars.
+        output_path: Where to save the figure.
+    """
+    import matplotlib.pyplot as plt
+
+    # (key, display, fmt) — ordered by relevance (docs/EVALUATION.md):
+    # BLEU-4 corpus (literature standard) → chrF → ROUGE-L → Pass@1 →
+    # Gloss F1 → validity.
+    panels: list[tuple[str, str, str]] = [
+        ("bleu_corpus", "BLEU-4 (corpus)", ".4f"),
+        ("chrf_corpus", "chrF2 (corpus)", ".2f"),
+        ("rouge_l_mean", "ROUGE-L (mean)", ".4f"),
+        ("pass_at_1", "Pass@1", ".4f"),
+        ("gloss_f1_micro", "Gloss F1 (micro)", ".4f"),
+        ("validity_rate", "Validity", ".4f"),
+    ]
+    present = [(k, d, f) for k, d, f in panels if k in final_metrics]
+    if not present:
+        print("No dashboard metrics found — skipping plot.")
+        return
+    if baseline_metrics is not None:
+        present = [(k, d, f) for k, d, f in present if k in baseline_metrics]
+    if not present:
+        print("No overlapping dashboard metrics — skipping plot.")
+        return
+
+    n = len(present)
+    fig, axes = plt.subplots(1, n, figsize=(2.8 * n, 4.6))
+    if n == 1:
+        axes = [axes]
+    colors = {"baseline": "#8172B2", "final": "#4C72B0"}
+
+    for ax, (key, display, fmt) in zip(axes, present):
+        final_val = float(final_metrics[key])
+        if baseline_metrics is not None:
+            base_val = float(baseline_metrics[key])
+            bars = ax.bar(
+                ["Baseline", label],
+                [base_val, final_val],
+                color=[colors["baseline"], colors["final"]],
+                alpha=0.85,
+                width=0.6,
+            )
+            delta = final_val - base_val
+            sign = "+" if delta >= 0 else ""
+            # relative delta (guard div-by-zero)
+            rel = delta / base_val if base_val != 0 else float("inf")
+            if abs(rel) != float("inf"):
+                delta_txt = f"{sign}{delta:{fmt}}\n({sign}{100 * rel:.1f}%)"
+            else:
+                delta_txt = f"{sign}{delta:{fmt}}"
+        else:
+            bars = ax.bar(
+                [label], [final_val], color=colors["final"], alpha=0.85, width=0.6
+            )
+            delta_txt = ""
+        ax.set_title(display, fontsize=11, fontweight="bold")
+        ax.set_ylim(0, max(final_val, max(b.get_height() for b in bars)) * 1.25)
+        for bar in bars:
+            h = bar.get_height()
+            ax.annotate(
+                f"{h:{fmt}}",
+                xy=(bar.get_x() + bar.get_width() / 2, h),
+                xytext=(0, 3),
+                textcoords="offset points",
+                ha="center",
+                fontsize=9,
+                fontweight="bold",
+            )
+        if delta_txt:
+            ax.annotate(
+                delta_txt,
+                xy=(0.5, 0.92),
+                xycoords="axes fraction",
+                ha="center",
+                fontsize=8,
+                color="#1a7a1a" if delta_txt.startswith("+") else "#C44E52",
+            )
+
+    suptitle = "Metrics Dashboard"
+    if model_name:
+        suptitle += f" — {model_name}"
+    fig.suptitle(suptitle, fontsize=14, fontweight="bold", y=1.02)
+    plt.tight_layout()
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {output_path}")
+
+
+def plot_difficulty_breakdown(
+    difficulty_breakdown: dict[str, dict[str, float]],
+    model_name: str = "",
+    output_path: str = "",
+) -> None:
+    """Grouped bars: key metrics per gold-difficulty level (simple/medium/hard).
+
+    Answers "where does the model do well/badly?" — the per-difficulty
+    companion of the metrics dashboard. Difficulty follows the training
+    heuristic (gold gloss token count: ≤5 simple, ≤15 medium, >15 hard).
+    """
+    import matplotlib.pyplot as plt
+
+    if not difficulty_breakdown:
+        print("No difficulty breakdown to plot.")
+        return
+
+    # Preserve the canonical order; unknown levels appended alphabetically
+    levels = [lv for lv in ("simple", "medium", "hard") if lv in difficulty_breakdown]
+    levels += sorted(lv for lv in difficulty_breakdown if lv not in levels)
+    metrics: list[tuple[str, str]] = [
+        ("rouge_l_mean", "ROUGE-L"),
+        ("bleu_sentence_mean", "BLEU (sent)"),
+        ("pass_at_1", "Pass@1"),
+        ("validity_rate", "Validity"),
+    ]
+    present = [
+        (k, d)
+        for k, d in metrics
+        if all(k in difficulty_breakdown[lv] for lv in levels)
+    ]
+    if not present or not levels:
+        print("No difficulty metrics found — skipping plot.")
+        return
+
+    x = np.arange(len(levels))
+    width = 0.8 / len(present)
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    palette = ["#4C72B0", "#55A868", "#C44E52", "#8172B2"]
+    for i, (key, display) in enumerate(present):
+        vals = [float(difficulty_breakdown[lv].get(key, 0.0)) for lv in levels]
+        offset = (i - (len(present) - 1) / 2) * width
+        bars = ax.bar(
+            x + offset,
+            vals,
+            width * 0.92,
+            label=display,
+            color=palette[i % len(palette)],
+            alpha=0.85,
+        )
+        for bar in bars:
+            h = bar.get_height()
+            ax.annotate(
+                f"{h:.3f}",
+                xy=(bar.get_x() + bar.get_width() / 2, h),
+                xytext=(0, 2),
+                textcoords="offset points",
+                ha="center",
+                fontsize=8,
+            )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(
+        [
+            f"{lv}\n(n={difficulty_breakdown[lv].get('n_prompts', '?')} prompts)"
+            for lv in levels
+        ],
+        fontsize=10,
+    )
+    ax.set_ylabel("Score")
+    title = "Metrics by Gold Difficulty"
+    if model_name:
+        title += f" — {model_name}"
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    ax.legend(fontsize=9)
+    ax.set_ylim(0, 1.05)  # all metrics here are in [0,1]
+    plt.tight_layout()
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved: {output_path}")
+
+
 def plot_pass_at_k_curve(
     pass_at_k: dict[str, float],
     model_name: str = "",

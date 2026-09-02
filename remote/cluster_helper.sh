@@ -18,7 +18,6 @@
 #   QUEUE_COUNT=<n>        numero di entry in coda
 #   LAST_JOB=<id>:<type>:<cfg>:<tag>:<retries>   (vuoto se nessuno)
 #   STOPPED=0|1            chain_stopped presente → pausa
-#   WATCHER_ALIVE=0|1      watcher fallback (chain_next.sh) vivo
 #   ERRORS_COUNT=<n>       righe totali di chain_errors (JSONL)
 #   ERRORS_TAIL=[...]      ultime 5 righe RAW di chain_errors come array JSON
 #                          (su una riga, escaping manuale con sed)
@@ -51,7 +50,7 @@ source "$SCRIPT_DIR/_lib.sh"
 
 # ── Snapshot ─────────────────────────────────────────────────────────────────
 dump_status() {
-    local active="" last="" queue="" qcount=0 stopped=0 watcher=0
+    local active="" last="" queue="" qcount=0 stopped=0
     local errors_count=0 errors_tail="[]"
     local aid aname astate sep="" e out="" first=1
 
@@ -70,7 +69,6 @@ dump_status() {
 
     [ -f "$LAST_JOB_FILE" ] && last=$(cat "$LAST_JOB_FILE")
     [ -f "$STOPPED_FILE" ] && stopped=1
-    if watcher_alive; then watcher=1; fi
 
     # Errori (JSONL): totale righe + ultime 5 righe raw come array JSON.
     # L'escaping manuale (backslash e doppi apici) basta per il JSON in uscita:
@@ -94,7 +92,6 @@ dump_status() {
     printf 'QUEUE_COUNT=%s\n' "$qcount"
     printf 'LAST_JOB=%s\n' "$last"
     printf 'STOPPED=%s\n' "$stopped"
-    printf 'WATCHER_ALIVE=%s\n' "$watcher"
     printf 'ERRORS_COUNT=%s\n' "$errors_count"
     printf 'ERRORS_TAIL=%s\n' "$errors_tail"
 }

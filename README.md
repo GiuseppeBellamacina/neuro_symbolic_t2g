@@ -60,7 +60,7 @@ active in the optimal config (plus 3 ablation-only modules) and **10 in total**.
 - **GRPO Training**: On-policy reinforcement learning with G=4–8 completions
   per prompt (dipende dal config), LoRA (r=16–32), and 4-bit QLoRA
   quantization — fits in ~11 GB VRAM.
-- **Full Cluster Pipeline**: SLURM scripts, watcher daemon, live monitoring dashboard
+- **Full Cluster Pipeline**: SLURM scripts, tick-based chain, live monitoring dashboard
   (`t2g-monitor`), wandb logging, checkpoint management, and evaluation suite.
 - **Ablation Study Ready**: 12 config variants (zero-shot, grammar-only, GRPO
   variants, SFT, PDA, reward-module ablations) launchable via `--ablation` flag
@@ -97,7 +97,6 @@ neuro_symbolic_t2g/
 │   │   ├── setup.sh                   # One-shot environment setup
 │   │   ├── train.sh / eval.sh         # Job scripts
 │   │   ├── run_all.sh                 # Pipeline launcher (train → eval)
-│   │   ├── chain_next.sh              # Watcher daemon (sequential job chain)
 │   │   ├── aliases.sh                 # Convenience aliases (t2g-train, t2g-monitor, …)
 │   │   └── clean.sh / clean_model.sh  # Cleanup utilities
 │   ├── data/
@@ -266,7 +265,7 @@ CONFIG=experiments/configs/t2g/sft-grpo.yaml EXTRA_ARGS="--resume" sbatch cluste
 ```bash
 source ~/neuro_symbolic_t2g/cluster/aliases.sh
 
-t2g-run-all          # Full pipeline with watcher
+t2g-run-all          # Full pipeline (tick-based chain)
 t2g-monitor          # Live dashboard
 t2g-monitor --all    # Full: table + metrics + completion samples
 ```
@@ -449,7 +448,7 @@ experiments/checkpoints/grpo/t2g/qwen05/
 logs/
 ├── slurm-train-<JOB_ID>.log     # Full training log
 ├── slurm-eval-<JOB_ID>.log      # Evaluation log
-├── chain_watcher.log            # Pipeline orchestrator log
+├── chain.log                    # Pipeline orchestrator log
 └── wandb/                       # Weights & Biases offline logs
 ```
 

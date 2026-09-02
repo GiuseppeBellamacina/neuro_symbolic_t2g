@@ -685,15 +685,13 @@ class DashboardScreen(T2GScreen):
         active = snap.get("active_job")
         detail = snap.get("job_detail")
         stopped = bool(snap.get("stopped"))
-        watcher = bool(snap.get("watcher_alive"))
         last_tick = escape(str(snap.get("last_tick_at") or "mai"))
         reach = (
             "[green]ok[/green]" if snap.get("cluster_reachable") else "[red]giù[/red]"
         )
         stop_txt = "[red]PAUSA[/red]" if stopped else "[green]attivo[/green]"
-        watch_txt = "[green]vivo[/green]" if watcher else "[yellow]spento[/yellow]"
 
-        header = f"cluster {reach} · catena {stop_txt} · watcher {watch_txt} · tick {last_tick}"
+        header = f"cluster {reach} · catena {stop_txt} · tick {last_tick}"
         if not isinstance(active, dict) or not active:
             queue = snap.get("queue") or []
             nxt = "\n".join(f"  [dim]{escape(str(e))}[/dim]" for e in queue[:3])
@@ -855,18 +853,29 @@ class QueueScreen(T2GScreen):
         self.t2g_app.run_worker(self.t2g_app.refresh_jobs())
 
     def reload(self) -> None:
-        """Ricompone la tabella da ``app.jobs``."""
+        """Ricompone la tabella da ``app.jobs``.
+
+        NOTA: la chiave di riga è l'entry COMPLETA (type:config:tag), mai il
+        solo tag — train e eval della stessa cella condividono il tag e la
+        DataTable di Textual solleva DuplicateKey con chiavi duplicate
+        (bug: la coda appariva vuota dopo l'accodamento train+eval).
+        """
         if not self.is_mounted:
             return
         table = self.query_one("#queue", DataTable)
         table.clear()
         for pos, job in enumerate(self.t2g_app.jobs, start=1):
+            entry = str(
+                job.get(
+                    "entry", f"{job.get('type')}:{job.get('config')}:{job.get('tag')}"
+                )
+            )
             table.add_row(
                 str(pos),
                 str(job.get("type", "")),
                 Path(str(job.get("config", ""))).name,
                 str(job.get("tag", "")),
-                key=str(job.get("tag", "")),
+                key=entry,
             )
 
     # ── Azioni (binding) ──

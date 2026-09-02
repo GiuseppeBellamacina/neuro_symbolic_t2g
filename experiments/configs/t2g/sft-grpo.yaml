@@ -27,10 +27,16 @@ extends: base.yaml
 sft_pretrain:
   enabled: true
   reuse_adapter: true
-  # adapter_path: "experiments/checkpoints/qwen25-05b-sft-grpo/run_<ts>/sft_pretrain/final"
-  #   ^ forza un adapter esplicito, bypassando la ricerca per fingerprint.
+  # Ricetta ALLINEATA a sft-only (3 epoche + holdout 2% + early stopping):
+  # il run 20260901 ha mostrato che 1 epoca è insufficiente — sft-only (3ep)
+  # raggiunge ROUGE-L 0.978 mentre GRPO partito dal 1-epoca sottoperformava
+  # persino grpo-only. run_sft legge queste chiavi anche dal flusso pipeline
+  # (grpo_t2g_train le fonde in training): eval_fraction/eval_steps/
+  # early_stopping_patience attivano holdout + load_best_model_at_end.
+  # NOTA: cambiare la ricetta cambia la fingerprint SFT → nuovo addestramento
+  # (una volta sola, poi riusato cross-tag da tutte le celle di ablation).
   training:
-    num_train_epochs: 1
+    num_train_epochs: 3 # era 1: allineato alla cella sft-only
     per_device_train_batch_size: 4
     gradient_accumulation_steps: 4
     learning_rate: 2.0e-5
@@ -45,6 +51,11 @@ sft_pretrain:
     save_total_limit: 1
     max_seq_length: 768
     gradient_checkpointing: true
+    # --- Holdout + early stopping (anti-overfitting, = sft-only) ---
+    per_device_eval_batch_size: 8
+    eval_fraction: 0.02 # 2% del train come holdout
+    eval_steps: 200
+    early_stopping_patience: 3
 
 # --- Iperparametri di training GRPO (solo le differenze dalla base) ---
 training:

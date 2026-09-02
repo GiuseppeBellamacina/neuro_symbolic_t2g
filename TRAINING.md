@@ -90,8 +90,8 @@ Vedi `docs/REWARDS.md` per dettagli completi.
 # Tabella live (job, reward, metriche)
 t2g-monitor
 
-# Log del watcher (catena job)
-tail -f logs/chain_watcher.log
+# Log della catena (tick)
+tail -f logs/chain.log
 
 # Log SLURM del job corrente
 tail -f logs/slurm-train-<JOB_ID>.log
@@ -113,7 +113,7 @@ experiments/checkpoints/grpo/t2g/qwen05/
 logs/
 ├── slurm-train-<ID>.log # Log completo training
 ├── slurm-eval-<ID>.log  # Log evaluation
-└── chain_watcher.log    # Log della pipeline
+└── chain.log            # Log della pipeline
 ```
 
 ### Resume dopo interruzione

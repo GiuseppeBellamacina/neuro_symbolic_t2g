@@ -1,9 +1,10 @@
 # Protocollo di Valutazione — neuro_symbolic_t2g
 
-Versione: 1.0 (2026-08-26). Questo documento definisce il protocollo con cui
+Versione: 1.1 (2026-09-02). Questo documento definisce il protocollo con cui
 vengono prodotti e confrontati i numeri del progetto. **Dichiarare e mantenere
 questo protocollo è prerequisito per ogni claim sul target BLEU 0.80** — i numeri
-sono comparabili solo dentro lo stesso protocollo.
+sono comparabili solo dentro lo stesso protocollo. La gerarchia delle metriche
+(§2) segue la letteratura T2G: vedi §2b per le fonti.
 
 ## 1. Split del dataset
 
@@ -18,24 +19,60 @@ sono comparabili solo dentro lo stesso protocollo.
 - **Nessuno split di validazione separato**: l'eval holdout di SFT (2%) è
   ricavato dal train (vedi `src/training/sft_train.py`).
 
-## 2. Metriche
+## 2. Metriche — gerarchia per rilevanza
 
 Tutte le metriche primarie sono calcolate su **tutte le completions** generate
 per ogni prompt (no selezione oracolo). Implementazioni: `src/utils/metrics.py`
-(sacrebleu per BLEU/chrF).
+(sacrebleu per BLEU/chrF). L'ordine della tabella è la **gerarchia di
+rilevanza** usata nel log dell'eval, nel metrics_dashboard e nelle tabelle
+della tesi.
 
-| Metrica | Definizione | Scala | Ruolo |
-|---|---|---|---|
-| **BLEU** | sacrebleu sentence BLEU, `effective_order=True`, smoothing `floor` 0.1; riportati sentence mean E corpus | [0,1] / [0,100] | Primaria (target 0.80) |
-| **chrF** | sacrebleu CHRF2 (char F-score, β=2) | [0,100] | Primaria — indipendente dalla tokenizzazione, àncora contro inflazione BLEU |
-| **Gloss-F1** | F1 token-level, case-insensitive (lowercase), precision/recall su token space-separated; micro corpus + sentence mean | [0,1] | Primaria — la metrica "sulla gloss" richiesta |
-| **ROUGE-L** | F1 LCS (rouge_score, stemmer off) | [0,1] | Primaria (storica, continuità coi run precedenti) |
-| **Pass@1** | frazione di sample con ≥1 completion sopra ROUGE-L 0.3 (`compute_pass_at_k(k=1)`, single honest draw) | [0,1] | Primaria |
-| **Validity** | frazione di completions con soli token in vocabolario gloss | [0,1] | Diagnostica (posta ~1.0 by construction col constrained decoding) |
-| **Exact match** | uguaglianza stringa normalizzata | [0,1] | Diagnostica |
+| # | Metrica | Definizione | Scala | Ruolo |
+|---|---|---|---|---|
+| 1 | **BLEU-4 (corpus)** | sacreBLEU corpus, refs flat allineate (v2 `metrics_version`); sentence mean riportato accanto | [0,1] | **Headline** — lo standard della letteratura T2G (confrontabile coi paper) |
+| 2 | **chrF2 (corpus)** | sacrebleu CHRF2 (char F-score, β=2) | [0,100] | **Headline secondaria** — indipendente dalla tokenizzazione, àncora contro inflazione BLEU |
+| 3 | **ROUGE-L** | F1 LCS (rouge_score, stemmer off), sentence mean | [0,1] | Secondaria — lineage SLT + la reward di training |
+| 4 | **Gloss F1 (micro)** | F1 token-level case-insensitive | [0,1] | Diagnostica — errore a livello token |
+| 5 | **Exact match** | uguaglianza stringa normalizzata | [0,1] | Diagnostica |
+| 6 | **Pass@1 / Pass@k** | frazione di prompt con ≥1 completion sopra ROUGE-L 0.3 (k=1: single honest draw) | [0,1] | **Deployability** — metrica di progetto, NON letteratura (v. §2a) |
+| 7 | **Validity** | frazione di completions con soli token in vocabolario gloss | [0,1] | Sistema — quantifica il contributo del constrained decoding |
 
-**Passaggio del test**: un sample passa con ≥1 completion sopra threshold
-ROUGE-L 0.3. `pass_at_k` riportato per k=1..N.
+### 2a. Pass@k e la soglia 0.3 — provenienza dichiarata
+
+**Pass@k NON è una metrica della letteratura T2G**: nasce in HumanEval
+(Chen et al. 2021) per il **codice**, dove "pass" = unit test binario. Il
+reference repo (grpo-strict-generation) usava `check_syntax()` — check binario.
+La gloss generation è open-ended: non esiste un test binario, quindi il
+progetto sostituisce il check con una **proxy di similarità**:
+ROUGE-L ≥ **0.3**. Il valore 0.3 è un'**euristica di progetto**
+("almeno un terzo della struttura del gold recuperata"): nessun paper la
+prescrive. Conseguenze:
+- è **confrontabile solo dentro questo protocollo** (dichiararla sempre);
+- la soglia va dichiarata in ogni tabella Pass@1/Pass@k della tesi;
+- Pass@5 − Pass@1 misura quanto il modello "sa ma non è deterministico"
+  (headroom del sampling a temp 0.7).
+
+### 2b. Fonti della gerarchia (letteratura T2G)
+
+- **BLEU-4 + chrF + valutazione umana**: Bangla T2G benchmark (Abdullah et
+  al. 2025, arXiv:2504.02293) — il primo benchmark T2G dedicato. GPT-5.4:
+  BLEU-4 39.26, chrF 73.75, umano 67.8%. Nota: metriche automatiche e umano
+  possono disaccordare (Qwen-3 best human, GPT best BLEU).
+- **BLEU + ROUGE**: Select and Reorder (Walsh, Saunders, Bowden, LREC-COLING
+  2024, arXiv:2404.11532) — SOTA T2G su mDGS ("state-of-the-art BLEU and
+  Rouge scores").
+- **BLEU come reward e come eval**: RVLF (2025, arXiv:2512.07273 — il
+  riferimento GRPO-SLT) + Mosquera et al. 2025 (GRPO su Qwen2.5-0.5B).
+- **Nessun paper T2G usa Pass@k o threshold-metric**: sono del mondo
+  code-generation.
+
+### 2c. Per-difficulty breakdown
+
+Ogni eval produce `results["difficulty_breakdown"]`: ROUGE-L / BLEU sent /
+chrF sent / Pass@1 / validity per livello di difficoltà del gold (stessa
+euristica del training: ≤5 token gold = simple, ≤15 = medium, >15 = hard).
+Alimenta il grafico `difficulty_breakdown.png` e risponde "dove il modello
+fa fatica" (monitor per-difficulty).
 
 ## 3. Decodifica in evaluation
 
@@ -83,12 +120,26 @@ ROUGE-L 0.3. `pass_at_k` riportato per k=1..N.
 4. **chrF è case-sensitive** a livello di carattere (sacrebleu): le nostre gloss
    sono uppercase uniformi, quindi l'effetto è trascurabile, ma va dichiarato.
 
-## 7. File di output
+## 7. File di output e figure
 
 Per ogni eval (in `experiments/results/<model>/<run_id>/`):
-- `eval_<ckpt>.json` — metriche primarie + `oracle_best_of_n` + reward breakdown
+- `eval_<ckpt>.json` — metriche primarie + `oracle_best_of_n` + reward
+  breakdown + `difficulty_breakdown`
 - `generations_<ckpt>.json` — completions grezze con valid/rouge per sample
 - `comparison.json` (solo `--compare`) — baseline vs checkpoint + delta
+
+Figure (in `experiments/figures/<model>/<run_id>/`), in ordine di
+rilevanza:
+1. `metrics_dashboard.png` — **il grafico di confronto**: headline metrics
+   (BLEU-4 corpus, chrF, ROUGE-L, Pass@1, Gloss F1, validity), baseline vs
+   checkpoint, delta assoluto e % per pannello. La "one figure" della tesi.
+2. `difficulty_breakdown.png` — metriche per livello di difficoltà del gold.
+3. `bleu_distribution.png` / `chrf_distribution.png` / `rouge_distribution.png`
+   — istogrammi per-completion delle tre metriche di contenuto, con
+   overlay valid/invalid.
+4. `completion_lengths.png`, `pass_at_k.png`, `error_breakdown.png`,
+   `validity_pie.png`, `reward_breakdown.png`, `reward_radar.png`,
+   `completion_examples.{json,html}`, `baseline_vs_grpo_comparison.png`.
 
 Ablation cross-config: `ablation-summary` aggrega `eval_final.json` di ogni run
 (preferisce `eval_final.json`; esclude `eval_baseline.json`).

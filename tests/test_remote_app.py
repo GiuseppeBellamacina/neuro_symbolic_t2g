@@ -79,7 +79,6 @@ class FakeClusterSSH:
         self.active_job: str = ""
         self.last_job: str = ""
         self.stopped = False
-        self.watcher_alive = False
         self.errors: list[str] = []
         self.rc = 0
         self.stderr = ""
@@ -102,7 +101,6 @@ class FakeClusterSSH:
             f"QUEUE_COUNT={len(self.queue)}\n"
             f"LAST_JOB={self.last_job}\n"
             f"STOPPED={1 if self.stopped else 0}\n"
-            f"WATCHER_ALIVE={1 if self.watcher_alive else 0}\n"
             f"ERRORS_COUNT={len(self.errors)}\n"
             f"ERRORS_TAIL={tail}\n"
         )
@@ -301,7 +299,6 @@ def test_status_format_after_tick(client):
         "queue",
         "last_job",
         "stopped",
-        "watcher_alive",
         "errors_recent",
         "last_tick_at",
         "cluster_reachable",

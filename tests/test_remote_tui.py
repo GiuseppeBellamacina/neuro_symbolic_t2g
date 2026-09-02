@@ -25,7 +25,6 @@ STATUS_BODY = {
     "queue": ["train:experiments/configs/t2g/sft-grpo.yaml:run1"],
     "last_job": "12345:train:experiments/configs/t2g/sft-grpo.yaml:run1:0",
     "stopped": False,
-    "watcher_alive": True,
     "errors_recent": [],
     "last_tick_at": "2026-08-26T10:00:00",
     "cluster_reachable": True,
@@ -169,7 +168,6 @@ def test_get_status_parses_fields():
         "state": "RUNNING",
     }
     assert status["queue"] == ["train:experiments/configs/t2g/sft-grpo.yaml:run1"]
-    assert status["watcher_alive"] is True
     assert status["stopped"] is False
     assert status["events"][0]["type"] == "tick"
 

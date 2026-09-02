@@ -29,8 +29,8 @@ jobinfo() {
 # Cancella un job (uso: killjob <JOB_ID>)
 alias killjob='scancel'
 
-# Cancella tutti i miei job (+ watcher e tick at)
-alias killalljobs='watcher-kill && scancel --me'
+# Cancella tutti i miei job SLURM
+alias killalljobs='scancel --me'
 
 # ── Log monitoring ───────────────────────────────────────────────────────────
 
@@ -169,16 +169,12 @@ run-all() {
     cd "$PROJ_DIR" && bash cluster/run_all.sh "$@"
 }
 
-# Controlla lo stato della pipeline (watcher / at-tick / coda)
-watcher-status() {
-    local at_pending=0
-    if command -v atq >/dev/null 2>&1; then
-        at_pending=$(atq 2>/dev/null | wc -l)
-    fi
+# Controlla lo stato della pipeline (job attivo / coda)
+chain-status() {
     if [ -f "$STATE_DIR/chain_failed" ]; then
         local failed
         failed=$(cat "$STATE_DIR/chain_failed")
-        echo "❌ Pipeline FALLITA — job: $failed"
+        echo "❌ Pipeline FALLITA - job: $failed"
         echo "   Per riprendere: chain-resume"
         return 1
     fi
@@ -187,65 +183,17 @@ watcher-status() {
         info=$(cat "$STATE_DIR/chain_stopped")
         st_type=$(echo "$info" | cut -d: -f1)
         st_tag=$(echo "$info" | cut -d: -f3)
-        echo "⏸️  Pipeline FERMATA su: $st_type $st_tag"
+        echo "⚠️  Pipeline FERMATA su: $st_type $st_tag"
         echo "   Per riprendere: chain-start"
         return 0
     fi
     if [ -s "$STATE_DIR/job_chain" ]; then
-        echo "📋 Job in coda: $(wc -l < "$STATE_DIR/job_chain")"
+        echo "⏳ Job in coda: $(wc -l < "$STATE_DIR/job_chain")"
     fi
     if [ -n "$(active_job_id)" ]; then
         echo "▶️  Job SLURM attivo: $(active_job_id) ($(active_job_name))"
-    fi
-    if [ "$at_pending" -gt 0 ]; then
-        echo "🕒 at-tick attivo ($at_pending schedulazioni)"
-    fi
-    if [ -f "$STATE_DIR/chain_pid" ]; then
-        local pid
-        pid=$(cat "$STATE_DIR/chain_pid")
-        if ps -p "$pid" > /dev/null 2>&1; then
-            echo "✅ Watcher attivo (PID $pid)"
-        else
-            echo "❌ Watcher morto (PID $pid non trovato)"
-            rm -f "$STATE_DIR/chain_pid"
-            return 1
-        fi
-    elif [ -s "$STATE_DIR/job_chain" ] && [ "$at_pending" -eq 0 ] && [ -z "$(active_job_id)" ]; then
-        echo "❌ Pipeline INTERROTTA: nessun watcher né at-tick né job attivo."
-        echo "   Usa: chain-resume"
-        return 1
     else
-        echo "ℹ️  Nessuna pipeline attiva."
-    fi
-}
-
-# Uccidi il watcher fallback + cancella i tick at pendenti
-watcher-kill() {
-    _at_clear
-    if [ -f "$STATE_DIR/chain_pid" ]; then
-        local pid
-        pid=$(cat "$STATE_DIR/chain_pid")
-        if ! ps -p "$pid" > /dev/null 2>&1; then
-            echo "⚠️  Watcher (PID $pid) già morto"
-            rm -f "$STATE_DIR/chain_pid"
-            return 0
-        fi
-        read -p "Uccidere il watcher (PID $pid)? [y/N] " confirm
-        case "$confirm" in
-            [yY]|[yY][eE][sS])
-                if kill "$pid" 2>/dev/null; then
-                    echo "✅ Watcher (PID $pid) terminato"
-                else
-                    echo "⚠️  Watcher (PID $pid) già morto"
-                fi
-                rm -f "$STATE_DIR/chain_pid"
-                ;;
-            *)
-                echo "Annullato."
-                ;;
-        esac
-    else
-        echo "Nessun watcher attivo"
+        echo "Nessuna pipeline attiva."
     fi
 }
 
@@ -270,7 +218,7 @@ chain-remove() {
 }
 
 # Ferma la pipeline senza perdere lo stato (uso: chain-stop [--force])
-# Cancella job SLURM attivo + watcher + tick at pendenti, salva lo stato
+# Cancella il job SLURM attivo, salva lo stato per chain-start
 # (.chain_stopped) con il config ATTIVO letto da .chain_state — MAI hardcoded.
 chain-stop() {
     local force=0
@@ -279,7 +227,7 @@ chain-stop() {
             --force) force=1 ;;
             --help|-h)
                 echo "Uso: chain-stop [--force]"
-                echo "  (default)  Ferma pipeline: cancella job SLURM + watcher + tick at."
+                echo "  (default)  Ferma pipeline: cancella il job SLURM attivo."
                 echo "             Salva lo stato per chain-start."
                 echo "  --force    Cancella TUTTI i file di stato."
                 return 0
@@ -290,9 +238,6 @@ chain-stop() {
     cd "$PROJ_DIR" || return 1
     mkdir -p "$STATE_DIR"
 
-    # 1) Cancella i tick at pendenti (altrimenti ripartirebbero subito)
-    _at_clear
-
     # 2) Cancella il job SLURM attivo
     local active_id active_name
     active_id=$(active_job_id)
@@ -302,16 +247,6 @@ chain-stop() {
         echo "✅ Job SLURM $active_id ($active_name) cancellato"
     else
         echo "⚠️  Nessun job SLURM attivo"
-    fi
-
-    # 3) Uccidi il watcher fallback
-    if [ -f "$STATE_DIR/chain_pid" ]; then
-        local pid
-        pid=$(cat "$STATE_DIR/chain_pid")
-        if kill -0 "$pid" 2>/dev/null; then
-            kill "$pid" 2>/dev/null && echo "✅ Watcher (PID $pid) terminato"
-        fi
-        rm -f "$STATE_DIR/chain_pid"
     fi
 
     if [ "$force" -eq 1 ]; then
@@ -405,36 +340,12 @@ _chain_resume_impl() {
     cat -n "$STATE_DIR/job_chain"
     echo ""
 
-    # 3) Pulisci pid stale del vecchio watcher
-    if [ -f "$STATE_DIR/chain_pid" ] && ! watcher_alive; then
-        rm -f "$STATE_DIR/chain_pid"
-    fi
-
-    # 4) Kick. PRIMARIO su gcluster: `at` NON è disponibile → watcher come
-    #    fallback automatico + suggerimento dell'hook bashrc. `at` resta solo
-    #    opportunistico: se un giorno comparisse, il tick --schedule lo
-    #    userebbe senza danni (dedup ≤1 pending).
-    if command -v at >/dev/null 2>&1; then
-        bash cluster/chain_tick.sh --quiet --schedule=3
-        local rc=$?
-        if [ "$rc" -ne 3 ]; then
-            [ "$rc" -ne 0 ] && echo "⚠️  tick rc=$rc — retry automatico al prossimo tick."
-            _chain_resume_report
-            return 0
-        fi
-        echo "⚠️  at non raggiungibile (rc=3) — fallback watcher."
-    fi
-
-    local pid=""
-    setsid nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
-    disown
-    sleep 2
-    [ -f "$STATE_DIR/chain_pid" ] && pid=$(cat "$STATE_DIR/chain_pid")
+    # 3) Kick: un tick immediato — la catena avanza poi con l'hook bashrc
+    #    (chain-hook-install) e/o il server esterno (POST /tick).
+    bash cluster/chain_tick.sh --quiet
+    local rc=$?
+    [ "$rc" -ne 0 ] && echo "⚠️  tick rc=$rc - riproverà al prossimo tick."
     _chain_resume_report
-    echo "Watcher fallback PID: ${pid:-?}"
-    echo ""
-    echo "⚠️  at NON è disponibile su gcluster — installa l'hook per la resilienza:"
-    echo "        chain-hook-install && source ~/.bashrc"
 }
 
 # Riprendi la pipeline dopo chain-stop (uso: chain-start)
@@ -451,7 +362,7 @@ chain-resume() {
 
 # Mostra la catena di job attuale (uso: chain-show)
 chain-show() {
-    watcher-status
+    chain-status
     echo ""
     if [ -f "$STATE_DIR/chain_stopped" ]; then
         local info st_type st_tag
@@ -534,8 +445,6 @@ alias t2g-chain-show='chain-show'
 alias t2g-chain-stop='chain-stop'
 alias t2g-chain-start='chain-start'
 alias t2g-chain-resume='chain-resume'
-alias t2g-watcher-status='watcher-status'
-alias t2g-watcher-kill='watcher-kill'
 alias t2g-clean='clean'
 alias t2g-gpu='gpu'
 alias t2g-trainlog='trainlog'
@@ -571,7 +480,7 @@ pip-reset() {
 
 # ── Meta ─────────────────────────────────────────────────────────────────────
 
-_DIEGO_ALIASES="myjobs jobinfo killjob killalljobs trainlog evallog lastlog tree gpu quota proj ckpts train run-eval run-all watcher-status watcher-kill clean clean-model chain-add chain-remove chain-stop chain-start chain-resume chain-show chain-hook-install chain-hook-uninstall monitor ablation-summary pip-clean pip-setup pip-reset unload-aliases install-aliases uninstall-aliases t2g-train t2g-eval t2g-run-all t2g-monitor t2g-chain-show t2g-chain-stop t2g-chain-start t2g-chain-resume t2g-watcher-status t2g-watcher-kill t2g-clean t2g-gpu t2g-trainlog t2g-help"
+_DIEGO_ALIASES="myjobs jobinfo killjob killalljobs trainlog evallog lastlog tree gpu quota proj ckpts train run-eval run-all chain-status clean clean-model chain-add chain-remove chain-stop chain-start chain-resume chain-show chain-hook-install chain-hook-uninstall monitor ablation-summary pip-clean pip-setup pip-reset unload-aliases install-aliases uninstall-aliases t2g-train t2g-eval t2g-run-all t2g-monitor t2g-chain-show t2g-chain-stop t2g-chain-start t2g-chain-resume t2g-clean t2g-gpu t2g-trainlog t2g-help"
 
 # Mostra i comandi disponibili
 diego() {
@@ -581,7 +490,7 @@ diego() {
     echo "   myjobs            — lista job attivi"
     echo "   jobinfo <ID>      — dettagli job"
     echo "   killjob <ID>      — cancella job"
-    echo "   killalljobs       — cancella tutti i miei job + watcher + tick at"
+    echo "   killalljobs       — cancella tutti i miei job SLURM"
     echo ""
     echo "── Log monitoring ──"
     echo "   trainlog <ID> — segui log training"
@@ -594,7 +503,7 @@ diego() {
     echo "   run-eval [--config PATH] [--checkpoint PATH]"
     echo "                     — lancia evaluation"
     echo "   run-all [config_name] [--ablation|--train-only|--eval-only|--resume|--append|--force]"
-    echo "                     — lancia pipeline train+eval (hook/watcher; at solo se presente)"
+    echo "                     — lancia pipeline train+eval (tick + avanza via hook/server)"
     echo ""
     echo "   Config disponibili (passa il nome senza .yaml):"
     echo "     sft-grpo               pipeline principale SFT+GRPO (default)"
@@ -617,8 +526,6 @@ diego() {
     echo "   chain-resume — riprendi catena interrotta (es. daemon ucciso)"
     echo "   chain-hook-install/uninstall"
     echo "                    — hook bashrc che avanza la catena al login"
-    echo "   watcher-status — controlla watcher / at-tick / coda"
-    echo "   watcher-kill — uccidi il watcher (e cancella i tick at)"
     echo ""
     echo "── Monitor ──"
     echo "   monitor [--poll N] [--tab] [--samples [N]] [--metrics] [--all [N]]"
@@ -643,7 +550,6 @@ diego() {
     echo "── Alias t2g-* ──"
     echo "   t2g-train / t2g-eval / t2g-run-all / t2g-monitor"
     echo "   t2g-chain-show / t2g-chain-stop / t2g-chain-start / t2g-chain-resume"
-    echo "   t2g-watcher-status / t2g-watcher-kill / t2g-clean / t2g-gpu / t2g-help"
     echo ""
     echo "── Meta ──"
     echo "   diego          — mostra questo messaggio"

@@ -6,12 +6,11 @@
 # catena viene avanzata da chain_tick.sh (one-shot idempotente), guidata da:
 #   bashrc-hook (PRIMARIO) → chain_tick.sh --quiet via PROMPT_COMMAND
 #                            (chain-hook-install) — su gcluster `at` NON c'è
-#   watcher (fallback auto)→ chain_next.sh setsid (può essere ucciso dal reaper)
-#   at (opportunistico)    → se un giorno `at` comparisse sul login node,
-#                            chain_tick.sh --schedule lo userebbe senza danni
+#   server esterno         → POST /tick → cluster_helper.sh tick
+#   manuale                → chain-start / run-all (tick immediato)
 #
 # MAI rm -rf automatico dello stato con job pendenti: se una catena risulta
-# interrotta (job_chain non vuota, nessun job attivo, nessun tick/watcher)
+# interrotta (job_chain non vuota, nessun job attivo)
 # run_all RIFIUTA e chiede chain-resume (o --force per ricominciare).
 #
 # Uso:
@@ -161,45 +160,22 @@ fi
 mkdir -p "$STATE_DIR" logs
 
 # ── Funzioni di lancio ────────────────────────────────────────────────────────
-# Kick della pipeline. PRIMARIO su gcluster: `at` NON è disponibile → il
-# watcher viene avviato subito come fallback automatico e l'HOME hook
-# (chain-hook-install) è la resilienza raccomandata. `at` resta solo come
-# rilevamento opportunistico: se un giorno comparisse sul login node, il tick
-# --schedule lo userebbe senza alcun danno (dedup ≤1 pending).
+# Kick della pipeline: UN tick immediato. Il tick è one-shot e idempotente
+# (flock interno): se la coda è vuota o il job è già attivo, non fa nulla.
+# La resilienza a lungo termine è l'hook bashrc (chain-hook-install) e il
+# server esterno (POST /tick): nessun daemon da tenere in vita.
 _launch_pipeline() {
     mkdir -p logs
 
-    if command -v at >/dev/null 2>&1; then
-        bash cluster/chain_tick.sh --quiet --schedule=3
-        local rc=$?
-        if [ "$rc" -ne 3 ]; then
-            [ "$rc" -ne 0 ] && echo "⚠️  tick rc=$rc (sottomissione fallita) — retry automatico al prossimo tick."
-            echo ""
-            echo "✅ Pipeline attiva in at-mode (tick ogni 3 min via 'at')."
-            echo "   atq                   → tick schedulati (max 1)"
-            echo "   chain-stop            → ferma (cancella anche i tick at)"
-            echo "   tail -f logs/chain_watcher.log"
-            return 0
-        fi
-        echo "⚠️  at non raggiungibile (rc=3) — fallback watcher."
-    fi
-
-    local pid=""
-    setsid nohup bash cluster/chain_next.sh >> logs/chain_watcher.log 2>&1 &
-    disown
-    sleep 2
-    [ -f "$CHAIN_PID_FILE" ] && pid=$(cat "$CHAIN_PID_FILE")
+    bash cluster/chain_tick.sh --quiet
+    local rc=$?
+    [ "$rc" -ne 0 ] && echo "⚠️  tick rc=$rc - riproverà al prossimo tick (hook/server)."
     echo ""
-    echo "Pipeline avviata con watcher fallback (PID ${pid:-?})."
-    echo ""
-    echo "⚠️  at NON è disponibile su gcluster — il watcher può essere ucciso dal"
-    echo "    reaper del login node. Per la resilienza installa l'HOME hook:"
-    echo ""
-    echo "        chain-hook-install && source ~/.bashrc"
-    echo ""
-    echo "    (e se la catena si ferma comunque: chain-resume)"
+    echo "▶ Tick eseguito. La catena avanza a ogni tick:"
+    echo "   chain-show                      # stato pipeline"
+    echo "   tail -f logs/chain.log          # log della catena"
+    echo "   chain-hook-install              # resilienza: hook bashrc (consigliato)"
 }
-
 # Riprendi dalla coda ESISTENTE: non richiede più .chain_failed, basta che
 # job_chain sia non vuota (il caso reale: daemon ucciso dal reaper). Legacy:
 # ricostruisce da .chain_failed se la coda è vuota.
@@ -238,10 +214,6 @@ _cmd_resume() {
         exit 1
     fi
 
-    # Pulisci pid stale del vecchio watcher
-    if [ -f "$CHAIN_PID_FILE" ] && ! watcher_alive; then
-        rm -f "$CHAIN_PID_FILE"
-    fi
 
     _launch_pipeline
     echo ""
@@ -258,8 +230,8 @@ fi
 
 # ── Auto-append: se la catena è già attiva, i nuovi job vengono AGGIUNTI ──────
 if [ "$APPEND" -eq 0 ] && [ "$REMOVE" -eq 0 ]; then
-    if watcher_alive || [ -n "$(active_job_id)" ] || _at_tick_pending; then
-        echo "⚠️  Pipeline già attiva (watcher / job SLURM / at-tick)."
+    if [ -n "$(active_job_id)" ]; then
+        echo "⚠️  Pipeline già attiva (job SLURM in corso)."
         echo "   I nuovi job verranno AGGIUNTI alla coda esistente."
         echo ""
         APPEND=1
@@ -282,7 +254,7 @@ if [ "$REMOVE" -eq 1 ]; then
 fi
 
 # ── Fresh start: MAI rm -rf automatico con job pendenti ──────────────────────
-# Anti-rm-rf: se la coda esiste non vuota, nessun watcher, nessun job attivo
+# Anti-rm-rf: se la coda esiste non vuota e nessun job attivo
 # e nessun at-tick → la catena è interrotta (es. daemon ucciso dal reaper).
 # Azzerare qui significherebbe CANCELLARE i job rimanenti.
 if [ "$RESUME" -eq 0 ] && [ "$APPEND" -eq 0 ] && [ "$REMOVE" -eq 0 ]; then
@@ -380,11 +352,11 @@ if [ "$APPEND" -eq 1 ]; then
     cat -n "$CHAIN_FILE"
     echo ""
     # Se nulla sta già avanzando la coda, avviala ora
-    if ! watcher_alive && [ -z "$(active_job_id)" ] && ! _at_tick_pending; then
+    if [ -z "$(active_job_id)" ]; then
         echo "✅ Nessun driver attivo — avvio la pipeline."
         _launch_pipeline
     else
-        echo "✅ Il driver attivo (watcher/at-tick) eseguirà i nuovi job automaticamente."
+        echo "✅ La catena avanza a ogni tick (hook bashrc / server / manuale)."
     fi
     exit 0
 fi
@@ -399,17 +371,17 @@ echo "Catena:"
 cat -n "$CHAIN_FILE"
 echo ""
 
-# ── Avvia la pipeline (hook/watcher; at solo se opportunisticamente presente) ─
+# ── Avvia la pipeline (tick immediato; avanza poi via hook/server) ─
 _launch_pipeline
 
 echo ""
 echo "============================================"
 echo "  Pipeline avviata!"
-echo "  Log:  logs/chain_watcher.log"
+echo "  Log:  logs/chain.log"
 echo "  Coda: .chain_state/job_chain"
 echo ""
 echo "  Per monitorare:"
-echo "    tail -f logs/chain_watcher.log"
+echo "    tail -f logs/chain.log"
 echo "    monitor"
 echo "    myjobs"
 echo ""

@@ -2,33 +2,26 @@
 # ============================================================================
 # chain_tick.sh — One-shot, idempotent tick that advances the T2G pipeline.
 #
-# CORE of the chain redesign. Instead of a long-lived watcher loop (killed by
-# the login-node reaper, cause unknown — main hypothesis systemd
-# KillUserProcesses at logout), the chain is driven by SHORT stateless ticks
-# invocable from:
-#   - an `at` job self-rescheduling every N minutes  (primary, --schedule)
-#   - the bashrc PROMPT_COMMAND hook                (chain-hook-install)
-#   - a manual command                              (chain-resume / run-all)
-#   - an external server/cron                       (cluster/remote_tick.sh)
+# CORE della catena: tick BREVI e statelèssi, invocabili da:
+#   - l'hook bashrc PROMPT_COMMAND      (chain-hook-install — PRIMARIO)
+#   - il server esterno / cron         (remote/cluster_helper.sh tick)
+#   - un comando manuale               (chain-start / run-all)
 #
-# Each tick:
-#   1. flock (non-blocking): max 1 tick at a time (at+hook+manual overlap)
-#   2. .chain_stopped present           → exit 0 (paused)
-#   3. active SLURM job (squeue)        → touch heartbeat, exit 0
-#   4. job_chain empty                  → exit 0 (chain complete)
+# Ogni tick:
+#   1. flock (non-blocking): max 1 tick alla volta (hook+manuale+server)
+#   2. .chain_stopped presente           → exit 0 (pausa)
+#   3. active SLURM job (squeue)        → exit 0 (il tick è innocuo)
+#   4. job_chain empty                  → exit 0 (catena completa)
 #   5. last submitted job finished?     → classify via sacct: retry
 #      (train TIMEOUT/OOM/CUDA, max 2, tracked in .chain_state/last_job)
 #      or log-and-skip (continue-on-failure, eval-after-failed-train dropped)
 #   6. submit the next job (sbatch), record .chain_state/last_job
-#   7. --schedule[=MIN]: dedup'd self-reschedule via `at` (default 3 min)
 #
-# Exit codes: 0 = ok; 2 = usage error; 3 = --schedule requested but `at` is
-# unavailable (caller should fall back to watcher/hook).
+# Exit codes: 0 = ok; 2 = usage error.
 #
 # Uso:
 #   bash cluster/chain_tick.sh                 # one-shot check
-#   bash cluster/chain_tick.sh --quiet         # no stdout (bashrc hook / at)
-#   bash cluster/chain_tick.sh --schedule=3    # check + reschedule via at
+#   bash cluster/chain_tick.sh --quiet         # no stdout (hook/server)
 # ============================================================================
 
 set -euo pipefail
@@ -39,43 +32,25 @@ source "$SCRIPT_DIR/_lib.sh"
 cd "$PROJ_DIR"
 
 QUIET=0
-SCHEDULE_MIN=0
-SCHEDULE_FAILED=0   # exit 3 when --schedule requested but `at` is unavailable
 for arg in "$@"; do
     case "$arg" in
         --quiet)    QUIET=1 ;;
-        --schedule) SCHEDULE_MIN=3 ;;
-        --schedule=*) SCHEDULE_MIN="${arg#*=}" ;;
         -h|--help)
-            echo "Uso: bash cluster/chain_tick.sh [--quiet] [--schedule[=MIN]]"
+            echo "Uso: bash cluster/chain_tick.sh [--quiet]"
             echo ""
-            echo "  --quiet        nessun output su stdout (per hook/at)"
-            echo "  --schedule[=N] rischedula se stesso via at ogni N minuti (default 3)"
+            echo "  --quiet   nessun output su stdout (per hook bashrc / server)"
             echo ""
-            echo "Exit codes: 0 ok · 2 usage · 3 at non disponibile (fallback needed)"
+            echo "Exit codes: 0 ok · 2 usage"
             exit 0 ;;
+        *)
+            echo "❌ argomento sconosciuto: $arg" >&2
+            exit 2 ;;
     esac
 done
-case "$SCHEDULE_MIN" in
-    ''|*[!0-9]*)
-        echo "❌ --schedule richiede minuti numerici: --schedule=5" >&2
-        exit 2 ;;
-esac
-
-# Uscita del tick con l'esito della schedulazione. Su gcluster `at` manca:
-# con --schedule il tick esce 3 (il chiamante ripiega sul watcher) e, nelle
-# invocazioni manuali non --quiet, aggiunge il suggerimento dell'hook.
-_exit_tick() {
-    local code="$1"
-    if [ "$code" -eq 3 ] && [ "$QUIET" -eq 0 ]; then
-        echo "ℹ️  at non disponibile su gcluster — resilienza via hook bashrc: chain-hook-install"
-    fi
-    exit "$code"
-}
 
 mkdir -p "$STATE_DIR" logs
 
-# ── flock: un solo tick alla volta (at + hook + manuale possono sovrapporsi) ─
+# ── flock: un solo tick alla volta (hook + manuale + server possono sovrapporsi) ─
 # Se `flock` (util-linux) manca sul login node, fallback a un lock mkdir con
 # guardia anti-stale (un tick crashato non blocca per sempre la catena).
 if command -v flock >/dev/null 2>&1; then
@@ -105,13 +80,11 @@ if [ -f "$STOPPED_FILE" ]; then
     exit 0
 fi
 
-# 2) Job attivo → heartbeat e via (il tick è innocuo: NON tocca la coda).
+# 2) Job attivo → via (il tick è innocuo: NON tocca la coda).
 #    La QoS consente un solo job alla volta, quindi qui non si sottomette mai.
 if [ -n "$(active_job_id)" ]; then
-    touch "$HEARTBEAT_FILE"
     [ "$QUIET" -eq 0 ] && echo "job attivo — tick innocuo"
-    _schedule_next "$SCHEDULE_MIN" || SCHEDULE_FAILED=$?
-    _exit_tick "$SCHEDULE_FAILED"
+    exit 0
 fi
 
 # 3) Catena completa
@@ -126,10 +99,8 @@ chain_read_last_job
 if [ -n "$LAST_JOB_ID" ]; then
     query_sacct_with_retry "$LAST_JOB_ID" 4 3 || true
     if last_job_still_active; then
-        touch "$HEARTBEAT_FILE"
         [ "$QUIET" -eq 0 ] && echo "ultimo job ancora $_SACCT_STATE — tick innocuo"
-        _schedule_next "$SCHEDULE_MIN" || SCHEDULE_FAILED=$?
-        _exit_tick "$SCHEDULE_FAILED"
+        exit 0
     fi
     if ! job_succeeded; then
         if ! chain_handle_failure; then
@@ -143,12 +114,7 @@ fi
 # 5) Sottometti il prossimo
 if ! chain_submit_next; then
     [ "$QUIET" -eq 0 ] && echo "⚠️  sottomissione fallita — riproverà al prossimo tick"
-    _schedule_next "$SCHEDULE_MIN" || SCHEDULE_FAILED=$?
-    _exit_tick "$SCHEDULE_FAILED"
+    exit 0
 fi
 
-# 6) Rischedula (dedup, max 1 pending) ed esci.
-#    At non disponibile → exit 3 (il chiamante usa watcher/hook fallback).
-_schedule_next "$SCHEDULE_MIN" || SCHEDULE_FAILED=$?
 [ "$QUIET" -eq 0 ] && echo "tick ok — job $LAST_JOB_ID sottoposto, $(chain_remaining) in coda"
-_exit_tick "$SCHEDULE_FAILED"

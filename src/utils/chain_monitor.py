@@ -12,7 +12,7 @@ Usage:
     python3 -m src.utils.chain_monitor              # default, auto-detect
     python3 -m src.utils.chain_monitor --poll 30    # poll every 30s (default 15)
 
-Designed to run on the cluster login node (same node as the watcher).
+Designed to run on the cluster login node (next to the chain state).
 """
 
 from __future__ import annotations
@@ -30,10 +30,9 @@ from typing import Any
 PROJ_DIR = Path(os.environ.get("HOME", "~")) / "neuro_symbolic_t2g"
 STATE_DIR = PROJ_DIR / ".chain_state"
 CHAIN_FILE = STATE_DIR / "job_chain"
-CHAIN_PID_FILE = STATE_DIR / "chain_pid"
 CACHE_FILE = STATE_DIR / "monitor_cache"
 LOGS_DIR = PROJ_DIR / "logs"
-CHAIN_LOG = LOGS_DIR / "chain_watcher.log"
+CHAIN_LOG = LOGS_DIR / "chain.log"
 ERRORS_FILE = STATE_DIR / "chain_errors"
 
 # Module-level setting for sample display (set by main() from --samples arg)
@@ -394,7 +393,7 @@ def _get_active_job() -> tuple[str, str, str] | None:
 
 # ── Chain file parsing ────────────────────────────────────────────────────────
 def _parse_chain_log() -> list[tuple[str, str | None]]:
-    """Parse chain_watcher.log to find submitted job names and SLURM IDs."""
+    """Parse chain.log to find submitted job names and SLURM IDs."""
     if not CHAIN_LOG.exists():
         return []
     submitted: list[tuple[str, str | None]] = []
@@ -927,7 +926,7 @@ def _build_pipeline() -> list[JobInfo]:
     active = _get_active_job()
     pending = _read_pending_chain()
 
-    has_pipeline = CHAIN_PID_FILE.exists() or (CHAIN_FILE.exists() and pending)
+    has_pipeline = CHAIN_FILE.exists() and pending
     submitted_names = _parse_chain_log() if has_pipeline else []
 
     jobs: list[JobInfo] = []
@@ -1342,21 +1341,6 @@ def _format_status(job: JobInfo) -> str:
     )
 
 
-def _watcher_status() -> str:
-    """Check if the watcher process is alive."""
-    if not CHAIN_PID_FILE.exists():
-        return f"{_RED}Watcher: OFF{_RST}"
-    try:
-        pid = CHAIN_PID_FILE.read_text().strip()
-        result = _run(f"ps -p {pid} -o pid= 2>/dev/null")
-        if result:
-            return f"{_GREEN}Watcher: ON{_RST} {_DIM}(PID {pid}){_RST}"
-        else:
-            return f"{_RED}Watcher: DEAD{_RST} {_DIM}(PID {pid}){_RST}"
-    except Exception:
-        return f"{_RED}Watcher: UNKNOWN{_RST}"
-
-
 def _display(
     jobs: list[JobInfo],
     show_table: bool = True,
@@ -1368,9 +1352,7 @@ def _display(
     failed = sum(1 for j in jobs if j.state == "FAILED")
     total = len(jobs)
 
-    is_pipeline = CHAIN_PID_FILE.exists() or (
-        CHAIN_FILE.exists() and CHAIN_FILE.stat().st_size > 0
-    )
+    is_pipeline = CHAIN_FILE.exists() and CHAIN_FILE.stat().st_size > 0
 
     done_badge = f"{_GREEN}{completed}{_RST}/{total} done"
     fail_badge = f"  {_RED}{failed} failed{_RST}" if failed else ""
@@ -1381,7 +1363,6 @@ def _display(
         print(
             f"  {_BOLD}{_CYAN}Neuro-Symbolic T2G Monitor{_RST} — {done_badge}{fail_badge}"
         )
-        print(f"  {_watcher_status()}")
     elif total > 0:
         print(f"  {_BOLD}{_CYAN}T2G Job Monitor{_RST} — {done_badge}{fail_badge}")
         print(f"  {_DIM}Standalone mode (no pipeline){_RST}")
@@ -1466,15 +1447,6 @@ def _display(
                 time_parts += f" {_DIM}(job ~{total_eta}){_RST}"
             print(f"  {bar} {_WHITE}{pct}%{_RST}{time_parts}")
     elif remaining > 0:
-        watcher_alive = False
-        if CHAIN_PID_FILE.exists():
-            try:
-                pid = CHAIN_PID_FILE.read_text().strip()
-                result = _run(f"ps -p {pid} -o pid= 2>/dev/null")
-                watcher_alive = bool(result)
-            except Exception:
-                pass
-
         # Check if a job was recently submitted (within last 2 min).
         # If so, don't show "Waiting" — the job is probably still
         # transitioning from PENDING to RUNNING in SLURM. This prevents
@@ -1489,21 +1461,15 @@ def _display(
             except OSError:
                 pass
 
-        if watcher_alive:
-            if recently_submitted:
-                print(
-                    f"  {_YELLOW}⏳ Job transitioning... ({remaining} remaining){_RST}"
-                )
-            else:
-                print(
-                    f"  {_YELLOW}⏳ Waiting for next job... ({remaining} remaining){_RST}"
-                )
+        if recently_submitted:
+            print(f"  {_YELLOW}⏳ Job transitioning... ({remaining} remaining){_RST}")
         else:
             print(
-                f"  {_RED}⚠ Pipeline stalled{_RST} — {remaining} jobs pending, watcher is dead"
+                f"  {_YELLOW}⏳ Waiting for the next tick... ({remaining} remaining){_RST}"
             )
-            print(f"  {_YELLOW}→ Resume:{_RST} run-all --resume")
-            print(f"  {_DIM}Or clean: rm -rf .chain_state{_RST}")
+            print(
+                f"  {_DIM}→ kick manuale: chain-start (o attendi l'hook bashrc / il server){_RST}"
+            )
     elif not jobs:
         print(f"  {_DIM}No jobs found.{_RST}")
     else:
@@ -1755,14 +1721,11 @@ def main() -> None:
                 show_metrics=args.metrics,
             )
 
-            is_pipeline = CHAIN_PID_FILE.exists() or (
-                CHAIN_FILE.exists() and CHAIN_FILE.stat().st_size > 0
-            )
+            is_pipeline = CHAIN_FILE.exists() and CHAIN_FILE.stat().st_size > 0
             all_done = jobs and all(j.state in ("COMPLETED", "FAILED") for j in jobs)
-            watcher_alive = CHAIN_PID_FILE.exists()
             no_pending = not CHAIN_FILE.exists() or not _read_pending_chain()
 
-            if is_pipeline and all_done and not watcher_alive and no_pending:
+            if is_pipeline and all_done and no_pending:
                 print("Pipeline complete. Exiting.")
                 break
             elif not is_pipeline and all_done:

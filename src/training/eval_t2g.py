@@ -389,7 +389,9 @@ def _compute_primary_metrics(
     bigram: Any,
     reward_weights: dict[str, float],
     n_bootstrap: int = 1000,
-) -> tuple[dict[str, Any], list[float], list[tuple[bool, str]]]:
+) -> tuple[
+    dict[str, Any], list[float], list[tuple[bool, str]], list[float], list[float]
+]:
     """Compute the honest primary metric block over all completions.
 
     Every metric here is averaged over *all* completions (not just the
@@ -414,9 +416,10 @@ def _compute_primary_metrics(
         n_bootstrap: Bootstrap resamples for the evaluation report CIs.
 
     Returns:
-        Tuple of ``(metrics, rouge_scores, validity)`` where *metrics* is
-        the primary metric dict, *rouge_scores* is the per-completion
-        ROUGE-L list, and *validity* is the per-completion ``(is_valid,
+        Tuple of ``(metrics, rouge_scores, validity, bleu_scores,
+        chrf_scores)`` where *metrics* is the primary metric dict,
+        *rouge_scores*/*bleu_scores*/*chrf_scores* are the per-completion
+        score lists, and *validity* is the per-completion ``(is_valid,
         reason)`` list.
     """
     # ── Per-completion quality metrics ──────────────────────────────────
@@ -517,7 +520,9 @@ def _compute_primary_metrics(
     if passk_full:
         results["pass_at_k"] = passk_full
 
-    return results, rouge_scores, validity
+    # bleu/chrf per-completion lists are returned for the distribution
+    # plots (they are NOT stored in results — they would bloat the JSON).
+    return results, rouge_scores, validity, bleu_scores, chrf_scores
 
 
 def _select_best_of_n(
@@ -560,6 +565,8 @@ def evaluate_checkpoint(
     list[str],
     list[float],
     list[dict[str, Any]],
+    list[float],
+    list[float],
 ]:
     """Evaluate a checkpoint on the test set with full metrics.
 
@@ -579,13 +586,14 @@ def evaluate_checkpoint(
 
     Returns:
         Tuple of ``(results, flat_completions, validity, all_references,
-        rouge_scores, generations)`` where *results* is a dict with all
-        computed metrics (primary block over ALL completions, plus an
-        optional ``oracle_best_of_n`` sub-block), *flat_completions* is a
-        list of generated gloss strings, *validity* is a list of
-        ``(is_valid, reason)`` tuples, *all_references* is the list of gold
-        glosses (one per prompt), *rouge_scores* is the list of
-        per-completion ROUGE-L scores, and *generations* is a list of
+        rouge_scores, generations, bleu_scores, chrf_scores)`` where
+        *results* is a dict with all computed metrics (primary block over
+        ALL completions, plus an optional ``oracle_best_of_n`` sub-block),
+        *flat_completions* is a list of generated gloss strings, *validity*
+        is a list of ``(is_valid, reason)`` tuples, *all_references* is the
+        list of gold glosses (one per prompt), *rouge_scores*,
+        *bleu_scores* and *chrf_scores* are the per-completion score lists
+        (fed to the distribution plots), and *generations* is a list of
         per-completion dicts (text/gold/completion/valid/rouge_l) suitable
         for a standalone JSON dump (mirrors grpo-strict-generation's
         ``completions_*.json`` format).
@@ -766,10 +774,23 @@ def evaluate_checkpoint(
     all_references: list[str] = []
     all_sample_ids: list[str] = []
     all_texts: list[str] = []
+    # Gold-difficulty per prompt (training heuristic on gold token count)
+    # — feeds results["difficulty_breakdown"] for the per-difficulty plot.
+    all_difficulties: list[str] = []
 
     for idx, sample in enumerate(tqdm(test_ds, desc="Evaluating")):
         text = sample["text"]  # type: ignore[index]
         gold = sample["gloss"]  # type: ignore[index]
+
+        # Difficulty from the GOLD gloss (same heuristic as the training
+        # dataset builder): ≤5 tokens simple, ≤15 medium, else hard.
+        n_gold_tokens = len(gold.strip().split())
+        if n_gold_tokens <= 5:
+            all_difficulties.append("simple")
+        elif n_gold_tokens <= 15:
+            all_difficulties.append("medium")
+        else:
+            all_difficulties.append("hard")
 
         # Periodic progress line for long runs (e.g. the full 8771-sample
         # test set) — visible in output.log/slurm logs even if the tqdm
@@ -847,14 +868,16 @@ def evaluate_checkpoint(
     }
 
     # ── Primary metrics (honest, averaged over ALL completions) ─────────
-    results, rouge_scores, validity = _compute_primary_metrics(
-        flat_completions,
-        flat_references,
-        all_completions,
-        all_references,
-        token_to_idx=token_to_idx,
-        bigram=bigram,
-        reward_weights=reward_weight_map,
+    results, rouge_scores, validity, bleu_scores, chrf_scores = (
+        _compute_primary_metrics(
+            flat_completions,
+            flat_references,
+            all_completions,
+            all_references,
+            token_to_idx=token_to_idx,
+            bigram=bigram,
+            reward_weights=reward_weight_map,
+        )
     )
     results["num_samples_evaluated"] = len(all_references)
     results["test_set_size"] = test_set_size
@@ -876,10 +899,54 @@ def evaluate_checkpoint(
         "num_samples": num_samples,
     }
 
+    # ── Per-difficulty breakdown ────────────────────────────────────────
+    # Aggregates the headline metrics per gold-difficulty level (same
+    # heuristic as the training dataset: gold token count). Small dict —
+    # safe to serialize into eval_*.json and feeds the difficulty plot.
+    if all_difficulties and len(all_difficulties) == len(all_references):
+        flat_difficulties = [d for d in all_difficulties for _ in range(num_samples)]
+        breakdown: dict[str, dict[str, float]] = {}
+        for level in ("simple", "medium", "hard"):
+            idxs = [i for i, d in enumerate(flat_difficulties) if d == level]
+            if not idxs:
+                continue
+            level_rouge = [rouge_scores[i] for i in idxs]
+            level_bleu = [bleu_scores[i] for i in idxs]
+            level_chrf = [chrf_scores[i] for i in idxs]
+            level_valid = [validity[i][0] for i in idxs]
+            breakdown[level] = {
+                "n_prompts": sum(1 for d in all_difficulties if d == level),
+                "rouge_l_mean": float(np.mean(level_rouge)),
+                "bleu_sentence_mean": float(np.mean(level_bleu)),
+                "chrf_sentence_mean": float(np.mean(level_chrf)),
+                "validity_rate": float(np.mean(level_valid)),
+            }
+        # Pass@1 per difficulty: needs the nested completions grouped by
+        # prompt — walk prompts and test the FIRST completion only.
+        if all_completions and len(all_completions) == len(all_references):
+            for level in breakdown:
+                first_rouge = [
+                    rouge_l_score(comps[0], ref)
+                    for comps, ref, d in zip(
+                        all_completions, all_references, all_difficulties
+                    )
+                    if d == level and comps
+                ]
+                if first_rouge:
+                    breakdown[level]["pass_at_1"] = float(
+                        np.mean([r >= 0.3 for r in first_rouge])
+                    )
+        if breakdown:
+            results["difficulty_breakdown"] = breakdown
+            logger.info(
+                "Per-difficulty breakdown: %s",
+                {k: round(v["rouge_l_mean"], 3) for k, v in breakdown.items()},
+            )
+
     # ── Oracle best-of-N (separate block, never overrides the primary) ──
     if best_of_n and num_samples > 1:
         selected = _select_best_of_n(all_completions, all_references)
-        oracle_metrics, _, _ = _compute_primary_metrics(
+        oracle_metrics, _, _, _, _ = _compute_primary_metrics(
             selected,
             list(all_references),
             [[c] for c in selected],
@@ -942,6 +1009,8 @@ def evaluate_checkpoint(
         all_references,
         rouge_scores,
         generations,
+        bleu_scores,
+        chrf_scores,
     )
 
 
@@ -1135,14 +1204,21 @@ def main() -> None:
         logger.info("=" * 60)
         logger.info("BASELINE EVALUATION (zero-shot base model)")
         logger.info("=" * 60)
-        results, completions, validity, all_references, rouge_scores, generations = (
-            evaluate_checkpoint(
-                config,
-                checkpoint_path=None,
-                max_samples=max_samples,
-                num_samples=num_samples,
-                best_of_n=best_of_n,
-            )
+        (
+            results,
+            completions,
+            validity,
+            all_references,
+            rouge_scores,
+            generations,
+            bleu_scores,
+            chrf_scores,
+        ) = evaluate_checkpoint(
+            config,
+            checkpoint_path=None,
+            max_samples=max_samples,
+            num_samples=num_samples,
+            best_of_n=best_of_n,
         )
         model_tag = "baseline"
 
@@ -1197,6 +1273,8 @@ def main() -> None:
                 _bl_refs,
                 _bl_rouge,
                 baseline_generations,
+                _bl_bleu,
+                _bl_chrf,
             ) = evaluate_checkpoint(
                 config,
                 checkpoint_path=None,
@@ -1223,46 +1301,53 @@ def main() -> None:
         logger.info("=" * 60)
         logger.info("CHECKPOINT EVALUATION")
         logger.info("=" * 60)
-        results, completions, validity, all_references, rouge_scores, generations = (
-            evaluate_checkpoint(
-                config,
-                args.checkpoint,
-                max_samples=max_samples,
-                num_samples=num_samples,
-                best_of_n=best_of_n,
-            )
+        (
+            results,
+            completions,
+            validity,
+            all_references,
+            rouge_scores,
+            generations,
+            bleu_scores,
+            chrf_scores,
+        ) = evaluate_checkpoint(
+            config,
+            args.checkpoint,
+            max_samples=max_samples,
+            num_samples=num_samples,
+            best_of_n=best_of_n,
         )
 
     else:
         # Mode 3: single eval (default behavior)
-        results, completions, validity, all_references, rouge_scores, generations = (
-            evaluate_checkpoint(
-                config,
-                args.checkpoint,
-                max_samples=max_samples,
-                num_samples=num_samples,
-                best_of_n=best_of_n,
-            )
+        (
+            results,
+            completions,
+            validity,
+            all_references,
+            rouge_scores,
+            generations,
+            bleu_scores,
+            chrf_scores,
+        ) = evaluate_checkpoint(
+            config,
+            args.checkpoint,
+            max_samples=max_samples,
+            num_samples=num_samples,
+            best_of_n=best_of_n,
         )
 
     # ── Log key metrics ─────────────────────────────────────────────────
     logger.info("Evaluation complete. Key metrics (averaged over ALL completions):")
+    # Order = literature-based metric hierarchy (docs/EVALUATION.md):
+    # BLEU-4 first (T2G standard), then chrF, ROUGE-L, Gloss F1, Pass@1
+    # (project-specific threshold metric), validity.
+    logger.info(f"  BLEU-4 (corpus):         {results['bleu_corpus']:.4f}")
+    logger.info(f"  chrF2 (corpus):         {results['chrf_corpus']:.2f}")
     logger.info(
-        f"  ROUGE-L mean: {results['rouge_l_mean']:.4f} ± {results['rouge_l_std']:.4f}"
+        f"  ROUGE-L (sent mean):    {results['rouge_l_mean']:.4f} ± {results['rouge_l_std']:.4f}"
     )
-    logger.info(f"  ROUGE-L median: {results.get('rouge_l_median', 0.0):.4f}")
-    logger.info(
-        f"  BLEU (sentence mean / corpus): "
-        f"{results['bleu_sentence_mean']:.4f} / {results['bleu_corpus']:.4f}"
-    )
-    logger.info(
-        f"  chrF2 (sentence mean / corpus): "
-        f"{results['chrf_sentence_mean']:.2f} / {results['chrf_corpus']:.2f}"
-    )
-    logger.info(
-        f"  Gloss F1 (sentence mean / micro): "
-        f"{results['gloss_f1_sentence_mean']:.4f} / {results['gloss_f1_micro']:.4f}"
-    )
+    logger.info(f"  Gloss F1 (micro):       {results['gloss_f1_micro']:.4f}")
     logger.info(f"  Pass@1: {results['pass_at_1']:.4f}")
     if results.get("pass_at_k"):
         for k, v in results["pass_at_k"].items():
@@ -1271,6 +1356,12 @@ def main() -> None:
     logger.info(
         f"  Valid: {results['valid_count']}, Invalid: {results['invalid_count']}"
     )
+    if results.get("difficulty_breakdown"):
+        for lvl, agg in results["difficulty_breakdown"].items():
+            logger.info(
+                f"  [{lvl}] n={agg['n_prompts']}  ROUGE-L={agg['rouge_l_mean']:.3f}  "
+                f"Pass@1={agg.get('pass_at_1', float('nan')):.3f}"
+            )
 
     # ── Log sample predictions ──────────────────────────────────────────
     # ``completions`` is FLAT (one per completion) while ``all_references``
@@ -1433,11 +1524,14 @@ def main() -> None:
             plot_baseline_vs_grpo,
             plot_baseline_vs_grpo_comparison,
             plot_completion_length_distribution,
+            plot_difficulty_breakdown,
             plot_error_breakdown,
+            plot_metrics_dashboard,
             plot_pass_at_k_curve,
             plot_reward_breakdown,
             plot_reward_radar,
             plot_rouge_distribution,
+            plot_score_distribution,
             plot_validity_pie,
         )
 
@@ -1446,22 +1540,65 @@ def main() -> None:
 
         logger.info("Generating evaluation figures...")
 
-        # 1. Completion length distribution
+        # 1. Metrics dashboard — THE comparison figure (headline metrics,
+        #    baseline vs checkpoint, ordered by relevance). Rendered FIRST
+        #    so it's the "one figure to look at" in the figures dir.
+        dashboard_baseline = None
+        if baseline_results is not None:
+            dashboard_baseline = baseline_results
+        elif args.baseline_json is not None and Path(args.baseline_json).exists():
+            dashboard_baseline = json.loads(
+                Path(args.baseline_json).read_text(encoding="utf-8")
+            )
+        plot_metrics_dashboard(
+            dashboard_baseline,
+            results,
+            model_name=model_tag,
+            label=model_tag,
+            output_path=str(figures_dir / "metrics_dashboard.png"),
+        )
+
+        # 2. Difficulty breakdown (per gold-difficulty metrics)
+        if results.get("difficulty_breakdown"):
+            plot_difficulty_breakdown(
+                results["difficulty_breakdown"],
+                model_name=model_tag,
+                output_path=str(figures_dir / "difficulty_breakdown.png"),
+            )
+
+        # 3. Completion length distribution
         plot_completion_length_distribution(
             completions,
             valid_mask=valid_mask,
-            title=f"Gloss Length — {model_tag}",
+            title=f"Gloss Length - {model_tag}",
             output_path=str(figures_dir / "completion_lengths.png"),
         )
 
-        # 2. ROUGE-L score distribution
+        # 4. Metric score distributions (BLEU-4, chrF2, ROUGE-L — same
+        #    histogram format for the three headline content metrics)
+        plot_score_distribution(
+            bleu_scores,
+            metric_name="BLEU-4 (sentence)",
+            xlabel="BLEU-4 Score",
+            model_name=model_tag,
+            output_path=str(figures_dir / "bleu_distribution.png"),
+            valid_mask=valid_mask,
+        )
+        plot_score_distribution(
+            chrf_scores,
+            metric_name="chrF2 (sentence)",
+            xlabel="chrF2 Score",
+            model_name=model_tag,
+            output_path=str(figures_dir / "chrf_distribution.png"),
+            valid_mask=valid_mask,
+        )
         plot_rouge_distribution(
             rouge_scores,
             model_name=model_tag,
             output_path=str(figures_dir / "rouge_distribution.png"),
         )
 
-        # 3. Pass@k curve (if multi-sample)
+        # 5. Pass@k curve (if multi-sample)
         if results.get("pass_at_k"):
             plot_pass_at_k_curve(
                 results["pass_at_k"],
@@ -1469,14 +1606,14 @@ def main() -> None:
                 output_path=str(figures_dir / "pass_at_k.png"),
             )
 
-        # 4. Error breakdown pie chart
+        # 6. Error breakdown pie chart
         plot_error_breakdown(
             results["error_distribution"],
             model_name=model_tag,
             output_path=str(figures_dir / "error_breakdown.png"),
         )
 
-        # 5. Validity pie chart
+        # 7. Validity pie chart
         plot_validity_pie(
             valid_count=results["valid_count"],
             invalid_count=results["invalid_count"],
@@ -1484,7 +1621,7 @@ def main() -> None:
             output_path=str(figures_dir / "validity_pie.png"),
         )
 
-        # 6. Reward breakdown bar chart
+        # 8. Reward breakdown bar chart
         rewards_cfg = config.get("reward", {})
         structure_weight = rewards_cfg.get(
             "weight_gold_structure",
@@ -1509,7 +1646,7 @@ def main() -> None:
             output_path=str(figures_dir / "reward_breakdown.png"),
         )
 
-        # 7. Reward radar chart
+        # 9. Reward radar chart
         plot_reward_radar(
             results["reward_breakdown"],
             reward_weights=weights,
@@ -1517,7 +1654,7 @@ def main() -> None:
             output_path=str(figures_dir / "reward_radar.png"),
         )
 
-        # 8. Completion examples (best & worst) — JSON + HTML
+        # 10. Completion examples (best & worst) — JSON + HTML
         # ``completions``/``rouge_scores`` are FLAT (one per completion):
         # pass the aligned per-completion gold from ``generations``.
         # ``all_references`` is ONE PER PROMPT and would misalign gold vs
@@ -1534,7 +1671,7 @@ def main() -> None:
             output_dir=str(figures_dir),
         )
 
-        # 9. Baseline vs GRPO (if baseline Pass@1 provided via CLI)
+        # 11. Baseline vs GRPO (if baseline Pass@1 provided via CLI)
         if args.baseline is not None:
             plot_baseline_vs_grpo(
                 baseline_pass1=args.baseline,
@@ -1543,7 +1680,7 @@ def main() -> None:
                 output_path=str(figures_dir / "baseline_vs_grpo.png"),
             )
 
-        # 10. Baseline vs GRPO full comparison
+        # 12. Baseline vs GRPO full comparison
         # Triggered by: --compare (baseline_results from in-run eval),
         # or --baseline-json (baseline_results from saved JSON).
         comparison_metrics: dict[str, Any] | None = None

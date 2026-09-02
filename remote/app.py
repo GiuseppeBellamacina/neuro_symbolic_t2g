@@ -410,7 +410,6 @@ def parse_status(text: str) -> dict:
         "queue": [],
         "last_job": None,
         "stopped": False,
-        "watcher_alive": False,
         "errors_count": 0,
         "errors_tail": [],
     }
@@ -430,8 +429,6 @@ def parse_status(text: str) -> dict:
             state["last_job"] = value or None
         elif key == "STOPPED":
             state["stopped"] = value == "1"
-        elif key == "WATCHER_ALIVE":
-            state["watcher_alive"] = value == "1"
         elif key == "ERRORS_COUNT":
             state["errors_count"] = int(value) if value.isdigit() else 0
         elif key == "ERRORS_TAIL":
@@ -471,7 +468,6 @@ def _store_snapshot(state: dict) -> None:
         "queue": json.dumps(state["queue"]),
         "last_job": state.get("last_job") or "",
         "stopped": "1" if state.get("stopped") else "0",
-        "watcher_alive": "1" if state.get("watcher_alive") else "0",
         "errors_recent": json.dumps(state.get("errors_tail", [])),
         "last_tick_at": now,
     }.items():
@@ -568,7 +564,6 @@ def _cached_status() -> dict:
         "queue": _kv_json("queue", default=[]),
         "last_job": _kv_get("last_job") or None,
         "stopped": _kv_get("stopped", "0") == "1",
-        "watcher_alive": _kv_get("watcher_alive", "0") == "1",
         "errors_recent": _kv_json("errors_recent", default=[]),
         "last_tick_at": _kv_get("last_tick_at") or None,
         "cluster_reachable": _kv_get("cluster_reachable", "0") == "1",

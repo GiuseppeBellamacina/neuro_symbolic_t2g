@@ -37,8 +37,8 @@ Traduzione English → ASL Glosses (T2G) con:
 | Vincolo | Valore | Conseguenza |
 | ------- | ------ | ----------- |
 | Coda | **max 1 job attivo, 0 pending** (QOSMaxSubmitJobPerUserLimit=1) | la pipeline è **sequenziale**; niente array job |
-| `sbatch` | funziona solo dal **login node** | il tick/watcher girano sul login node |
-| `at` | **NON disponibile su gcluster** (verificato) | primaria = **hook bashrc** (`chain-hook-install`); watcher = fallback automatico; `at` usato solo se un giorno comparisse |
+| `sbatch` | funziona solo dal **login node** | il tick invoca sbatch: è l'unico modo per sottomettere |
+| `at` | **NON disponibile su gcluster** (verificato) | non usato: catena guidata da hook/server/tick manuali |
 | cron | NON disponibile sul login node | serve il fallback esterno (remote_tick) |
 | python/pip | NON presenti sul login node | i comandi login-node sono **solo shell** |
 | Login-node reaper | uccide i processi long-lived (ipotesi: systemd KillUserProcesses al logout) | niente daemon fidato: la catena è guidata da **tick one-shot** |
@@ -225,7 +225,7 @@ CONFIG=experiments/configs/t2g/sft-grpo.yaml EXTRA_ARGS="--resume" sbatch cluste
                     |          chain_tick.sh (one-shot)            |
                     | 1. flock (max 1 tick alla volta)             |
                     | 2. .chain_stopped?          → exit 0         |
-                    | 3. job attivo (squeue)?     → heartbeat,exit|
+                    | 3. job attivo (squeue)?    → exit (il tick è innocuo)|
                     | 4. job_chain vuota?         → exit 0         |
                     | 5. ultimo job (sacct):                       |
                     |    TIMEOUT/OOM/CUDA + train + retry<2        |
@@ -236,10 +236,7 @@ CONFIG=experiments/configs/t2g/sft-grpo.yaml EXTRA_ARGS="--resume" sbatch cluste
                     | 7. --schedule[=N] → rischedula via at (dedup)|
                     +-------------+-----+------+-----+-------------+
                     |             |           |     |
-        bashrc-hook (PRIMARIO)  watcher     manuale  remoto (cron)
-        al prompt, throttled    (fallback   chain-   remote_tick.sh
-        5 min                   automatico) resume
-        (at: opportunistico,    setsid
+        bashrc-hook (PRIMARIO) → tick; manuale → tick; server esterno (POST /tick) → tick
         se un giorno presente)
 ```
 
@@ -248,7 +245,7 @@ Le modalità di guida (primaria → ultima ratio):
 | # | Modalità | Prerequisito | Comando |
 | - | -------- | ------------ | ------- |
 | 1 | **bashrc-hook** (PRIMARIO / raccomandato) | `~/.bashrc` col blocco `t2g-chain-hook` | `chain-hook-install` (poi `source ~/.bashrc`); `PROMPT_COMMAND` throttled 300s |
-| 2 | **watcher fallback** (automatico) | nessuno | avviato da `run-all` / `chain-resume` quando `at` manca (il caso gcluster); best-effort — il reaper può ucciderlo → riprendi con `chain-resume` |
+| 2 | **server esterno** (`POST /tick` → cronjob.org) | nessuno | chiama `cluster_helper.sh tick` via ssh |
 | 3 | **at-mode** (opportunistico) | `at` presente sul login node (oggi ASSENTE su gcluster) | `chain_tick.sh --schedule`; dedup = max 1 job at pendente; se un giorno `at` comparisse, rilevato automaticamente senza danni |
 | 4 | **esterno** (primario se `remote/` è deployato) | Render + cronjob.org (o cron/ssh semplice) | `remote/app.py` → `cluster_helper.sh` / `cluster/remote_tick.sh` |
 
@@ -265,14 +262,14 @@ scarta una. Può quindi essere chiamato da più sorgenti senza rischi.
 | `chain_errors` | log JSONL degli errori (letto da `monitor`) |
 | `chain_stopped` | presente = pausa fatta con `chain-stop` (config salvato dallo stato) |
 | `chain_failed` | legacy, solo per fallimenti non più ripetibili |
-| `heartbeat` / `tick_stamp` | tick attivi / throttle del hook |
-| `chain_pid` | solo in modalità watcher fallback |
+| `tick_stamp` | throttle del hook bashrc (min 1 tick/2s) |
+| *(rimosso)* | solo residue di installazioni vecchie |
 | `tick.lock` | flock del tick |
 
 ### 6.3. Diagnostica (3 comandi sul login node)
 
 Su gcluster `at` NON è disponibile: la resilienza si ottiene con l'HOME hook
-bashrc (primario) e il watcher resta il fallback automatico del lancio.
+bashrc (primario); il server esterno e i tick manuali completano la copertura.
 
 ```bash
 # 1. Linger è attivo? (se no, i processi muoiono al logout)
@@ -290,10 +287,10 @@ command -v at          # vuoto = ok, non serve; installa comunque l'hook
 
 | Sintomo | Causa probabile | Soluzione |
 | ------- | --------------- | --------- |
-| Pipeline ferma, `job_chain` non vuota, nessun job attivo | tick/watcher morto (reaper del login node) | `chain-resume` (riparte dalla coda esistente, niente `--force`) |
+| Pipeline ferma, `job_chain` non vuota, nessun job attivo | nessun tick in arrivo | kick: `chain-start` o POST /tick |
 | `run-all` rifiuta con "catena interrotta con N job rimanenti" | stato pendente rilevato (anti-rm-rf) | `chain-resume`, oppure `run-all --force` solo se vuoi davvero ricominciare |
 | La catena si ferma quando ti scolleghi | hook bashrc non installato (gcluster non ha `at`) | `chain-hook-install && source ~/.bashrc` (PRIMARIO) |
-| `atq` vuoto | normale su gcluster: `at` NON è disponibile | ignorare: il watcher parte da solo; per la resilienza usare l'hook bashrc |
+| `atq` vuoto | normale su gcluster: `at` NON è disponibile | nessuna azione: usare hook/server |
 | Eval che prima girava "zero-shot senza errori" | checkpoint mancante | ora è FAIL LOUD: addestra prima, oppure passa `CHECKPOINT=` esplicito |
 | `chain-stop`/`chain-start` col config sbagliato | hardcode sft-grpo | risolto: il config è letto da `.chain_state` (`last_job`/testa coda) |
 | Training `ModuleNotFoundError: sklearn` | ambiente pip --user non allineato al pyproject | `pip-reset` (clean + reinstall da `pyproject.toml`) |
@@ -312,7 +309,7 @@ l'ablation study).
 ### 6.6. Driver esterno (Render + cronjob.org)
 
 > Quando `remote/` è deployato, il driver diventa la modalità **PRIMARIA** di
-> avanzamento; hook bashrc e watcher restano installati come fallback innocui
+> avanzamento; l'hook bashrc resta installato come driver innocuo.
 > (il tick è idempotente, più driver non si pestano i piedi).
 
 **Architettura (in 5 righe):** cronjob.org POSTa `/tick` ogni 5 min (header
@@ -326,7 +323,7 @@ puntatore `errors_offset` evita di rileggere gli errori già visti).
 
 **Quando usarlo:** primario se deployato (piloti la coda via API:
 aggiungi/rimuovi job, `POST /pause`/`/resume`, `GET /status`). Hook bashrc
-(`chain-hook-install`) e watcher (`chain_next.sh`) diventano **fallback** e
+(`chain-hook-install`) diventa il driver primario e
 possono convivere senza danni.
 
 **Deploy:** tutto in `remote/` — README passo-passo (Web Service su Render,
@@ -363,7 +360,7 @@ run-all sft-grpo
 run-all --ablation
 ```
 
-`run-all` costruisce `job_chain`, poi avvia il **watcher** come fallback
+`run-all` costruisce `job_chain`, poi esegue un **tick** immediato
 automatico (su gcluster `at` NON esiste) e stampa in evidenza il comando per
 installare l'HOME hook (`chain-hook-install`), la resilienza raccomandata. Se
 un giorno `at` comparisse sul login node, verrebbe rilevato e usato
@@ -379,15 +376,14 @@ automaticamente dal tick (`--schedule`, dedup ≤1 pending).
 | `chain-stop` / `chain-start` | ferma (preserva stato, config dallo stato) / riprende |
 | `chain-add` / `chain-remove` | aggiungi / svuota coda |
 | `chain-hook-install` / `chain-hook-uninstall` | hook bashrc che avanza la catena al prompt |
-| `watcher-status` / `watcher-kill` | stato watcher+at-tick / uccidi watcher e tick |
+| `chain-status` | stato pipeline (job attivo / coda / pausa) |
 | `monitor` (o `t2g-monitor`) | monitor live della pipeline |
 | `train` / `run-eval` | singolo training / eval |
 | `clean` / `clean-model <TAG>` | pulizia workspace / modello |
 
 Alias **`t2g-*`** equivalenti (allineati a questa guida): `t2g-train`,
 `t2g-eval`, `t2g-run-all`, `t2g-monitor`, `t2g-chain-show`, `t2g-chain-stop`,
-`t2g-chain-start`, `t2g-chain-resume`, `t2g-watcher-status`,
-`t2g-watcher-kill`, `t2g-clean`, `t2g-gpu`, `t2g-help`.
+`t2g-chain-start`, `t2g-chain-resume`, `t2g-clean`, `t2g-gpu`, `t2g-help`.
 
 ### 7.3. Hook bashrc (PRIMARIO — raccomandato)
 
@@ -440,8 +436,8 @@ monitor --all         # tutto: tabella + metriche + samples
 
 # Stato pipeline
 chain-show
-watcher-status
-tail -f logs/chain_watcher.log
+    chain-status
+    tail -f logs/chain.log
 ```
 
 ### GPU
@@ -475,7 +471,7 @@ sotto `experiments/checkpoints/`):
 └── logs/
     ├── slurm-train-<JOB_ID>.log
     ├── slurm-eval-<JOB_ID>.log
-    └── chain_watcher.log
+    └── chain.log
 ```
 
 `ckpts` (alias) mostra questo layout flat.
@@ -538,7 +534,7 @@ chain-resume        # riparte dalla coda esistente
 run-all --force
 ```
 
-### Il watcher muore / la pipeline si ferma
+### La pipeline si ferma
 
 ```bash
 # 1. Diagnosi reaper (vedi sezione 6.3)
