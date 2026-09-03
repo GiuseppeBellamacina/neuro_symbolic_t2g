@@ -136,3 +136,10 @@ if ! chain_submit_next; then
 fi
 
 [ "$QUIET" -eq 0 ] && echo "tick ok — job $LAST_JOB_ID sottoposto, $(chain_remaining) in coda"
+
+# exit 0 ESPLICITO: con --quiet l'ultima riga `[ ... ] && echo` è falsa e la
+# lista && ritorna 1 → lo script terminerebbe con rc=1 (= ERR_TICK nel
+# driver, 502/notify rossa) OGNI VOLTA che un tick sottomette un job
+# (evento 2026-09-03 13:41:44 e 13:52:20: sottomissione RIUSCITA ma
+# riportata come errore).
+exit 0
