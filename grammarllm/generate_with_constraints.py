@@ -587,6 +587,22 @@ def generate_text(
                         if stack_history
                         else list(base_pdas[p_idx].stack)
                     )
+                    # Consistency warning, emitted HERE because this is the
+                    # only place that knows the real final state (backport fix
+                    # upstream 9ba32d2). BaseStreamer.end() used to warn
+                    # instead, but it inspects the template PDAs in
+                    # self.pdas, which put() never advances ("STATE UPDATE
+                    # DISABLED"): they sit at ['S*'] forever, so that warning
+                    # fired on EVERY generation, valid ones included, and could
+                    # not distinguish a real failure from the normal case.
+                    if result_item["pda_stack"]:
+                        logging.warning(
+                            f"⚠ Prompt {p_idx}, Seq {s_idx}: generazione terminata "
+                            f"con stack PDA non vuoto: "
+                            f"{result_item['pda_stack'][::-1]}. "
+                            f"La grammatica non è stata consumata interamente "
+                            f"(probabile troncamento a max_new_tokens)."
+                        )
 
                 if kwargs.get("output_scores", False):
                     result_item["transition_scores"] = transition_scores[i].tolist()

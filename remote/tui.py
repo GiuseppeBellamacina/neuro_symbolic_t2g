@@ -62,6 +62,8 @@ CONFIG_NAMES: tuple[str, ...] = (
     "sft-grpo-soft-viterbi",
     "sft-grpo-all-rewards",
     "sft-grpo-no-grammar",
+    "sft-grpo-pda",
+    "sft-grpo-hotrollout",
     "zero-shot",
     "zero-shot-grammar",
 )
@@ -569,6 +571,7 @@ class DashboardScreen(T2GScreen):
         Binding("k", "kill_job", "KILL job"),
         Binding("w", "replace_queue", "Replace queue"),
         Binding("p", "pause", "Pause"),
+        Binding("C", "campaign", "Campaign"),
         Binding("R", "resume", "Resume"),
         Binding("t", "tick", "Tick"),
         Binding("L", "log_full", "Log"),
@@ -608,6 +611,9 @@ class DashboardScreen(T2GScreen):
 
     def action_start_batch(self) -> None:
         self.t2g_app.switch_screen("batch_start")
+
+    def action_campaign(self) -> None:
+        self.t2g_app.switch_screen("campaign")
 
     def action_kill_job(self) -> None:
         self.t2g_app.confirm_kill()
@@ -939,7 +945,7 @@ class AddJobScreen(T2GScreen):
 
     def compose(self) -> ComposeResult:
         title = (
-            "AVVIA un job (accoda + tick immediato — parte subito se libero)"
+            "AVVIA un job (accoda + tick immediato - parte subito se libero)"
             if self.start_mode
             else "Aggiungi un job alla coda"
         )
@@ -958,17 +964,16 @@ class AddJobScreen(T2GScreen):
             id="config",
         )
         yield Input(
-            placeholder="Tag (opzionale — di default derivato dal config)", id="tag"
+            placeholder="Tag (opzionale - di default derivato dal config)", id="tag"
         )
-        # Accodare anche l'eval dopo il train (start_mode + train): il batch
-        # endpoint enqueue train+eval e fa il tick — il job parte subito e la
-        # sua eval è già in coda.
-        if self.start_mode:
-            yield Checkbox(
-                "Accoda anche la eval dopo il train (train+eval insieme)",
-                value=True,
-                id="also-eval",
-            )
+        # Accodare anche l'eval dopo il train (train + checkbox eval): il
+        # batch endpoint enqueue train+eval. Disponibile sia in start_mode
+        # ('s') sia in normal mode ('a').
+        yield Checkbox(
+            "Accoda anche la eval dopo il train (train+eval insieme)",
+            value=True,
+            id="also-eval",
+        )
         submit_label = "Avvia ora" if self.start_mode else "Accoda"
         yield Button(submit_label, variant="primary", id="submit")
         yield Footer()
@@ -1023,13 +1028,17 @@ class AddJobScreen(T2GScreen):
         job_type = self._type_value()
         config = self._config_value()
         tag = self.query_one("#tag", Input).value.strip() or None
-        also_eval = False
-        if self.start_mode:
-            checkbox = self.query_one("#also-eval", Checkbox)
-            also_eval = bool(checkbox.value) and job_type == "train"
-        if self.start_mode and also_eval:
+        checkbox = self.query_one("#also-eval", Checkbox)
+        also_eval = bool(checkbox.value) and job_type == "train"
+        if also_eval:
             # Batch train+eval: un solo endpoint, la eval resta in coda dopo.
-            self.t2g_app.run_worker(self.t2g_app.start_batch_job(job_type, config, tag))
+            # Disponibile sia in start_mode ('s') che in normal mode ('a').
+            if self.start_mode:
+                self.t2g_app.run_worker(
+                    self.t2g_app.start_batch_job(job_type, config, tag)
+                )
+            else:
+                self.t2g_app.run_worker(self._do_submit_batch(job_type, config, tag))
         elif self.start_mode:
             self.t2g_app.run_worker(self.t2g_app.start_job(job_type, config, tag))
         else:
@@ -1038,6 +1047,25 @@ class AddJobScreen(T2GScreen):
     async def _do_submit(self, job_type: str, config: str, tag: str | None) -> None:
         if await self.t2g_app.add_job(job_type, config, tag):
             self.t2g_app.switch_screen("dashboard")
+
+    async def _do_submit_batch(
+        self, job_type: str, config: str, tag: str | None
+    ) -> None:
+        """Accoda train+eval insieme (POST /jobs/batch senza tick).
+
+        Modalità 'a': entrambi i job finiscono in CODA (nessun tick
+        immediato — parte il primo solo quando la QoS libera o al prossimo
+        tick).
+        """
+        jobs: list[dict[str, Any]] = [{"type": job_type, "config": config}]
+        if tag:
+            jobs[0]["tag"] = tag
+        eval_job: dict[str, Any] = {"type": "eval", "config": config}
+        if tag:
+            eval_job["tag"] = tag
+        jobs.append(eval_job)
+        await self.t2g_app.start_batch(jobs, start_now=False)
+        self.t2g_app.switch_screen("dashboard")
 
 
 class BatchStartScreen(T2GScreen):
@@ -1195,6 +1223,74 @@ class LogScreen(T2GScreen):
             rich.write("[dim]— log vuoto o nessun job attivo —[/dim]")
 
 
+# ── Campaign summary lines (reusable: shown in the CampaignScreen and in
+# the confirmation) — order = app.py ABLATION_MODELS (ordine di riuso). ───
+
+_CAMPAIGN_LINES: list[str] = [
+    "1. zero-shot              (eval-only) — baseline, ~zero costo",
+    "2. zero-shot-grammar      (eval-only) — CACHEA la baseline --compare",
+    "3. sft-only               (train+eval) — addestra L'adapter SFT",
+    "4. grpo-only              (train+eval) — GRPO da base",
+    "5. sft-grpo               (train+eval) — RIUSA SFT di sft-only",
+    "6. sft-grpo-structure      (train+eval) — RIUSA SFT + baseline cached",
+    "7. sft-grpo-viterbi       (train+eval) — RIUSA SFT + baseline cached",
+    "8. sft-grpo-soft-viterbi  (train+eval) — RIUSA SFT + baseline cached",
+    "9. sft-grpo-all-rewards   (train+eval) — RIUSA SFT + baseline cached",
+    "10. sft-grpo-no-grammar   (train+eval) — RIUSA SFT (grammar OFF)",
+    "11. sft-grpo-pda          (train+eval) — RIUSA SFT (PDA vs Trie)",
+    "12. sft-grpo-hotrollout   (train+eval) — controllo Finding 1 (T=1.3, RIUSA SFT)",
+]
+
+
+class CampaignScreen(T2GScreen):
+    """Riepilogo della campagna completa in ordine di riuso (binding ``C``).
+
+    Mostra l'ordine di esecuzione con le note sul riuso (SFT adapter +
+    baseline cached), poi conferma prima di POST /queue {ablation: true} +
+    tick immediato.
+    """
+
+    BINDINGS = [Binding("escape", "go_back", "Back")]
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static("Campagna completa — ordine di riuso", classes="title")
+        yield Static(
+            "12 celle, 22 entry (2 eval-only + 20 train/eval).\n"
+            "L'ordine massimizza il riuso: la coda esistente viene SOSTITUITA.",
+            classes="hint",
+        )
+        yield Static(
+            "\n".join(f"  [dim]{line}[/dim]" for line in _CAMPAIGN_LINES),
+            classes="hint",
+        )
+        yield Button(
+            "Avvia campagna completa (SOSTITUISCE la coda + tick)",
+            variant="primary",
+            id="submit",
+        )
+        yield Footer()
+
+    def action_go_back(self) -> None:
+        self.t2g_app.switch_screen("dashboard")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "submit":
+            self.t2g_app.push_screen(
+                ConfirmScreen(
+                    "Avviare la CAMPAGNA COMPLETA?\n"
+                    "12 celle in ordine di riuso (22 entry).\n"
+                    "La coda esistente viene SOSTITUITA.\n"
+                    "Il primo job parte subito (tick immediato)."
+                ),
+                self._confirmed,
+            )
+
+    def _confirmed(self, ok: bool | None) -> None:
+        if ok:
+            self.t2g_app.run_worker(self.t2g_app.run_campaign())
+
+
 class ReplaceQueueScreen(T2GScreen):
     """Rimpiazza l'intera coda: ablation completa o lista custom.
 
@@ -1251,7 +1347,7 @@ class ReplaceQueueScreen(T2GScreen):
 
     # ── Interno ──
 
-    def _confirmed_ablation(self, ok: bool) -> None:
+    def _confirmed_ablation(self, ok: bool | None) -> None:
         if ok:
             self.t2g_app.run_worker(self.t2g_app.replace_queue(ablation=True))
 
@@ -1421,6 +1517,7 @@ class T2GDashApp(App[None]):
         "add_job": AddJobScreen,
         "start_job": lambda: AddJobScreen(start_mode=True),
         "batch_start": BatchStartScreen,
+        "campaign": CampaignScreen,
         "replace": ReplaceQueueScreen,
         "biglog": LogScreen,
         "config": ConfigScreen,
@@ -1612,7 +1709,7 @@ class T2GDashApp(App[None]):
             self._confirmed_kill,
         )
 
-    def _confirmed_kill(self, ok: bool) -> None:
+    def _confirmed_kill(self, ok: bool | None) -> None:
         if ok:
             self.run_worker(self.kill_active())
 
@@ -1686,6 +1783,40 @@ class T2GDashApp(App[None]):
                 timeout=5,
             )
         await self.refresh_jobs()
+
+    async def run_campaign(self) -> None:
+        """POST /queue {ablation: true} + tick immediato (Campagna ``C``).
+
+        Sostituisce l'intera coda con la campagna in ordine di riuso
+        (app.py ABLATION_MODELS) e fa subito un tick così il primo job
+        parte senza attendere l'hook/server.
+        """
+        if self.client is None:
+            return
+        try:
+            result = await asyncio.to_thread(self.client.replace_queue, None, True)
+        except RemoteServiceError as exc:
+            self.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=10)
+            return
+        self._set_status(result.get("status"))
+        count = int(result.get("count", 0) or 0)
+        self.notify(
+            f"[green]Campagna avviata: {count} job in coda[/green]",
+            severity="information",
+            timeout=6,
+        )
+        # Tick immediato: il primo job parte ora (se QoS libera)
+        try:
+            await asyncio.to_thread(self.client.tick)
+            self.notify(
+                "[green]Tick eseguito — primo job partito/in partenza[/green]",
+                severity="information",
+                timeout=6,
+            )
+        except RemoteServiceError:
+            pass  # il tick fallirà se QoS occupata: la catena avanza dopo
+        await self.refresh_jobs()
+        self.switch_screen("dashboard")
 
     async def replace_queue(
         self,

@@ -195,18 +195,25 @@ class BaseStreamer:
         Segnala la fine della generazione e resetta lo stato per il prossimo ciclo.
 
         Chiamata automaticamente da model.generate() al completamento.
-        Esegue due operazioni:
+        Reset: imposta is_first_call=True e chiama pda.reset() su tutti i
+        PDA, riportandoli allo stato iniziale (stack = [startSymbol]).
+        Questo permette di riusare gli stessi oggetti nella prossima
+        chiamata a generate_text() senza reinstanziarli.
 
-        1. Verifica di consistenza: controlla che tutti i PDA abbiano la pila
-           vuota (eos() == True). Se uno non lo è, emette un warning — indica
-           che la grammatica non è stata consumata completamente, possibilmente
-           perché la generazione è stata interrotta da max_new_tokens prima
-           che l'EOS token fosse generato.
+        Dov'è finita la verifica di consistenza (backport fix upstream 9ba32d2)
+        -----------------------------------------------------------------------
+        Qui c'era un controllo `if not pda.eos(): logging.warning(...)`. Era
+        strutturalmente falso: ispezionava self.pdas, che put() non avanza mai
+        ("STATE UPDATE DISABLED") da quando lo stato è gestito da
+        StatelessLogitsProcessor via re-simulation. Quei PDA restano a
+        ['S*'] per tutta la generazione, quindi il warning si accendeva
+        SEMPRE — anche sulle righe perfettamente valide. In più lo streamer
+        non è nemmeno nel giro con beam search: HF non lo supporta per
+        num_beams > 1 e generate_text() lo passa solo in greedy.
 
-        2. Reset: imposta is_first_call=True e chiama pda.reset() su tutti i
-           PDA, riportandoli allo stato iniziale (stack = [startSymbol]).
-           Questo permette di riusare gli stessi oggetti nella prossima
-           chiamata a generate_text() senza reinstanziarli.
+        L'avviso non è stato rimosso, è stato spostato dove lo stato reale
+        è ricostruibile: generate_text(), dopo pda_stack, ora discrimina le
+        generazioni valide da quelle troncate da max_new_tokens.
 
         Nota sull'integrazione con StatelessLogitsProcessor
         ----------------------------------------------------
@@ -217,21 +224,9 @@ class BaseStreamer:
         """
         logging.info("=== Fine generazione ===")
 
-        all_empty = True
         for i, pda in enumerate(self.pdas):
-            if not pda.eos():
-                logging.warning(
-                    f"⚠ Generazione terminata ma stack PDA {i} non vuoto: "
-                    f"{pda.stack[::-1]}. Resetting PDA to ensure clean state "
-                    f"for next generation."
-                )
-                all_empty = False
-
-        if all_empty:
-            logging.info("✓ Tutti gli stack PDA correttamente vuoti")
+            pda.reset()
 
         self.is_first_call = True
-        for pda in self.pdas:
-            pda.reset()
 
         logging.info("Streamer e tutti i PDA resettati per prossima generazione")

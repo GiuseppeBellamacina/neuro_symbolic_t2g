@@ -23,11 +23,10 @@
 
 extends: base.yaml
 
-# --- LoRA adattatori (leggeri, come il config GRPO base) ---
-lora:
-  r: 16
-  lora_alpha: 32
-  lora_dropout: 0
+# --- LoRA: NON sovrascrivere la base (r32/α64/dropout .05). L'adapter SFT
+# qui DEVE essere identico a quello della pipeline sft-grpo (stessa
+# fingerprint) così la pipeline lo RIUSA senza riaddestrarlo. Cambiare
+# r/alpha/dropout rompe la fingerprint → ri-training duplicato.
 
 # --- Iperparametri di training SFT (sovrascrive completamente la base) ---
 training:
@@ -41,7 +40,7 @@ training:
   gradient_accumulation_steps: 4
   learning_rate: 2.0e-5
   lr_scheduler_type: "cosine"
-  warmup_steps: 100
+  warmup_steps: 50 # = pipeline sft_pretrain (fingerprint match)
   optim: "paged_adamw_8bit"
   weight_decay: 0.1
   max_grad_norm: 1.0
@@ -49,7 +48,7 @@ training:
   gradient_checkpointing: true # OOM mitigation
   logging_steps: 10
   save_steps: 200
-  save_total_limit: 2 # meno checkpoint: load_best_model_at_end conserva il best
+  save_total_limit: 1 # = pipeline sft_pretrain (fingerprint match)
   max_seq_length: 768
   # --- Held-out eval + early stopping (anti-overfitting) ---
   # Viene ricavato dal TRAIN split un eval set (eval_fraction, seed =

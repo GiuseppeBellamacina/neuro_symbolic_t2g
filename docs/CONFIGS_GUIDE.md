@@ -5,7 +5,7 @@
 > con deep-merge — un config differisce dal genitore SOLO per ciò che testa
 > (differenza a fattore unico).
 
-## Matrice dei config (8 celle + base)
+## Matrice dei config (12 celle + base)
 
 | Config                   | Pipeline  | Differenza da `sft-grpo`            | Scopo                                   |
 | ------------------------ | -------- | ------------------------------------ | --------------------------------------- |
@@ -18,6 +18,8 @@
 | `sft-grpo-soft-viterbi.yaml` | SFT+GRPO | core ×0.90 + soft_viterbi 0.10  | Ablation moduli: soft_viterbi (DVL)    |
 | `sft-grpo-all-rewards.yaml` | SFT+GRPO | core ×0.80 + 3 moduli 0.20       | Ablation moduli: tutti e tre            |
 | `sft-grpo-no-grammar.yaml` | SFT+GRPO | grammar.enabled: false             | Constrained decoding OFF                |
+| `sft-grpo-pda.yaml`       | SFT+GRPO | use_grammarllm_pda: true            | Constrained decoding PDA LL(1) vs Trie  |
+| `sft-grpo-hotrollout.yaml`| SFT+GRPO | grpo.temperature: 1.3                | Controllo Finding 1 (docs/FINDINGS.md)  |
 | `zero-shot.yaml`           | Eval-only | niente training, grammar OFF        | Base model da solo (lower bound)        |
 | `zero-shot-grammar.yaml`   | Eval-only | niente training, grammar ON         | Base + constrained decoding (eval)      |
 
@@ -36,7 +38,9 @@ base.yaml
         ├── sft-grpo-viterbi.yaml    (reward: core ×0.90 + viterbi)
         ├── sft-grpo-soft-viterbi.yaml (reward: core ×0.90 + soft_viterbi)
         ├── sft-grpo-all-rewards.yaml  (reward: core ×0.80 + 3 moduli)
-        └── sft-grpo-no-grammar.yaml   (grammar.enabled: false)
+        ├── sft-grpo-no-grammar.yaml   (grammar.enabled: false)
+        ├── sft-grpo-pda.yaml          (use_grammarllm_pda: true)
+        └── sft-grpo-hotrollout.yaml   (grpo.temperature: 1.3)
 zero-shot.yaml               (extends base, eval-only, grammar OFF)
 zero-shot-grammar.yaml        (extends base, eval-only, grammar ON)
 sft-only.yaml                (extends base, trainer: sft)
@@ -68,7 +72,7 @@ std di gruppo 0.62 vs ~0.001 pre-fix — vedi `src/rewards/t2g_rewards.py`).
 CONFIG=experiments/configs/t2g/<nome>.yaml sbatch cluster/train.sh
 # oppure (coda gestita):
 bash cluster/run_all.sh <nome>            # es. sft-grpo-structure
-bash cluster/run_all.sh --ablation        # tutte le 7 celle trainabili
+bash cluster/run_all.sh --ablation        # tutte le 11 celle trainabili + 2 eval-only
 
 # cella SFT-only (NESSUN training necessario — adapter già pronto):
 CHECKPOINT=experiments/checkpoints/qwen25-05b-sft-grpo/run_*/sft_pretrain/final \
@@ -89,6 +93,8 @@ Ogni cella scrive sotto un tag dedicato `experiments/checkpoints/<tag>/run_*`:
 | `sft-grpo-soft-viterbi.yaml` | `qwen25-05b-sft-grpo-soft-viterbi` |
 | `sft-grpo-all-rewards.yaml` | `qwen25-05b-sft-grpo-all-rewards` |
 | `sft-grpo-no-grammar.yaml` | `qwen25-05b-sft-grpo-no-grammar` |
+| `sft-grpo-pda.yaml`       | `qwen25-05b-sft-grpo-pda`         |
+| `sft-grpo-hotrollout.yaml`| `qwen25-05b-sft-grpo-hotrollout`  |
 
 ## Config eliminati (storico)
 
@@ -96,5 +102,5 @@ La dir `ablation/` (zero_shot, zero_shot_grammar, grpo_pda,
 grpo_pda_lookahead, grpo_soft_viterbi, grpo_verifier_scaled, grpo_no_sft)
 e `grpo_qwen05.yaml` sono stati eliminati: iperparametri non allineati
 (LoRA r=16, 1500 step, lr=5e-6, reward v1 saturate) e non confrontabili
-con la pipeline. Il confronto Trie-vs-PDA è rigenerabile in 5 righe
-(`extends: sft-grpo.yaml` + `use_grammarllm_pda: true`) quando servirà.
+con la pipeline. Il confronto Trie-vs-PDA ora esiste come cella dedicata
+`sft-grpo-pda.yaml`.

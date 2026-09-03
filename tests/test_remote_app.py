@@ -28,8 +28,17 @@ AUTH = {"X-Auth-Token": "test-token"}
 # Ordine ESATTO di remote/app.py:ABLATION_MODELS (= cluster/run_all.sh) -
 # se cambia, aggiornare sia app.ABLATION_MODELS sia questa lista.
 EXPECTED_ABLATION_MODELS: list[tuple[str, str, str]] = [
+    ("zero-shot", "experiments/configs/t2g/zero-shot.yaml", "e"),
+    ("zero-shot-grammar", "experiments/configs/t2g/zero-shot-grammar.yaml", "e"),
+    ("sft-only", "experiments/configs/t2g/sft-only.yaml", "te"),
     ("grpo-only", "experiments/configs/t2g/grpo-only.yaml", "te"),
     ("sft-grpo", "experiments/configs/t2g/sft-grpo.yaml", "te"),
+    (
+        "sft-grpo-structure",
+        "experiments/configs/t2g/sft-grpo-structure.yaml",
+        "te",
+    ),
+    ("sft-grpo-viterbi", "experiments/configs/t2g/sft-grpo-viterbi.yaml", "te"),
     (
         "sft-grpo-soft-viterbi",
         "experiments/configs/t2g/sft-grpo-soft-viterbi.yaml",
@@ -40,15 +49,17 @@ EXPECTED_ABLATION_MODELS: list[tuple[str, str, str]] = [
         "experiments/configs/t2g/sft-grpo-all-rewards.yaml",
         "te",
     ),
-    ("sft-grpo-structure", "experiments/configs/t2g/sft-grpo-structure.yaml", "te"),
-    ("sft-grpo-viterbi", "experiments/configs/t2g/sft-grpo-viterbi.yaml", "te"),
     (
         "sft-grpo-no-grammar",
         "experiments/configs/t2g/sft-grpo-no-grammar.yaml",
         "te",
     ),
-    ("zero-shot", "experiments/configs/t2g/zero-shot.yaml", "e"),
-    ("zero-shot-grammar", "experiments/configs/t2g/zero-shot-grammar.yaml", "e"),
+    ("sft-grpo-pda", "experiments/configs/t2g/sft-grpo-pda.yaml", "te"),
+    (
+        "sft-grpo-hotrollout",
+        "experiments/configs/t2g/sft-grpo-hotrollout.yaml",
+        "te",
+    ),
 ]
 
 
@@ -440,7 +451,7 @@ def test_queue_replace_ablation_shortcut(client):
     resp = test_client.post("/queue", headers=AUTH, json={"ablation": True})
     assert resp.status_code == 200
     body = resp.json()
-    assert body["count"] == 16  # 7 celle train+eval + 2 zero-shot eval-only
+    assert body["count"] == 22  # 12 celle: 2 eval-only + 10 train+eval
     expected = _ablation_queue()
     assert body["queue"] == expected
     assert fake.queue == expected
@@ -511,7 +522,7 @@ def test_delete_jobs_unknown_tag_no_rewrite(client):
     assert resp.status_code == 200
     assert resp.json()["removed"] == 0
     assert len(fake.commands) == n_before + 1  # solo lo status, niente rewrite
-    assert len(fake.queue) == 16
+    assert len(fake.queue) == 22
 
 
 # ── /pause / /resume ───────────────────────────────────────────────────────────
@@ -762,7 +773,7 @@ def test_jobs_batch_without_start_now_only_enqueues(client):
     )
     assert resp.status_code == 201
     assert resp.json()["started_now"] is False
-    assert len(fake.queue) == 1
+    assert len(fake.queue) == 1  # solo il job richiesto, nessuna espansione
     assert not any(" tick" in c for c in fake.commands)
 
 

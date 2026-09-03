@@ -514,6 +514,7 @@ diego() {
     echo "     sft-grpo-soft-viterbi  SFT+GRPO + soft_viterbi (ablation)"
     echo "     sft-grpo-all-rewards   SFT+GRPO + tutti i moduli sperimentali"
     echo "     sft-grpo-no-grammar    SFT+GRPO senza constrained decoding"
+    echo "     sft-grpo-pda           SFT+GRPO con PDA grammarllm (confronto Trie)"
     echo "     zero-shot              Base model senza grammar (solo eval)"
     echo "     zero-shot-grammar      Base model con grammar (solo eval)"
     echo ""

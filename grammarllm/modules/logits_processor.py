@@ -614,17 +614,29 @@ class StatelessLogitsProcessor(LogitsProcessor):
         """
         if pda.eos():
             return False
-        if token in (
-            self.tokenizer.bos_token_id,
-            self.tokenizer.pad_token_id,
-            getattr(self.tokenizer, "unk_token_id", None),
-        ):
-            return True
+        # EOS PRIMA di PAD (backport fix upstream 9ba32d2, PR #3): Qwen/Llama
+        # e in generale i tokenizer instruct impostano pad_token = eos_token
+        # quando manca un pad (lo fa anche il nostro model_loader).  Da quel
+        # momento pad_token_id == eos_token_id e, con il controllo PAD per
+        # primo, il ramo EOS qui sotto diventa codice morto: l'EOS viene
+        # scartato come "token speciale" e il PDA non consuma mai la
+        # produzione `S* -> eos_token` — la pila resta non vuota su ogni
+        # generazione valida e ogni metrica costruita su pda_stack è falsa
+        # (upstream SMILES: 0% validità misurata vs 100% reale). Il difetto è
+        # di solo reporting (la maschera di __call__ è corretta) ma falsa le
+        # metriche. I PAD veri restano gestiti: il padding segue sempre
+        # l'EOS, quindi il guard `pda.eos()` in cima assorbe quei token.
         if token == self.tokenizer.eos_token_id:
             valid, paths = self._valid_ids(pda)
             if token not in valid:
                 return False  # EOS forced by the dead-end fallback
             self._advance(pda, token, paths)
+            return True
+        if token in (
+            self.tokenizer.bos_token_id,
+            self.tokenizer.pad_token_id,
+            getattr(self.tokenizer, "unk_token_id", None),
+        ):
             return True
         self._advance(pda, token)
         return True

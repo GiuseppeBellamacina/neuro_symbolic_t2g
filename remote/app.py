@@ -125,41 +125,46 @@ CONFIG_MAP: dict[str, str] = {
     "sft-grpo-soft-viterbi": "experiments/configs/t2g/sft-grpo-soft-viterbi.yaml",
     "sft-grpo-all-rewards": "experiments/configs/t2g/sft-grpo-all-rewards.yaml",
     "sft-grpo-no-grammar": "experiments/configs/t2g/sft-grpo-no-grammar.yaml",
+    "sft-grpo-pda": "experiments/configs/t2g/sft-grpo-pda.yaml",
+    "sft-grpo-hotrollout": "experiments/configs/t2g/sft-grpo-hotrollout.yaml",
     "zero-shot": "experiments/configs/t2g/zero-shot.yaml",
     "zero-shot-grammar": "experiments/configs/t2g/zero-shot-grammar.yaml",
 }
 
 CONFIG_PATHS: set[str] = set(CONFIG_MAP.values())
 
-# Campagna di decomposizione + ablation: ordine ESATTO di run_all.sh
-# (TAG:CONFIG:MODE). MODE: e = eval-only · te = train+eval.
-# sft-only NON è in coda: la sua cella si valuta con l'adapter già addestrato
-# della pipeline (CHECKPOINT esplicito — vedi header di sft-only.yaml).
-# Le celle zero-shot (eval-only) stanno in CODA: i train portano risultati
-# prima; la zero-shot-grammar è ridondante con la baseline --compare (stesso
-# modello/contesto) ma produce l'artifact autonomo per la riga "Base+grammar".
+# Campagna completa in ORDINE DI RIUSO (maximizza elementi già
+# addestrati/valutati): zero-shot prime le baselines (~zero costo, e la
+# grammar-one CACHEA la baseline --compare per tutte le celle successive),
+# sft-only addestra l'adapter SFT che TUTTE le celle pipeline riusano via
+# fingerprint cross-tag (match garantito da sft-only.yaml = sft_pretrain),
+# poi le celle GRPO riusano SFT + baseline.
+# MODE: e = eval-only · te = train+eval.
 ABLATION_MODELS: list[tuple[str, str, str]] = [
+    # 1-2. Baseline zero-shot (eval-only, ~30 min; la 2 CACHEA la baseline
+    # --compare per tutte le celle successive)
+    ("zero-shot", "experiments/configs/t2g/zero-shot.yaml", "e"),
+    ("zero-shot-grammar", "experiments/configs/t2g/zero-shot-grammar.yaml", "e"),
+    # 3. SFT-only: addestra L'adapter SFT (la pipeline lo riusa via fingerprint)
+    ("sft-only", "experiments/configs/t2g/sft-only.yaml", "te"),
+    # 4. GRPO-only (da base, nessun SFT da riusare)
     ("grpo-only", "experiments/configs/t2g/grpo-only.yaml", "te"),
+    # 5-10. Pipeline cells: RIUSANO l'adapter SFT di sft-only (skip SFT) +
+    # la baseline cached
     ("sft-grpo", "experiments/configs/t2g/sft-grpo.yaml", "te"),
+    ("sft-grpo-structure", "experiments/configs/t2g/sft-grpo-structure.yaml", "te"),
+    ("sft-grpo-viterbi", "experiments/configs/t2g/sft-grpo-viterbi.yaml", "te"),
     (
         "sft-grpo-soft-viterbi",
         "experiments/configs/t2g/sft-grpo-soft-viterbi.yaml",
         "te",
     ),
-    (
-        "sft-grpo-all-rewards",
-        "experiments/configs/t2g/sft-grpo-all-rewards.yaml",
-        "te",
-    ),
-    ("sft-grpo-structure", "experiments/configs/t2g/sft-grpo-structure.yaml", "te"),
-    ("sft-grpo-viterbi", "experiments/configs/t2g/sft-grpo-viterbi.yaml", "te"),
-    (
-        "sft-grpo-no-grammar",
-        "experiments/configs/t2g/sft-grpo-no-grammar.yaml",
-        "te",
-    ),
-    ("zero-shot", "experiments/configs/t2g/zero-shot.yaml", "e"),
-    ("zero-shot-grammar", "experiments/configs/t2g/zero-shot-grammar.yaml", "e"),
+    ("sft-grpo-all-rewards", "experiments/configs/t2g/sft-grpo-all-rewards.yaml", "te"),
+    ("sft-grpo-no-grammar", "experiments/configs/t2g/sft-grpo-no-grammar.yaml", "te"),
+    ("sft-grpo-pda", "experiments/configs/t2g/sft-grpo-pda.yaml", "te"),
+    # 11. Cella di controllo Finding 1 (rollout T=1.3 per rompere il
+    # determinismo SFT; riusa adapter SFT — vedi config header)
+    ("sft-grpo-hotrollout", "experiments/configs/t2g/sft-grpo-hotrollout.yaml", "te"),
 ]
 
 HELPER_NAME = "cluster_helper.sh"  # file locale in remote/ (per auto-install scp)

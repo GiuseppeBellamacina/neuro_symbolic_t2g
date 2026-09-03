@@ -1,12 +1,40 @@
 # Vendored grammarllm — Status vs upstream (`_Ricerca/grammarllm`)
 
-Data verifica: 2026-08-25
+Data verifica: 2026-09-03 (backport PR #3 upstream)
 
 ## Esito
 
 Le due copie **non sono identiche**. La copia vendored (questa cartella) è
 **funzionalmente più avanti** dell'upstream locale, che non può essere
-modificato da questo progetto (vincolo di scope).
+modificato da questo progetto (vincolo di scope). L'upstream ha ricevuto
+due PR dopo `ac1af8d`: PR #1 (docs/bench) e PR #3 (`2a4f55c`, SMILES
+benchmark + **fix PDA critici — backportati**, vedi sotto).
+
+## Backport da PR #3 upstream (2026-09-03)
+
+- **fix(pda) `9ba32d2`** (BACKPORTATO in `modules/logits_processor.py`):
+  `_advance_token()` testava BOS/PAD/UNK **prima** del ramo EOS. Il nostro
+  `model_loader` imposta `pad_token = eos_token` (Qwen2.5-Instruct), quindi
+  `pad_token_id == eos_token_id` e l'EOS veniva scartato come "token
+  speciale" SENZA consumare la produzione `S* → eos_token`: il
+  re-simulation finiva con stack non vuota su OGNI generazione valida,
+  falsando ogni metrica su `pda_stack`. Fix: ramo EOS spostato prima del
+  check PAD.
+- **fix(streamer) `9ba32d2`** (BACKPORTATO in `modules/streamer.py`): il
+  warning di consistenza in `BaseStreamer.end()` ispezionava i PDA
+  "template" che `put()` non avanza mai (STATE UPDATE DISABLED) → warning
+  su OGNI generazione, anche valide. Rimosso; il warning ora vive in
+  `generate_text()` dopo `pda_stack` dove lo stato reale è ricostruibile.
+- **fix(warning move) `9ba32d2`** (BACKPORTATO in
+  `generate_with_constraints.py`): il consistency warning ora scatta SOLO
+  se `result_item["pda_stack"]` non è vuota (troncamento max_new_tokens),
+  non su ogni riga.
+- **fix(grammar) `e40fd28` + `e32a9b8`** (NON backportati): LL(1)-ification
+  della table construction — script usato SOLO per la grammatica SMILES del
+  benchmark upstream; il nostro gloss pipeline non usa parsing tables
+  generate da quegli script. Nessun impatto.
+- **smiles_qed** (`2d72951`, `e12c4cf`): benchmark SMILES su GDB-17 — non
+  rilevante per ASL gloss. Nessun backport.
 
 ## Divergenze note (verificate con diff riga per riga)
 

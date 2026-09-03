@@ -226,7 +226,7 @@ def test_sft_yaml_exposes_eval_keys() -> None:
     assert training["eval_steps"] == 200
     assert training["early_stopping_patience"] == 3
     assert training["per_device_eval_batch_size"] == 8
-    assert training["save_total_limit"] == 2
+    assert training["save_total_limit"] == 1
     assert training["num_train_epochs"] == 3
 
 

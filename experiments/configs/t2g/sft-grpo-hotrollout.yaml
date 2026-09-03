@@ -1,0 +1,58 @@
+# ============================================================================
+# SFT-GRPO HOT-ROLLOUT — cella di controllo per il Finding 1 (GRPO-from-SFT)
+#
+# IPOTESI TESTATA (docs/FINDINGS.md, Finding 1): il degrado 0.979→0.501 di
+# sft-grpo è mediato dal collasso zero-advantage (`frac_reward_zero_std`
+# media 0.578: la policy SFT è così deterministica che i gruppi G=8 hanno
+# reward identico → gradiente nullo). Rollout temperature più alta rompe
+# il determinismo e ripristina il segnale relazionale di GRPO.
+#
+# Differenza a fattore unico vs sft-grpo: `grpo.temperature: 1.3`
+# (era 0.7). Il constrained decoding in rollout è Trie come sft-grpo.
+# L'adapter SFT è RIUSATO (fingerprint identica a sft-only): nessun
+# retrain SFT, solo GRPO+eval (~3.5h).
+#
+# PREVISIONI REGISTRATE (da verificare sul run; documentate in FINDINGS.md):
+#   P1  frac_reward_zero_std media < 0.15 (sft-grpo: 0.578)
+#   P2  reward step-5 ~ 0.70-0.80 (sft-grpo: 0.886 — il campionamento caldo
+#       abbassa il reward iniziale)
+#   P3  se il collasso zero-advantage è la CAUSA: ROUGE-L finale > 0.55
+#       (danno ridotto) e frac di prompt 5/5 identici a eval > sft-grpo (4.5%)
+#   P4  se invece la causa è il bias di lunghezza del segnale residuo:
+#       ROUGE-L finale ~ 0.50 come sft-grpo (con P1/P2 comunque confermate)
+#   In entrambi i casi P3/P4 chiudono la causalità del finding.
+#
+# NOTA storica: temperature=0.9 era stato scartato in calibrazione come
+# "rollout troppo rumorosi" — per grpo-only, dove il rumore danneggia.
+# Qui lo scopo è opposto (rompere il determinismo dell'init SFT) e la
+# cella è un controllo, non una candidata best-model.
+#
+# Uso:
+#   CONFIG=experiments/configs/t2g/sft-grpo-hotrollout.yaml sbatch cluster/train.sh
+#   bash cluster/run_all.sh sft-grpo-hotrollout      # via coda chain
+# ============================================================================
+
+extends: sft-grpo.yaml
+
+# --- Unica differenza: rollout temperature (rompe il determinismo SFT) ---
+grpo:
+  temperature: 1.3
+
+# --- Directory dedicate ---
+training:
+  output_dir: "experiments/checkpoints/qwen25-05b-sft-grpo-hotrollout"
+  log_dir: "experiments/logs/qwen25-05b-sft-grpo-hotrollout"
+
+# --- Weights & Biases ---
+wandb:
+  run_name: "t2g-sft-grpo-hotrollout"
+  tags:
+    [
+      "sft-grpo-hotrollout",
+      "control-cell",
+      "finding-1",
+      "zero-advantage",
+      "rollout-temperature",
+      "Qwen2.5-0.5B",
+      "ASL",
+    ]

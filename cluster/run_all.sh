@@ -76,7 +76,7 @@ for arg in "$@"; do
             echo "Opzioni:"
             echo "  (nessun argomento)  Default: sft-grpo (train + eval)"
             echo "  config_name         Nome del config senza .yaml (es. sft-grpo)"
-            echo "  --ablation          Campagna completa (7 celle train+eval + 2 zero-shot)"
+            echo "  --ablation          Campagna completa (12 celle: 8 pipeline + 2 decomposizione + 2 zero-shot)"
             echo "  --eval-only         Solo evaluation (skip training)"
             echo "  --train-only        Solo training (skip eval)"
             echo "  --resume            Riprendi dalla coda esistente (non richiede chain_failed)"
@@ -93,6 +93,8 @@ for arg in "$@"; do
             echo "  sft-grpo-soft-viterbi  SFT+GRPO + soft_viterbi (ablation moduli)"
             echo "  sft-grpo-all-rewards   SFT+GRPO + tutti e 3 i moduli sperimentali"
             echo "  sft-grpo-no-grammar     SFT+GRPO senza constrained decoding"
+            echo "  sft-grpo-pda            SFT+GRPO con constrained decoding PDA"
+            echo "  sft-grpo-hotrollout     Controllo Finding 1 (rollout T=1.3, riusa SFT)"
             echo "  zero-shot               Base model senza grammar (solo eval)"
             echo "  zero-shot-grammar       Base model con grammar (solo eval)"
             echo ""
@@ -122,15 +124,18 @@ if [ "$ABLATION" -eq 1 ]; then
     # Formato: TAG:CONFIG[:MODE]
     # MODE: te=train+eval (default), e=eval-only, t=train-only
     MODELS=(
-        "grpo-only:experiments/configs/t2g/grpo-only.yaml:te"
-        "sft-grpo:experiments/configs/t2g/sft-grpo.yaml:te"
-        "sft-grpo-soft-viterbi:experiments/configs/t2g/sft-grpo-soft-viterbi.yaml:te"
-        "sft-grpo-all-rewards:experiments/configs/t2g/sft-grpo-all-rewards.yaml:te"
-        "sft-grpo-structure:experiments/configs/t2g/sft-grpo-structure.yaml:te"
-        "sft-grpo-viterbi:experiments/configs/t2g/sft-grpo-viterbi.yaml:te"
-        "sft-grpo-no-grammar:experiments/configs/t2g/sft-grpo-no-grammar.yaml:te"
         "zero-shot:experiments/configs/t2g/zero-shot.yaml:e"
         "zero-shot-grammar:experiments/configs/t2g/zero-shot-grammar.yaml:e"
+        "sft-only:experiments/configs/t2g/sft-only.yaml:te"
+        "grpo-only:experiments/configs/t2g/grpo-only.yaml:te"
+        "sft-grpo:experiments/configs/t2g/sft-grpo.yaml:te"
+        "sft-grpo-structure:experiments/configs/t2g/sft-grpo-structure.yaml:te"
+        "sft-grpo-viterbi:experiments/configs/t2g/sft-grpo-viterbi.yaml:te"
+        "sft-grpo-soft-viterbi:experiments/configs/t2g/sft-grpo-soft-viterbi.yaml:te"
+        "sft-grpo-all-rewards:experiments/configs/t2g/sft-grpo-all-rewards.yaml:te"
+        "sft-grpo-no-grammar:experiments/configs/t2g/sft-grpo-no-grammar.yaml:te"
+        "sft-grpo-pda:experiments/configs/t2g/sft-grpo-pda.yaml:te"
+        "sft-grpo-hotrollout:experiments/configs/t2g/sft-grpo-hotrollout.yaml:te"
     )
 elif [ -n "$CONFIG_NAME" ]; then
     # Config specifico passato come argomento (es. "sft-grpo")

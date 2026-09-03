@@ -305,12 +305,25 @@ class CompletionSampleLogger:
                 gold_structure_reward,
                 {"gold_gloss": "", "normalize": True},
             ),
-            ("structural_dense_reward", structural_dense_reward, {"normalize": True}),
-            ("viterbi_distance_reward", viterbi_distance_reward, {"normalize": True}),
+            # v2 gold-anchored components: "gold_gloss" MUST be in kwargs so
+            # that _capture substitutes the per-sample gold — without it the
+            # v2 functions receive no gold and return neutral 0.0 (bug: the
+            # sample display showed +0.00 for perfect completions while the
+            # trainer metrics were correctly ~0.87).
+            (
+                "structural_dense_reward",
+                structural_dense_reward,
+                {"gold_gloss": "", "normalize": True},
+            ),
+            (
+                "viterbi_distance_reward",
+                viterbi_distance_reward,
+                {"gold_gloss": "", "normalize": True},
+            ),
             (
                 "soft_viterbi_distance_reward",
                 soft_viterbi_distance_reward,
-                {"normalize": True},
+                {"gold_gloss": "", "normalize": True},
             ),
             (
                 "verifier_scaled_reward",
