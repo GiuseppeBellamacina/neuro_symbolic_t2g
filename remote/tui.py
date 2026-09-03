@@ -1350,6 +1350,11 @@ class ReplaceQueueScreen(T2GScreen):
     def _confirmed_ablation(self, ok: bool | None) -> None:
         if ok:
             self.t2g_app.run_worker(self.t2g_app.replace_queue(ablation=True))
+            # Torna SUBITO alla dashboard: il worker continua in background
+            # e notifica l'esito. Restare sulla CampaignScreen lascerebbe
+            # inutilizzabili i binding del dashboard (g/r/a...) finché il
+            # POST /queue non risponde (o per sempre, se fallisce).
+            self.t2g_app.switch_screen("dashboard")
 
     def _submit_custom(self) -> None:
         text = self.query_one("#custom", TextArea).text

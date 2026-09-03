@@ -177,6 +177,13 @@ tick() {
     fi
     local rc=0
     bash "$SCRIPT_DIR/chain_tick.sh" --quiet || rc=$?
+    if [ "$rc" -eq 4 ]; then
+        # Errore interno soft del tick (chain_tick ERR trap): già loggato in
+        # chain.log, il prossimo tick (~5 min) riprova. Nessun allarme: un
+        # blip Slurm/DNS NON deve produrre 502/notify rosse nel driver.
+        echo "OK_TICK=1"
+        return 0
+    fi
     if [ "$rc" -ne 0 ]; then
         echo "ERR_TICK=chain_tick rc=$rc" >&2
         exit 3

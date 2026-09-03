@@ -73,6 +73,15 @@ def test_campaign_screen_shows_summary_and_confirm():
                 if any(r.url.path == "/queue" for r in recorder.requests):
                     break
                 await pilot.pause()
+            # dopo la conferma la TUI torna SUBITO alla dashboard: i binding
+            # del dashboard (g/r/a...) restano disponibili mentre il worker
+            # lavora in background
+            # dopo la conferma la TUI torna SUBITO alla dashboard: i binding
+            # del dashboard (g/r/a...) restano disponibili mentre il worker
+            # lavora in background
+            assert not isinstance(
+                app.screen, CampaignScreen
+            ), "torna alla dashboard dopo conferma"
             calls = [r.url.path for r in recorder.requests]
             assert "/queue" in calls
             assert "/tick" in calls

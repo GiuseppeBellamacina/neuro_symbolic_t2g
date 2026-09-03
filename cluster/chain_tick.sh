@@ -17,7 +17,10 @@
 #      or log-and-skip (continue-on-failure, eval-after-failed-train dropped)
 #   6. submit the next job (sbatch), record .chain_state/last_job
 #
-# Exit codes: 0 = ok; 2 = usage error.
+# Exit codes: 0 = ok (o tick rimandato: pausa/job attivo/coda vuota/Slurm
+#              non raggiungibile); 2 = usage error; 4 = errore interno
+#              soft (loggato in chain.log, retry al prossimo tick — vedi
+#              ERR trap: un tick NON allarma mai il driver, è idempotente).
 #
 # Uso:
 #   bash cluster/chain_tick.sh                 # one-shot check
@@ -49,6 +52,12 @@ for arg in "$@"; do
 done
 
 mkdir -p "$STATE_DIR" logs
+
+# ── ERR trap: errore interno → soft-fail ─────────────────────────────────────
+# Un blip Slurm/DNS NON deve mai allarmare il driver (ssh rc=3 → 502 →
+# notifica rossa in TUI): il tick è idempotente e il prossimo (≈5 min)
+# riprova. L'errore resta visibile in chain.log con riga e comando.
+trap 'log_line "tick errore interno (riga $LINENO: $BASH_COMMAND) — rimandato al prossimo tick"; exit 4' ERR
 
 # ── flock: un solo tick alla volta (hook + manuale + server possono sovrapporsi) ─
 # Se `flock` (util-linux) manca sul login node, fallback a un lock mkdir con
@@ -82,7 +91,16 @@ fi
 
 # 2) Job attivo → via (il tick è innocuo: NON tocca la coda).
 #    La QoS consente un solo job alla volta, quindi qui non si sottomette mai.
-if [ -n "$(active_job_id)" ]; then
+#    ROBUSTEZZA: se squeue NON risponde (blip Slurm/DNS del login node) il
+#    tick è RIMANDATO (exit 0): trattare "squeue giù" come "nessun job
+#    attivo" rischierebbe doppio submit (job pendente fuori QoS) o pop
+#    della coda fuori ordine. Vedi evento 2026-09-03 13:41:44.
+if ! JOB_ACTIVE=$(active_job_id); then
+    log_line "tick: squeue non raggiungibile — tick rimandato"
+    [ "$QUIET" -eq 0 ] && echo "squeue non raggiungibile — tick rimandato"
+    exit 0
+fi
+if [ -n "$JOB_ACTIVE" ]; then
     [ "$QUIET" -eq 0 ] && echo "job attivo — tick innocuo"
     exit 0
 fi
