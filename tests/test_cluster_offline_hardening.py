@@ -145,6 +145,18 @@ def test_run_py_has_no_implicit_bare_python_fallback():
     )
 
 
+def test_run_py_uses_exec_and_preserves_quoted_python_argv():
+    """Bypass the SIF runscript, which rewrites quoted ``python -c`` argv."""
+    body = read_script("_lib.sh").split("run_py() {", 1)[1].split("\n}", 1)[0]
+    assert re.search(r"^\s*apptainer exec --nv \\$", body, re.M)
+    assert not re.search(r"^\s*apptainer run\b", body, re.M)
+    assert re.search(
+        r"/shared/sifs/latest\.sif \\\n\s*python3 \"\$@\"\s*$",
+        body,
+    ), "run_py must pass each original argument directly after the SIF and python3"
+    assert "eval " not in body
+
+
 def test_remote_queue_rewrite_clears_last_job_only_without_active_slurm_job():
     """Fresh replacement drops stale completion state, not live tracking."""
     helper = (

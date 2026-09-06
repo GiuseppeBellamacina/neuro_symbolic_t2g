@@ -440,7 +440,7 @@ run_py() {
         echo "❌ run_py: immagine /shared/sifs/latest.sif non disponibile; rifiuto Python bare." >&2
         return 127
     fi
-    apptainer run --nv \
+    apptainer exec --nv \
         --env "HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}" \
         --env "TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}" \
         --env "HF_DATASETS_OFFLINE=${HF_DATASETS_OFFLINE:-1}" \

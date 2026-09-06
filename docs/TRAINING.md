@@ -17,6 +17,8 @@ WANDB_SILENT=true
 
 Hugging Face must resolve the configured model and ASLG-PC12 dataset from local caches. W&B writes offline runs only; synchronize them later from a networked machine if required. Never log or commit HF/W&B credentials.
 
+Project Python runs through `apptainer exec --nv` so the image runscript cannot rewrite quoted arguments such as `python3 -c` payloads. Outer setup and probe relaunches continue to use `apptainer run` for Bash script paths.
+
 ## Setup and preflight
 
 From the cluster repository root:

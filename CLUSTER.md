@@ -31,6 +31,8 @@ WANDB_DISABLE_WEAVE=true
 WANDB_SILENT=true
 ```
 
+Project Python is launched with `apptainer exec --nv`, not `apptainer run`, so `/shared/sifs/latest.sif`'s runscript cannot rewrite quoted arguments such as `python3 -c` payloads. The outer setup and probe relaunches still use `apptainer run` when invoking their Bash script paths.
+
 W&B stores local run data. Synchronize it only later from a networked environment. Keep HF and W&B credentials out of the repository and job logs.
 
 ## Preflight
