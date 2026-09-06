@@ -62,9 +62,11 @@ dev = [
     "httpx>=0.28.1",
 ]
 # Heavy extras for the optional "minilm" retrieval backend only.
+# sentence-transformers is aligned exactly to the 5.2.3 distribution in
+# /shared/sifs/latest.sif so setup constraints preserve the cluster ML/CUDA stack.
 # The default "tfidf" backend (scikit-learn) is a core dependency.
 retrieval = [
-    "sentence-transformers>=5.7.0",
+    "sentence-transformers==5.2.3",
 ]
 # Local TUI client for the remote cluster driver (remote/tui.py). Self-contained:
 # textual + httpx are declared here so the extra works without pulling "dev".

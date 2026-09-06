@@ -24,9 +24,11 @@ from __future__ import annotations
 
 import ast
 import re
+import tomllib
 from pathlib import Path
 
 CLUSTER_DIR = Path(__file__).resolve().parent.parent / "cluster"
+EXPECTED_SENTENCE_TRANSFORMERS_VERSION = "5.2.3"
 
 REQUIRED_OFFLINE_VARS = (
     "HF_HUB_OFFLINE",
@@ -483,6 +485,40 @@ def test_pyproject_pins_tested_transformers_without_changing_stack_pins():
         assert requirement in project
 
 
+def test_retrieval_extra_matches_protected_sentence_transformers_version():
+    project_path = CLUSTER_DIR.parent / "pyproject.toml"
+    project = tomllib.loads(project_path.read_text(encoding="utf-8"))
+    retrieval = project["project"]["optional-dependencies"]["retrieval"]
+    declared = next(
+        requirement
+        for requirement in retrieval
+        if requirement.startswith("sentence-transformers")
+    )
+    assert declared == (
+        f"sentence-transformers=={EXPECTED_SENTENCE_TRANSFORMERS_VERSION}"
+    )
+
+
+def test_setup_enforces_retrieval_version_as_part_of_exact_tested_stack():
+    tree = ast.parse(read_script("setup.sh").split("<<'PY'", 2)[2].split("\nPY", 1)[0])
+    validate = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "validate_versions"
+    )
+    exact_assignment = next(
+        node
+        for node in ast.walk(validate)
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "exact"
+            for target in node.targets
+        )
+    )
+    exact = ast.literal_eval(exact_assignment.value)
+    assert exact["sentence-transformers"] == EXPECTED_SENTENCE_TRANSFORMERS_VERSION
+
+
 def _load_setup_version_validator():
     """Compile only setup's pure version-comparison function."""
     tree = ast.parse(read_script("setup.sh").split("<<'PY'", 2)[2].split("\nPY", 1)[0])
@@ -512,6 +548,7 @@ def test_setup_version_validator_accepts_tested_stack():
         "unsloth-zoo": "2026.7.1",
         "torchao": "0.17.0",
         "sacrebleu": "2.6.0",
+        "sentence-transformers": EXPECTED_SENTENCE_TRANSFORMERS_VERSION,
     }
     identity = {"torch": "2.7.1+cu118", "cuda": "11.8"}
     validate(packages, packages.copy(), identity, identity.copy())
@@ -526,6 +563,7 @@ def test_setup_version_validator_rejects_changes_and_untested_versions():
         "unsloth": "2026.7.1",
         "unsloth-zoo": "2026.7.1",
         "torchao": "0.17.0",
+        "sentence-transformers": EXPECTED_SENTENCE_TRANSFORMERS_VERSION,
     }
     identity = {"torch": "2.7.1+cu118", "cuda": "11.8"}
     changed = packages | {"trl": "0.25.0"}

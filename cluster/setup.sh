@@ -137,6 +137,7 @@ def validate_versions(before, after, torch_before, torch_after):
         "unsloth": "2026.7.1",
         "unsloth-zoo": "2026.7.1",
         "sacrebleu": "2.6.0",
+        "sentence-transformers": "5.2.3",
     }
     wrong = {
         name: (wanted, after.get(name))
@@ -159,9 +160,6 @@ torch_identity = {"torch": torch.__version__, "cuda": torch.version.cuda}
 validate_versions(
     expected["packages"], installed, expected["torch_identity"], torch_identity
 )
-sentence_transformers = installed.get("sentence-transformers")
-if sentence_transformers and "sentence-transformers" not in expected["packages"]:
-    print(f"sentence-transformers={sentence_transformers} (newly installed)")
 print(f"torch={torch.__version__}, CUDA={torch.version.cuda} (preserved)")
 print("tested critical package versions are active")
 PY

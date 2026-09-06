@@ -11,7 +11,10 @@ attempt).
 from __future__ import annotations
 
 import json
+import sys
+from types import ModuleType
 
+import numpy as np
 import pytest
 
 from src.retrieval import ExampleRetriever, RetrievedExample, normalize_text
@@ -168,6 +171,47 @@ def test_retrieve_k_zero_returns_empty():
     texts, glosses = _animal_corpus()
     retriever = ExampleRetriever.build(texts, glosses, backend="tfidf")
     assert retriever.retrieve("anything", k=0) == []
+
+
+def test_minilm_uses_sentence_transformers_523_api_shape(monkeypatch):
+    """Exercise the stable constructor/encode API without loading a model."""
+    constructor_calls = []
+    encode_calls = []
+
+    class FakeSentenceTransformer:
+        def __init__(self, model_name, *, device):
+            constructor_calls.append((model_name, device))
+
+        def encode(self, texts, **kwargs):
+            encode_calls.append((list(texts), kwargs))
+            vectors = np.arange(len(texts) * 3, dtype=np.float32).reshape(len(texts), 3)
+            return vectors
+
+    fake_module = ModuleType("sentence_transformers")
+    setattr(fake_module, "SentenceTransformer", FakeSentenceTransformer)
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_module)
+
+    retriever = ExampleRetriever.build(
+        ["first", "second"],
+        ["FIRST", "SECOND"],
+        backend="minilm",
+        model_name="local/minilm",
+        device="cpu",
+    )
+
+    assert constructor_calls == [("local/minilm", "cpu")]
+    assert encode_calls == [
+        (
+            ["first", "second"],
+            {
+                "convert_to_numpy": True,
+                "normalize_embeddings": True,
+                "show_progress_bar": False,
+            },
+        )
+    ]
+    assert retriever._embeddings is not None
+    assert retriever._embeddings.shape == (2, 3)
 
 
 def test_minilm_backend(tmp_path, monkeypatch):
