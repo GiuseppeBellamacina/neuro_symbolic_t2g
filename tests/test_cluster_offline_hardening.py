@@ -372,6 +372,37 @@ def test_train_and_eval_use_run_py_without_hand_rolled_container_or_python():
     assert "PYTORCH_ALLOC_CONF" in code_text("train.sh")
 
 
+def test_eval_passes_config_to_python_as_argv_and_uses_cli_arrays():
+    src = read_script("eval.sh")
+    assert "resolve_config('${CONFIG}')" not in src
+    assert src.count("resolve_config(sys.argv[1])") == 2
+    assert src.count('" "$CONFIG"') >= 2, "config must follow each -c payload"
+    assert 'COMMON_EVAL_ARGS=(--config "$CONFIG" --plot)' in src
+    assert 'local mode_args=("${COMMON_EVAL_ARGS[@]}"' in src
+    assert 'run_py -m src.training.eval_t2g "${mode_args[@]}"' in src
+    assert not re.search(r"\brun_py -m src\.training\.eval_t2g \$\{", src)
+
+
+def test_train_parses_flat_extra_args_once_without_eval():
+    src = read_script("train.sh")
+    code = code_text("train.sh")
+    assert "EXTRA_ARGV=()" in src
+    assert 'read -r -a EXTRA_ARGV <<< "$EXTRA_ARGS"' in src
+    assert 'run_py -m src.training --config "$CONFIG" "${EXTRA_ARGV[@]}"' in src
+    assert "whitespace non sono supportati" in src
+    assert not re.search(r"\beval(?:\s|$)", code, re.M)
+    assert not re.search(r"\$\{EXTRA_ARGS\}(?:\s|$)", code)
+
+
+def test_diagnose_passes_trl_path_as_python_argv():
+    src = read_script("diagnose.sh")
+    assert "Path('$TRL_PATH')" not in src
+    assert "TRL_PATH = '$TRL_PATH'" not in src
+    assert src.count("sys.argv[1]") >= 3
+    assert src.count('" "$TRL_PATH"') >= 3
+    assert "if ! TRL_PATH=$(run_py" in src
+
+
 def test_run_py_forwards_offline_env_to_apptainer():
     body = read_script("_lib.sh").split("run_py() {", 1)[1].split("\n}", 1)[0]
     for var in REQUIRED_OFFLINE_VARS:

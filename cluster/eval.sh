@@ -100,27 +100,29 @@ export_offline_env
 resolve_output_dir() {
     local out=""
     out=$(run_py -c "
+import sys
 from src.utils.config import resolve_config
 from src.utils.paths import cell_from_config, cell_base_dir
 try:
-    cfg = resolve_config('${CONFIG}')
+    cfg = resolve_config(sys.argv[1])
     if cfg.get('experiment', {}).get('kind') in {'train', 'ablation'}:
         print(cell_base_dir('experiments', 'checkpoints', cell_from_config(cfg)))
     else:
         print('')
 except Exception:
     print('')
-")
+" "$CONFIG")
     echo "$out"
 }
 
 resolve_experiment_identity() {
     run_py -c "
+import sys
 from src.utils.config import resolve_config
-cfg = resolve_config('${CONFIG}')
+cfg = resolve_config(sys.argv[1])
 exp = cfg.get('experiment', {})
-print(f\"{exp.get('kind', '')}|{exp.get('train_prompt_mode', '')}\")
-"
+print(exp.get('kind', ''), exp.get('train_prompt_mode', ''), sep='|')
+" "$CONFIG"
 }
 
 # Trova il checkpoint più recente sotto la base canonica: run_*/final o
@@ -190,17 +192,17 @@ require_cluster_artifacts "$CONFIG"
 # Baseline: una sola leg, esplicita e coerente con l'identità del config.
 # Train/ablation: due leg sul medesimo checkpoint, prima zero-shot e poi
 # retrieval. `set -e` rende il job fallito se fallisce una qualsiasi leg.
-COMMON_EVAL_ARGS="--config ${CONFIG} --plot"
+COMMON_EVAL_ARGS=(--config "$CONFIG" --plot)
 
 # Override opzionale del numero di campioni (default: quello del config,
 # oggi 2000 da base.yaml). Esempio eval rapido: MAX_SAMPLES=500 CONFIG=...
 if [ -n "${MAX_SAMPLES:-}" ]; then
-    COMMON_EVAL_ARGS="${COMMON_EVAL_ARGS} --max-samples ${MAX_SAMPLES}"
+    COMMON_EVAL_ARGS+=(--max-samples "$MAX_SAMPLES")
     echo "MAX_SAMPLES override: ${MAX_SAMPLES}"
 fi
 
 if [ -n "$CHECKPOINT" ] && [ "$EXPERIMENT_KIND" != "baseline" ]; then
-    COMMON_EVAL_ARGS="${COMMON_EVAL_ARGS} --checkpoint ${CHECKPOINT}"
+    COMMON_EVAL_ARGS+=(--checkpoint "$CHECKPOINT")
 elif [ "$EXPERIMENT_KIND" = "baseline" ]; then
     echo "Baseline eval-only: eventuale CHECKPOINT ignorato"
 else
@@ -212,26 +214,28 @@ fi
 # il miglior completamento tra i N campionati. Non è la metrica primaria
 # (quella resta Pass@1). Richiede evaluation.num_samples>1 nel config.
 if [ "${BEST_OF_N:-0}" = "1" ]; then
-    COMMON_EVAL_ARGS="${COMMON_EVAL_ARGS} --best-of-n"
+    COMMON_EVAL_ARGS+=(--best-of-n)
     echo "Best-of-N selection enabled"
 fi
 
 
 run_evaluation() {
-    local prompt_mode="$1" mode_args
-    mode_args="${COMMON_EVAL_ARGS} --prompt-mode ${prompt_mode}"
+    local prompt_mode="$1"
+    local mode_args=("${COMMON_EVAL_ARGS[@]}" --prompt-mode "$prompt_mode")
     if [ "$EXPERIMENT_KIND" = "baseline" ]; then
-        mode_args="${mode_args} --eval-baseline-only"
+        mode_args+=(--eval-baseline-only)
     else
-        mode_args="${mode_args} --compare"
+        mode_args+=(--compare)
     fi
 
     echo ""
     echo "Avvio evaluation (${prompt_mode})..."
-    echo "  Args: ${mode_args}"
+    printf '  Args:'
+    printf ' %q' "${mode_args[@]}"
+    printf '\n'
     echo ""
 
-    run_py -m src.training.eval_t2g ${mode_args}
+    run_py -m src.training.eval_t2g "${mode_args[@]}"
 }
 
 if [ "$EXPERIMENT_KIND" = "baseline" ]; then

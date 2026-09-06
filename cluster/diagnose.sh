@@ -72,20 +72,25 @@ run_py -m pip show mergekit 2>&1 || echo "❌ mergekit NON installato"
 echo ""
 
 # ── 4. Contenuto mergekit_utils.py ───────────────────────────────────────
-TRL_PATH=$(run_py -c "import trl; print(trl.__path__[0])" 2>/dev/null)
+if ! TRL_PATH=$(run_py -c "import trl; print(trl.__path__[0])" 2>/dev/null); then
+    echo "❌ impossibile risolvere il percorso del pacchetto trl" >&2
+    exit 1
+fi
 echo "── 4. mergekit_utils.py (riga 20-25) ──"
 run_py -c "
+import sys
 from pathlib import Path
-p = Path('$TRL_PATH') / 'mergekit_utils.py'
+p = Path(sys.argv[1]) / 'mergekit_utils.py'
 print('\\n'.join(p.read_text().splitlines()[19:25]) if p.is_file() else '  ⚠️  mergekit_utils.py non trovato')
-"
+" "$TRL_PATH"
 echo ""
 echo "── 5. judges.py (riga 25-32) ──"
 run_py -c "
+import sys
 from pathlib import Path
-p = Path('$TRL_PATH') / 'trainer' / 'judges.py'
+p = Path(sys.argv[1]) / 'trainer' / 'judges.py'
 print('\\n'.join(p.read_text().splitlines()[24:32]) if p.is_file() else '  ⚠️  judges.py non trovato')
-"
+" "$TRL_PATH"
 echo ""
 
 # ── 6. La verità: cosa restituisce _is_package_available? ────────────────
@@ -166,7 +171,7 @@ echo "  Cercando import di moduli non-stdlib in trl..."
 echo ""
 run_py -c "
 import re, os, sys
-TRL_PATH = '$TRL_PATH'
+TRL_PATH = sys.argv[1]
 stdlib = set(sys.stdlib_module_names)
 core_deps = {'torch', 'transformers', 'accelerate', 'datasets', 'peft', 
              'numpy', 'huggingface_hub', 'safetensors', 'tqdm', 'yaml',
@@ -191,7 +196,7 @@ if imports_found:
         print(f'    {mod:25s} ← {fname}')
 else:
     print('  Nessun modulo esterno aggiuntivo trovato.')
-"
+" "$TRL_PATH"
 echo ""
 echo "── 9. Cache pip ──"
 run_py -m pip cache info

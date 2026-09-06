@@ -100,7 +100,13 @@ echo ""
 
 # ── Esecuzione ────────────────────────────────────────────────────────────────
 # run_py è l'unico entrypoint Python: entra nel SIF o fallisce senza fallback.
-run_py -m src.training --config "${CONFIG}" ${EXTRA_ARGS}
+# Il protocollo queue/API trasporta EXTRA_ARGS come stringa piatta: i percorsi
+# con whitespace non sono supportati. Dividiamo una sola volta, senza eval.
+EXTRA_ARGV=()
+if [ -n "$EXTRA_ARGS" ]; then
+    read -r -a EXTRA_ARGV <<< "$EXTRA_ARGS"
+fi
+run_py -m src.training --config "$CONFIG" "${EXTRA_ARGV[@]}"
 
 echo ""
 echo "============================================"
