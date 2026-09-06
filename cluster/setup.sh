@@ -40,9 +40,25 @@ fi
     exit 1
 }
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# BEGIN T2G_LIB_RESOLVER
+_lib_source=${BASH_SOURCE[0]}
+_lib_dir=""
+_lib_candidate=$(cd "$(dirname "$_lib_source")" 2>/dev/null && pwd) || _lib_candidate=""
+if [ -n "$_lib_candidate" ] && [ -f "$_lib_candidate/_lib.sh" ]; then
+    _lib_dir=$_lib_candidate
+elif [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -f "${SLURM_SUBMIT_DIR}/cluster/_lib.sh" ]; then
+    _lib_dir=$(cd "${SLURM_SUBMIT_DIR}/cluster" && pwd)
+elif [ -n "${HOME:-}" ] && [ -f "${HOME}/neuro_symbolic_t2g/cluster/_lib.sh" ]; then
+    _lib_dir=$(cd "${HOME}/neuro_symbolic_t2g/cluster" && pwd)
+else
+    printf 'ERROR: cannot locate cluster/_lib.sh (BASH_SOURCE=%s, SLURM_SUBMIT_DIR=%s)\n' \
+        "$_lib_source" "${SLURM_SUBMIT_DIR:-<unset>}" >&2
+    exit 1
+fi
+SCRIPT_DIR=$_lib_dir
 # shellcheck source=cluster/_lib.sh
 source "$SCRIPT_DIR/_lib.sh"
+# END T2G_LIB_RESOLVER
 cd "$PROJ_DIR"
 
 export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"

@@ -46,18 +46,25 @@ fi
 # ── Setup ambiente ───────────────────────────────────────────────────────────
 set -e
 
-# SLURM copia lo script nella sua spool dir (/var/lib/slurm/slurmd/<job>/)
-# e lo esegue da lì: BASH_SOURCE NON punta al repo e `source _lib.sh`
-# fallirebbe ("File o directory non esistente"). La directory di
-# sottomissione (SLURM_SUBMIT_DIR — la cwd al momento dello sbatch, che è
-# sempre la repo root, sia da shell che da chain_tick.sh) è il posto giusto.
-_lib_dir=$(dirname "${BASH_SOURCE[0]}")
-if [ ! -f "${_lib_dir}/_lib.sh" ]; then
-    _lib_dir="${SLURM_SUBMIT_DIR:-$HOME/neuro_symbolic_t2g}/cluster"
+# BEGIN T2G_LIB_RESOLVER
+_lib_source=${BASH_SOURCE[0]}
+_lib_dir=""
+_lib_candidate=$(cd "$(dirname "$_lib_source")" 2>/dev/null && pwd) || _lib_candidate=""
+if [ -n "$_lib_candidate" ] && [ -f "$_lib_candidate/_lib.sh" ]; then
+    _lib_dir=$_lib_candidate
+elif [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -f "${SLURM_SUBMIT_DIR}/cluster/_lib.sh" ]; then
+    _lib_dir=$(cd "${SLURM_SUBMIT_DIR}/cluster" && pwd)
+elif [ -n "${HOME:-}" ] && [ -f "${HOME}/neuro_symbolic_t2g/cluster/_lib.sh" ]; then
+    _lib_dir=$(cd "${HOME}/neuro_symbolic_t2g/cluster" && pwd)
+else
+    printf 'ERROR: cannot locate cluster/_lib.sh (BASH_SOURCE=%s, SLURM_SUBMIT_DIR=%s)\n' \
+        "$_lib_source" "${SLURM_SUBMIT_DIR:-<unset>}" >&2
+    exit 1
 fi
-SCRIPT_DIR=$(cd "${_lib_dir}" && pwd)
+SCRIPT_DIR=$_lib_dir
 # shellcheck source=cluster/_lib.sh
 source "$SCRIPT_DIR/_lib.sh"
+# END T2G_LIB_RESOLVER
 cd "$PROJ_DIR"
 
 echo "============================================"
