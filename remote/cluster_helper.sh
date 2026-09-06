@@ -52,12 +52,17 @@ source "$SCRIPT_DIR/_lib.sh"
 dump_status() {
     local active="" last="" queue="" qcount=0 stopped=0
     local errors_count=0 errors_tail="[]"
-    local aid aname astate sep="" e out="" first=1
+    local aid="" aname="" astate="" slurm="" sep="" e out="" first=1
 
     # Job SLURM attivo (la QoS consente max 1): id|name|state
-    aid=$(active_job_id)
-    aname=$(active_job_name)
-    astate=$(squeue --me -h -o '%T' 2>/dev/null | head -1 | tr -d '[:space:]')
+    # Una sola query evita snapshot incoerenti; un blip di squeue produce
+    # semplicemente ACTIVE_JOB vuoto senza abbattere l'intero helper (set -e).
+    slurm=$(squeue --me -h -o '%A|%j|%T' 2>/dev/null | head -1) || true
+    if [ -n "$slurm" ]; then
+        aid=$(printf '%s' "$slurm" | cut -d'|' -f1)
+        aname=$(printf '%s' "$slurm" | cut -d'|' -f2)
+        astate=$(printf '%s' "$slurm" | cut -d'|' -f3 | tr -d '[:space:]')
+    fi
     [ -n "$aid" ] && active="${aid}|${aname}|${astate}"
 
     # Coda: separatore \x1f (mai usato nelle entry) → una sola riga.
@@ -109,16 +114,22 @@ dump_monitor() {
     local nlines="${1:-200}"
     dump_status
     local aid aname prefix logpath b64=""
-    aid=$(active_job_id)
+    aid=$(active_job_id) || true
     if [ -n "$aid" ]; then
-        aname=$(active_job_name)
+        aname=$(active_job_name) || true
         case "$aname" in
+            preflight-*) prefix="preflight" ;;
+            probe-*)     prefix="probe" ;;
+            structured-*) prefix="structured" ;;
             eval-*) prefix="eval" ;;
-            *)      prefix="train" ;;
+            train-*) prefix="train" ;;
+            *)       prefix="" ;;
         esac
-        logpath="$PROJ_DIR/logs/slurm-${prefix}-${aid}.log"
-        if [ -f "$logpath" ]; then
-            b64=$(tail -n "$nlines" "$logpath" 2>/dev/null | base64 -w 0)
+        if [ -n "$prefix" ]; then
+            logpath="$PROJ_DIR/logs/slurm-${prefix}-${aid}.log"
+            if [ -f "$logpath" ]; then
+                b64=$(tail -n "$nlines" "$logpath" 2>/dev/null | base64 -w 0)
+            fi
         fi
     fi
     printf 'LOG_PATH=%s\n' "${logpath:-}"

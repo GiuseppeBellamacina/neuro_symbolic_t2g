@@ -5,11 +5,14 @@ ssh <user>@gcluster.dmi.unict.it
 cd ~/neuro_symbolic_t2g
 bash cluster/setup.sh
 \end{lstlisting}
-Il setup online esegue Apptainer \pathcode{/shared/sifs/latest.sif} direttamente
-sul login node: niente \pathcode{srun}, allocazione GPU o Python host. Installa in
-\pathcode{~/.local} senza alterare lo stack torch/CUDA, verifica versioni, scarica
-Qwen e ASLG-PC12 e costruisce vocabolario/sidecar. \pathcode{BUILD_BIGRAM=1}
-abilita la matrice opzionale.
+Il setup online segue sempre il percorso canonico login node, \pathcode{srun},
+compute node, \pathcode{apptainer run --nv} con
+\pathcode{/shared/sifs/latest.sif}. Il login node non cerca né esegue Apptainer.
+Lo script richiede la storica allocazione con account e partition
+\pathcode{thesis-course}, QoS \pathcode{gpu-xlarge}, una GPU, shard 22000, 48G e
+8 CPU. Python non viene mai eseguito sul login node. Il setup installa in \pathcode{~/.local} senza alterare lo
+stack torch/CUDA, verifica versioni, scarica Qwen e ASLG-PC12 e costruisce
+vocabolario/sidecar. \pathcode{BUILD_BIGRAM=1} abilita la matrice opzionale.
 Le versioni presidiate includono Transformers 5.3.0, TRL 0.24.0, PEFT 0.19.1,
 Unsloth 2026.7.1 e torchao 0.16--0.17.
 
@@ -27,7 +30,10 @@ Il preflight controlla import, snapshot, dataset, vocab, retrieval/bigram se
 richiesti e W\&B. Non scarica e non allena.
 
 \section{Coda e campaign chain}
-La QoS ammette un solo job submitted/attivo per utente: \pathcode{run_all.sh}
+La QoS ammette un solo job submitted/attivo per utente: anche
+\pathcode{pip-reset}/setup, che usa \pathcode{srun}, va eseguito soltanto
+quando non vi sono altre allocazioni attive. Il setup richiede inoltre rete
+disponibile nell'allocazione. \pathcode{run_all.sh}
 mantiene una chain sequenziale di 12 voci. Non lanciare una seconda campagna in
 parallelo. Comandi:
 \begin{lstlisting}[language=bash]

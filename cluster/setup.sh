@@ -1,27 +1,42 @@
 #!/bin/bash
-# Online login-node bootstrap. All Python and pip execution stays in Apptainer.
+# Online bootstrap. All Python and pip execution stays in Apptainer.
+# Optional overrides: T2G_SIF, SLURM_ACCOUNT, T2G_SLURM_PARTITION,
+# T2G_SLURM_QOS, T2G_SETUP_GPU_GRES,
+# T2G_SETUP_SHARD_GRES, T2G_SETUP_MEM, and T2G_SETUP_CPUS.
 
 set -euo pipefail
 
 SIF="${T2G_SIF:-/shared/sifs/latest.sif}"
-if [ -z "${APPTAINER_CONTAINER:-}" ]; then
-    command -v apptainer >/dev/null 2>&1 || {
-        echo "ERROR: apptainer is not available on the login node." >&2
+if [ "${T2G_SETUP_CONTAINER:-0}" != "1" ] && [ -z "${APPTAINER_CONTAINER:-}" ]; then
+    [ -f "$SIF" ] || { echo "ERROR: container not found: $SIF" >&2; exit 1; }
+    command -v srun >/dev/null 2>&1 || {
+        echo "ERROR: srun is unavailable; setup must launch Apptainer on a compute node." >&2
         exit 1
     }
-    [ -f "$SIF" ] || { echo "ERROR: container not found: $SIF" >&2; exit 1; }
-    exec apptainer exec \
+    HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
+    HF_HUB_CACHE="${HF_HUB_CACHE:-$HF_HOME/hub}"
+    ACCOUNT="${SLURM_ACCOUNT:-thesis-course}"
+    PARTITION="${T2G_SLURM_PARTITION:-${SLURM_PARTITION:-$ACCOUNT}}"
+    QOS="${T2G_SLURM_QOS:-${SLURM_QOS:-gpu-xlarge}}"
+    GPU_GRES="${T2G_SETUP_GPU_GRES:-gpu:1}"
+    SHARD_GRES="${T2G_SETUP_SHARD_GRES:-shard:22000}"
+    MEM="${T2G_SETUP_MEM:-48G}"
+    CPUS="${T2G_SETUP_CPUS:-8}"
+    echo "==> Requesting the setup compute allocation with srun"
+    exec srun --account "$ACCOUNT" --partition "$PARTITION" --qos "$QOS" \
+        --gres="$GPU_GRES" --gres="$SHARD_GRES" --mem="$MEM" --cpus-per-task="$CPUS" \
+        apptainer run --nv \
         --cleanenv \
         --home "$HOME:$HOME" \
         --bind "$HOME:$HOME" \
-        --env "HF_HOME=$HOME/.cache/huggingface" \
-        --env "HF_HUB_CACHE=$HOME/.cache/huggingface/hub" \
+        --env "HF_HOME=$HF_HOME" \
+        --env "HF_HUB_CACHE=$HF_HUB_CACHE" \
         --env "T2G_SETUP_CONTAINER=1" \
         "$SIF" bash "$0" "$@"
 fi
 
-[ "${T2G_SETUP_CONTAINER:-0}" = "1" ] || {
-    echo "ERROR: setup must be launched by its login-node Apptainer wrapper." >&2
+[ "${T2G_SETUP_CONTAINER:-0}" = "1" ] || [ -n "${APPTAINER_CONTAINER:-}" ] || {
+    echo "ERROR: setup relaunch did not enter Apptainer; refusing bare host execution." >&2
     exit 1
 }
 
@@ -178,6 +193,6 @@ print("model/tokenizer and dataset cache are readable")
 PY
 
 echo ""
-echo "Online setup complete. No SLURM allocation or GPU was requested."
+echo "Online setup complete inside Apptainer."
 echo "Next, submit the offline compute verification:"
 echo "  CONFIG=${CONFIG:-experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml} sbatch cluster/preflight.sh"

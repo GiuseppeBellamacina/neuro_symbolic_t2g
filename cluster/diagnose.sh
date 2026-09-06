@@ -7,15 +7,34 @@
 #   bash cluster/diagnose.sh
 # ============================================================================
 
-# ── 0. Auto-rilancio dentro srun + Apptainer se siamo sul login node ─────────
-if [ -z "$APPTAINER_CONTAINER" ]; then
-    echo "🚀 Login node rilevato → rilancio inside srun + Apptainer..."
+#SBATCH --job-name=diagnose-t2g
+#SBATCH --account=thesis-course
+#SBATCH --partition=thesis-course
+#SBATCH --qos=gpu-xlarge
+#SBATCH --mem=48G
+#SBATCH --cpus-per-task=8
+#SBATCH --gres=gpu:1 --gres=shard:22528
+#SBATCH --output=logs/slurm-diagnose-%j.log
+
+# ── 0. Il login alloca compute; non creare srun annidati nei job esistenti. ──
+if [ -z "${SLURM_JOB_ID:-}" ]; then
+    echo "🚀 Login node rilevato → rilancio sul compute con srun..."
     ACCOUNT="${SLURM_ACCOUNT:-thesis-course}"
     exec srun --account "$ACCOUNT" --partition "$ACCOUNT" --qos gpu-xlarge \
-         --gres=gpu:1 --gres=shard:22000 --mem=48G --cpus-per-task=8 \
-         apptainer run --nv /shared/sifs/latest.sif \
+         --gres=gpu:1 --gres=shard:22528 --mem=48G --cpus-per-task=8 \
          bash "$0" "$@"
 fi
+
+set -euo pipefail
+_lib_dir=$(dirname "${BASH_SOURCE[0]}")
+if [ ! -f "${_lib_dir}/_lib.sh" ]; then
+    _lib_dir="${SLURM_SUBMIT_DIR:-$HOME/neuro_symbolic_t2g}/cluster"
+fi
+SCRIPT_DIR=$(cd "${_lib_dir}" && pwd)
+# shellcheck source=cluster/_lib.sh
+source "$SCRIPT_DIR/_lib.sh"
+cd "$PROJ_DIR"
+export_offline_env
 
 echo "============================================"
 echo "  Diagnostica ambiente pip — Neuro-Symbolic T2G"
@@ -23,52 +42,43 @@ echo "  $(date)"
 echo "============================================"
 echo ""
 
-# Trova python
-if command -v python3 &>/dev/null; then
-    PY=python3
-elif command -v python &>/dev/null; then
-    PY=python
-else
-    echo "❌ Python non trovato"
-    exit 1
-fi
-echo "Python: $($PY --version 2>&1)"
-echo "Pip:    $($PY -m pip --version 2>&1)"
+echo "Python: $(run_py --version 2>&1)"
+echo "Pip:    $(run_py -m pip --version 2>&1)"
 echo ""
 
 # ── 1. Percorsi ──────────────────────────────────────────────────────────
 echo "── 1. Percorsi di installazione pacchetti ──"
-$PY -c "import site; print('site-packages:'); [print(f'  {p}') for p in site.getsitepackages()]; print('user site:', site.getusersitepackages())"
+run_py -c "import site; print('site-packages:'); [print(f'  {p}') for p in site.getsitepackages()]; print('user site:', site.getusersitepackages())"
 echo ""
 
 # ── 2. TRL + mergekit info ───────────────────────────────────────────────
 echo "── 2. Pacchetto TRL ──"
-$PY -m pip show trl 2>&1 || echo "❌ trl NON installato"
+run_py -m pip show trl 2>&1 || echo "❌ trl NON installato"
 echo ""
 echo "── 3. Pacchetto mergekit ──"
-$PY -m pip show mergekit 2>&1 || echo "❌ mergekit NON installato"
+run_py -m pip show mergekit 2>&1 || echo "❌ mergekit NON installato"
 echo ""
 
 # ── 4. Contenuto mergekit_utils.py ───────────────────────────────────────
-TRL_PATH=$($PY -c "import trl; print(trl.__path__[0])" 2>/dev/null)
+TRL_PATH=$(run_py -c "import trl; print(trl.__path__[0])" 2>/dev/null)
 echo "── 4. mergekit_utils.py (riga 20-25) ──"
-if [ -n "$TRL_PATH" ] && [ -f "$TRL_PATH/mergekit_utils.py" ]; then
-    sed -n '20,25p' "$TRL_PATH/mergekit_utils.py"
-else
-    echo "  ⚠️  mergekit_utils.py non trovato"
-fi
+run_py -c "
+from pathlib import Path
+p = Path('$TRL_PATH') / 'mergekit_utils.py'
+print('\\n'.join(p.read_text().splitlines()[19:25]) if p.is_file() else '  ⚠️  mergekit_utils.py non trovato')
+"
 echo ""
 echo "── 5. judges.py (riga 25-32) ──"
-if [ -n "$TRL_PATH" ] && [ -f "$TRL_PATH/trainer/judges.py" ]; then
-    sed -n '25,32p' "$TRL_PATH/trainer/judges.py"
-else
-    echo "  ⚠️  judges.py non trovato"
-fi
+run_py -c "
+from pathlib import Path
+p = Path('$TRL_PATH') / 'trainer' / 'judges.py'
+print('\\n'.join(p.read_text().splitlines()[24:32]) if p.is_file() else '  ⚠️  judges.py non trovato')
+"
 echo ""
 
 # ── 6. La verità: cosa restituisce _is_package_available? ────────────────
 echo "── 6. Cosa restituisce _is_package_available (dopo import trl) ──"
-$PY -c "
+run_py -c "
 import importlib, importlib.util, importlib.metadata, sys, os
 
 # ── find_spec ──
@@ -115,7 +125,7 @@ echo ""
 
 # ── 7. Test import GRPOTrainer ───────────────────────────────────────────
 echo "── 7. Test import catena trl → GRPOTrainer ──"
-$PY -c "
+run_py -c "
 import sys, traceback
 print('  Importing trl...', end=' ')
 import trl
@@ -140,10 +150,9 @@ echo ""
 
 # ── 8. External imports (early warning per future missing deps) ──────────
 echo "── 8. Moduli esterni referenziati nei file .py di trl ──"
-if [ -n "$TRL_PATH" ] && [ -d "$TRL_PATH" ]; then
-    echo "  Cercando import di moduli non-stdlib in trl..."
-    echo ""
-    $PY -c "
+echo "  Cercando import di moduli non-stdlib in trl..."
+echo ""
+run_py -c "
 import re, os, sys
 TRL_PATH = '$TRL_PATH'
 stdlib = set(sys.stdlib_module_names)
@@ -171,13 +180,9 @@ if imports_found:
 else:
     print('  Nessun modulo esterno aggiuntivo trovato.')
 "
-else
-    echo "  ⚠️  trl path non trovato"
-fi
 echo ""
 echo "── 9. Cache pip ──"
-PIP_CACHE=$($PY -m pip cache dir 2>/dev/null)
-echo "  Cache dir: $PIP_CACHE  ($(du -sh "$PIP_CACHE" 2>/dev/null | cut -f1))"
+run_py -m pip cache info
 echo ""
 
 echo "============================================"

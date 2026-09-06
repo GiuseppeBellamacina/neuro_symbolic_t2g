@@ -79,7 +79,7 @@ SFT uses `sft/zero-shot` as its training identity. There is no extra hierarchy l
 
 ## Offline operation
 
-Run `bash cluster/setup.sh` on the internet-enabled login node. It enters `/shared/sifs/latest.sif` directly (no `srun`/GPU), installs into shared `~/.local`, and prepares model, dataset, and vocabulary caches without running host Python. Cluster train/eval/preflight/probe jobs remain offline; run `sbatch cluster/preflight.sh` after setup. Hugging Face offline flags and `WANDB_MODE=offline` must be set before compute Python starts; credentials must not be committed.
+Run `bash cluster/setup.sh` on the login node. Setup always follows login → `srun` → compute → `apptainer run --nv` with `/shared/sifs/latest.sif`; it never probes for or runs Apptainer on login. Inside the container it installs into shared `~/.local` and prepares model, dataset, and vocabulary caches without running host Python. Because the QoS allows one submitted/active job, run `pip-reset`/setup only when no other allocation is active; the setup allocation must have network access. Cluster train/eval/preflight/probe jobs remain offline; run `sbatch cluster/preflight.sh` after setup. Hugging Face offline flags and `WANDB_MODE=offline` must be set before compute Python starts; credentials must not be committed.
 
 See [Training](TRAINING.md), [Cluster Operation](CLUSTER.md), and [Evaluation](docs/EVALUATION.md).
 

@@ -92,8 +92,7 @@ export_offline_env
 #     legittimo e voluto.
 resolve_output_dir() {
     local out=""
-    if command -v apptainer >/dev/null 2>&1 && [ -f /shared/sifs/latest.sif ]; then
-        out=$(apptainer exec /shared/sifs/latest.sif python -c "
+    out=$(run_py -c "
 from src.utils.config import resolve_config
 from src.utils.paths import cell_from_config, cell_base_dir
 try:
@@ -104,21 +103,7 @@ try:
         print('')
 except Exception:
     print('')
-" 2>/dev/null) || true
-    else
-        out=$(python3 -c "
-from src.utils.config import resolve_config
-from src.utils.paths import cell_from_config, cell_base_dir
-try:
-    cfg = resolve_config('${CONFIG}')
-    if cfg.get('experiment', {}).get('kind') in {'train', 'ablation'}:
-        print(cell_base_dir('experiments', 'checkpoints', cell_from_config(cfg)))
-    else:
-        print('')
-except Exception:
-    print('')
-" 2>/dev/null) || true
-    fi
+")
     echo "$out"
 }
 
@@ -219,7 +204,7 @@ fi
 # ORACOLO DIAGNOSTICO: misura il limite superiore della qualità selezionando
 # il miglior completamento tra i N campionati. Non è la metrica primaria
 # (quella resta Pass@1). Richiede evaluation.num_samples>1 nel config.
-if [ "${BEST_OF_N}" = "1" ]; then
+if [ "${BEST_OF_N:-0}" = "1" ]; then
     COMMON_EVAL_ARGS="${COMMON_EVAL_ARGS} --best-of-n"
     echo "Best-of-N selection enabled"
 fi
@@ -239,23 +224,7 @@ run_evaluation() {
     echo "  Args: ${mode_args}"
     echo ""
 
-    if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
-        apptainer run --nv \
-            --env "HF_HUB_OFFLINE=${HF_HUB_OFFLINE}" \
-            --env "TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE}" \
-            --env "HF_DATASETS_OFFLINE=${HF_DATASETS_OFFLINE}" \
-            --env "WANDB_MODE=${WANDB_MODE}" \
-            --env "WANDB_DISABLE_WEAVE=${WANDB_DISABLE_WEAVE}" \
-            --env "WANDB_SILENT=${WANDB_SILENT}" \
-            --env "PYTHONUNBUFFERED=${PYTHONUNBUFFERED}" \
-            --env "HF_HOME=${HF_HOME}" \
-            --env "HF_HUB_CACHE=${HF_HUB_CACHE}" \
-            --env "PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8" \
-            /shared/sifs/latest.sif \
-            python -m src.training.eval_t2g ${mode_args}
-    else
-        python -m src.training.eval_t2g ${mode_args}
-    fi
+    run_py -m src.training.eval_t2g ${mode_args}
 }
 
 if [ "$EXPERIMENT_KIND" = "baseline" ]; then

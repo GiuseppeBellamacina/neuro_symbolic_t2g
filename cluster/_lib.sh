@@ -419,34 +419,40 @@ monitor_cache_clear() {
 }
 
 # ── Compute-node python runner (Apptainer) ───────────────────────────────────
-# Run python inside the Apptainer SIF when available. Only call this from
+# Run python inside the Apptainer SIF. Only call this from
 # COMPUTE-node scripts (train.sh/eval.sh/setup.sh/preflight.sh jobs) — never
-# from login-node scripts. Set RUN_PY_FORCE_BARE=1 to skip Apptainer (used
-# inside the container by setup.sh/preflight.sh).
+# from login-node scripts. An existing Apptainer container is automatically
+# safe and is never nested. RUN_PY_FORCE_BARE=1 is the explicit escape hatch
+# for callers that have already established a safe Python environment.
 # The offline env (see export_offline_env) is passed to the container BOTH via
 # inherited host env and via explicit --env args, so the guarantee holds
 # regardless of apptainer's env handling.
 run_py() {
-    if [ "${RUN_PY_FORCE_BARE:-0}" = "1" ]; then
+    if [ -n "${APPTAINER_CONTAINER:-}" ] || [ "${RUN_PY_FORCE_BARE:-0}" = "1" ]; then
         python3 "$@"
         return
     fi
-    if command -v apptainer >/dev/null 2>&1 && [ -f /shared/sifs/latest.sif ]; then
-        apptainer run --nv \
-            --env "HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}" \
-            --env "TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}" \
-            --env "HF_DATASETS_OFFLINE=${HF_DATASETS_OFFLINE:-1}" \
-            --env "WANDB_MODE=${WANDB_MODE:-offline}" \
-            --env "WANDB_DISABLE_WEAVE=${WANDB_DISABLE_WEAVE:-true}" \
-            --env "WANDB_SILENT=${WANDB_SILENT:-true}" \
-            --env "PYTHONUNBUFFERED=${PYTHONUNBUFFERED:-1}" \
-            --env "HF_HOME=${HF_HOME:-$T2G_HF_HOME_DEFAULT}" \
-            --env "HF_HUB_CACHE=${HF_HUB_CACHE:-${HF_HOME:-$T2G_HF_HOME_DEFAULT}/hub}" \
-            /shared/sifs/latest.sif \
-            python3 "$@"
-    else
-        python3 "$@"
+    if ! command -v apptainer >/dev/null 2>&1; then
+        echo "❌ run_py: Apptainer non disponibile; rifiuto Python bare sul nodo compute." >&2
+        return 127
     fi
+    if [ ! -f /shared/sifs/latest.sif ]; then
+        echo "❌ run_py: immagine /shared/sifs/latest.sif non disponibile; rifiuto Python bare." >&2
+        return 127
+    fi
+    apptainer run --nv \
+        --env "HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}" \
+        --env "TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}" \
+        --env "HF_DATASETS_OFFLINE=${HF_DATASETS_OFFLINE:-1}" \
+        --env "WANDB_MODE=${WANDB_MODE:-offline}" \
+        --env "WANDB_DISABLE_WEAVE=${WANDB_DISABLE_WEAVE:-true}" \
+        --env "WANDB_SILENT=${WANDB_SILENT:-true}" \
+        --env "PYTHONUNBUFFERED=${PYTHONUNBUFFERED:-1}" \
+        --env "HF_HOME=${HF_HOME:-$T2G_HF_HOME_DEFAULT}" \
+        --env "HF_HUB_CACHE=${HF_HUB_CACHE:-${HF_HOME:-$T2G_HF_HOME_DEFAULT}/hub}" \
+        --env "PYTORCH_ALLOC_CONF=${PYTORCH_ALLOC_CONF:-}" \
+        /shared/sifs/latest.sif \
+        python3 "$@"
 }
 
 # ── Offline artifact verification (fail-fast, NO download fallback) ──────────
@@ -537,7 +543,8 @@ try:
     from src.utils.config import resolve_config
 
     cfg = resolve_config(sys.argv[1])
-    model = (cfg.get("model") or {}).get("name") or ""
+    probe = cfg.get("probe") or {}
+    model = (cfg.get("model") or {}).get("name") or probe.get("model_name") or ""
     ret = cfg.get("retrieval") or {}
     ret_enabled = "1" if ret.get("enabled", False) else "0"
     ret_backend = str(ret.get("backend") or "tfidf")
@@ -547,7 +554,7 @@ try:
     from src.utils.cache_meta import cache_meta_path
     vocab_meta = str(cache_meta_path(vocab_path))
     bigram_path = str(ds.get("bigram_matrix_path") or "data/bigram_transition.npy")
-    dataset_cache = str(ds.get("dataset_cache") or "data/aslg_pc12")
+    dataset_cache = str(ds.get("dataset_cache") or probe.get("dataset_cache") or "data/aslg_pc12")
     dataset_name = str(ds.get("dataset_name") or "achrafothman/aslg_pc12")
 except Exception:
     print("CONFIG_READ=FAILED")
@@ -604,7 +611,7 @@ require_cluster_artifacts() {
         # The probe is intrinsically bounded/offline: it only imports local
         # config and calls snapshot_download(local_files_only=True), so it
         # cannot block on network retries.
-        probe_out=$(run_py -c "$_T2G_ARTIFACT_PROBE" "$config" 2>/dev/null) || probe_out=""
+        probe_out=$(run_py -c "$_T2G_ARTIFACT_PROBE" "$config") || return 1
         while IFS='=' read -r key value; do
             [ -n "$key" ] || continue
             case "$key" in

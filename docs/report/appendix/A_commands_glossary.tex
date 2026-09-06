@@ -3,7 +3,8 @@
 Usare i path completi nei file di job; i segnaposto vanno sostituiti senza
 cambiare l'identità sperimentale.
 \begin{lstlisting}[language=bash]
-# login node online, dentro Apptainer gestito dallo script
+# online: login -> srun -> compute -> apptainer run
+# QoS: eseguire senza altre allocazioni attive
 bash cluster/setup.sh
 
 # compute offline

@@ -41,24 +41,12 @@
 CONFIG="${CONFIG:-}"
 REWARD_QUALIFICATION_REPORT="${REWARD_QUALIFICATION_REPORT:-}"
 
-# ── 0. Relancio sotto container (convenzioni setup.sh) ───────────────────────
-# - login node            → exec srun (apptainer) come setup.sh;
-# - compute node sbatch/srun senza container → exec apptainer run (o bare
-#   una sola volta se apptainer manca: il guard evita loop);
-# - dentro il container   → prosegue direttamente.
-if [ -z "$APPTAINER_CONTAINER" ] && [ "${_T2G_PREFLIGHT_BARE:-0}" != "1" ]; then
-    if [ -n "${SLURM_JOB_ID:-}" ]; then
-        if command -v apptainer >/dev/null 2>&1 && [ -f /shared/sifs/latest.sif ]; then
-            exec apptainer run --nv /shared/sifs/latest.sif bash "$0" "$@"
-        fi
-        export _T2G_PREFLIGHT_BARE=1
-        exec bash "$0" "$@"
-    fi
-    echo "🚀 Login node rilevato → rilancio inside srun + Apptainer..."
+# ── 0. Login → compute. Il container è gestito solo da run_py dopo gli export.
+if [ -z "${SLURM_JOB_ID:-}" ]; then
+    echo "🚀 Login node rilevato → rilancio sul compute con srun..."
     ACCOUNT="${SLURM_ACCOUNT:-thesis-course}"
     exec srun --account "$ACCOUNT" --partition "$ACCOUNT" --qos gpu-xlarge \
-         --gres=gpu:1 --gres=shard:22000 --mem=48G --cpus-per-task=8 \
-         apptainer run --nv /shared/sifs/latest.sif \
+         --gres=gpu:1 --gres=shard:22528 --mem=48G --cpus-per-task=8 \
          bash "$0" "$@"
 fi
 
@@ -68,11 +56,6 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=cluster/_lib.sh
 source "$SCRIPT_DIR/_lib.sh"
 cd "$PROJ_DIR"
-
-# preflight girà già DENTRO il container → forza python bare per run_py
-# (stessa convenzione di setup.sh; evita apptainer-nested se il binario
-# dovesse essere visibile dall'interno dell'immagine).
-export RUN_PY_FORCE_BARE=1
 
 # ── 1. Env offline PRIMA di ogni python/apptainer ────────────────────────────
 export_offline_env

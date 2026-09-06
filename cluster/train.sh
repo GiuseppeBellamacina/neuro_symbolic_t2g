@@ -78,6 +78,7 @@ mkdir -p logs
 # ConnectError: vedi slurm-eval-7077) e W&B resta offline. huggingface_hub
 # legge i flag all'import: devono precedere la PRIMA invocazione python.
 export_offline_env
+export PYTORCH_ALLOC_CONF="${PYTORCH_ALLOC_CONF:-garbage_collection_threshold:0.8}"
 
 # ── Verifica artifact offline (fail-fast, NESSUN download) ───────────────────
 # Sostituisce la vecchia prepare_data: sui compute node il download/la
@@ -91,24 +92,8 @@ echo "Avvio training..."
 echo ""
 
 # ── Esecuzione ────────────────────────────────────────────────────────────────
-# Se Apptainer è disponibile, usalo (env offline passato esplicitamente)
-if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
-    apptainer run --nv \
-        --env "HF_HUB_OFFLINE=${HF_HUB_OFFLINE}" \
-        --env "TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE}" \
-        --env "HF_DATASETS_OFFLINE=${HF_DATASETS_OFFLINE}" \
-        --env "WANDB_MODE=${WANDB_MODE}" \
-        --env "WANDB_DISABLE_WEAVE=${WANDB_DISABLE_WEAVE}" \
-        --env "WANDB_SILENT=${WANDB_SILENT}" \
-        --env "PYTHONUNBUFFERED=${PYTHONUNBUFFERED}" \
-        --env "HF_HOME=${HF_HOME}" \
-        --env "HF_HUB_CACHE=${HF_HUB_CACHE}" \
-        --env "PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8" \
-        /shared/sifs/latest.sif \
-        python -m src.training --config "${CONFIG}" ${EXTRA_ARGS}
-else
-    python -m src.training --config "${CONFIG}" ${EXTRA_ARGS}
-fi
+# run_py è l'unico entrypoint Python: entra nel SIF o fallisce senza fallback.
+run_py -m src.training --config "${CONFIG}" ${EXTRA_ARGS}
 
 echo ""
 echo "============================================"

@@ -42,7 +42,7 @@ REQUIRED_OFFLINE_VARS = (
 DOWNLOAD_FORBIDDEN_RE = re.compile(
     r"\b(pip3?\s+install|wget|curl|git\s+clone|hf_hub_download)\b"
 )
-PYTHON_OR_APPTAINER_RE = re.compile(r"\b(python3?|apptainer)\b")
+PYTHON_OR_APPTAINER_RE = re.compile(r"\b(run_py|python3?|apptainer)\b")
 BASH5_PARAM_EXPANSION_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*@[A-Za-z]+\}")
 
 
@@ -125,6 +125,22 @@ def test_artifact_probe_does_not_wrap_shell_function_with_timeout():
     src = read_script("_lib.sh")
     assert "timeout 120 run_py" not in src
     assert 'probe_out=$(run_py -c "$_T2G_ARTIFACT_PROBE"' in src
+    assert ") || return 1" in src, "container/runtime failures must propagate"
+
+
+def test_run_py_has_no_implicit_bare_python_fallback():
+    body = read_script("_lib.sh").split("run_py() {", 1)[1].split("\n}", 1)[0]
+    assert "APPTAINER_CONTAINER:-" in body
+    assert "RUN_PY_FORCE_BARE:-0" in body
+    assert "command -v apptainer" in body
+    assert "[ ! -f /shared/sifs/latest.sif ]" in body
+    assert "return 127" in body
+    assert body.count('python3 "$@"') == 2  # safe direct branch + container command
+    assert re.search(
+        r'if \[ -n "\$\{APPTAINER_CONTAINER:-\}" \] \|\| '
+        r'\[ "\$\{RUN_PY_FORCE_BARE:-0\}" = "1" \]; then\s*python3 "\$@"',
+        body,
+    )
 
 
 def test_remote_queue_rewrite_clears_last_job_only_without_active_slurm_job():
@@ -168,14 +184,21 @@ def test_offline_exports_precede_first_python_in_eval():
     _assert_offline_exports_first("eval.sh", code_lines("eval.sh"))
 
 
+def test_offline_exports_precede_execution_in_other_compute_entrypoints():
+    for name in ("preflight.sh", "diagnose.sh", "structured_probe.sh"):
+        _assert_offline_exports_first(name, code_lines(name))
+
+
 def test_setup_relaunches_before_any_python_on_login_node():
-    """The login node enters Apptainer before any Python or pip usage."""
-    code = code_lines("setup.sh")
-    relaunch_idx = first_index(code, re.compile(r"exec apptainer exec"))
-    assert relaunch_idx is not None, "setup.sh must keep the relaunch block"
-    before = "\n".join(code[:relaunch_idx])
-    assert not re.search(r"\b(python3?|pip3?)\b", before)
-    assert re.search(r"\bpython3?|\bpip\b", "\n".join(code[relaunch_idx + 1 :]))
+    """The sole outer relaunch path may not execute host Python or pip."""
+    src = read_script("setup.sh")
+    outer = src.split(
+        '[ "${T2G_SETUP_CONTAINER:-0}" = "1" ] || [ -n "${APPTAINER_CONTAINER:-}" ]',
+        1,
+    )[0]
+    assert "exec srun" in outer
+    assert not re.search(r"^\s*(?:\"?\$?PYTHON[^ ]*\"?|python3?|pip3?)\s", outer, re.M)
+    assert re.search(r"\bpython3?|\bpip\b", src[len(outer) :])
 
 
 # ---------------------------------------------------------------------------
@@ -323,20 +346,16 @@ def test_train_and_eval_export_offline_env_shell_level():
         assert "export_offline_env" in code, f"{name}: shell-level offline env"
 
 
-def test_train_and_eval_forward_offline_env_to_apptainer():
-    """Apptainer must receive the offline env via explicit --env args."""
+def test_train_and_eval_use_run_py_without_hand_rolled_container_or_python():
+    """One shared execution model prevents train/eval container drift."""
     for name in ("train.sh", "eval.sh"):
         code = code_text(name)
-        for var in REQUIRED_OFFLINE_VARS:
-            assert (
-                f'--env "{var}=' in code
-            ), f"{name}: apptainer must receive {var} via --env"
-        assert (
-            '--env "HF_HOME=${HF_HOME}"' in code
-        ), f"{name}: apptainer must receive HF_HOME"
-        assert (
-            '--env "HF_HUB_CACHE=${HF_HUB_CACHE}"' in code
-        ), f"{name}: apptainer must receive an explicit custom HF_HUB_CACHE"
+        assert "run_py" in code
+        assert not re.search(r"^\s*apptainer\s+(?:run|exec)\b", code, re.M)
+        assert not re.search(r"^\s*python3?\s", code, re.M)
+    assert "run_py -m src.training --config" in code_text("train.sh")
+    assert "run_py -m src.training.eval_t2g" in code_text("eval.sh")
+    assert "PYTORCH_ALLOC_CONF" in code_text("train.sh")
 
 
 def test_run_py_forwards_offline_env_to_apptainer():
@@ -344,6 +363,7 @@ def test_run_py_forwards_offline_env_to_apptainer():
     for var in REQUIRED_OFFLINE_VARS:
         assert f'--env "{var}=' in body, f"run_py must forward {var} to apptainer"
     assert '--env "HF_HUB_CACHE=' in body
+    assert '--env "PYTORCH_ALLOC_CONF=' in body
 
 
 # ---------------------------------------------------------------------------
@@ -354,21 +374,72 @@ def test_run_py_forwards_offline_env_to_apptainer():
 def test_setup_is_online_login_container_bootstrap():
     src = read_script("setup.sh")
     code = code_text("setup.sh")
-    assert "srun" not in code
     assert "export_offline_env" not in code
     assert "HF_HUB_OFFLINE" not in code
     assert "TRANSFORMERS_OFFLINE" not in code
     assert "HF_DATASETS_OFFLINE" not in code
-    assert "apptainer exec" in code
+    assert "apptainer run --nv" in code
     assert "--cleanenv" in code
     assert '--home "$HOME:$HOME"' in code and '--bind "$HOME:$HOME"' in code
-    assert "HF_HOME=$HOME/.cache/huggingface" in code
+    assert 'HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"' in code
+    assert '--env "HF_HOME=$HF_HOME"' in code
     assert "-m pip install --user" in code
     assert '".[retrieval]"' in code
     assert "snapshot_download" in src
     assert "src.utils.setup_artifacts" in code
     assert "load_dataset" in src
     assert "preflight.sh" in src
+
+
+def test_setup_uses_historical_srun_as_only_outer_path():
+    src = read_script("setup.sh")
+    assert "command -v srun >/dev/null 2>&1" in src
+    assert 'ACCOUNT="${SLURM_ACCOUNT:-thesis-course}"' in src
+    assert 'PARTITION="${T2G_SLURM_PARTITION:-${SLURM_PARTITION:-$ACCOUNT}}"' in src
+    assert 'QOS="${T2G_SLURM_QOS:-${SLURM_QOS:-gpu-xlarge}}"' in src
+    assert 'GPU_GRES="${T2G_SETUP_GPU_GRES:-gpu:1}"' in src
+    assert 'SHARD_GRES="${T2G_SETUP_SHARD_GRES:-shard:22000}"' in src
+    assert 'MEM="${T2G_SETUP_MEM:-48G}"' in src
+    assert 'CPUS="${T2G_SETUP_CPUS:-8}"' in src
+    assert re.search(r"exec srun .*?apptainer run --nv", src, re.DOTALL)
+    assert src.count("exec srun") == 1
+    for forbidden in (
+        "T2G_APPTAINER",
+        "SETUP_RUNTIME",
+        "command -v apptainer",
+        "command -v singularity",
+        "/usr/bin/apptainer",
+        "/usr/local/bin/apptainer",
+        "apptainer exec",
+        "singularity exec",
+    ):
+        assert forbidden not in src
+
+
+def test_setup_relaunch_marker_and_loop_guard_prevent_bare_execution():
+    src = read_script("setup.sh")
+    assert src.count('--env "T2G_SETUP_CONTAINER=1"') == 1
+    assert re.search(
+        r'\[ "\$\{T2G_SETUP_CONTAINER:-0\}" = "1" \] \|\| '
+        r'\[ -n "\$\{APPTAINER_CONTAINER:-\}" \] \|\| \{',
+        src,
+    )
+    assert "refusing bare host execution" in src
+    assert "setup must launch Apptainer on a compute node" in src
+
+
+def test_setup_is_the_only_cluster_online_acquisition_script():
+    for script in sorted(CLUSTER_DIR.glob("*.sh")):
+        if script.name == "setup.sh":
+            continue
+        code = "\n".join(
+            _QUOTED_SPAN_RE.sub('""', line)
+            for line in script.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        )
+        assert not DOWNLOAD_FORBIDDEN_RE.search(
+            code
+        ), f"{script.name}: setup.sh must remain the only online acquisition script"
 
 
 def test_setup_protects_and_verifies_complete_critical_stack():
@@ -495,12 +566,15 @@ def test_artifact_cli_is_lightweight_and_explicitly_online():
 def test_preflight_exists_and_uses_slurm_conventions():
     src = read_script("preflight.sh")
     assert "#SBATCH" in src, "preflight must be sbatch-able"
-    assert (
-        "APPTAINER_CONTAINER" in src
-    ), "preflight must follow the container relaunch conventions"
-    assert (
-        "srun" in src and "apptainer run --nv" in src
-    ), "preflight must be usable via srun under container conventions"
+    assert "SLURM_JOB_ID" in src and "exec srun" in src
+    assert "run_py" in src, "preflight must use the centralized container runner"
+    assert "APPTAINER_CONTAINER" in read_script("_lib.sh")
+    assert "srun" in src, "preflight must support direct login-node srun"
+    assert "_T2G_PREFLIGHT_BARE" not in src
+    assert "--gres=gpu:1 --gres=shard:22528" in src
+    assert not re.search(
+        r"^\s*apptainer\s+(?:run|exec)\b", code_text("preflight.sh"), re.M
+    )
 
 
 def test_preflight_validates_offline_env_artifacts_dataset_wandb():
@@ -583,6 +657,27 @@ def test_probe_runs_only_analysis_for_both_supported_modes():
     assert not DOWNLOAD_FORBIDDEN_RE.search(code_text_unquoted("probe.sh"))
 
 
+def test_diagnose_avoids_nested_srun_and_uses_shared_python_runner():
+    src = read_script("diagnose.sh")
+    code = code_text("diagnose.sh")
+    assert '[ -z "${SLURM_JOB_ID:-}" ]' in src
+    assert src.count("exec srun") == 1
+    assert "--gres=gpu:1 --gres=shard:22528" in src
+    assert "export_offline_env" in code
+    assert "run_py" in code
+    assert not re.search(r"^\s*\$PY\b|^\s*python3?\s", code, re.M)
+    assert not re.search(r"^\s*apptainer\s+(?:run|exec)\b", code, re.M)
+
+
+def test_structured_probe_uses_run_py_and_requires_config_artifacts():
+    src = read_script("structured_probe.sh")
+    code = code_text("structured_probe.sh")
+    assert "--gres=gpu:1 --gres=shard:22528" in src
+    assert 'require_cluster_artifacts "$CONFIG"' in code
+    assert code.count("run_py -m src.analysis.structured_benchmark") == 2
+    assert not re.search(r"^\s*apptainer\s+(?:run|exec)\b", code, re.M)
+
+
 # ---------------------------------------------------------------------------
 # 9. bash 4 compatibility
 # ---------------------------------------------------------------------------
@@ -596,6 +691,8 @@ def test_no_bash5_only_parameter_expansions():
         "setup.sh",
         "preflight.sh",
         "probe.sh",
+        "diagnose.sh",
+        "structured_probe.sh",
     ):
         src = read_script(name)
         match = BASH5_PARAM_EXPANSION_RE.search(src)
@@ -604,7 +701,15 @@ def test_no_bash5_only_parameter_expansions():
 
 def test_scripts_are_quoted_paths_only():
     """Basic quoting hygiene: cd/source/require use quoted variables."""
-    for name in ("train.sh", "eval.sh", "setup.sh", "preflight.sh", "probe.sh"):
+    for name in (
+        "train.sh",
+        "eval.sh",
+        "setup.sh",
+        "preflight.sh",
+        "probe.sh",
+        "diagnose.sh",
+        "structured_probe.sh",
+    ):
         code = code_text(name)
         assert 'source "$SCRIPT_DIR/_lib.sh"' in code, f"{name}: quoted source"
         assert 'cd "$PROJ_DIR"' in code, f"{name}: quoted cd"

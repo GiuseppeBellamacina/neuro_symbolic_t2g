@@ -302,11 +302,13 @@ _chain_resume_impl() {
 
         case "$st_type" in
             train)
-                rebuild_chain "train:${st_cfg}:${st_tag}:--resume"
                 # Evita eval duplicato se già in testa alla coda originale
                 if [ "$(echo "$head" | cut -d: -f1)" != "eval" ] || [ "$(echo "$head" | cut -d: -f3)" != "$st_tag" ]; then
                     rebuild_chain "eval:${st_cfg}:${st_tag}"
                 fi
+                # rebuild_chain prepende: inserire train per ultimo mantiene
+                # l'ordine desiderato [train --resume, eval].
+                rebuild_chain "train:${st_cfg}:${st_tag}:--resume"
                 echo "→ Training $st_tag verrà ripreso dall'ultimo checkpoint"
                 ;;
             eval)
@@ -424,9 +426,49 @@ chain-hook-uninstall() {
     echo "✅ Hook rimosso da ~/.bashrc"
 }
 
-# Monitor live della pipeline (uso: monitor [--poll N])
+# Monitor live shell-only della pipeline (uso: monitor [--poll N] [--once]).
+# Non richiede Python/Apptainer e non apre una seconda allocation SLURM.
 monitor() {
-    cd "$PROJ_DIR" && python3 -u -m src.utils.chain_monitor "$@"
+    local poll=10 once=0 active_id="" active_name="" prefix="" logfile=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --poll) poll="$2"; shift 2 ;;
+            --once) once=1; shift ;;
+            --help|-h)
+                echo "Uso: monitor [--poll SECONDI] [--once]"
+                echo "Mostra stato SLURM, coda e ultime righe del log (solo shell)."
+                return 0
+                ;;
+            *) echo "❌ Argomento sconosciuto: $1"; return 2 ;;
+        esac
+    done
+    case "$poll" in ''|*[!0-9]*) echo "❌ --poll richiede un intero."; return 2 ;; esac
+
+    while :; do
+        [ "$once" -eq 1 ] || clear
+        echo "──── T2G pipeline · $(date) ────"
+        chain-show
+        active_id=$(active_job_id)
+        active_name=$(active_job_name)
+        if [ -n "$active_id" ]; then
+            case "$active_name" in
+                preflight-*) prefix="preflight" ;;
+                probe-*) prefix="probe" ;;
+                structured-*) prefix="structured" ;;
+                eval-*) prefix="eval" ;;
+                train-*) prefix="train" ;;
+                *) prefix="" ;;
+            esac
+            if [ -n "$prefix" ]; then
+                logfile="$PROJ_DIR/logs/slurm-${prefix}-${active_id}.log"
+                echo ""
+                echo "──── Ultime 30 righe: $logfile ────"
+                if [ -f "$logfile" ]; then tail -n 30 "$logfile"; else echo "Log non ancora disponibile."; fi
+            fi
+        fi
+        [ "$once" -eq 1 ] && break
+        sleep "$poll"
+    done
 }
 
 # Alias t2g-* (allineati alla documentazione CLUSTER.md)
@@ -443,9 +485,27 @@ alias t2g-gpu='gpu'
 alias t2g-trainlog='trainlog'
 alias t2g-help='claudio'
 
-# Genera tabella + grafico cross-config dopo l'ablation (uso: ablation-summary)
+# Genera tabella + grafico cross-config su compute via srun + Apptainer.
+# La QoS consente una sola allocation: se un job è attivo non ne avvia un'altra.
 ablation-summary() {
-    cd "$PROJ_DIR" && python3 -u -m src.utils.ablation_summary "$@"
+    local queue account partition qos sif
+    if ! queue=$(squeue --me -h -o '%A' 2>/dev/null); then
+        echo "❌ Impossibile verificare la coda SLURM; riprova senza avviare una nuova allocation."
+        return 1
+    fi
+    if [ -n "$queue" ]; then
+        echo "❌ Un job SLURM è già attivo. Riprova ablation-summary quando la QoS è libera."
+        return 1
+    fi
+    account="${SLURM_ACCOUNT:-thesis-course}"
+    partition="${T2G_SLURM_PARTITION:-${SLURM_PARTITION:-$account}}"
+    qos="${T2G_SLURM_QOS:-${SLURM_QOS:-gpu-xlarge}}"
+    sif="${T2G_SIF:-/shared/sifs/latest.sif}"
+    cd "$PROJ_DIR" || return 1
+    srun --account "$account" --partition "$partition" --qos "$qos" \
+        --gres=gpu:1 --gres=shard:4096 --mem=16G --cpus-per-task=2 \
+        apptainer run --nv --cleanenv --home "$HOME:$HOME" --bind "$HOME:$HOME" \
+        "$sif" python3 -u -m src.utils.ablation_summary "$@"
 }
 
 # ── Pip / Environment ────────────────────────────────────────────────────────
@@ -516,9 +576,9 @@ claudio() {
     echo "                    — hook bashrc che avanza la catena al login"
     echo ""
     echo "── Monitor ──"
-    echo "   monitor [--poll N] [--tab] [--samples [N]] [--metrics] [--all [N]]"
-    echo "                    — monitor live della pipeline"
-    echo "   ablation-summary  — genera tabella + grafico cross-config dopo l'ablation"
+    echo "   monitor [--poll N] [--once]"
+    echo "                    — monitor shell-only (stato, coda, log)"
+    echo "   ablation-summary  — genera report su compute via srun + Apptainer"
     echo ""
     echo "── Utilità ──"
     echo "   proj         — cd al progetto"

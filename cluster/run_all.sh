@@ -144,8 +144,8 @@ mkdir -p "$STATE_DIR" logs
 _launch_pipeline() {
     mkdir -p logs
 
-    bash cluster/chain_tick.sh --quiet
-    local rc=$?
+    local rc=0
+    bash cluster/chain_tick.sh --quiet || rc=$?
     [ "$rc" -ne 0 ] && echo "⚠️  tick rc=$rc - riproverà al prossimo tick (hook/server)."
     echo ""
     echo "▶ Tick eseguito. La catena avanza a ogni tick:"
