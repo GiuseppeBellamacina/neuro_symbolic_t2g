@@ -73,7 +73,6 @@ function Upload {
         "src",
         "cluster",
         "experiments/configs",
-        "tests",
         "grammarllm",
         "main.py",
         "pyproject.toml",
