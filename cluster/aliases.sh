@@ -108,38 +108,21 @@ alias quota='quota -s'
 # Vai alla directory del progetto
 alias proj='cd "$PROJ_DIR"'
 
-# Mostra i checkpoint disponibili (layout FLAT: experiments/checkpoints/*/)
+# Mostra i checkpoint disponibili nel layout canonico model/method/prompt/run.
 ckpts() {
     local base="$PROJ_DIR/experiments/checkpoints"
     if [ ! -d "$base" ]; then
         echo "Nessun checkpoint trovato."
         return 0
     fi
-    echo "──── Checkpoints (flat layout) ────"
-    local model run found c2
-    for model in "$base"/*/; do
-        [ -d "$model" ] || continue
-        echo "  $(basename "$model"):"
-        found=0
-        for run in "$model"run_*; do
-            [ -d "$run" ] || continue
-            found=1
-            echo "    $(basename "$run"):"
-            ls -d "$run"/final "$run"/checkpoint-* 2>/dev/null | while read -r c2; do
-                [ -n "$c2" ] && echo "      $(basename "$c2")"
-            done
-        done
-        if [ "$found" -eq 0 ]; then
-            ls -d "$model"final "$model"checkpoint-* 2>/dev/null | while read -r c2; do
-                [ -n "$c2" ] && echo "      $(basename "$c2")"
-            done
-        fi
-    done
+    echo "──── Checkpoints ────"
+    find "$base" -type d \( -name final -o -name 'checkpoint-*' \) -print 2>/dev/null \
+        | sort | sed "s|^$base/|  |"
 }
 
 # Lancia training (uso: train [--config PATH] [extra args...])
 train() {
-    local config="experiments/configs/t2g/sft-grpo.yaml"
+    local config="experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml"
     local extra_args=""
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -150,9 +133,10 @@ train() {
     cd "$PROJ_DIR" && CONFIG="$config" EXTRA_ARGS="$extra_args" sbatch cluster/train.sh
 }
 
-# Lancia eval (uso: run-eval [--config PATH] [--checkpoint PATH])
+# Lancia eval (uso: run-eval [--config PATH] [--checkpoint PATH]).
+# I config addestrati eseguono entrambe le modalità prompt nello stesso job.
 run-eval() {
-    local config="experiments/configs/t2g/sft-grpo.yaml"
+    local config="experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml"
     local checkpoint=""
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -167,6 +151,11 @@ run-eval() {
 # Lancia train + eval (uso: run-all)
 run-all() {
     cd "$PROJ_DIR" && bash cluster/run_all.sh "$@"
+}
+
+# Esegue una verifica offline (uso: probe [rollouts|markov] [CONFIG]).
+probe() {
+    cd "$PROJ_DIR" && bash cluster/probe.sh "$@"
 }
 
 # Controlla lo stato della pipeline (job attivo / coda)
@@ -258,8 +247,6 @@ chain-stop() {
     fi
 
     # Config ATTIVO dallo stato: ultimo job loggato o testa della coda.
-    # Il vecchio hardcode di sft-grpo faceva ripartire chain-start col
-    # config SBAGLIATO — ora il config è sempre quello reale della catena.
     local st_type="" st_cfg="" st_tag="" entry="" last=""
     if [ -s "$STATE_DIR/last_job" ]; then
         last=$(cat "$STATE_DIR/last_job")
@@ -480,7 +467,7 @@ pip-reset() {
 
 # ── Meta ─────────────────────────────────────────────────────────────────────
 
-_DIEGO_ALIASES="myjobs jobinfo killjob killalljobs trainlog evallog lastlog tree gpu quota proj ckpts train run-eval run-all chain-status clean clean-model chain-add chain-remove chain-stop chain-start chain-resume chain-show chain-hook-install chain-hook-uninstall monitor ablation-summary pip-clean pip-setup pip-reset unload-aliases install-aliases uninstall-aliases t2g-train t2g-eval t2g-run-all t2g-monitor t2g-chain-show t2g-chain-stop t2g-chain-start t2g-chain-resume t2g-clean t2g-gpu t2g-trainlog t2g-help"
+_DIEGO_ALIASES="myjobs jobinfo killjob killalljobs trainlog evallog lastlog tree gpu quota proj ckpts train run-eval run-all probe chain-status clean clean-model chain-add chain-remove chain-stop chain-start chain-resume chain-show chain-hook-install chain-hook-uninstall monitor ablation-summary pip-clean pip-setup pip-reset unload-aliases install-aliases uninstall-aliases t2g-train t2g-eval t2g-run-all t2g-monitor t2g-chain-show t2g-chain-stop t2g-chain-start t2g-chain-resume t2g-clean t2g-gpu t2g-trainlog t2g-help"
 
 # Mostra i comandi disponibili
 diego() {
@@ -499,24 +486,18 @@ diego() {
     echo ""
     echo "── Training & eval ──"
     echo "   train [--config PATH] [extra args...]"
-    echo "                     — lancia training (default: experiments/configs/t2g/sft-grpo.yaml)"
+    echo "                     — lancia training (default: qwen25-05b sft-grpo zero-shot)"
     echo "   run-eval [--config PATH] [--checkpoint PATH]"
     echo "                     — lancia evaluation"
     echo "   run-all [config_name] [--ablation|--train-only|--eval-only|--resume|--append|--force]"
     echo "                     — lancia pipeline train+eval (tick + avanza via hook/server)"
     echo ""
     echo "   Config disponibili (passa il nome senza .yaml):"
-    echo "     sft-grpo               pipeline principale SFT+GRPO (default)"
-    echo "     sft-only               SFT supervised da solo (decomposizione)"
-    echo "     grpo-only              GRPO senza SFT (decomposizione)"
-    echo "     sft-grpo-structure     SFT+GRPO + structural_dense (ablation)"
-    echo "     sft-grpo-viterbi       SFT+GRPO + viterbi_distance (ablation)"
-    echo "     sft-grpo-soft-viterbi  SFT+GRPO + soft_viterbi (ablation)"
-    echo "     sft-grpo-all-rewards   SFT+GRPO + tutti i moduli sperimentali"
-    echo "     sft-grpo-no-grammar    SFT+GRPO senza constrained decoding"
-    echo "     sft-grpo-pda           SFT+GRPO con PDA grammarllm (confronto Trie)"
-    echo "     zero-shot              Base model senza grammar (solo eval)"
-    echo "     zero-shot-grammar      Base model con grammar (solo eval)"
+    echo "     baseline-zero baseline-few sft grpo-zero grpo-few"
+    echo "     sft-grpo-zero sft-grpo-few"
+    echo "     sft-grpo-zero-pda sft-grpo-zero-hot  (manuali)"
+    echo "   probe [rollouts|markov] [CONFIG]"
+    echo "                     — esegue una verifica offline tramite cluster/probe.sh"
     echo ""
     echo "── Pipeline (tick-based) ──"
     echo "   chain-show   — mostra stato pipeline + job in coda"
@@ -535,7 +516,7 @@ diego() {
     echo ""
     echo "── Utilità ──"
     echo "   proj         — cd al progetto"
-    echo "   ckpts        — mostra checkpoint (layout flat)"
+    echo "   ckpts        — mostra checkpoint nel layout canonico"
     echo "   gpu          — stato GPU"
     echo "   quota        — uso disco progetto"
     echo "   clean [--force] [--all-cache]"

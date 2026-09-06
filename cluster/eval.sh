@@ -3,15 +3,19 @@
 # SLURM batch script — T2G Evaluation sul cluster
 #
 # Uso:
-#   CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/eval.sh
-#   CONFIG=experiments/configs/t2g/sft-grpo.yaml CHECKPOINT="path/to/ckpt" sbatch cluster/eval.sh
-#   CONFIG=experiments/configs/t2g/sft-grpo.yaml CHECKPOINT="path/to/ckpt" BEST_OF_N=1 sbatch cluster/eval.sh
+#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml sbatch cluster/eval.sh
 #
-# --compare è sempre attivo: valuta baseline (zero-shot) + GRPO e genera
-#   grafici di confronto + comparison.json + wandb con tag dedicati.
+# I checkpoint addestrati sono valutati in sequenza zero-shot e retrieval
+# (few-shot user-facing), con lo stesso checkpoint e gli stessi parametri.
 # BEST_OF_N=1 abilita la selezione best-of-N: è un ORACOLO DIAGNOSTICO
 #   (limite superiore: quanto può essere buono il modello scegliendo il
 #   migliore di N campioni), NON la metrica primaria — quella resta Pass@1.
+#
+# OFFLINE: i compute node NON hanno internet. Tutto il necessario
+# (dipendenze nell'immagine, cache HF di dataset+modello, vocab/bigram)
+# viene preparato in un ambiente con rete separato e sincronizzato sul
+# cluster PRIMA della sottomissione. Nessun pip install, nessun download,
+# nessun fallback: artifact mancanti → fail-fast immediato.
 # ============================================================================
 
 # ┌────────────────────────────────────────────────────────┐
@@ -34,7 +38,7 @@ CHECKPOINT="${CHECKPOINT:-}"
 
 if [ -z "$CONFIG" ]; then
     echo "❌ CONFIG non impostato. Uso:"
-    echo "  CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/eval.sh"
+    echo "  CONFIG=experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml sbatch cluster/eval.sh"
     exit 1
 fi
 
@@ -66,32 +70,51 @@ echo "============================================"
 
 mkdir -p logs
 
-# ── Auto-detect trained checkpoint (config-heritage-aware) ────────────────────
-# Risolve output_dir con src.utils.config.resolve_config (che gestisce
-# `extends: base.yaml`) — NIENTE yaml.safe_load del solo file figlio.
-# Il python gira DENTRO Apptainer sul compute node (stessa pattern di train.sh).
+# ── Offline env PRIMA di ogni python/apptainer (inclusa la risoluzione del
+#    checkpoint qui sotto) ─────────────────────────────────────────────────────
+# HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE/HF_DATASETS_OFFLINE/WANDB_*: i compute
+# node non hanno DNS — con questi export transformers/datasets trattano ogni
+# modello come locale, saltano i check di rete (nessun retry ~30s, nessun
+# ConnectError: vedi slurm-eval-7077) e W&B resta offline (parità con
+# train.sh). huggingface_hub legge i flag all'import: devono precedere la
+# PRIMA invocazione python (qui: resolve_output_dir).
+export_offline_env
+
+# ── Auto-detect trained checkpoint from canonical experiment identity ─────────
+# Il python gira DENTRO Apptainer sul compute node (stessa pattern di train.sh)
+# ed eredita l'env offline esportato sopra.
 #
 # Politica anti-silent-zero-shot:
-#   - config di training (ha training.output_dir) ma NESSUN checkpoint trovato
+#   - config kind=train|ablation ma NESSUN checkpoint trovato
 #     → FAIL LOUD (exit 1). Un eval in zero-shot su modello non addestrato
 #     produrrebbe numeri senza senso senza alcun errore.
-#   - config SENZA training.output_dir → zero-shot (eval senza checkpoint)
+#   - config kind=baseline → eval senza checkpoint
 #     legittimo e voluto.
 resolve_output_dir() {
     local out=""
     if command -v apptainer >/dev/null 2>&1 && [ -f /shared/sifs/latest.sif ]; then
         out=$(apptainer exec /shared/sifs/latest.sif python -c "
 from src.utils.config import resolve_config
+from src.utils.paths import cell_from_config, cell_base_dir
 try:
-    print(resolve_config('${CONFIG}')['training']['output_dir'])
+    cfg = resolve_config('${CONFIG}')
+    if cfg.get('experiment', {}).get('kind') in {'train', 'ablation'}:
+        print(cell_base_dir('experiments', 'checkpoints', cell_from_config(cfg)))
+    else:
+        print('')
 except Exception:
     print('')
 " 2>/dev/null) || true
     else
         out=$(python3 -c "
 from src.utils.config import resolve_config
+from src.utils.paths import cell_from_config, cell_base_dir
 try:
-    print(resolve_config('${CONFIG}')['training']['output_dir'])
+    cfg = resolve_config('${CONFIG}')
+    if cfg.get('experiment', {}).get('kind') in {'train', 'ablation'}:
+        print(cell_base_dir('experiments', 'checkpoints', cell_from_config(cfg)))
+    else:
+        print('')
 except Exception:
     print('')
 " 2>/dev/null) || true
@@ -99,9 +122,17 @@ except Exception:
     echo "$out"
 }
 
-# Trova il checkpoint più recente sotto output_dir: run_*/final o
-# run_*/checkpoint-* ; poi output_dir/final o output_dir/checkpoint-*.
-# Stesso ordine del legacy, ma su un output_dir RISOLTO (extends-aware).
+resolve_experiment_identity() {
+    run_py -c "
+from src.utils.config import resolve_config
+cfg = resolve_config('${CONFIG}')
+exp = cfg.get('experiment', {})
+print(f\"{exp.get('kind', '')}|{exp.get('train_prompt_mode', '')}\")
+"
+}
+
+# Trova il checkpoint più recente sotto la base canonica: run_*/final o
+# run_*/checkpoint-*.
 find_newest_checkpoint() {
     local out_dir="$1" latest_run best="" c
     latest_run=$(ls -1d "${out_dir}"/run_* 2>/dev/null | tail -1) || true
@@ -110,15 +141,6 @@ find_newest_checkpoint() {
             best="$latest_run/final"
         else
             for c in "$latest_run"/checkpoint-*; do
-                [ -d "$c" ] && best="$c"
-            done
-        fi
-    fi
-    if [ -z "$best" ]; then
-        if [ -d "$out_dir/final" ]; then
-            best="$out_dir/final"
-        else
-            for c in "$out_dir"/checkpoint-*; do
                 [ -d "$c" ] && best="$c"
             done
         fi
@@ -141,10 +163,10 @@ if [ -z "$CHECKPOINT" ]; then
             echo "═══════════════════════════════════════════════════════════"
             echo "  ❌ CHECKPOINT NON TROVATO — eval RIFIUTATO (exit 1)"
             echo "  Config:        ${CONFIG}"
-            echo "  output_dir:    ${OUTPUT_DIR}   (risolto via resolve_config)"
+            echo "  checkpoint base: ${OUTPUT_DIR}"
             echo ""
-            echo "  La config dichiara training.output_dir ma non esiste"
-            echo "  nessun run_*/final|checkpoint-*: il modello NON è stato"
+            echo "  Non esiste nessun run_*/final|checkpoint-* canonico:"
+            echo "  il modello NON è stato"
             echo "  addestrato. Un eval in zero-shot su modello non addestrato"
             echo "  produrrebbe numeri senza senso SENZA errori — rifiutiamo."
             echo ""
@@ -157,54 +179,38 @@ if [ -z "$CHECKPOINT" ]; then
             exit 1
         fi
     else
-        echo "Config senza training.output_dir - zero-shot inteso"
+        echo "Identità esperimento non risolta - zero-shot inteso"
     fi
 fi
 
-# Prepara dataset/vocab/bigram se mancanti (funzione shared da _lib.sh,
-# idempotente — era triplicata tra setup.sh/train.sh/eval.sh)
-prepare_data
+EXPERIMENT_IDENTITY=$(resolve_experiment_identity)
+EXPERIMENT_KIND=${EXPERIMENT_IDENTITY%%|*}
+TRAIN_PROMPT_MODE=${EXPERIMENT_IDENTITY#*|}
 
-# ── Offline-first: i compute node NON hanno DNS ──────────────────────────────
-# Tutto il necessario è pre-cacheato da setup.sh/prepare_data. Senza questi
-# export ogni richiesta hub costa ~30s di retry (HEAD dataset/modello, lookup
-# peft al save) o CRASHA il job: transformers 5.3 in tokenizer init chiama
-# model_info() per id non-locali (_patch_mistral_regex) → ConnectError
-# (vedi slurm-eval-7077). Con HF_HUB_OFFLINE=1 transformers forza is_local=True
-# e salta il check di rete; datasets usa la cache locale direttamente.
-# Dopo prepare_data (non prima!) così il fallback download al primo avvio
-# conserva la rete.
-export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 PYTHONUNBUFFERED=1
+# ── Verifica artifact offline (fail-fast, NESSUN download) ───────────────────
+# Sostituisce la vecchia prepare_data: sui compute node il download/la
+# rigenerazione NON è possibile. Manca qualcosa → il job fallisce in pochi
+# secondi con le istruzioni per preparare/caricare gli artifact da un
+# ambiente con rete.
+require_cluster_artifacts "$CONFIG"
 
 # ── Modalità eval ─────────────────────────────────────────────────────────────
-# - Config di TRAINING (ha output_dir + checkpoint auto/explicito): --compare
-#   (baseline zero-shot cachata/riusata + checkpoint).
-# - Config EVAL-ONLY (zero-shot, SENZA training.output_dir) e nessun
-#   checkpoint esplicito: --eval-baseline-only — singolo eval del base
-#   model. Con --compare il base model verrebbe valutato DUE volte (Step A
-#   baseline + Step B "checkpoint" = entrambi zero-shot).
-# NB: OUTPUT_DIR è risolta nel blocco auto-detect sopra (solo quando
-# CHECKPOINT è vuoto — con un checkpoint esplicito il confronto ha senso).
-if [ -z "${CHECKPOINT}" ] && [ -z "${OUTPUT_DIR:-}" ]; then
-    EVAL_ONLY_MODE=1
-fi
-
-if [ "${EVAL_ONLY_MODE:-0}" = "1" ]; then
-    EVAL_ARGS="--config ${CONFIG} --plot --eval-baseline-only"
-    echo "Eval-only config (zero-shot): --eval-baseline-only (niente --compare)"
-else
-    EVAL_ARGS="--config ${CONFIG} --plot --compare"
-fi
+# Baseline: una sola leg, esplicita e coerente con l'identità del config.
+# Train/ablation: due leg sul medesimo checkpoint, prima zero-shot e poi
+# retrieval. `set -e` rende il job fallito se fallisce una qualsiasi leg.
+COMMON_EVAL_ARGS="--config ${CONFIG} --plot"
 
 # Override opzionale del numero di campioni (default: quello del config,
 # oggi 2000 da base.yaml). Esempio eval rapido: MAX_SAMPLES=500 CONFIG=...
 if [ -n "${MAX_SAMPLES:-}" ]; then
-    EVAL_ARGS="${EVAL_ARGS} --max-samples ${MAX_SAMPLES}"
+    COMMON_EVAL_ARGS="${COMMON_EVAL_ARGS} --max-samples ${MAX_SAMPLES}"
     echo "MAX_SAMPLES override: ${MAX_SAMPLES}"
 fi
 
-if [ -n "$CHECKPOINT" ]; then
-    EVAL_ARGS="${EVAL_ARGS} --checkpoint ${CHECKPOINT}"
+if [ -n "$CHECKPOINT" ] && [ "$EXPERIMENT_KIND" != "baseline" ]; then
+    COMMON_EVAL_ARGS="${COMMON_EVAL_ARGS} --checkpoint ${CHECKPOINT}"
+elif [ "$EXPERIMENT_KIND" = "baseline" ]; then
+    echo "Baseline eval-only: eventuale CHECKPOINT ignorato"
 else
     echo "Zero-shot mode: nessun checkpoint (base model pulito)"
 fi
@@ -214,29 +220,53 @@ fi
 # il miglior completamento tra i N campionati. Non è la metrica primaria
 # (quella resta Pass@1). Richiede evaluation.num_samples>1 nel config.
 if [ "${BEST_OF_N}" = "1" ]; then
-    EVAL_ARGS="${EVAL_ARGS} --best-of-n"
+    COMMON_EVAL_ARGS="${COMMON_EVAL_ARGS} --best-of-n"
     echo "Best-of-N selection enabled"
 fi
 
 
-echo ""
-echo "Avvio evaluation..."
-echo "  Args: ${EVAL_ARGS}"
-echo ""
+run_evaluation() {
+    local prompt_mode="$1" mode_args
+    mode_args="${COMMON_EVAL_ARGS} --prompt-mode ${prompt_mode}"
+    if [ "$EXPERIMENT_KIND" = "baseline" ]; then
+        mode_args="${mode_args} --eval-baseline-only"
+    else
+        mode_args="${mode_args} --compare"
+    fi
 
-# ── Esecuzione ────────────────────────────────────────────────────────────────
-if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
-    apptainer run --nv \
-        --env WANDB_MODE=offline \
-        --env PYTHONUNBUFFERED=1 \
-        --env HF_HUB_OFFLINE=1 \
-        --env TRANSFORMERS_OFFLINE=1 \
-        --env HF_DATASETS_OFFLINE=1 \
-        --env PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8 \
-        /shared/sifs/latest.sif \
-        python -m src.training.eval_t2g ${EVAL_ARGS}
+    echo ""
+    echo "Avvio evaluation (${prompt_mode})..."
+    echo "  Args: ${mode_args}"
+    echo ""
+
+    if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
+        apptainer run --nv \
+            --env "HF_HUB_OFFLINE=${HF_HUB_OFFLINE}" \
+            --env "TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE}" \
+            --env "HF_DATASETS_OFFLINE=${HF_DATASETS_OFFLINE}" \
+            --env "WANDB_MODE=${WANDB_MODE}" \
+            --env "WANDB_DISABLE_WEAVE=${WANDB_DISABLE_WEAVE}" \
+            --env "WANDB_SILENT=${WANDB_SILENT}" \
+            --env "PYTHONUNBUFFERED=${PYTHONUNBUFFERED}" \
+            --env "HF_HOME=${HF_HOME}" \
+            --env "HF_HUB_CACHE=${HF_HUB_CACHE}" \
+            --env "PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8" \
+            /shared/sifs/latest.sif \
+            python -m src.training.eval_t2g ${mode_args}
+    else
+        python -m src.training.eval_t2g ${mode_args}
+    fi
+}
+
+if [ "$EXPERIMENT_KIND" = "baseline" ]; then
+    if [ "$TRAIN_PROMPT_MODE" = "few-shot" ]; then
+        run_evaluation retrieval
+    else
+        run_evaluation zero-shot
+    fi
 else
-    python -m src.training.eval_t2g ${EVAL_ARGS}
+    run_evaluation zero-shot
+    run_evaluation retrieval
 fi
 
 echo ""

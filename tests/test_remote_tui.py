@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 
 import httpx
 import pytest
@@ -22,8 +23,8 @@ from remote import tui
 
 STATUS_BODY = {
     "active_job": {"id": "12345", "name": "train-grpo", "state": "RUNNING"},
-    "queue": ["train:experiments/configs/t2g/sft-grpo.yaml:run1"],
-    "last_job": "12345:train:experiments/configs/t2g/sft-grpo.yaml:run1:0",
+    "queue": ["train:experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml:run1"],
+    "last_job": "12345:train:experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml:run1:0",
     "stopped": False,
     "errors_recent": [],
     "last_tick_at": "2026-08-26T10:00:00",
@@ -68,9 +69,9 @@ LOGS_BODY = {
 
 JOBS_BODY = [
     {
-        "entry": "train:experiments/configs/t2g/sft-grpo.yaml:run1",
+        "entry": "train:experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml:run1",
         "type": "train",
-        "config": "experiments/configs/t2g/sft-grpo.yaml",
+        "config": "experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml",
         "tag": "run1",
         "extra": None,
     }
@@ -103,7 +104,7 @@ def _default_handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             201,
             json={
-                "added": "train:experiments/configs/t2g/sft.yaml:run1",
+                "added": "train:experiments/configs/qwen25-05b/sft/zero-shot.yaml:run1",
                 "status": STATUS_BODY,
             },
         )
@@ -116,8 +117,8 @@ def _default_handler(request: httpx.Request) -> httpx.Response:
                 **MONITOR_BODY,
                 "started_now": True,
                 "queued": [
-                    "train:experiments/configs/t2g/sft-grpo.yaml:sft-grpo",
-                    "eval:experiments/configs/t2g/sft-grpo.yaml:sft-grpo",
+                    "train:experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml:sft-grpo-zero",
+                    "eval:experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml:sft-grpo-zero",
                 ],
             },
         )
@@ -127,7 +128,7 @@ def _default_handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
             json={
-                "queue": ["train:experiments/configs/t2g/sft.yaml:x"],
+                "queue": ["train:experiments/configs/qwen25-05b/sft/zero-shot.yaml:x"],
                 "count": 1,
                 "status": STATUS_BODY,
             },
@@ -167,7 +168,9 @@ def test_get_status_parses_fields():
         "name": "train-grpo",
         "state": "RUNNING",
     }
-    assert status["queue"] == ["train:experiments/configs/t2g/sft-grpo.yaml:run1"]
+    assert status["queue"] == [
+        "train:experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml:run1"
+    ]
     assert status["stopped"] is False
     assert status["events"][0]["type"] == "tick"
 
@@ -182,34 +185,34 @@ def test_get_jobs_parses_entries():
 
 def test_add_job_payload_and_auth_header():
     client, recorder = _client()
-    client.add_job("train", "sft-grpo", tag="run1")
+    client.add_job("train", "sft-grpo-zero", tag="run1")
     request = recorder.requests[-1]
     assert request.method == "POST"
     assert request.url.path == "/jobs"
     assert request.headers["X-Auth-Token"] == "test-token"
     assert json.loads(request.content) == {
         "type": "train",
-        "config": "sft-grpo",
+        "config": "sft-grpo-zero",
         "tag": "run1",
     }
 
 
 def test_add_job_omits_optional_fields():
     client, recorder = _client()
-    client.add_job("eval", "sft-only")
+    client.add_job("eval", "sft")
     assert json.loads(recorder.requests[-1].content) == {
         "type": "eval",
-        "config": "sft-only",
+        "config": "sft",
     }
 
 
 def test_add_job_with_mode():
     client, recorder = _client()
-    client.add_job("train", "grpo-only", tag="x", mode="--resume")
+    client.add_job("train", "grpo-zero", tag="x", mode="--resume")
     body = json.loads(recorder.requests[-1].content)
     assert body == {
         "type": "train",
-        "config": "grpo-only",
+        "config": "grpo-zero",
         "tag": "x",
         "mode": "--resume",
     }
@@ -227,8 +230,8 @@ def test_replace_queue_ablation_payload():
 def test_replace_queue_jobs_payload():
     client, recorder = _client()
     jobs = [
-        {"type": "train", "config": "sft-grpo"},
-        {"type": "eval", "config": "sft-only", "tag": "zs"},
+        {"type": "train", "config": "sft-grpo-zero"},
+        {"type": "eval", "config": "sft", "tag": "zs"},
     ]
     client.replace_queue(jobs=jobs)
     assert json.loads(recorder.requests[-1].content) == {"jobs": jobs}
@@ -415,12 +418,16 @@ def test_app_mounts_monitor_and_shows_job_detail():
                 await pilot.pause()
             assert app.monitor_snapshot is not None
             assert app.monitor_snapshot["job_detail"]["step"] == 100
-            job_box = app.screen.query_one("#job-panel", tui.Static)
+            job_box = app.screen.query_one("#job-summary", tui.Static)
             text = job_box.render().plain
             assert "train-grpo" in text
             assert "100/200" in text
             assert "0.5432" in text
             assert "0.3500" in text
+            progress = app.screen.query_one("#job-progress", tui.ProgressBar)
+            assert progress.display is True
+            assert progress.progress == 100
+            assert progress.total == 200
             # Samples e log tail nei RichLog
             samples_log = app.screen.query_one("#samples-log", tui.RichLog)
             assert "Sample 1" in _richlog_text(samples_log)
@@ -451,7 +458,7 @@ def test_monitor_shows_placeholder_without_active_job():
                 if app.monitor_snapshot is not None:
                     break
                 await pilot.pause()
-            job_box = app.screen.query_one("#job-panel", tui.Static)
+            job_box = app.screen.query_one("#job-summary", tui.Static)
             text = job_box.render().plain
             assert "Nessun job attivo" in text
             assert "sft-grpo" in text  # prossima entry in coda
@@ -548,7 +555,7 @@ def test_start_job_screen_submits_to_start_endpoint():
             payload = json.loads(batch_calls[0].read())
             assert payload["start_now"] is True
             assert [j["type"] for j in payload["jobs"]] == ["train", "eval"]
-            assert payload["jobs"][0]["config"] == "sft-grpo"
+            assert payload["jobs"][0]["config"] == "sft"
 
     asyncio.run(_run())
 
@@ -580,7 +587,7 @@ def test_start_job_screen_without_eval_uses_start_endpoint():
             assert start_calls, "POST /jobs/start non chiamato"
             payload = json.loads(start_calls[0].read())
             assert payload["type"] == "train"
-            assert payload["config"] == "sft-grpo"
+            assert payload["config"] == "sft"
             # nessun batch in questo flusso
             assert not any(r.url.path == "/jobs/batch" for r in recorder.requests)
 
@@ -602,8 +609,8 @@ def test_batch_start_screen_submits_selected_configs():
             await pilot.pause()
             assert isinstance(app.screen, tui.BatchStartScreen)
             # Seleziona due config
-            app.screen.query_one("#cfg-sft-grpo", tui.Checkbox).value = True
-            app.screen.query_one("#cfg-grpo-only", tui.Checkbox).value = True
+            app.screen.query_one("#cfg-sft-grpo-zero", tui.Checkbox).value = True
+            app.screen.query_one("#cfg-grpo-zero", tui.Checkbox).value = True
             await pilot.pause()
             submit = app.screen.query_one("#submit", tui.Button)
             submit.press()
@@ -631,11 +638,69 @@ def test_batch_start_screen_submits_selected_configs():
                 "eval",
             ]
             assert [j["config"] for j in payload["jobs"]] == [
-                "sft-grpo",
-                "sft-grpo",
-                "grpo-only",
-                "grpo-only",
+                "grpo-zero",
+                "grpo-zero",
+                "sft-grpo-zero",
+                "sft-grpo-zero",
             ]
+
+    asyncio.run(_run())
+
+
+@pytest.mark.parametrize("queue_status", [200, 502])
+def test_campaign_confirm_returns_immediately_and_does_not_switch_twice(queue_status):
+    """Campaign POST runs in background; dashboard bindings remain usable.
+
+    The worker is held inside POST /queue while the test opens QueueScreen.
+    On both success and API failure, completion must not force a second switch
+    back to the dashboard.
+    """
+
+    async def _run() -> None:
+        request_started = threading.Event()
+        release_request = threading.Event()
+
+        def handler(request):
+            if request.method == "POST" and request.url.path == "/queue":
+                request_started.set()
+                assert release_request.wait(timeout=5)
+                if queue_status == 502:
+                    return httpx.Response(502, json={"detail": "simulated failure"})
+            return _default_handler(request)
+
+        client, recorder = _client(handler=handler)
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("C")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.CampaignScreen)
+            app.screen.query_one("#submit", tui.Button).press()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ConfirmScreen)
+            app.screen.query_one("#confirm", tui.Button).press()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.DashboardScreen)
+
+            for _ in range(20):
+                if request_started.is_set():
+                    break
+                await pilot.pause()
+            assert request_started.is_set()
+
+            await pilot.press("g")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.QueueScreen)
+
+            release_request.set()
+            for _ in range(30):
+                await pilot.pause()
+                if any(r.url.path == "/queue" for r in recorder.requests):
+                    await asyncio.sleep(0)
+            assert isinstance(app.screen, tui.QueueScreen)
 
     asyncio.run(_run())
 
@@ -670,7 +735,7 @@ def test_monitor_shows_phase_and_queue():
                 if app.monitor_snapshot is not None:
                     break
                 await pilot.pause()
-            job_text = app.screen.query_one("#job-panel", tui.Static).render().plain
+            job_text = app.screen.query_one("#job-summary", tui.Static).render().plain
             assert "SFT" in job_text  # badge fase (sft_eval)
             queue_text = app.screen.query_one("#queue-panel", tui.Static).render().plain
             assert "7 job" in queue_text
@@ -704,6 +769,73 @@ def test_log_screen_shows_lines():
             await pilot.press("escape")
             await pilot.pause()
             assert isinstance(app.screen, tui.DashboardScreen)
+
+    asyncio.run(_run())
+
+
+def test_dashboard_escapes_samples_and_handles_null_snapshot_fields():
+    """Sample brackets/markup/ANSI are literal; malformed nullable fields do not crash."""
+
+    async def _run() -> None:
+        sample = "[red]literal[/red] [✓] \x1b[31mansi\x1b[0m"
+        body = {
+            **MONITOR_BODY,
+            "job_detail": None,
+            "queue": None,
+            "errors_recent": None,
+            "events": None,
+            "samples": [sample],
+            "log_tail": ["[bold]literal tail[/bold]"],
+        }
+
+        def handler(request):
+            return httpx.Response(200, json=body)
+
+        app = _make_app(handler=handler)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.refresh_monitor()
+            await pilot.pause()
+            samples = app.screen.query_one("#samples-log", tui.RichLog)
+            tail = app.screen.query_one("#tail-log", tui.RichLog)
+            assert _richlog_text(samples) == sample
+            assert _richlog_text(tail) == "[bold]literal tail[/bold]"
+            assert (
+                app.screen.query_one("#job-progress", tui.ProgressBar).display is False
+            )
+
+    asyncio.run(_run())
+
+
+def test_dashboard_accepts_null_monitor_response():
+    async def _run() -> None:
+        app = _make_app(handler=lambda request: httpx.Response(200, json=None))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.refresh_monitor()
+            await pilot.pause()
+            assert app.monitor_snapshot == {}
+            assert (
+                "Nessun job attivo"
+                in app.screen.query_one("#job-summary", tui.Static).render().plain
+            )
+
+    asyncio.run(_run())
+
+
+def test_dashboard_g_and_campaign_bindings():
+    async def _run() -> None:
+        app = _make_app()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("g")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.QueueScreen)
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.press("C")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.CampaignScreen)
 
     asyncio.run(_run())
 

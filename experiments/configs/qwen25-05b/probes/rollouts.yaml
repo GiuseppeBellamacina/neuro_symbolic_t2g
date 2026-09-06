@@ -1,0 +1,15 @@
+experiment:
+  model_tag: qwen25-05b
+  method: base
+  train_prompt_mode: none
+  variant: none
+  kind: probe
+
+probe:
+  name: rollouts
+  input_path: null  # Pass --input or INPUT=...; use an existing generations_*.json.
+  output_path: experiments/analysis/qwen25-05b/rollouts/report.json
+  vocab_path: data/gloss_vocab.txt
+  group_size: 4
+  low_threshold: 0.1
+  high_threshold: 0.9

@@ -1,0 +1,17 @@
+extends: zero-shot.yaml
+
+experiment:
+  model_tag: qwen25-05b
+  method: sft-grpo
+  train_prompt_mode: few-shot
+  variant: none
+  kind: train
+
+retrieval:
+  enabled: true
+
+grpo:
+  max_prompt_length: 768
+
+wandb:
+  run_name: sft-grpo-few

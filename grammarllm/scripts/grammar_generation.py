@@ -973,7 +973,10 @@ class ProductionRuleProcessor:
             logging.info("  Grammatica vuota")
             return
 
-        with open(output_filename, "w+") as f:
+        # Grammar terminals may contain tokenizer-specific Unicode markers
+        # (e.g. Qwen's Ġ) and generated epsilon productions (ε).  Relying on
+        # the platform default encoding crashes on Windows/cp1252.
+        with open(output_filename, "w+", encoding="utf-8") as f:
             # f.write("=== GRAMMATICA FINALE (PROCESSAMENTO PER REGOLA) ===\n\n")
 
             # Prima stampa le regole iniziali (non tuple)

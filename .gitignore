@@ -56,3 +56,6 @@ grammarllm/tests/__pycache__/
 
 # Backup configs (replaced by active versions — kept locally for reference)
 experiments/configs/t2g/grpo_optimal_old.yaml
+
+# Local deepwork orchestration state (never commit)
+.slim/deepwork/

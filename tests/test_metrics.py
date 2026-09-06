@@ -19,6 +19,8 @@ All other tests are pure functions — no network, no dataset.
 
 from __future__ import annotations
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # 1. Gloss validity
 # ---------------------------------------------------------------------------
@@ -85,8 +87,9 @@ def test_pass_at_1(reward_setup):
     assert 0.0 <= rate <= 1.0, f"Pass@1 rate in [0,1], got {rate:.4f}"
     assert rate > 0.0
 
+    valid_references = ["IX MAN WALK HOUSE", "IX MAN WALK", "IX MAN WALK"]
     perfect = compute_pass_at_k(
-        [[c] for c in references], references, k_values=(1,), threshold=0.3
+        [[c] for c in valid_references], valid_references, k_values=(1,), threshold=0.3
     )["pass@1"]
     assert abs(perfect - 1.0) < 0.01, f"All-perfect Pass@1 = 1.0, got {perfect:.4f}"
 
@@ -125,10 +128,29 @@ def test_pass_at_k(reward_setup):
     assert 0.0 <= result["pass@5"] <= 1.0
 
 
-def test_pass_at_k_matches_rouge_based_pass_at_1(reward_setup):
-    """pass@1 via compute_pass_at_k equals a direct ROUGE-L ≥ 0.3 rate (this
-    is what eval_t2g reports as pass@1)."""
-    from src.utils.metrics import compute_pass_at_k, rouge_l_score
+def test_pass_at_k_uses_standard_estimator_and_validity(reward_setup):
+    from src.utils.metrics import compute_pass_at_k
+
+    # Two successes among five gives 1-C(3,2)/C(5,2) = 0.7.
+    comps = [["IX MAN WALK", "IX MAN WALK", "DOG CAT", "DOG CAT", "DOG CAT"]]
+    assert compute_pass_at_k(comps, ["IX MAN WALK"], (2,))["pass@2"] == pytest.approx(
+        0.7
+    )
+    with pytest.raises(ValueError, match="aligned"):
+        compute_pass_at_k(comps, [], (1,))
+
+
+def test_normalized_exact_and_edit_similarity():
+    from src.utils.metrics import normalized_edit_similarity, normalized_exact_match
+
+    assert normalized_exact_match("```gloss\nIX   MAN\n```", "ix man") == 1.0
+    assert normalized_edit_similarity("IX WALK", "IX MAN WALK") == pytest.approx(2 / 3)
+    assert 0.0 <= normalized_edit_similarity("A", "B") <= 1.0
+
+
+def test_pass_at_k_matches_success_criterion_at_1(reward_setup):
+    """Pass@1 uses ROUGE-L >= 0.3 AND lexical validity."""
+    from src.utils.metrics import check_gloss_validity, compute_pass_at_k, rouge_l_score
 
     completions = ["IX MAN WALK HOUSE", "DOG CAT BIRD", "NOT CAN WANT"]
     references = ["IX MAN WALK HOUSE", "IX MAN WALK", "NOT CAN WANT"]
@@ -136,7 +158,9 @@ def test_pass_at_k_matches_rouge_based_pass_at_1(reward_setup):
 
     p1 = compute_pass_at_k(nested, references, k_values=(1,), threshold=0.3)["pass@1"]
     manual = sum(
-        1 for c, r in zip(completions, references) if rouge_l_score(c, r) >= 0.3
+        1
+        for c, r in zip(completions, references)
+        if rouge_l_score(c, r) >= 0.3 and check_gloss_validity(c)[0]
     ) / len(completions)
     assert abs(p1 - manual) < 1e-9, f"pass@1 equal: {p1} vs {manual}"
 
@@ -284,6 +308,8 @@ def test_bleu_corpus():
     assert abs(bleu_corpus(hyps, refs) - 1.0) < 1e-6
 
     assert bleu_corpus([], []) == 0.0, "Empty corpus = 0"
+    with pytest.raises(ValueError, match="equal"):
+        bleu_corpus(["A"], [])
 
 
 # ---------------------------------------------------------------------------
@@ -316,44 +342,26 @@ def test_seeded_sample_indices_reproducible():
 
 
 # ---------------------------------------------------------------------------
-# 10. Reward breakdown (direct calls, no registry)
+# 10. Production reward breakdown
 # ---------------------------------------------------------------------------
 
 
 def test_reward_breakdown(reward_setup):
+    from src.rewards.t2g_rewards import initialize_rewards
     from src.utils.metrics import compute_reward_breakdown
 
+    vocab, _, _ = reward_setup
+    initialize_rewards(vocab)
     completions = ["IX MAN WALK HOUSE", "DOG CAT", "NOT CAN WANT"]
     references = ["IX MAN WALK HOUSE", "IX MAN WALK", "NOT CAN WANT"]
     result = compute_reward_breakdown(completions, references=references)
-    assert (
-        len(result) >= 7
-    ), f"Completion-based: has >=7 keys, got {list(result.keys())}"
-    assert "translation_quality_reward" in result
-    assert "bleu_reward" in result
-    assert "gold_structure_reward" in result
-    assert "gloss_order_reward" in result
-    assert "verifier_scaled_reward" in result
-    assert "gloss_format_reward" in result
-    assert "gloss_repetition_reward" in result
-    for k, v in result.items():
-        assert isinstance(v, float), f"{k} is float, got {type(v)}"
+    assert set(result) == {"edit_validity_reward"}
+    assert result["edit_validity_reward"] == pytest.approx(1 / 3)
+    assert compute_reward_breakdown(completions) == {}
 
-    # Without references: gold-dependent components are skipped.
-    no_refs = compute_reward_breakdown(completions)
-    assert "translation_quality_reward" not in no_refs
-    assert "gloss_format_reward" in no_refs
-
-    # Test filtering: only active components (weight > 0)
-    filtered = compute_reward_breakdown(
+    disabled = compute_reward_breakdown(
         completions,
         references=references,
-        reward_weights={
-            "translation_quality_reward": 0.3,
-            "gloss_format_reward": 0.1,
-        },
+        reward_weights={"edit_validity_reward": 0.0},
     )
-    assert len(filtered) == 2, f"Filtered: has 2 keys, got {list(filtered.keys())}"
-    assert "translation_quality_reward" in filtered
-    assert "gloss_format_reward" in filtered
-    assert "gold_structure_reward" not in filtered
+    assert disabled == {}

@@ -14,8 +14,8 @@ overfitting.  Prompt formatting is identical to the GRPO rollout prompts
 (see ``src/utils/prompting.py``).
 
 Usage:
-    python -m src.training --config experiments/configs/t2g/sft-only.yaml
-    CONFIG=experiments/configs/t2g/sft-only.yaml sbatch cluster/train.sh
+    python -m src.training --config experiments/configs/qwen25-05b/sft/zero-shot.yaml
+    CONFIG=experiments/configs/qwen25-05b/sft/zero-shot.yaml sbatch cluster/train.sh
 """
 
 from __future__ import annotations
@@ -54,14 +54,22 @@ from src.datasets.aslg_dataset import (
     extract_gloss_vocabulary,
     save_vocabulary,
 )
-from src.datasets.transition_matrix import (
-    compute_bigram_transitions,
-    load_transition_matrix,
-    save_transition_matrix,
-)
 from src.models.model_loader import load_model_and_tokenizer
+from src.utils.cache_meta import (
+    cache_is_current,
+    validate_dataset_name,
+    write_cache_meta,
+)
 from src.utils.config import load_config
 from src.utils.live_status import live_status_reset, live_status_set
+from src.utils.paths import (
+    Cell,
+    RunPath,
+    cell_from_config,
+    training_run_paths,
+    wandb_name,
+    wandb_tags,
+)
 from src.utils.prompting import SYSTEM_PROMPT
 
 load_dotenv()
@@ -165,6 +173,7 @@ def _prepare_sft_dataset(
         ``gold_gloss``, ``difficulty``, ``sample_id``.
     """
     ds_cfg = config["dataset"]
+    validate_dataset_name(ds_cfg.get("dataset_name"))
     if dataset is None:
         dataset = download_aslg_dataset(
             cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
@@ -218,8 +227,10 @@ def _sft_training_fingerprint_source(config: dict[str, Any]) -> dict[str, Any]:
     In the GRPO flow ``sft_config["sft_pretrain"]["training"]`` carries the
     SFT hyperparameters, while the merged ``training`` section additionally
     holds GRPO-only keys such as ``max_steps`` that must NOT invalidate the
-    SFT adapter.  The standalone ``sft-only.yaml`` flow has no ``sft_pretrain``
-    section, so the effective ``training`` section is used instead.
+    SFT adapter. The canonical ``sft/zero-shot.yaml`` flow has no ``sft_pretrain``
+    section, so the effective ``training`` section is used instead. This makes
+    the same SFT fingerprint reusable from the ``sft/zero-shot`` cell by the
+    ``sft-grpo`` zero-shot and few-shot cells.
     """
     pretrain_training = config.get("sft_pretrain", {}).get("training", {})
     if isinstance(pretrain_training, dict) and pretrain_training:
@@ -351,22 +362,10 @@ def is_complete_adapter_dir(path: str | Path) -> bool:
     return has_config and has_weights
 
 
-def _sft_fingerprint_candidates(parent: Path) -> list[Path]:
-    """All ``run_*/sft_pretrain/final/sft_fingerprint.json`` under *parent*.
-
-    Sorted by modification time, most recent first.
-    """
-    return sorted(
-        parent.glob("run_*/sft_pretrain/final/sft_fingerprint.json"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-
-
 def _adapter_if_matching(candidate: Path, fingerprint: str) -> Path | None:
     """Return the adapter dir when *candidate*'s fingerprint matches.
 
-    Shared by the same-tag and cross-tag searches: skips unreadable
+    Shared by the same-cell and cross-method searches: skips unreadable
     fingerprint files and fingerprint matches with missing weight files.
     """
     try:
@@ -388,126 +387,94 @@ def _adapter_if_matching(candidate: Path, fingerprint: str) -> Path | None:
     return adapter_dir
 
 
-def find_reusable_sft_adapter(
-    model_ckpt_parent: str | Path, fingerprint: str
-) -> Path | None:
-    """Find a previously-trained SFT adapter matching *fingerprint*.
-
-    Scans sibling ``run_*/sft_pretrain/final`` directories under
-    *model_ckpt_parent* (e.g. ``experiments/checkpoints/qwen25-05b-sft-grpo``)
-    and returns the most recently modified adapter whose
-    ``sft_fingerprint.json`` matches and whose weight files are intact.  A
-    candidate whose fingerprint matches but whose adapter files are missing
-    is skipped (logged loudly) in favour of the next candidate.
-
-    Args:
-        model_ckpt_parent: Directory containing the ``run_*`` subdirectories
-            of the model family.
-        fingerprint: Expected SFT fingerprint (see
-            :func:`compute_sft_fingerprint`).
-
-    Returns:
-        Path to the reusable adapter directory (``.../final``), or ``None``
-        if no candidate matches.
-    """
-    parent = Path(model_ckpt_parent)
-    if not parent.is_dir():
-        return None
-    candidates = _sft_fingerprint_candidates(parent)
-    for candidate in candidates:
-        adapter_dir = _adapter_if_matching(candidate, fingerprint)
-        if adapter_dir is not None:
-            logger.info("[sft-reuse] Reusable SFT adapter found: %s", adapter_dir)
-            return adapter_dir
-    if candidates:
-        logger.info(
-            "[sft-reuse] No matching SFT adapter under %s (checked %d run(s))",
-            parent,
-            len(candidates),
-        )
-    return None
-
-
-def find_reusable_sft_adapter_cross_tag(
+def find_reusable_sft_adapter_cross_method(
     checkpoints_root: str | Path,
     exclude_parent: str | Path,
     fingerprint: str,
 ) -> tuple[Path, str] | None:
-    """Find a matching SFT adapter under a DIFFERENT model tag directory.
+    """Find a matching adapter in the canonical SFT layouts for one model.
 
-    The same-tag search (:func:`find_reusable_sft_adapter`) only looks
-    under one tag dir (e.g. ``experiments/checkpoints/qwen25-05b-sft-grpo``).
-    When a NEW tag config (e.g. ``sft-grpo-all-rewards`` →
-    ``qwen25-05b-sft-grpo-all-rewards``) declares an identical ``sft_pretrain``
-    section, its SFT training is identical — retraining it is pure waste
-    (job 7078 retrained an SFT bit-identical to optimal's).  The SFT
-    fingerprint is tag-independent (model/lora/dataset/hyperparams/system
-    prompt — no paths), so a match under any other tag is a valid adapter.
+    Only these layouts are searched beneath *checkpoints_root*:
+
+    * ``sft/zero-shot/run_*/final/sft_fingerprint.json``
+    * ``sft-grpo/*/run_*/sft_pretrain/final/sft_fingerprint.json``
+
+    The current run (or cell base, when that is passed) is excluded. Matches
+    are ordered by fingerprint-file mtime newest-first, then by path for a
+    stable result when mtimes tie.
 
     Args:
-        checkpoints_root: Directory containing ALL model tag dirs
-            (``experiments/checkpoints``).
-        exclude_parent: The current config's tag dir (already searched).
+        checkpoints_root: Canonical model root, e.g.
+            ``experiments/checkpoints/qwen25-05b``.
+        exclude_parent: Current canonical run directory or cell base to skip.
         fingerprint: Expected SFT fingerprint.
 
     Returns:
-        ``(adapter_dir, tag_name)`` of the newest match, or ``None``.
+        ``(adapter_dir, cell_name)`` of the newest match, or ``None``.
     """
     root = Path(checkpoints_root)
     excluded = Path(exclude_parent).resolve()
     if not root.is_dir():
         return None
-    candidates = sorted(
-        root.glob("*/run_*/sft_pretrain/final/sft_fingerprint.json"),
-        key=lambda p: p.stat().st_mtime,
+    candidates = [
+        *root.glob("sft/zero-shot/run_*/final/sft_fingerprint.json"),
+        *root.glob("sft-grpo/*/run_*/sft_pretrain/final/sft_fingerprint.json"),
+    ]
+    candidates.sort(
+        key=lambda p: (p.stat().st_mtime, p.as_posix()),
         reverse=True,
     )
     for candidate in candidates:
-        # <root>/<tag>/run_*/sft_pretrain/final/sft_fingerprint.json
-        tag_dir = candidate.parents[3]
-        if tag_dir.resolve() == excluded:
+        is_subphase = candidate.parent.parent.name == "sft_pretrain"
+        run_dir = (
+            candidate.parent.parent.parent if is_subphase else candidate.parent.parent
+        )
+        candidate_base = run_dir.parent
+        if excluded in {run_dir.resolve(), candidate_base.resolve()}:
             continue
         adapter_dir = _adapter_if_matching(candidate, fingerprint)
         if adapter_dir is not None:
+            source_cell = candidate_base.relative_to(root).as_posix()
             logger.info(
-                "[sft-reuse] Cross-tag match: reusing SFT adapter from " "tag '%s': %s",
-                tag_dir.name,
+                "[sft-reuse] Cross-method match: reusing SFT adapter from "
+                "cell '%s': %s",
+                source_cell,
                 adapter_dir,
             )
-            return adapter_dir, tag_dir.name
+            return adapter_dir, source_cell
     return None
-
-
-def clone_sft_adapter(source: str | Path, destination: str | Path) -> Path:
-    """Copy a reusable SFT adapter into the current run's ``sft_pretrain/final``.
-
-    Cross-tag reuse points at another tag's directory; copying makes the
-    new run self-contained (its ``sft_fingerprint.json`` lands where the
-    same-tag search looks, and the run no longer depends on the source
-    tag's lifecycle).  Only files are copied — ``checkpoint-*`` subdirs and
-    wandb/logs are skipped.
-
-    Args:
-        source: The matched adapter directory (``.../sft_pretrain/final``).
-        destination: The current run's destination directory
-            (``<run_dir>/sft_pretrain/final``).
-
-    Returns:
-        The destination directory.
-    """
-    import shutil
-
-    src, dst = Path(source), Path(destination)
-    dst.mkdir(parents=True, exist_ok=True)
-    for item in src.iterdir():
-        if item.is_file():
-            shutil.copy2(item, dst / item.name)
-    return dst
 
 
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
+
+
+def resolve_sft_run_paths(
+    config: dict[str, Any], resume: bool = False
+) -> tuple[Path, Path, str, Cell]:
+    """Resolve standalone canonical paths or preserve explicit GRPO subphase paths.
+
+    Standalone canonical SFT configs intentionally omit ``training.output_dir``
+    and ``training.log_dir``. Explicit directories are only treated as a
+    subphase when both are present and the output path is inside a ``run_*``.
+    """
+    training_cfg = config["training"]
+    explicit_output = training_cfg.get("output_dir")
+    explicit_log = training_cfg.get("log_dir")
+    if explicit_output is not None and explicit_log is not None:
+        output_dir = Path(explicit_output)
+        if any(part.startswith("run_") for part in output_dir.parts):
+            cell = cell_from_config(config)
+            run_timestamp = next(
+                part.removeprefix("run_")
+                for part in reversed(output_dir.parts)
+                if part.startswith("run_")
+            )
+            return output_dir, Path(explicit_log), run_timestamp, cell
+
+    output_dir, log_dir, run_id, cell = training_run_paths(config, resume=resume)
+    return output_dir, log_dir, run_id.removeprefix("run_"), cell
 
 
 def run_sft(config: dict[str, Any], resume: bool = False) -> str:
@@ -552,7 +519,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     # ── Step 1: Data preparation ─────────────────────────────────────────
     ds_cfg = config["dataset"]
     vocab_path = ds_cfg.get("vocab_path", "data/gloss_vocab.txt")
-    bigram_path = ds_cfg.get("bigram_matrix_path", "data/bigram_transition.npy")
+    validate_dataset_name(ds_cfg.get("dataset_name"))
 
     logger.info("=" * 60)
     logger.info("STEP 1: Data Preparation")
@@ -562,29 +529,18 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
     )
 
-    # Vocabulary (needed for eval compatibility)
-    if Path(vocab_path).exists():
+    # Vocabulary cache is valid only with the same dataset seed/train size.
+    train_size = len(dataset["train"])
+    if cache_is_current(vocab_path, seed, train_size):
         from src.datasets.aslg_dataset import load_vocabulary
 
         vocab = load_vocabulary(vocab_path)
     else:
         vocab = extract_gloss_vocabulary(dataset, split="train")
         save_vocabulary(vocab, vocab_path)
+        write_cache_meta(vocab_path, seed, train_size)
 
-    # Bigram matrix (needed for eval compatibility)
-    if Path(bigram_path).exists():
-        bigram_matrix = load_transition_matrix(bigram_path)
-    else:
-        bigram_matrix = compute_bigram_transitions(
-            dataset, vocab, split="train", smoothing=1.0
-        )
-        save_transition_matrix(bigram_matrix, bigram_path)
-
-    logger.info(
-        "Data prepared: |V|=%d, bigram shape=%s",
-        len(vocab),
-        bigram_matrix.shape,
-    )
+    logger.info("Data prepared: |V|=%d (bigram not used by SFT)", len(vocab))
 
     # (prepare-data is handled in main(), not here)
 
@@ -616,47 +572,15 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     logger.info("STEP 4: SFT Configuration")
     logger.info("=" * 60)
 
-    from datetime import datetime
-
     training_cfg = config["training"]
-    base_output_dir = Path(training_cfg["output_dir"])
-    base_log_dir = Path(training_cfg["log_dir"])
-
-    # Check if a run_ directory is already in the parent paths (GRPO sub-phase)
-    is_subphase = any(part.startswith("run_") for part in base_output_dir.parts)
-
+    output_dir, log_dir, run_timestamp, cell = resolve_sft_run_paths(
+        config, resume=resume
+    )
+    is_subphase = "sft_pretrain" in output_dir.parts
     if is_subphase:
-        output_dir = base_output_dir
-        log_dir = base_log_dir
         logger.info("SFT running as GRPO sub-phase. Using path: %s", output_dir)
-        run_timestamp = next(
-            (
-                part.removeprefix("run_")
-                for part in reversed(base_output_dir.parts)
-                if part.startswith("run_")
-            ),
-            datetime.now().strftime("%Y%m%d_%H%M%S"),
-        )
     else:
-        run_timestamp = None
-        if resume:
-            run_folders = sorted(base_output_dir.glob("run_*"))
-            if run_folders:
-                output_dir = run_folders[-1]
-                run_timestamp = output_dir.name.removeprefix("run_")
-                log_dir = base_log_dir / f"run_{run_timestamp}"
-                logger.info("Resuming SFT in existing directory: %s", output_dir)
-            else:
-                logger.warning(
-                    "No existing run directory found in %s to resume. Creating a new run.",
-                    base_output_dir,
-                )
-
-        if run_timestamp is None:
-            run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = base_output_dir / f"run_{run_timestamp}"
-            log_dir = base_log_dir / f"run_{run_timestamp}"
-            logger.info("Starting new SFT run. Output dir: %s", output_dir)
+        logger.info("Resolved SFT run directory: %s", output_dir)
 
     output_dir = str(output_dir)
     log_dir = str(log_dir)
@@ -664,8 +588,9 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     Path(log_dir).mkdir(parents=True, exist_ok=True)
 
     wandb_cfg = config.get("wandb", {})
-    base_name = wandb_cfg.get("run_name", "sft-t2g")
-    run_name = f"{base_name}-{run_timestamp}"
+    identity = RunPath(cell, f"run_{run_timestamp}")
+    run_name = wandb_name(identity)
+    wandb_cfg = {**wandb_cfg, "tags": list(wandb_tags(identity))}
 
     # Set tensorboard logging dir via env var (logging_dir kwarg is deprecated
     # since transformers 5.2).
@@ -969,6 +894,7 @@ def main() -> None:
         ds_cfg = config["dataset"]
         from src.datasets.aslg_dataset import download_aslg_dataset
 
+        validate_dataset_name(ds_cfg.get("dataset_name"))
         download_aslg_dataset(
             cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
         )

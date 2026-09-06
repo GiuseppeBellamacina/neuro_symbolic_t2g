@@ -104,7 +104,7 @@ def test_decode_to_glosses(tokenizer):
 def test_grammar_build(tokenizer):
     """Build LL(1) grammar and PDA via create_grammarllm_pipeline.
 
-    grammarllm v0.5.0 migration: ``create_grammarllm_pipeline`` now returns
+    ``create_grammarllm_pipeline`` returns
     ``(pdas, streamer, pda)`` where ``pdas`` is a list of base PDA templates
     (was ``(logit_processor, streamer, pda)`` in v0.4.x).
     """

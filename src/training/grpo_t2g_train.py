@@ -1,34 +1,11 @@
-"""
-GRPO T2G Training Loop — Phase 1.
-
-Integrates Constrained Decoding with Group Relative Policy Optimization (GRPO)
-for Text-to-Gloss (T2G) translation using HuggingFace + PEFT and TRL.
-
-Architecture:
-    1. Load model + tokenizer via HuggingFace (LoRA + 4-bit quantization).
-    2. Load ASLG-PC12 dataset and build prompt-completion pairs.
-    3. Compute/load bigram transition matrix (Viterbi proxy).
-    4. Build gloss vocabulary mask for constrained decoding.
-    5. Define reward functions (translation quality + structural proxy).
-    6. Train with ``trl.GRPOTrainer``, constraining generation rollouts
-       to ASL gloss tokens only.
-
-Usage:
-    python -m src.training --config experiments/configs/t2g/sft-grpo.yaml
-    CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/train.sh
-"""
+"""GRPO training for constrained text-to-gloss generation."""
 
 from __future__ import annotations
 
 import argparse
 import gc
 
-# ── Workaround: _is_package_available in transformers 5.3.0 restituisce  ─
-# una TUPLA (bool, str) invece di un bool.  In Python, una tupla non vuota
-# è sempre truthy → (False, None) è True → trl prova a importare mergekit e
-# llm_blender anche quando non sono installati.
-# Fix: usiamo importlib per caricare trl.import_utils bypassando il pigro
-# __getattr__, correggiamo le variabili a False, poi importiamo GRPOTrainer.
+# Normalize tuple-valued optional-dependency flags before importing TRL.
 import importlib
 import logging
 import os
@@ -41,10 +18,6 @@ from typing import Any
 import numpy as np
 import torch
 
-# ── Silence noisy transformers FutureWarnings ──────────────────────────
-# transformers 5.3.0 prints 5 FutureWarning lines per generate() call about
-# the deprecated AttentionMaskConverter API. These are internal to transformers
-# and will be fixed in v5.10. Suppress them to keep the training log clean.
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
 warnings.filterwarnings(
     "ignore",
@@ -60,7 +33,6 @@ if isinstance(_trl_iu._llm_blender_available, tuple):
 
 import wandb
 from dotenv import load_dotenv
-from transformers.integrations.integration_utils import WandbCallback
 from transformers.trainer_callback import (
     ProgressCallback,
     TrainerCallback,
@@ -77,11 +49,6 @@ from src.datasets.aslg_dataset import (
     extract_gloss_vocabulary,
     save_vocabulary,
 )
-from src.datasets.transition_matrix import (
-    compute_bigram_transitions,
-    load_transition_matrix,
-    save_transition_matrix,
-)
 from src.grammar.gloss_grammar import GlossVocabularyMask, create_grammarllm_pipeline
 from src.grammar.grammar_logits_processor import (
     GlossVocabularyLogitsProcessor,
@@ -97,8 +64,16 @@ from src.training.retrieval_setup import (
     build_train_retriever,
     retrieve_few_shot_batch,
 )
+from src.utils.cache_meta import cache_is_current as _cache_is_current
+from src.utils.cache_meta import write_cache_meta as _write_cache_meta
 from src.utils.config import load_config
 from src.utils.live_status import live_status_set
+from src.utils.paths import (
+    RunPath,
+    training_run_paths,
+    wandb_name,
+    wandb_tags,
+)
 from src.utils.prompting import build_t2g_prompt
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -121,16 +96,33 @@ def _build_grpo_config(
     reward_weights: list[float] | None = None,
 ) -> GRPOConfig:
     """Build a ``GRPOConfig`` from config sections."""
+    loss_type = grpo_cfg.get("loss_type", "dr_grpo")
+    scale_rewards = grpo_cfg.get("scale_rewards", "none")
+    importance_level = grpo_cfg.get("importance_sampling_level", "token")
+    mask_truncated = grpo_cfg.get("mask_truncated_completions", True)
+    if loss_type not in {"grpo", "bnpo", "dr_grpo"}:
+        raise ValueError(f"Invalid grpo.loss_type: {loss_type!r}")
+    if scale_rewards not in {"group", "batch", "none", True, False}:
+        raise ValueError(f"Invalid grpo.scale_rewards: {scale_rewards!r}")
+    if importance_level not in {"token", "sequence"}:
+        raise ValueError(
+            f"Invalid grpo.importance_sampling_level: {importance_level!r}"
+        )
+    if not isinstance(mask_truncated, bool):
+        raise ValueError("grpo.mask_truncated_completions must be boolean")
+    epsilon = float(grpo_cfg.get("epsilon", 0.2))
+    if epsilon < 0:
+        raise ValueError("grpo.epsilon must be non-negative")
+    epsilon_high = grpo_cfg.get("epsilon_high")
+    if epsilon_high is not None and float(epsilon_high) < epsilon:
+        raise ValueError("grpo.epsilon_high must be at least grpo.epsilon")
+    beta = float(grpo_cfg.get("beta", 0.04))
+    if beta < 0:
+        raise ValueError("grpo.beta must be non-negative")
     output_dir = training_cfg["output_dir"]
     log_dir = training_cfg["log_dir"]
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     Path(log_dir).mkdir(parents=True, exist_ok=True)
-
-    warmup_kwargs: dict[str, Any] = {}
-    if "warmup_steps" in training_cfg:
-        warmup_kwargs["warmup_steps"] = training_cfg["warmup_steps"]
-    else:
-        warmup_kwargs["warmup_steps"] = 50
 
     wandb_cfg = (full_config or {}).get("wandb", {})
     from datetime import datetime
@@ -141,9 +133,15 @@ def _build_grpo_config(
     )
     run_name = f"{base_name}-{run_timestamp}"
 
-    # Set tensorboard logging dir via env var (logging_dir kwarg is deprecated
-    # since transformers 5.2).
-    os.environ.setdefault("TENSORBOARD_LOGGING_DIR", log_dir)
+    grpo_options: dict[str, Any] = {
+        "loss_type": loss_type,
+        "scale_rewards": scale_rewards,
+        "mask_truncated_completions": mask_truncated,
+        "importance_sampling_level": importance_level,
+        "epsilon": epsilon,
+    }
+    if epsilon_high is not None:
+        grpo_options["epsilon_high"] = float(epsilon_high)
 
     return GRPOConfig(
         output_dir=output_dir,
@@ -156,16 +154,11 @@ def _build_grpo_config(
         gradient_accumulation_steps=training_cfg.get("gradient_accumulation_steps", 8),
         learning_rate=training_cfg.get("learning_rate", 5e-6),
         lr_scheduler_type=training_cfg.get("lr_scheduler_type", "cosine"),
-        **warmup_kwargs,
+        warmup_steps=training_cfg.get("warmup_steps", 50),
         optim=training_cfg.get("optim", "paged_adamw_8bit"),
         weight_decay=training_cfg.get("weight_decay", 0.1),
         max_grad_norm=training_cfg.get("max_grad_norm", 0.1),
         bf16=training_cfg.get("bf16", True),
-        # Gradient checkpointing: recompute forward activations during backward
-        # to trade ~20% compute for substantial VRAM savings. Essential for
-        # num_generations=8 on 22GB GPUs (cluster). Reads from
-        # training.gradient_checkpointing in YAML; defaults to False to preserve
-        # behavior of other configs that don't set it.
         gradient_checkpointing=training_cfg.get("gradient_checkpointing", False),
         logging_steps=training_cfg.get("logging_steps", 5),
         save_steps=training_cfg.get("save_steps", 100),
@@ -174,10 +167,13 @@ def _build_grpo_config(
         num_generations=grpo_cfg.get("num_generations", 4),
         max_completion_length=grpo_cfg.get("max_completion_length", 256),
         max_prompt_length=grpo_cfg.get("max_prompt_length", 256),
-        beta=grpo_cfg.get("beta", 0.04),
+        beta=beta,
         temperature=grpo_cfg.get("temperature", 0.7),
         reward_weights=reward_weights,
-        report_to="wandb",
+        # HighPrecisionLogCallback owns W&B scalar logging, so Trainer's
+        # automatic W&B integration stays disabled.
+        report_to="none",
+        **grpo_options,
     )
 
 
@@ -195,33 +191,8 @@ def _prepare_t2g_dataset(
     retriever: ExampleRetriever | None = None,
     retrieval_cfg: dict[str, Any] | None = None,
 ) -> Dataset:
-    """Load ASLG-PC12 and build prompt-completion pairs for GRPO.
-
-    The dataset has columns: ``prompt``, ``text``, ``completion``,
-    ``gold_gloss``, ``sample_id``, ``difficulty``.  All extra columns are
-    intentionally preserved: TRL 0.24's ``GRPOTrainer`` forwards every
-    dataset column (except ``prompt``/``completion``/``completion_ids``) to
-    the reward functions as keyword arguments, so the ``gold_gloss`` column
-    is what feeds the gold reference to the rewards at rollout time.
-
-    When ``retriever`` is given, every prompt is augmented with ``top_k``
-    similar ``(text, gloss)`` examples retrieved from the TRAIN split (same
-    strategy as ``eval_t2g.py``, so train/inference prompts stay coherent).
-    Retrieval happens ONCE up front — never per training step.  Anti-leakage
-    (excluding the query's own normalized text and dropping near-duplicates
-    above ``max_self_similarity``) is handled by
-    :func:`retrieve_few_shot_batch`.
-
-    Args:
-        config: Full config dict.
-        tokenizer: Hugging Face tokenizer.
-        vocab: Gloss vocabulary (unused here, kept for API compatibility).
-        dataset: Optional pre-loaded ``DatasetDict``. If ``None``, downloads it.
-        retriever: Optional few-shot retriever built over the train split
-            (see ``src/training/retrieval_setup.py``). ``None`` ⇒ zero-shot.
-        retrieval_cfg: Resolved ``retrieval`` config section (``top_k``,
-            ``max_self_similarity``); ignored when ``retriever`` is ``None``.
-    """
+    """Build GRPO prompts while preserving columns consumed by rewards."""
+    del vocab
     ds_cfg = config["dataset"]
     if dataset is None:
         dataset = download_aslg_dataset(
@@ -234,8 +205,6 @@ def _prepare_t2g_dataset(
         max_samples=ds_cfg.get("max_samples"),
     )
 
-    # Retrieve few-shot examples for every sample in one pass (the tfidf
-    # backend is deterministic and fast; this never runs during rollout).
     top_k = int((retrieval_cfg or {}).get("top_k", 3))
     max_self_similarity = float((retrieval_cfg or {}).get("max_self_similarity", 0.98))
     texts = [t2g_ds[i]["prompt"] for i in range(len(t2g_ds))]
@@ -258,12 +227,6 @@ def _prepare_t2g_dataset(
             examples=examples_batch[i] if examples_batch is not None else None,
         )
 
-        # Keep every column produced by build_t2g_dataset.  In particular
-        # ``gold_gloss`` must survive to the GRPOTrainer dataset so TRL
-        # forwards it to the reward functions as a kwarg (see
-        # ``t2g_rewards._make_gloss_reward_fn``). ``sample_id`` already
-        # encodes normalized text + gold gloss (collision-safe), so it no
-        # longer needs to be recomputed here.
         formatted.append(
             {
                 "prompt": prompt,
@@ -281,70 +244,6 @@ def _prepare_t2g_dataset(
 
 
 # ---------------------------------------------------------------------------
-# Cache invalidation for vocab / bigram artifacts
-# ---------------------------------------------------------------------------
-
-
-def _cache_meta_path(cache_path: str | Path) -> Path:
-    """Return the sidecar JSON path for a cache file (``<stem>.meta.json``).
-
-    Args:
-        cache_path: Path to the cache artifact (e.g. ``data/gloss_vocab.txt``).
-
-    Returns:
-        Sidecar path, e.g. ``data/gloss_vocab.meta.json``.
-    """
-    return Path(cache_path).with_suffix(".meta.json")
-
-
-def _write_cache_meta(cache_path: str | Path, seed: int, train_size: int) -> None:
-    """Write a sidecar JSON recording ``{seed, train_size}`` for a cache file.
-
-    Args:
-        cache_path: Path to the cache artifact.
-        seed: Random seed used to build the artifact.
-        train_size: Size of the training split used to build the artifact.
-    """
-    import json
-
-    meta_path = _cache_meta_path(cache_path)
-    meta_path.write_text(
-        json.dumps({"seed": seed, "train_size": train_size}, sort_keys=True),
-        encoding="utf-8",
-    )
-
-
-def _cache_is_current(cache_path: str | Path, seed: int, train_size: int) -> bool:
-    """Check whether a cached artifact is up to date for the current run.
-
-    A cache is valid only if the file exists AND its sidecar JSON matches the
-    current ``(seed, train_size)``.  Legacy cache files WITHOUT a sidecar are
-    NEVER trusted and are regenerated — this prevents silently reusing
-    vocab/bigram artifacts built under a different seed or before dataset
-    dedup changed the training-set composition.
-
-    Args:
-        cache_path: Path to the cache artifact.
-        seed: Current run seed.
-        train_size: Current training split size.
-
-    Returns:
-        ``True`` if the cache is current, ``False`` otherwise.
-    """
-    import json
-
-    path = Path(cache_path)
-    meta_path = _cache_meta_path(cache_path)
-    if not path.exists() or not meta_path.exists():
-        return False
-    try:
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return False
-    return meta.get("seed") == seed and meta.get("train_size") == train_size
-
-
-# ---------------------------------------------------------------------------
 # Vocabulary-constrained generation config for GRPO
 # ---------------------------------------------------------------------------
 
@@ -352,63 +251,24 @@ def _cache_is_current(cache_path: str | Path, seed: int, train_size: int) -> boo
 def _build_generation_kwargs(
     config: dict[str, Any],
 ) -> dict[str, Any]:
-    """Build generation kwargs for GRPO rollouts.
-
-    Set via ``grpo_config.generation_kwargs`` before creating GRPOTrainer.
-    In trl 0.24.0, generation_kwargs lives on GRPOConfig (args), not on
-    GRPOTrainer.__init__() directly.
-
-    **IMPORTANT**: ``logits_processor`` is NOT included here.  trl 0.24.0
-    passes generation_kwargs to ``GenerationConfig(**kwargs)``, and
-    transformers 5.3.0 rejects ``logits_processor`` as a GenerationConfig
-    argument.  Instead, the logits processor is injected via a monkey-patch
-    of ``model.generate()`` in ``main()``.
-
-    Args:
-        config: Full config dict.
-
-    Returns:
-        Dict of generation kwargs compatible with ``GenerationConfig()``.
-    """
+    """Build GenerationConfig-safe rollout kwargs."""
     grpo_cfg = config.get("generation", config.get("grpo", {}))
-    kwargs: dict[str, Any] = {
+    return {
         "max_new_tokens": grpo_cfg.get("max_completion_length", 128),
     }
-    return kwargs
 
 
 # ---------------------------------------------------------------------------
-# Curriculum Learning (difficulty-scheduled sampling)
-#
-# NOTE: previously attributed to "G²RPO-A (ACL 2026)" — that attribution was
-# wrong. The real G²RPO (arXiv:2508.13023) is Guided GRPO (ground-truth
-# reasoning injection), not a difficulty curriculum. This implementation is
-# a project-original 3-stage schedule; related evidence: FSA-GRPO
-# (arXiv:2606.02615) and G²RPO both target small/weak models with
-# stronger supervision signals. See docs/SOURCES.md.
+# Curriculum learning (difficulty-scheduled sampling)
 # ---------------------------------------------------------------------------
 
 
 class CurriculumSchedule:
-    """Progressive difficulty curriculum for GRPO training.
-
-    Project-original 3-stage curriculum: sorting training data by
-    difficulty keeps small models from getting stuck on hard examples
-    early in training (schedule calibrated on the post-dedup ASLG-PC12
-    difficulty distribution).
-
-    Stage 1 (0-33% steps): 10% simple, 65% medium, 25% hard
-    Stage 2 (33-66% steps): 5% simple, 40% medium, 55% hard
-    Stage 3 (66-100% steps): 3% simple, 30% medium, 67% hard
-    """
+    """Three-stage progressive difficulty schedule."""
 
     _STAGES: list[dict[str, float]] = [
-        # Stage 1: 10% simple target (post-dedup availability ~4.9%, capped),
-        # 65% medium, 25% hard
         {"simple": 0.10, "medium": 0.65, "hard": 0.25},
-        # Stage 2: 5% simple, 40% medium, 55% hard
         {"simple": 0.05, "medium": 0.40, "hard": 0.55},
-        # Stage 3: 3% simple, 30% medium, 67% hard
         {"simple": 0.03, "medium": 0.30, "hard": 0.67},
     ]
 
@@ -430,15 +290,7 @@ class CurriculumSchedule:
 
 
 class CurriculumFilteredDataset:
-    """Mutable dataset wrapper that filters by curriculum difficulty distribution.
-
-    Wraps a Hugging Face ``Dataset`` and maintains a shuffled index list
-    matching the current stage's target difficulty proportions.  The
-    dataset length is kept constant (padded/truncated) so DataLoader
-    samplers never go out of bounds on stage transitions.
-
-    The underlying data is NOT copied — only the index list is rebuilt.
-    """
+    """Dataset view resampled to the current difficulty distribution."""
 
     def __init__(
         self,
@@ -509,12 +361,7 @@ class CurriculumFilteredDataset:
 
 
 class CurriculumCallback(TrainerCallback):
-    """TrainerCallback that drives curriculum stage transitions during GRPO.
-
-    On each step, checks whether the global step has crossed a stage
-    boundary.  When a new stage begins, triggers a dataset rebuild and
-    logs the transition to stdout and wandb.
-    """
+    """Apply curriculum transitions at stage boundaries."""
 
     def __init__(
         self,
@@ -552,9 +399,7 @@ class CurriculumCallback(TrainerCallback):
             )
             print(f"{'=' * 60}\n")
 
-            # Log curriculum metrics to wandb (no explicit step= — auto-step:
-            # explicit steps get rejected/dropped when unsloth's profiler
-            # races the run's internal counter, see callbacks.py)
+            # Keep custom diagnostics aligned with the trainer's explicit step.
             try:
                 import wandb
 
@@ -564,6 +409,8 @@ class CurriculumCallback(TrainerCallback):
                             "curriculum/stage": float(current_stage + 1),
                             "curriculum/difficulty_distribution": distribution,
                         },
+                        step=state.global_step,
+                        commit=False,
                     )
             except Exception:
                 logger.debug("Failed to log curriculum metrics to wandb", exc_info=True)
@@ -575,11 +422,7 @@ class CurriculumCallback(TrainerCallback):
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    """Build the CLI argument parser.
-
-    Extracted from :func:`main` so tests can exercise the argument wiring
-    (e.g. ``--force-sft``) without launching a training run.
-    """
+    """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(
         description="GRPO training for Text-to-Gloss (T2G) with constrained decoding"
     )
@@ -596,9 +439,33 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--force-sft",
         action="store_true",
         help="Ignore SFT adapter reuse and always retrain SFT from scratch "
-        "(bypasses the fingerprint match on previously saved SFT adapters)",
+        "(bypasses fingerprint matching for saved SFT adapters)",
     )
     return parser
+
+
+def resolve_reusable_sft_adapter(
+    sft_config: dict[str, Any],
+    current_run_dir: str | Path,
+    model_checkpoint_root: str | Path,
+) -> tuple[Path, str] | None:
+    """Resolve a canonical reusable SFT adapter for a GRPO run.
+
+    Discovery is deliberately delegated to the single canonical cross-method
+    search, which covers both standalone SFT finals and SFT-GRPO subphases.
+    """
+    from src.training.sft_train import (
+        compute_sft_fingerprint,
+        find_reusable_sft_adapter_cross_method,
+    )
+
+    current_run = Path(current_run_dir)
+    found = find_reusable_sft_adapter_cross_method(
+        model_checkpoint_root,
+        current_run,
+        compute_sft_fingerprint(sft_config),
+    )
+    return found
 
 
 def main() -> None:
@@ -606,36 +473,18 @@ def main() -> None:
     args = build_arg_parser().parse_args()
 
     config = load_config(args.config)
-
     # ── Resolve timestamped output/log directories and resume logic ──────
-    from datetime import datetime
-
-    training_cfg = config["training"]
-    base_output_dir = Path(training_cfg["output_dir"])
-    base_log_dir = Path(training_cfg["log_dir"])
-
-    run_timestamp = None
-    if args.resume:
-        run_folders = sorted(base_output_dir.glob("run_*"))
-        if run_folders:
-            output_dir = run_folders[-1]
-            run_timestamp = output_dir.name.removeprefix("run_")
-            log_dir = base_log_dir / f"run_{run_timestamp}"
-            print(f"[grpo] Resuming training in existing directory: {output_dir}")
-        else:
-            print(
-                f"[grpo] Warning: No existing run directory found in {base_output_dir} to resume. Creating a new run."
-            )
-
-    if run_timestamp is None:
-        run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = base_output_dir / f"run_{run_timestamp}"
-        log_dir = base_log_dir / f"run_{run_timestamp}"
-        print(f"[grpo] Starting new training run. Output dir: {output_dir}")
+    output_dir, log_dir, run_id, cell = training_run_paths(config, resume=args.resume)
+    run_timestamp = run_id.removeprefix("run_")
+    print(f"[grpo] Resolved training run. Output dir: {output_dir}")
 
     config["training"]["output_dir"] = str(output_dir)
     config["training"]["log_dir"] = str(log_dir)
     config["training"]["run_timestamp"] = run_timestamp
+    if config.get("experiment"):
+        identity = RunPath(cell, run_id)
+        config.setdefault("wandb", {})["run_name"] = wandb_name(identity)
+        config["wandb"]["tags"] = list(wandb_tags(identity))
 
     # Safe config access: support both 'grpo' (GRPO) and 'generation' (SFT) keys
     grpo_cfg = config.get("generation", config.get("grpo", {}))
@@ -649,9 +498,7 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("datasets").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
-    # HF libraries attach their own StreamHandler AND propagate to root —
-    # every library warning printed twice (slurm-train-7073). Strip the
-    # library-owned handlers so each record prints exactly once.
+    # Remove library handlers that duplicate records propagated to root.
     from src.utils.log_dedup import dedupe_library_loggers
 
     dedupe_library_loggers()
@@ -668,7 +515,6 @@ def main() -> None:
     # ── Step 1: Data preparation ─────────────────────────────────────────
     ds_cfg = config["dataset"]
     vocab_path = ds_cfg.get("vocab_path", "data/gloss_vocab.txt")
-    bigram_path = ds_cfg.get("bigram_matrix_path", "data/bigram_transition.npy")
 
     print(f"\n{'=' * 60}")
     print("STEP 1: Data Preparation")
@@ -680,7 +526,7 @@ def main() -> None:
 
     # Caches are keyed by (seed, train_size): if either changes (e.g. a new
     # seed, or dataset dedup changing the split composition), the vocab and
-    # bigram artifacts must be regenerated.  Legacy caches without a sidecar
+    # bigram artifacts must be regenerated. Caches without a sidecar
     # are never trusted (see _cache_is_current).
     train_size = len(dataset["train"])
 
@@ -694,17 +540,7 @@ def main() -> None:
         save_vocabulary(vocab, vocab_path)
         _write_cache_meta(vocab_path, seed, train_size)
 
-    # Compute transition matrix (or load from cache if still current)
-    if _cache_is_current(bigram_path, seed, train_size):
-        bigram_matrix = load_transition_matrix(bigram_path)
-    else:
-        bigram_matrix = compute_bigram_transitions(
-            dataset, vocab, split="train", smoothing=1.0
-        )
-        save_transition_matrix(bigram_matrix, bigram_path)
-        _write_cache_meta(bigram_path, seed, train_size)
-
-    print(f"  Data prepared: |V|={len(vocab)}, bigram shape={bigram_matrix.shape}")
+    print(f"  Data prepared: |V|={len(vocab)}")
 
     if args.prepare_data:
         print("Data preparation complete. Exiting.")
@@ -718,15 +554,6 @@ def main() -> None:
         print("STEP 1.5: SFT Pre-training")
         # Live status: the SFT phase begins (adapter reuse skips this block).
         live_status_set(phase="sft", note="SFT pre-training")
-
-        from src.training.sft_train import (
-            clone_sft_adapter,
-            compute_sft_fingerprint,
-            find_reusable_sft_adapter,
-            find_reusable_sft_adapter_cross_tag,
-            is_complete_adapter_dir,
-            run_sft,
-        )
 
         # Build a synthetic config for run_sft using sft_pretrain section
         sft_config = {
@@ -760,6 +587,11 @@ def main() -> None:
         #   - sft_pretrain.reuse_adapter: false → always retrain
         #   - sft_pretrain.adapter_path: <dir>  → explicit adapter (no search)
         #   - --force-sft                        → always retrain (CLI override)
+        from src.training.sft_train import (
+            is_complete_adapter_dir,
+            run_sft,
+        )
+
         explicit_adapter = sft_pretrain_cfg.get("adapter_path")
         reuse_adapter = sft_pretrain_cfg.get("reuse_adapter", True)
         reused_adapter: str | None = None
@@ -774,43 +606,19 @@ def main() -> None:
                     f"{explicit_adapter} — ignoring it"
                 )
         elif reuse_adapter and not args.force_sft:
-            fingerprint = compute_sft_fingerprint(sft_config)
-            # Search order: (1) sibling runs of the SAME tag, e.g.
-            # experiments/checkpoints/qwen25-05b-sft-grpo/run_*/sft_pretrain/final;
-            # (2) ANY other tag under experiments/checkpoints/ — a new tag
-            # config with an IDENTICAL sft_pretrain section (e.g.
-            # sft-grpo-all-rewards) trains a bit-identical SFT, so we reuse
-            # the existing adapter and skip the ~1h retrain (the fingerprint
-            # is tag-independent: model/lora/dataset/hyperparams/system prompt).
-            # Cross-tag matches are COPIED into this run's sft_pretrain/final
-            # so the run stays self-contained.
-            model_root = Path(config["training"]["output_dir"]).parent
-            found = find_reusable_sft_adapter(model_root, fingerprint)
-            if found is not None:
-                reused_adapter = str(found)
+            resolved = resolve_reusable_sft_adapter(
+                sft_config,
+                config["training"]["output_dir"],
+                Path("experiments/checkpoints") / cell.model_tag,
+            )
+            if resolved is not None:
+                source, source_cell = resolved
+                reused_adapter = str(source)
                 print(
-                    "  Reusing SFT adapter from "
-                    f"{Path(reused_adapter).parent.parent.name} "
-                    "(fingerprint match) — skipping SFT training"
+                    f"  Reusing SFT adapter from cell '{source_cell}' "
+                    "(identical SFT config — fingerprint match), "
+                    f"at {source} — skipping SFT training"
                 )
-            else:
-                cross = find_reusable_sft_adapter_cross_tag(
-                    model_root.parent, model_root, fingerprint
-                )
-                if cross is not None:
-                    src_adapter, src_tag = cross
-                    dest = (
-                        Path(config["training"]["output_dir"])
-                        / "sft_pretrain"
-                        / "final"
-                    )
-                    clone_sft_adapter(src_adapter, dest)
-                    reused_adapter = str(dest)
-                    print(
-                        f"  Reusing SFT adapter from tag '{src_tag}' "
-                        "(identical SFT config — fingerprint match), "
-                        f"copied to {dest} — skipping SFT training"
-                    )
 
         if reused_adapter is not None:
             sft_adapter_path = reused_adapter
@@ -936,36 +744,15 @@ def main() -> None:
     # NOTE: no gold-gloss registry anymore.  The ``gold_gloss`` column is
     # preserved on the dataset and TRL 0.24 forwards it to the reward
     # functions as a kwarg (see t2g_rewards._make_gloss_reward_fn), which
-    # eliminates the SHA256-of-text-only collision problem of the old
-    # registry (duplicate English sentences mapped to the wrong gold gloss).
+    # eliminates SHA256-of-text-only collisions when duplicate English
+    # sentences map to different gold glosses.
 
     # ── Step 5: Reward functions ─────────────────────────────────────────
     print(f"\n{'=' * 60}")
     print("STEP 5: Reward Functions")
 
-    initialize_rewards(
-        bigram_matrix,
-        vocab,
-        viterbi_diversity=config.get("grammar", {}).get("viterbi_diversity"),
-    )
+    initialize_rewards(vocab)
     reward_fns, reward_weights = build_t2g_reward_functions(config.get("reward"))
-
-    # ── Wire completion sample logging (for live chain_monitor display) ─
-    from src.training.callbacks import (
-        CompletionSampleCallback,
-        CompletionSampleLogger,
-        HighPrecisionLogCallback,
-        TqdmOnlyProgressCallback,
-    )
-
-    sample_logger = CompletionSampleLogger(reward_fns, reward_weights, n_samples=3)
-    sample_logger.set_difficulty_map(t2g_dataset)
-    wrapped_reward_fns = sample_logger.wrapped_reward_fns
-    sample_callback = CompletionSampleCallback(
-        sample_logger,
-        every_n_steps=5,
-        logits_processor=logits_processor_for_gen,
-    )
 
     # ── Curriculum Learning setup ────────────────────────────────────────
     curriculum_cfg = config.get("curriculum", {})
@@ -1007,6 +794,29 @@ def main() -> None:
         grpo_cfg,
         config,
         reward_weights=reward_weights,
+    )
+
+    # The instantiated TRL config is the sole source of truth for group size.
+    from src.training.callbacks import (
+        CompletionSampleCallback,
+        CompletionSampleLogger,
+        HighPrecisionLogCallback,
+        TqdmOnlyProgressCallback,
+    )
+
+    sample_logger = CompletionSampleLogger(
+        reward_fns,
+        reward_weights,
+        n_samples=3,
+        group_size=int(grpo_config.num_generations),
+    )
+    assert sample_logger._group_size == grpo_config.num_generations
+    sample_logger.set_difficulty_map(t2g_dataset)
+    wrapped_reward_fns = sample_logger.wrapped_reward_fns
+    sample_callback = CompletionSampleCallback(
+        sample_logger,
+        every_n_steps=5,
+        logits_processor=logits_processor_for_gen,
     )
 
     print(
@@ -1059,8 +869,7 @@ def main() -> None:
             print(f"[grpo] Resuming from {resume_from}")
 
     # ── Wandb setup ──────────────────────────────────────────────────────
-    # Modalità offline (cluster senza internet) — come grpo-strict-generation.
-    # WANDB_MODE=offline è già esportato da train.sh; lo rinforziamo qui.
+    # Keep W&B offline on network-isolated compute nodes.
     wandb_cfg = config.get("wandb", {})
     log_dir = config["training"]["log_dir"]
     if "WANDB_MODE" not in os.environ:
@@ -1189,12 +998,7 @@ def main() -> None:
     def _patched_generate(*_args: Any, **_kwargs: Any) -> Any:
         nonlocal _lp_called
         if logits_processor_for_gen is not None:
-            # CRITICAL: reset the processor's prompt_len cache before each
-            # generate() call. TRL generates completions for different prompts
-            # in sequence — if prompt_len is stale from a previous rollout,
-            # the Trie traces from the wrong offset in input_ids, producing
-            # garbage allowed-token sets. This was the root cause of the
-            # DEBUTRECHT/HOWEVERY garbage tokens in the 2026-07-08 run.
+            # Prompt offsets are generation-specific; never reuse cached state.
             logits_processor_for_gen.reset()
             _kwargs["logits_processor"] = [logits_processor_for_gen] + _kwargs.get(
                 "logits_processor", []
@@ -1220,13 +1024,11 @@ def main() -> None:
         "  model.generate monkey-patched on trainer.model (autocast + logits_processor)"
     )
 
-    # Replace default ProgressCallback with TqdmOnlyProgressCallback
-    # (keeps tqdm bar, suppresses duplicate log lines — same as grpo-strict-generation)
+    # Keep tqdm while suppressing duplicate progress log lines.
     try:
         trainer.remove_callback(ProgressCallback)
         trainer.add_callback(TqdmOnlyProgressCallback)
         trainer.add_callback(HighPrecisionLogCallback())
-        trainer.remove_callback(WandbCallback)
     except Exception:
         pass
 

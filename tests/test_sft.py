@@ -21,11 +21,10 @@ import yaml
 from datasets import Dataset
 from src.training.sft_train import (
     _build_prompt_completion_example,
-    clone_sft_adapter,
     compute_sft_fingerprint,
-    find_reusable_sft_adapter,
-    find_reusable_sft_adapter_cross_tag,
+    find_reusable_sft_adapter_cross_method,
     is_complete_adapter_dir,
+    resolve_sft_run_paths,
     split_eval_holdout,
     write_sft_fingerprint,
 )
@@ -35,8 +34,9 @@ SFT_CONFIG_PATH = (
     Path(__file__).resolve().parent.parent
     / "experiments"
     / "configs"
-    / "t2g"
-    / "sft-only.yaml"
+    / "qwen25-05b"
+    / "sft"
+    / "zero-shot.yaml"
 )
 
 
@@ -162,6 +162,19 @@ def test_prepare_sft_dataset_uses_eval_fraction(monkeypatch) -> None:
     assert len(eval_ds) == 10
 
 
+def test_sft_source_uses_vocab_sidecar_and_not_bigram() -> None:
+    """SFT follows GRPO vocab metadata discipline without loading bigrams."""
+    import inspect
+
+    from src.training import sft_train
+
+    source = inspect.getsource(sft_train.run_sft)
+    assert "cache_is_current" in source
+    assert "write_cache_meta" in source
+    assert "load_transition_matrix" not in source
+    assert "compute_bigram_transitions" not in source
+
+
 # ---------------------------------------------------------------------------
 # 2. Seeded eval holdout split
 # ---------------------------------------------------------------------------
@@ -279,8 +292,8 @@ def _sft_fingerprint_config(**training_overrides: object) -> dict:
             },
         },
         "training": {
-            "output_dir": "experiments/checkpoints/qwen25-05b-sft-grpo",
-            "log_dir": "experiments/logs/qwen25-05b-sft-grpo",
+            "output_dir": "experiments/checkpoints/qwen25-05b/sft-grpo/zero-shot",
+            "log_dir": "experiments/logs/qwen25-05b/sft-grpo/zero-shot",
             "run_timestamp": "20260714_233901",
             "max_steps": 2000,
         },
@@ -443,128 +456,189 @@ def _make_adapter_run(
     return final
 
 
-def test_find_reusable_sft_adapter_match(tmp_path) -> None:
-    """A matching, complete adapter run is returned."""
+def _make_standalone_adapter_run(
+    model_root: Path, name: str, fingerprint: str, *, complete: bool = True, mtime=None
+) -> Path:
+    """Create canonical ``sft/zero-shot/<run>/final`` adapter output."""
+    final = model_root / "sft" / "zero-shot" / name / "final"
+    final.mkdir(parents=True, exist_ok=True)
+    metadata = final / "sft_fingerprint.json"
+    metadata.write_text(json.dumps({"fingerprint": fingerprint}), encoding="utf-8")
+    if complete:
+        (final / "adapter_config.json").write_text("{}", encoding="utf-8")
+        (final / "adapter_model.safetensors").write_bytes(b"standalone-weights")
+    if mtime is not None:
+        stamp = mtime.timestamp()
+        os.utime(metadata, (stamp, stamp))
+    return final
+
+
+# --- Cross-cell reuse ------------------------------------------------------
+
+
+def test_find_reusable_sft_adapter_cross_method_finds_standalone(tmp_path) -> None:
+    """Canonical standalone SFT output is reusable by an SFT-GRPO run."""
+    model_root = tmp_path / "checkpoints" / "qwen25-05b"
     fp = compute_sft_fingerprint(_sft_fingerprint_config())
-    run = _make_adapter_run(tmp_path, "run_20260714_233901", fp)
-    assert find_reusable_sft_adapter(tmp_path, fp) == run
+    adapter = _make_standalone_adapter_run(model_root, "run_1", fp)
+    current = model_root / "sft-grpo" / "few-shot" / "run_2"
+    current.mkdir(parents=True)
+
+    found = find_reusable_sft_adapter_cross_method(model_root, current, fp)
+    assert found == (adapter, "sft/zero-shot")
 
 
-def test_find_reusable_sft_adapter_no_match(tmp_path) -> None:
-    """A run with a different fingerprint is not reused."""
+def test_find_reusable_sft_adapter_cross_method_finds_subphase(tmp_path) -> None:
+    """Canonical SFT-GRPO subphase output is also reusable."""
+    model_root = tmp_path / "checkpoints" / "qwen25-05b"
     fp = compute_sft_fingerprint(_sft_fingerprint_config())
-    _make_adapter_run(tmp_path, "run_20260714_233901", "deadbeef")
-    assert find_reusable_sft_adapter(tmp_path, fp) is None
+    source = model_root / "sft-grpo" / "zero-shot"
+    adapter = _make_adapter_run(source, "run_1", fp)
+    current = model_root / "sft-grpo" / "few-shot" / "run_2"
+    current.mkdir(parents=True)
+
+    found = find_reusable_sft_adapter_cross_method(model_root, current, fp)
+    assert found == (adapter, "sft-grpo/zero-shot")
 
 
-def test_find_reusable_sft_adapter_no_candidates(tmp_path) -> None:
-    """Empty/unknown parent → no match (and no crash)."""
+def test_find_reusable_sft_adapter_cross_method_excludes_current(tmp_path) -> None:
+    """The current run is excluded from canonical cross-method discovery."""
+    model_root = tmp_path / "checkpoints" / "qwen25-05b"
     fp = compute_sft_fingerprint(_sft_fingerprint_config())
-    assert find_reusable_sft_adapter(tmp_path, fp) is None
-    assert find_reusable_sft_adapter(tmp_path / "missing", fp) is None
+    current = model_root / "sft-grpo" / "zero-shot" / "run_1"
+    _make_adapter_run(current.parent, current.name, fp)
+
+    assert find_reusable_sft_adapter_cross_method(model_root, current, fp) is None
 
 
-def test_find_reusable_sft_adapter_skips_incomplete_match(tmp_path) -> None:
-    """Fingerprint match but missing adapter files → skipped, not reused."""
+def test_find_reusable_sft_adapter_cross_method_no_match(tmp_path) -> None:
+    """Mismatched and incomplete canonical adapters are ignored."""
+    model_root = tmp_path / "checkpoints" / "qwen25-05b"
     fp = compute_sft_fingerprint(_sft_fingerprint_config())
-    _make_adapter_run(tmp_path, "run_a", "deadbeef")
-    _make_adapter_run(tmp_path, "run_b", fp, complete=False)
-    assert find_reusable_sft_adapter(tmp_path, fp) is None
-
-
-def test_find_reusable_sft_adapter_prefers_newest_matching(tmp_path) -> None:
-    """With several matches, the most recently modified run wins."""
-    from datetime import datetime
-
-    fp = compute_sft_fingerprint(_sft_fingerprint_config())
-    _make_adapter_run(tmp_path, "run_a", fp, mtime=datetime(2024, 1, 1))
-    new = _make_adapter_run(tmp_path, "run_b", fp, mtime=datetime(2026, 6, 1))
-    assert find_reusable_sft_adapter(tmp_path, fp) == new
-
-
-def test_find_reusable_sft_adapter_newer_wrong_does_not_shadow(tmp_path) -> None:
-    """A newer run with a wrong fingerprint does not shadow an older match."""
-    from datetime import datetime
-
-    fp = compute_sft_fingerprint(_sft_fingerprint_config())
-    older_correct = _make_adapter_run(tmp_path, "run_a", fp, mtime=datetime(2024, 1, 1))
-    _make_adapter_run(tmp_path, "run_b", "deadbeef", mtime=datetime(2026, 6, 1))
-    assert find_reusable_sft_adapter(tmp_path, fp) == older_correct
-
-
-# --- Cross-tag reuse (sft-grpo-all-rewards reuses optimal's SFT) ----------
-
-
-def test_find_reusable_sft_adapter_cross_tag_match(tmp_path) -> None:
-    """A NEW tag with an identical sft_pretrain section finds the adapter
-    trained under a DIFFERENT tag (job 7078 retrained it needlessly)."""
-    ckpts = tmp_path / "checkpoints"
-    fp = compute_sft_fingerprint(_sft_fingerprint_config())
-    adapter = _make_adapter_run(ckpts / "qwen25-05b-sft-grpo", "run_1", fp)
-    (ckpts / "qwen25-05b-sft-grpo-all-rewards").mkdir(parents=True)
-
-    found = find_reusable_sft_adapter_cross_tag(
-        ckpts, ckpts / "qwen25-05b-sft-grpo-all-rewards", fp
+    _make_standalone_adapter_run(model_root, "run_1", "deadbeef")
+    _make_adapter_run(
+        model_root / "sft-grpo" / "zero-shot", "run_2", fp, complete=False
     )
-    assert found == (adapter, "qwen25-05b-sft-grpo")
-
-
-def test_find_reusable_sft_adapter_cross_tag_excludes_current(tmp_path) -> None:
-    """The current tag's dir is excluded (already searched same-tag)."""
-    ckpts = tmp_path / "checkpoints"
-    fp = compute_sft_fingerprint(_sft_fingerprint_config())
-    _make_adapter_run(ckpts / "tagA", "run_1", fp)
-    (ckpts / "tagB").mkdir()
-
-    assert find_reusable_sft_adapter_cross_tag(ckpts, ckpts / "tagA", fp) is None
-
-
-def test_find_reusable_sft_adapter_cross_tag_no_match(tmp_path) -> None:
-    """Different fingerprints under every other tag → None."""
-    ckpts = tmp_path / "checkpoints"
-    fp = compute_sft_fingerprint(_sft_fingerprint_config())
-    _make_adapter_run(ckpts / "tagA", "run_1", "deadbeef")
-    (ckpts / "tagB").mkdir()
-    assert find_reusable_sft_adapter_cross_tag(ckpts, ckpts / "tagB", fp) is None
+    current = model_root / "sft-grpo" / "few-shot" / "run_3"
+    current.mkdir(parents=True)
+    assert find_reusable_sft_adapter_cross_method(model_root, current, fp) is None
     assert (
-        find_reusable_sft_adapter_cross_tag(ckpts / "missing", ckpts / "tagB", fp)
+        find_reusable_sft_adapter_cross_method(model_root / "missing", current, fp)
         is None
     )
 
 
-def test_find_reusable_sft_adapter_cross_tag_prefers_newest(tmp_path) -> None:
-    """Multiple matching tags → the most recently modified adapter wins."""
+def test_find_reusable_sft_adapter_cross_method_prefers_newest(tmp_path) -> None:
+    """Newest canonical match wins across standalone and subphase layouts."""
     from datetime import datetime
 
-    ckpts = tmp_path / "checkpoints"
+    model_root = tmp_path / "checkpoints" / "qwen25-05b"
     fp = compute_sft_fingerprint(_sft_fingerprint_config())
-    old = _make_adapter_run(ckpts / "tagA", "run_1", fp, mtime=datetime(2024, 1, 1))
-    new = _make_adapter_run(ckpts / "tagC", "run_1", fp, mtime=datetime(2026, 6, 1))
-    (ckpts / "tagB").mkdir()
+    old = _make_standalone_adapter_run(
+        model_root, "run_1", fp, mtime=datetime(2024, 1, 1)
+    )
+    new = _make_adapter_run(
+        model_root / "sft-grpo" / "zero-shot",
+        "run_2",
+        fp,
+        mtime=datetime(2026, 6, 1),
+    )
+    current = model_root / "sft-grpo" / "few-shot" / "run_3"
+    current.mkdir(parents=True)
 
-    found = find_reusable_sft_adapter_cross_tag(ckpts, ckpts / "tagB", fp)
-    assert found == (new, "tagC")
-    assert found != (old, "tagA")
+    found = find_reusable_sft_adapter_cross_method(model_root, current, fp)
+    assert found == (new, "sft-grpo/zero-shot")
+    assert found != (old, "sft/zero-shot")
 
 
-def test_clone_sft_adapter_copies_files_only(tmp_path) -> None:
-    """clone_sft_adapter makes the new run self-contained: adapter files +
-    fingerprint copied, checkpoint-*/wandb subdirs skipped."""
-    src = _make_adapter_run(tmp_path / "tagA", "run_1", "fp")
-    (src / "checkpoint-200").mkdir()
-    (src / "checkpoint-200" / "adapter_model.safetensors").write_bytes(b"x")
-    (src / "wandb").mkdir()
+def test_find_reusable_sft_adapter_cross_method_stable_path_tiebreak(tmp_path) -> None:
+    """Equal mtimes are resolved deterministically by canonical path."""
+    from datetime import datetime
 
-    dest = tmp_path / "tagB" / "run_2" / "sft_pretrain" / "final"
-    out = clone_sft_adapter(src, dest)
+    model_root = tmp_path / "checkpoints" / "qwen25-05b"
+    fp = compute_sft_fingerprint(_sft_fingerprint_config())
+    stamp = datetime(2026, 6, 1)
+    standalone = _make_standalone_adapter_run(model_root, "run_1", fp, mtime=stamp)
+    _make_adapter_run(model_root / "sft-grpo" / "zero-shot", "run_1", fp, mtime=stamp)
+    current = model_root / "sft-grpo" / "few-shot" / "run_2"
+    current.mkdir(parents=True)
 
-    assert out == dest
-    assert is_complete_adapter_dir(dest)
-    assert (dest / "sft_fingerprint.json").is_file()
-    assert not (dest / "checkpoint-200").exists()
-    assert not (dest / "wandb").exists()
-    # The clone is itself findable by the SAME-TAG search of future runs:
-    assert find_reusable_sft_adapter(dest.parent.parent.parent, "fp") == dest
+    expected = max(
+        (standalone, "sft/zero-shot"),
+        (
+            model_root / "sft-grpo" / "zero-shot" / "run_1" / "sft_pretrain" / "final",
+            "sft-grpo/zero-shot",
+        ),
+        key=lambda item: (item[0] / "sft_fingerprint.json").as_posix(),
+    )
+    assert find_reusable_sft_adapter_cross_method(model_root, current, fp) == expected
+
+
+def test_cross_method_search_ignores_noncanonical_flat_paths(tmp_path) -> None:
+    """Old flat or arbitrary recursive layouts are never considered."""
+    model_root = tmp_path / "checkpoints" / "qwen25-05b"
+    fp = compute_sft_fingerprint(_sft_fingerprint_config())
+    _make_adapter_run(model_root / "legacy-flat-cell", "run_1", fp)
+    current = model_root / "sft-grpo" / "few-shot" / "run_2"
+    current.mkdir(parents=True)
+
+    assert find_reusable_sft_adapter_cross_method(model_root, current, fp) is None
+
+
+def test_resolve_sft_run_paths_standalone_canonical(monkeypatch) -> None:
+    """Standalone config without path keys resolves through canonical paths."""
+    cfg = yaml.safe_load(SFT_CONFIG_PATH.read_text(encoding="utf-8"))
+    cfg["model"] = {"name": "Qwen/Qwen2.5-0.5B-Instruct"}
+    expected_output = Path("experiments/checkpoints/qwen25-05b/sft/zero-shot/run_fixed")
+    expected_log = Path("experiments/logs/qwen25-05b/sft/zero-shot/run_fixed")
+
+    def fake_training_run_paths(config, *, resume=False):
+        from src.utils.paths import cell_from_config
+
+        assert "output_dir" not in config["training"]
+        assert "log_dir" not in config["training"]
+        assert resume is False
+        return expected_output, expected_log, "run_fixed", cell_from_config(config)
+
+    monkeypatch.setattr(
+        "src.training.sft_train.training_run_paths", fake_training_run_paths
+    )
+    output, log, timestamp, cell = resolve_sft_run_paths(cfg)
+
+    assert (output, log, timestamp) == (expected_output, expected_log, "fixed")
+    assert (cell.method, cell.train_prompt_mode) == ("sft", "zero-shot")
+
+
+def test_resolve_sft_run_paths_preserves_grpo_subphase(monkeypatch) -> None:
+    """Explicit SFT-GRPO subphase output and log directories are unchanged."""
+    cfg = _sft_fingerprint_config()
+    output = Path(
+        "experiments/checkpoints/qwen25-05b/sft-grpo/few-shot/"
+        "run_20260906_130000/sft_pretrain"
+    )
+    log = Path(
+        "experiments/logs/qwen25-05b/sft-grpo/few-shot/"
+        "run_20260906_130000/sft_pretrain"
+    )
+    cfg["experiment"] = {
+        "model_tag": "qwen25-05b",
+        "method": "sft-grpo",
+        "train_prompt_mode": "few-shot",
+        "variant": "none",
+        "kind": "train",
+    }
+    cfg["training"].update(output_dir=str(output), log_dir=str(log))
+    monkeypatch.setattr(
+        "src.training.sft_train.training_run_paths",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("canonical standalone resolver must not run")
+        ),
+    )
+
+    resolved_output, resolved_log, timestamp, cell = resolve_sft_run_paths(cfg)
+    assert (resolved_output, resolved_log) == (output, log)
+    assert timestamp == "20260906_130000"
+    assert (cell.method, cell.train_prompt_mode) == ("sft-grpo", "few-shot")
 
 
 def test_grpo_cli_force_sft_flag() -> None:

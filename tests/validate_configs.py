@@ -5,7 +5,7 @@ e chiavi obbligatorie.
 Uso:
     python -m tests.validate_configs
     python -m tests.validate_configs --verbose
-    python -m tests.validate_configs --config experiments/configs/t2g/sft-grpo.yaml
+    python -m tests.validate_configs --config experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml
 
 I config vengono caricati via ``src.utils.config.resolve_config``, quindi le
 catene ``extends`` vengono risolte prima della validazione.
@@ -54,7 +54,7 @@ DEAD_KEYS = {"verifier_gamma", "verifier_temperature"}
 # Required top-level sections per config "kind"
 REQUIRED_SECTIONS: dict[str, set[str]] = {
     # All configs must have these
-    "_all": {"model", "dataset", "wandb"},
+    "_all": {"experiment", "model", "dataset", "wandb"},
     # GRPO training configs
     "grpo": {"training", "reward", "grpo", "lora"},
     # SFT training configs (has training.trainer=sft)
@@ -66,7 +66,7 @@ REQUIRED_SECTIONS: dict[str, set[str]] = {
 REQUIRED_KEYS: dict[str, set[str]] = {
     "model": {"name", "num_gpus"},
     "dataset": {"dataset_name", "vocab_path", "bigram_matrix_path", "seed"},
-    "training": {"output_dir", "log_dir"},
+    "training": set(),
     "wandb": {"project", "run_name"},
 }
 
@@ -113,17 +113,9 @@ TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
     "lora.lora_alpha": int,
     "lora.lora_dropout": (int, float),
     "lora.random_state": int,
-    "reward.weight_translation": (int, float),
-    "reward.weight_gold_structure": (int, float),
-    "reward.weight_structure": (int, float),
-    "reward.weight_viterbi": (int, float),
-    "reward.weight_soft_viterbi": (int, float),
-    "reward.weight_verifier_scaled": (int, float),
-    "reward.weight_gloss_order": (int, float),
-    "reward.weight_format": (int, float),
-    "reward.weight_repetition": (int, float),
-    "reward.weight_bleu": (int, float),
 }
+
+_TOKEN_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -139,6 +131,8 @@ def _detect_kind(cfg: dict[str, Any]) -> str:
     ``num_train_epochs``) — può comunque ereditare una sezione ``training``
     parziale e un blocco ``grpo`` da ``base.yaml``.
     """
+    if cfg.get("experiment", {}).get("kind") == "probe":
+        return "probe"
     trainer = cfg.get("training", {}).get("trainer", "grpo")
     if trainer == "sft":
         return "sft"
@@ -234,14 +228,6 @@ def _validate_cross_section(cfg: dict[str, Any], errors: list[str], path: str) -
                 f"ma grammar.pda_temperature mancante"
             )
 
-    # If grammar.enabled is true, viterbi_diversity should exist
-    if grammar.get("enabled", True):
-        if "viterbi_diversity" not in grammar:
-            errors.append(
-                f"{path}: grammar.enabled=true "
-                f"ma grammar.viterbi_diversity mancante"
-            )
-
     # Training configs should have either max_steps or num_train_epochs
     # (eval-only configs ereditano una sezione `training` parziale da base.yaml)
     training = cfg.get("training", {})
@@ -266,6 +252,28 @@ def _validate_cross_section(cfg: dict[str, Any], errors: list[str], path: str) -
             errors.append(f"{path}: GRPO config deve avere grpo.num_generations")
         if "beta" not in grpo:
             errors.append(f"{path}: GRPO config deve avere grpo.beta")
+
+    experiment = cfg.get("experiment")
+    if experiment is not None:
+        if not isinstance(experiment, dict):
+            errors.append(f"{path}: experiment deve essere un dizionario")
+        else:
+            for key in ("model_tag", "method", "train_prompt_mode", "variant", "kind"):
+                value = experiment.get(key)
+                if not isinstance(value, str) or not _TOKEN_RE.fullmatch(value):
+                    errors.append(f"{path}: experiment.{key} token invalido: {value!r}")
+            if experiment.get("method") not in {"base", "sft", "grpo", "sft-grpo"}:
+                errors.append(f"{path}: experiment.method enum invalido")
+            if experiment.get("train_prompt_mode") not in {
+                "none",
+                "zero-shot",
+                "few-shot",
+            }:
+                errors.append(f"{path}: experiment.train_prompt_mode enum invalido")
+            if experiment.get("variant") not in {"none", "pda", "hot"}:
+                errors.append(f"{path}: experiment.variant enum invalido")
+            if experiment.get("kind") not in {"baseline", "train", "ablation", "probe"}:
+                errors.append(f"{path}: experiment.kind enum invalido")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -322,6 +330,14 @@ def validate_config(config_path: Path, verbose: bool = False) -> list[str]:
         else:
             print(f"  [{kind}] {path}")
 
+    if kind == "probe":
+        if set(cfg) != {"experiment", "probe"}:
+            errors.append(f"{path}: probe schema consente solo experiment e probe")
+        if not isinstance(cfg.get("probe"), dict) or not cfg["probe"].get("name"):
+            errors.append(f"{path}: probe.name mancante")
+        _validate_cross_section(cfg, errors, path)
+        return errors
+
     # ── Chiavi morte (verifier_gamma / verifier_temperature) ───────────
     for dotted in _iter_dead_keys(cfg):
         errors.append(f"{path}: chiave morta '{dotted}' (rimossa dal codice)")
@@ -339,9 +355,6 @@ def validate_config(config_path: Path, verbose: bool = False) -> list[str]:
     for section, keys in REQUIRED_KEYS.items():
         if section not in cfg:
             continue  # already reported above
-        # eval-only configs don't train → output/log dirs non richiesti
-        if kind == "eval-only" and section == "training":
-            continue
         sec = cfg[section]
         if not isinstance(sec, dict):
             errors.append(

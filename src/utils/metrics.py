@@ -1,9 +1,7 @@
 """Evaluation metrics for T2G gloss generation.
 
-Computes ROUGE-L, sacreBLEU BLEU (sentence/corpus), chrF2, token-level
-gloss F1, Pass@k, per-component reward breakdowns (direct calls — no
-gold-gloss registry), seeded evaluation sampling, and completion
-validity statistics for ASL gloss sequences.
+Computes text-quality metrics, production reward summaries, seeded
+evaluation sampling, and completion validity statistics.
 """
 
 from __future__ import annotations
@@ -11,6 +9,7 @@ from __future__ import annotations
 import random
 import re
 from collections import Counter
+from math import comb
 from typing import Any
 
 import numpy as np
@@ -22,7 +21,33 @@ from src.utils.text_utils import extract_gloss_text
 # (e.g. v2 = corpus BLEU/chrF reference-format fix). Eval results carry this
 # stamp so cached baselines computed with older definitions are detected and
 # recomputed instead of silently compared against new ones.
-METRICS_VERSION = 2
+METRICS_VERSION = 3
+
+
+def normalize_gloss(text: Any) -> str:
+    """Extract gloss text, casefold it, and collapse whitespace."""
+    return " ".join(extract_gloss_text(str(text or "")).casefold().split())
+
+
+def normalized_exact_match(generated: Any, reference: Any) -> float:
+    """Case-insensitive exact match after gloss extraction/space collapse."""
+    return float(normalize_gloss(generated) == normalize_gloss(reference))
+
+
+def normalized_edit_similarity(generated: Any, reference: Any) -> float:
+    """Normalized token Levenshtein similarity in [0, 1]."""
+    left, right = normalize_gloss(generated).split(), normalize_gloss(reference).split()
+    if not left and not right:
+        return 1.0
+    previous = list(range(len(right) + 1))
+    for i, lhs in enumerate(left, 1):
+        current = [i]
+        for j, rhs in enumerate(right, 1):
+            current.append(
+                min(current[-1] + 1, previous[j] + 1, previous[j - 1] + (lhs != rhs))
+            )
+        previous = current
+    return 1.0 - previous[-1] / max(len(left), len(right), 1)
 
 
 def check_gloss_validity(completion: str) -> tuple[bool, str]:
@@ -46,25 +71,11 @@ def check_gloss_validity(completion: str) -> tuple[bool, str]:
     if "```" in text or "{" in text or "}" in text:
         return False, "code_block_detected"
 
-    # Try vocabulary-based validation (preferred — no false positives)
-    try:
-        from src.rewards.t2g_rewards import _gloss_vocab
+    from src.rewards.t2g_rewards import _gloss_vocab
 
-        if _gloss_vocab:
-            vocab_set = set(_gloss_vocab)
-            valid_count = sum(1 for t in tokens if t in vocab_set)
-            valid_ratio = valid_count / len(tokens) if tokens else 0.0
-            if valid_ratio < 0.5:
-                return False, "out_of_vocab_tokens"
-            # Even if tokens are in vocab, check for excessive repetition
-            # (e.g., "IX IX IX IX IX" is all valid glosses but degenerate)
-            if len(tokens) > 4:
-                unique_ratio = len(set(tokens)) / len(tokens)
-                if unique_ratio < 0.3:
-                    return False, "excessive_repetition"
-            return True, ""
-    except ImportError:
-        pass
+    normalized_tokens = [token.casefold() for token in tokens]
+    if _gloss_vocab and any(token not in _gloss_vocab for token in normalized_tokens):
+        return False, "out_of_vocab_tokens"
 
     # Fallback: heuristic checks (only if vocab not available)
     # NOTE: these patterns produce false positives on valid ASL glosses
@@ -78,8 +89,8 @@ def check_gloss_validity(completion: str) -> tuple[bool, str]:
             return False, "free_text_detected"
 
     # Check for excessive repetition (>50% same token)
-    if len(tokens) > 4:
-        unique_ratio = len(set(tokens)) / len(tokens)
+    if len(normalized_tokens) > 4:
+        unique_ratio = len(set(normalized_tokens)) / len(normalized_tokens)
         if unique_ratio < 0.3:
             return False, "excessive_repetition"
 
@@ -117,8 +128,11 @@ def compute_pass_at_k(
     k_values: list[int] | tuple[int, ...] = (1, 5, 10),
     threshold: float = 0.3,
 ) -> dict[str, float]:
-    """Compute Pass@k: fraction of prompts where at least 1 of k
-    completions reaches ROUGE-L ≥ threshold.
+    """Compute the standard Pass@k estimator averaged over prompts.
+
+    Success is explicitly ROUGE-L >= ``threshold`` AND lexical validity.
+    For each prompt with ``n`` samples and ``c`` successes, the estimate is
+    ``1 - C(n-c,k) / C(n,k)``. All available samples determine ``c``.
 
     Args:
         completions_per_prompt: For each prompt, a list of k completions.
@@ -129,18 +143,182 @@ def compute_pass_at_k(
     Returns:
         Dict like {"pass@1": 0.72, "pass@5": 0.88, "pass@10": 0.93}.
     """
+    if len(completions_per_prompt) != len(references):
+        raise ValueError("compute_pass_at_k requires aligned prompt groups/references")
     n_prompts = len(completions_per_prompt)
     results: dict[str, float] = {}
 
     for k in k_values:
-        passes = 0
+        estimates: list[float] = []
         for comps, ref in zip(completions_per_prompt, references):
-            subset = comps[:k]
-            if any(rouge_l_score(c, ref) >= threshold for c in subset):
-                passes += 1
-        results[f"pass@{k}"] = passes / max(n_prompts, 1)
+            n = len(comps)
+            if k <= 0 or k > n:
+                raise ValueError(f"pass@k requires 1 <= k <= n, got k={k}, n={n}")
+            c = sum(
+                check_gloss_validity(comp)[0] and rouge_l_score(comp, ref) >= threshold
+                for comp in comps
+            )
+            estimates.append(1.0 if n - c < k else 1.0 - comb(n - c, k) / comb(n, k))
+        results[f"pass@{k}"] = float(np.mean(estimates)) if n_prompts else 0.0
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Group diagnostics (preregistered instrumentation over G completions/prompt)
+# ---------------------------------------------------------------------------
+
+
+def normalize_gloss_diagnostics_text(text: Any) -> str:
+    """Normalize a completion/reference for group diagnostics.
+
+    Canonical pipeline (preregistered): ``extract_gloss_text`` (strips
+    think tags / code fences) → ``casefold`` → whitespace collapse.
+
+    Args:
+        text: Raw completion or reference text (coerced to ``str``).
+
+    Returns:
+        The normalized gloss string (``""`` for empty).
+    """
+    return normalize_gloss(text)
+
+
+def gloss_word_count(text: Any) -> int:
+    """Number of word tokens after :func:`normalize_gloss_diagnostics_text`.
+
+    Args:
+        text: Raw completion or reference text.
+
+    Returns:
+        Token count (0 for an empty normalization).
+    """
+    normalized = normalize_gloss_diagnostics_text(text)
+    return len(normalized.split()) if normalized else 0
+
+
+def abs_length_error(completion: Any, reference: Any) -> float:
+    """Absolute word-length error of one completion vs its gold reference.
+
+    Both sides are normalized with the shared diagnostics pipeline before
+    counting words.
+
+    Args:
+        completion: Raw model completion.
+        reference: Raw gold reference gloss.
+
+    Returns:
+        ``|word_count(completion) - word_count(reference)|`` as a float.
+    """
+    return float(abs(gloss_word_count(completion) - gloss_word_count(reference)))
+
+
+def mean_abs_length_error(
+    completions: list[Any],
+    references: list[Any],
+) -> float:
+    """Mean absolute word-length error over aligned completion/reference pairs.
+
+    The canonical single-number companion of the per-group training
+    diagnostic: averaged over the SAME flat completion-reference pairs as
+    the other primary eval metrics.
+
+    Args:
+        completions: Generated gloss sequences (flat, one per completion).
+        references: Gold reference glosses (same order and length).
+
+    Returns:
+        Mean ``abs_length_error`` over all pairs.
+
+    Raises:
+        ValueError: If the lists are empty or misaligned (loud failure —
+            never silently averaged over a subset).
+    """
+    if len(completions) != len(references):
+        raise ValueError(
+            "mean_abs_length_error: misaligned inputs — "
+            f"{len(completions)} completions vs {len(references)} references"
+        )
+    if not completions:
+        raise ValueError("mean_abs_length_error: empty completion list")
+    errors = [abs_length_error(comp, ref) for comp, ref in zip(completions, references)]
+    return float(np.mean(errors))
+
+
+def compute_group_diagnostics(
+    completions: list[Any],
+    references: list[Any] | None,
+    group_size: int,
+) -> dict[str, float]:
+    """Compute per-group diagnostics over G completions aligned per prompt.
+
+    The input must be the flat GRPO rollout batch: ``len(completions)``
+    completions where every consecutive block of ``group_size`` entries
+    belongs to ONE prompt.  Over each block:
+
+    - unique normalized outputs (``extract_gloss_text`` → casefold →
+      whitespace collapse), averaged over groups → ``unique_outputs_mean``
+    - absolute word-length error vs gold (when ``references`` given),
+      averaged over completions → ``abs_length_error_mean``
+
+    Malformed input fails LOUDLY (ValueError) rather than inferring wrong
+    groups: a non-multiple-of-G batch, a misaligned reference list, an
+    empty batch or a non-positive ``group_size`` is a caller bug (e.g. a
+    TRL grouping change) and must be surfaced, not silently aggregated.
+    Callers that prefer to skip may catch the error and log the reason.
+
+    Args:
+        completions: Flat completion list, G per prompt, contiguous.
+        references: Gold glosses aligned per completion (same length), or
+            ``None`` to compute only ``unique_outputs_mean``.
+        group_size: G — completions per prompt.
+
+    Returns:
+        ``{"unique_outputs_mean": float}`` plus
+        ``{"abs_length_error_mean": float}`` when ``references`` is given.
+
+    Raises:
+        ValueError: On empty/misaligned input or a batch whose length is
+            not a multiple of ``group_size``.
+    """
+    g = int(group_size)
+    if g <= 0:
+        raise ValueError(
+            f"compute_group_diagnostics: invalid group_size={group_size!r}"
+        )
+    n = len(completions)
+    if n == 0:
+        raise ValueError("compute_group_diagnostics: empty completion batch")
+    if references is not None and len(references) != n:
+        raise ValueError(
+            "compute_group_diagnostics: misaligned inputs — "
+            f"{n} completions vs {len(references)} references"
+        )
+    if n % g != 0:
+        raise ValueError(
+            "compute_group_diagnostics: batch length "
+            f"{n} is not a multiple of group_size={g} — refusing to "
+            "infer wrong groups"
+        )
+
+    unique_counts: list[int] = []
+    length_errors: list[float] = []
+    for start in range(0, n, g):
+        group = completions[start : start + g]
+        normalized = {normalize_gloss_diagnostics_text(c) for c in group}
+        unique_counts.append(len(normalized))
+        if references is not None:
+            group_refs = references[start : start + g]
+            length_errors.extend(
+                abs_length_error(c, r) for c, r in zip(group, group_refs)
+            )
+
+    diagnostics = {
+        "unique_outputs_mean": float(np.mean(unique_counts)),
+    }
+    if references is not None:
+        diagnostics["abs_length_error_mean"] = float(np.mean(length_errors))
+    return diagnostics
 
 
 # ---------------------------------------------------------------------------
@@ -193,32 +371,8 @@ def compute_detailed_metrics(
 
 
 # ---------------------------------------------------------------------------
-# Per-component reward breakdown
+# Production reward breakdown
 # ---------------------------------------------------------------------------
-
-#: Reward components that need a gold reference gloss (completion, gold).
-_GOLD_REWARD_COMPONENTS: tuple[str, ...] = (
-    "translation_quality_reward",
-    "bleu_reward",
-    "gold_structure_reward",
-    "gloss_order_reward",
-    "verifier_scaled_reward",
-)
-
-#: Reward components that score the completion alone (no gold needed).
-_FREE_REWARD_COMPONENTS: tuple[str, ...] = (
-    "gloss_format_reward",
-    "gloss_repetition_reward",
-)
-
-#: Optional structural components that may be removed by refactors of
-#: ``src.rewards`` — looked up defensively so a missing function is
-#: skipped instead of crashing the eval.
-_OPTIONAL_FREE_REWARD_COMPONENTS: tuple[str, ...] = (
-    "structural_dense_reward",
-    "viterbi_distance_reward",
-    "soft_viterbi_distance_reward",
-)
 
 
 def compute_reward_breakdown(
@@ -226,71 +380,22 @@ def compute_reward_breakdown(
     references: list[str] | None = None,
     reward_weights: dict[str, float] | None = None,
 ) -> dict[str, float]:
-    """Compute average score for each T2G reward component directly.
+    """Average the initialized production edit-validity reward."""
+    from src.rewards.t2g_rewards import edit_validity_reward
 
-    Calls the component reward functions in ``src.rewards.t2g_rewards``
-    with plain strings — no global gold-gloss registry is used.  Gold
-    references are passed in explicitly via ``references`` (same order
-    as ``completions``).
-
-    Gold-dependent components (translation quality, BLEU, gold
-    structure, gloss order, verifier-scaled) are only computed when
-    ``references`` is provided; otherwise they are skipped.  Structural
-    components that no longer exist in the rewards module (e.g. the
-    dense Viterbi proxies) are skipped gracefully via attribute lookup.
-
-    Args:
-        completions: Generated gloss sequences.
-        references: Gold reference glosses (same order as ``completions``).
-            ``None`` skips gold-dependent components.
-        reward_weights: Optional dict mapping component name → weight.
-            If provided, only components with weight > 0 are computed
-            (others are skipped to save computation).
-
-    Returns:
-        Dict mapping component name → average score.
-    """
-    import src.rewards.t2g_rewards as rewards_mod
-
-    gold_components: dict[str, Any] = {
-        name: getattr(rewards_mod, name) for name in _GOLD_REWARD_COMPONENTS
-    }
-    free_components: dict[str, Any] = {
-        name: getattr(rewards_mod, name) for name in _FREE_REWARD_COMPONENTS
-    }
-    for name in _OPTIONAL_FREE_REWARD_COMPONENTS:
-        fn = getattr(rewards_mod, name, None)
-        if fn is not None:
-            free_components[name] = fn
-
-    has_refs = bool(references) and len(references) == len(completions)
-
-    # Only compute components with weight > 0 to save computation.
-    active: set[str] | None = None
-    if reward_weights is not None:
-        active = {k for k, v in reward_weights.items() if v > 0}
-
-    def _is_active(name: str) -> bool:
-        """Return True if this component should be computed."""
-        return active is None or name in active
-
-    sums: dict[str, float] = {}
-    counts: dict[str, int] = {}
-
-    def _add(name: str, value: float) -> None:
-        sums[name] = sums.get(name, 0.0) + value
-        counts[name] = counts.get(name, 0) + 1
-
-    for i, comp in enumerate(completions):
-        gold = references[i] if references is not None and has_refs else ""
-        for name, fn in gold_components.items():
-            if _is_active(name) and has_refs:
-                _add(name, fn(comp, gold))
-        for name, fn in free_components.items():
-            if _is_active(name):
-                _add(name, fn(comp))
-
-    return {name: sums[name] / counts[name] for name in counts if _is_active(name)}
+    name = "edit_validity_reward"
+    if reward_weights is not None and reward_weights.get(name, 0.0) <= 0.0:
+        return {}
+    if references is None:
+        return {}
+    if len(references) != len(completions):
+        raise ValueError("compute_reward_breakdown requires aligned references")
+    if not completions:
+        return {name: 0.0}
+    scores = [
+        edit_validity_reward(comp, gold) for comp, gold in zip(completions, references)
+    ]
+    return {name: float(np.mean(scores))}
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +412,7 @@ def _get_sacrebleu_bleu() -> Any:
     Uses ``effective_order=True`` (so short gloss sequences are scored
     against the n-gram orders actually present instead of collapsing to
     0) and ``floor`` smoothing, matching the configuration used by
-    ``bleu_reward`` in ``src.rewards.t2g_rewards``.
+    the evaluation configuration used throughout this module.
     """
     global _SACREBLEU_BLEU_METRIC
     if _SACREBLEU_BLEU_METRIC is None:
@@ -329,6 +434,14 @@ def _get_sacrebleu_chrf() -> Any:
 
         _SACREBLEU_CHRF_METRIC = sacrebleu.CHRF(char_order=6, word_order=2)
     return _SACREBLEU_CHRF_METRIC
+
+
+def sacrebleu_signatures() -> dict[str, str]:
+    """Return reproducibility signatures for the configured corpus metrics."""
+    return {
+        "bleu": str(_get_sacrebleu_bleu().get_signature()),
+        "chrf": str(_get_sacrebleu_chrf().get_signature()),
+    }
 
 
 def bleu_sentence(generated: str, reference: str) -> float:
@@ -361,7 +474,9 @@ def bleu_corpus(generated: list[str], references: list[str]) -> float:
     Returns:
         Corpus BLEU score in [0, 1].
     """
-    if not generated or not references:
+    if len(generated) != len(references):
+        raise ValueError("bleu_corpus requires equal hypothesis/reference lengths")
+    if not generated:
         return 0.0
     hyps = [extract_gloss_text(g) for g in generated]
     # sacrebleu corpus_score expects a list of reference STREAMS, where each
@@ -406,7 +521,9 @@ def corpus_chrf(generated: list[str], references: list[str]) -> float:
     Returns:
         Corpus chrF2 score in [0, 100].
     """
-    if not generated or not references:
+    if len(generated) != len(references):
+        raise ValueError("corpus_chrf requires equal hypothesis/reference lengths")
+    if not generated:
         return 0.0
     hyps = [extract_gloss_text(g) for g in generated]
     # Same fix as bleu_corpus: single reference STREAM (see comment there).
@@ -462,7 +579,9 @@ def corpus_gloss_f1(
     Returns:
         Dict with keys ``"micro"`` and ``"sentence_mean"`` in [0, 1].
     """
-    if not generated or not references:
+    if len(generated) != len(references):
+        raise ValueError("corpus_gloss_f1 requires equal hypothesis/reference lengths")
+    if not generated:
         return {"micro": 0.0, "sentence_mean": 0.0}
 
     gen_counts_total: Counter[str] = Counter()

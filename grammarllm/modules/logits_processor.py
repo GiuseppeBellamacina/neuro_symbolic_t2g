@@ -118,7 +118,7 @@ class PdaSet:
     Il testo finale resta univoco: è determinato dai token emessi.  L'insieme
     serve a vincolare, non a decidere.
 
-    Con l'engine legacy (lookahead=False) il PDA è deterministico e l'insieme è
+    Con l'engine deterministico (lookahead=False) il PDA ha un solo stato e l'insieme è
     sempre un singoletto: nessun cambiamento di comportamento.
     """
 
@@ -646,7 +646,7 @@ class StatelessLogitsProcessor(LogitsProcessor):
         Token ammessi dall'insieme di stati — l'UNIONE di quelli ammessi da
         ciascuno stato compatibile.
 
-        Legacy: (pda.get_tokens(), None) — insieme sempre singoletto.
+        Deterministic mode: (pda.get_tokens(), None) — insieme sempre singoletto.
         Lookahead: (ids, paths) dalla g_t_r memoizzata sul digest dell'insieme,
         dove paths = { token_id: [ (state_key, path), ... ] } elenca, per ogni
         token, TUTTI i rami che quel token tiene in vita.
@@ -685,7 +685,7 @@ class StatelessLogitsProcessor(LogitsProcessor):
         una vera incoerenza interna e si propaga intatto.
         """
         if not pdaset.lookahead:
-            # Engine legacy: deterministico, l'insieme resta un singoletto.
+            # Engine deterministico: l'insieme resta un singoletto.
             # Pre-controlliamo l'appartenenza, così un token mascherato produce
             # TokenNotDerivable e non il ValueError generico di next_state() —
             # che non sarebbe distinguibile da un bug vero.

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import math
+import numbers
 import re
 from collections import deque
 from typing import Any, Callable
@@ -16,13 +18,14 @@ from transformers import (
 from transformers.trainer_callback import ProgressCallback
 
 from src.utils.live_status import live_status_add_samples, live_status_set
+from src.utils.metrics import compute_group_diagnostics
 from src.utils.text_utils import extract_user_text
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Progress + log formatting (ported from grpo-strict-generation)
+# Progress and log formatting
 # ---------------------------------------------------------------------------
 
 
@@ -43,22 +46,72 @@ class TqdmOnlyProgressCallback(ProgressCallback):
 
 
 class HighPrecisionLogCallback(TrainerCallback):
-    """Print training metrics with higher float precision (8 decimal places).
+    """Print metrics and replace the deliberately disabled W&B callback."""
 
-    The default HuggingFace Trainer formats floats to 6 decimal places, which
-    causes very small loss values (e.g. GRPO policy gradient loss) to appear
-    as ``-0.000000``.  This callback reprints every ``on_log`` event to stdout
-    with enough precision to see the actual values.
-    """
+    _WANDB_KEYS = (
+        "reward",
+        "reward_std",
+        "frac_reward_zero_std",
+        "entropy",
+        "kl",
+        "clip_ratio/low_mean",
+        "clip_ratio/high_mean",
+        "clip_ratio/region_mean",
+        "importance_sampling/ratio_min",
+        "importance_sampling/ratio_mean",
+        "importance_sampling/ratio_max",
+        "completions/mean_length",
+        "completions/clipped_ratio",
+        "completions/mean_terminated_length",
+        "rewards/edit_validity_reward/mean",
+        "rewards/edit_validity_reward/std",
+        "loss",
+        "grad_norm",
+        "learning_rate",
+    )
 
     def __init__(self) -> None:
-        # Running average of the logged GRPO batch rewards ("reward" key).
-        # Each trl logging event reports the MEAN reward of its batches; with
-        # equal batch sizes the running mean of event-means equals the
-        # overall mean. Restarted/resumed runs restart the average (it is a
-        # live monitoring aid, not a persisted metric).
         self._reward_sum: float = 0.0
         self._reward_count: int = 0
+        self._wandb_metrics_defined = False
+
+    def on_train_begin(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs: Any,
+    ) -> None:
+        self._reward_sum = 0.0
+        self._reward_count = 0
+
+    @staticmethod
+    def _finite_scalar(value: Any) -> float | int | None:
+        if not isinstance(value, numbers.Real) or isinstance(value, bool):
+            return None
+        return float(value) if math.isfinite(float(value)) else None
+
+    def _log_wandb(self, step: int, logs: dict[str, Any]) -> None:
+        try:
+            import wandb
+
+            if not wandb.run:
+                return
+            if not self._wandb_metrics_defined:
+                for key in self._WANDB_KEYS:
+                    wandb.define_metric(f"train/{key}", summary="last")
+                self._wandb_metrics_defined = True
+            payload = {
+                f"train/{key}": value
+                for key in self._WANDB_KEYS
+                if (value := self._finite_scalar(logs.get(key))) is not None
+            }
+            if payload:
+                wandb.log(payload, step=step)
+        except Exception:
+            logger.debug(
+                "Failed to log curated training metrics to wandb", exc_info=True
+            )
 
     def on_log(
         self,
@@ -70,21 +123,12 @@ class HighPrecisionLogCallback(TrainerCallback):
     ) -> None:
         if not state.is_local_process_zero or not logs:
             return
-        logs.pop("total_flos", None)
+        logs = {key: value for key, value in logs.items() if key != "total_flos"}
         parts = [f"step={state.global_step}"]
         for k, v in logs.items():
             parts.append(f"{k}={v:.8f}" if isinstance(v, float) else f"{k}={v}")
         print("  " + "  ".join(parts))
-        # Live status file (logs/live_status.json) for the external monitor —
-        # throttled internally; fail-safe (never breaks training).
-        #
-        # ONLY pass fields that are PRESENT in this log event: a partial log
-        # (e.g. the routine holdout eval emits {'eval_loss': …} with NO
-        # loss/lr/epoch, and some early/edge events carry only lr) must NOT
-        # overwrite the last valid train metrics with None — otherwise the
-        # monitor top bar loses the loss the moment an eval event arrives
-        # (or shows only lr for partial early logs). None in live_status_set
-        # is an explicit reset, so we filter it here.
+        # Only present fields are published; None explicitly resets status fields.
         fields: dict[str, Any] = {"step": state.global_step}
         for log_key, status_key in (
             ("loss", "loss"),
@@ -97,14 +141,13 @@ class HighPrecisionLogCallback(TrainerCallback):
                 fields[status_key] = value
         if logs.get("epoch") is not None:
             fields["epoch"] = round(float(logs["epoch"]), 4)
-        # Running average of the GRPO batch rewards — the monitor shows it in
-        # the top bar ("avg reward") so the trend is visible at a glance.
         reward = logs.get("reward")
         if reward is not None:
             self._reward_sum += float(reward)
             self._reward_count += 1
             fields["reward_avg"] = round(self._reward_sum / self._reward_count, 6)
         live_status_set(**fields)
+        self._log_wandb(state.global_step, logs)
 
     def on_prediction_step(
         self,
@@ -113,15 +156,7 @@ class HighPrecisionLogCallback(TrainerCallback):
         control: TrainerControl,
         **kwargs: Any,
     ) -> None:
-        """Routine in-train eval (SFT holdout): flag WITHOUT touching the
-        train step counter/metrics.
-
-        Called once per eval batch by transformers. Sets ``eval_active`` so
-        the monitor can show an ADDITIONAL 'routine eval in corso' line —
-        the train step/loss/lr in the top bar stay exactly as they were
-        (they are only updated by ``on_log``). Throttled internally by
-        live_status_set; fail-safe (never breaks training).
-        """
+        """Mark routine evaluation active without replacing train metrics."""
         try:
             if state.is_local_process_zero:
                 live_status_set(eval_active=True)
@@ -136,22 +171,16 @@ class HighPrecisionLogCallback(TrainerCallback):
         metrics: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
-        """End of the routine in-train eval: publish eval_loss, clear flag.
-
-        The printed line matches the format parsed by
-        ``src/utils/chain_monitor.py`` ("  step=N  eval_loss=…"). Train
-        metrics (loss/lr/step) are NOT touched: the next ``on_log`` owns
-        them.
-        """
+        """Publish routine evaluation loss and clear its active flag."""
         try:
             metrics = metrics or {}
             eval_loss = metrics.get("eval_loss")
             if eval_loss is not None:
                 print(f"  step={state.global_step}  eval_loss={float(eval_loss):.8f}")
-            live_status_set(
-                eval_active=False,
-                **({"eval_loss": float(eval_loss)} if eval_loss is not None else {}),
-            )
+            if eval_loss is None:
+                live_status_set(eval_active=False)
+            else:
+                live_status_set(eval_active=False, eval_loss=float(eval_loss))
         except Exception:
             pass
 
@@ -175,18 +204,7 @@ def _split_think(text: str) -> tuple[str, str]:
 
 
 def _first_assistant_content(completion: Any) -> str | None:
-    """Extract the first assistant message content from a completion.
-
-    Supports the trl 0.24 conversational SFT format (``completion`` is a
-    list of ``{"role": "assistant", "content": ...}`` messages) as well as
-    plain gold-gloss strings.
-
-    Args:
-        completion: The completion column value, in either format.
-
-    Returns:
-        The assistant content string, or ``None`` if unavailable.
-    """
+    """Extract the first assistant message or a plain completion string."""
     if isinstance(completion, list):
         for msg in completion:
             if isinstance(msg, dict) and msg.get("role") == "assistant":
@@ -198,23 +216,42 @@ def _first_assistant_content(completion: Any) -> str | None:
     return None
 
 
+def _completion_text(completion: Any) -> str:
+    """Extract plain text from conversational or string completions."""
+    if isinstance(completion, list):
+        for msg in completion:
+            if isinstance(msg, dict) and msg.get("role") == "assistant":
+                return str(msg.get("content", ""))
+        return ""
+    return str(completion or "")
+
+
+def _infer_group_size(prompts: list[Any] | None) -> int | None:
+    """Infer a uniform GRPO group size from consecutive identical prompts."""
+    if not prompts:
+        return None
+    keys = [extract_user_text(p) for p in prompts]
+    runs: list[int] = []
+    prev = keys[0]
+    count = 1
+    for key in keys[1:]:
+        if key == prev:
+            count += 1
+        else:
+            runs.append(count)
+            prev = key
+            count = 1
+    runs.append(count)
+    if len(set(runs)) != 1:
+        return None  # ragged runs — refuse to guess
+    g = runs[0]
+    if g < 2 or len(keys) % g != 0:
+        return None
+    return g
+
+
 def _render_generation_prompt(tokenizer: Any, prompt: Any) -> str:
-    """Render a prompt for model generation in any supported format.
-
-    Conversational message lists (trl 0.24 SFT ``prompt`` column) are
-    rendered via the tokenizer chat template with the generation prompt —
-    the same path as ``build_t2g_prompt`` — so the model sees byte-identical
-    input to training.  Plain strings (GRPO-style preformatted prompts) are
-    returned unchanged.  Falls back to concatenating message contents when
-    the tokenizer has no chat template.
-
-    Args:
-        tokenizer: A Hugging Face tokenizer.
-        prompt: The prompt column value (message list or string).
-
-    Returns:
-        The rendered prompt string (possibly empty).
-    """
+    """Render conversational prompts, falling back to simple ChatML text."""
     if isinstance(prompt, list):
         if (
             hasattr(tokenizer, "apply_chat_template")
@@ -238,102 +275,27 @@ def _render_generation_prompt(tokenizer: Any, prompt: Any) -> str:
 
 
 class CompletionSampleLogger:
-    """Wraps reward functions to capture (prompt, completion, rewards) samples.
-
-    The first reward function is wrapped with an interceptor that stores
-    the last batch of completions, prompts, and gold references.  The gold
-    reference is read from the ``gold_gloss`` kwarg that TRL 0.24 forwards
-    to every reward function call (the dataset's ``gold_gloss`` column),
-    replacing the removed global registry.  The callback reads from this
-    buffer and prints periodically to the training log so
-    ``chain_monitor.py`` can display them in real time.
-
-    Usage::
-
-        logger = CompletionSampleLogger(reward_fns, reward_weights, n_samples=3)
-        trainer = GRPOTrainer(
-            ...,
-            reward_funcs=logger.wrapped_reward_fns,
-            callbacks=[CompletionSampleCallback(logger, every_n_steps=5)],
-        )
-    """
+    """Capture reward samples and full-batch GRPO group diagnostics."""
 
     def __init__(
         self,
         reward_fns: list[Callable[..., list[float]]],
         reward_weights: list[float],
         n_samples: int = 3,
+        group_size: int | None = None,
     ) -> None:
         self._reward_fns = list(reward_fns)
         self._reward_weights = list(reward_weights)
         self._n_samples = n_samples
+        self._group_size = group_size
         self._buffer: deque[dict[str, Any]] = deque(maxlen=n_samples)
         self._difficulty_map: dict[str, str] = {}
+        self.last_group_diagnostics: dict[str, float] | None = None
 
-        # Build component_name → weight mapping
-        self._weight_map: dict[str, float] = {}
-        for fn, w in zip(reward_fns, reward_weights):
-            self._weight_map[fn.__name__] = w
-
-        # Component functions for per-sample breakdown (from t2g_rewards)
-        from src.rewards.t2g_rewards import (
-            bleu_reward,
-            gloss_format_reward,
-            gloss_order_reward,
-            gloss_repetition_reward,
-            gold_structure_reward,
-            soft_viterbi_distance_reward,
-            structural_dense_reward,
-            translation_quality_reward,
-            verifier_scaled_reward,
-            viterbi_distance_reward,
-        )
-
-        self._component_fns: list[tuple[str, Callable[..., float], dict[str, Any]]] = [
-            (
-                "translation_quality_reward",
-                translation_quality_reward,
-                {"gold_gloss": ""},
-            ),
-            (
-                "bleu_reward",
-                bleu_reward,
-                {"gold_gloss": ""},
-            ),
-            (
-                "gold_structure_reward",
-                gold_structure_reward,
-                {"gold_gloss": "", "normalize": True},
-            ),
-            # v2 gold-anchored components: "gold_gloss" MUST be in kwargs so
-            # that _capture substitutes the per-sample gold — without it the
-            # v2 functions receive no gold and return neutral 0.0 (bug: the
-            # sample display showed +0.00 for perfect completions while the
-            # trainer metrics were correctly ~0.87).
-            (
-                "structural_dense_reward",
-                structural_dense_reward,
-                {"gold_gloss": "", "normalize": True},
-            ),
-            (
-                "viterbi_distance_reward",
-                viterbi_distance_reward,
-                {"gold_gloss": "", "normalize": True},
-            ),
-            (
-                "soft_viterbi_distance_reward",
-                soft_viterbi_distance_reward,
-                {"gold_gloss": "", "normalize": True},
-            ),
-            (
-                "verifier_scaled_reward",
-                verifier_scaled_reward,
-                {"gold_gloss": ""},
-            ),
-            ("gloss_order_reward", gloss_order_reward, {"gold_gloss": ""}),
-            ("gloss_format_reward", gloss_format_reward, {}),
-            ("gloss_repetition_reward", gloss_repetition_reward, {}),
-        ]
+        self._weight_map = {
+            fn.__name__: weight for fn, weight in zip(reward_fns, reward_weights)
+        }
+        self._component_fns = list(reward_fns)
         # Guard: no reward functions to wrap
         if not self._reward_fns:
             logger.error(
@@ -342,11 +304,6 @@ class CompletionSampleLogger:
             )
             return
 
-        # Wrap the first reward function to intercept.  TRL 0.24 forwards
-        # every extra dataset column (including ``gold_gloss``) to each
-        # reward function call as a kwarg, so the interceptor reads the
-        # per-batch gold reference straight out of ``**kwargs`` instead of
-        # the removed global registry.
         original_fn = self._reward_fns[0]
 
         def _interceptor(
@@ -365,13 +322,7 @@ class CompletionSampleLogger:
         self._reward_fns[0] = _interceptor
 
     def set_difficulty_map(self, dataset: Any) -> None:
-        """Build a prompt→difficulty lookup from the training dataset.
-
-        The ``prompt`` column may be a plain string or a conversational
-        message list (trl 0.24 SFT); ``extract_user_text`` normalizes both
-        to the user instruction, which is used as the lookup key — matching
-        the instruction the GRPO rollout prompt yields, without any registry.
-        """
+        """Build a normalized prompt-to-difficulty lookup."""
         for row in dataset:
             if not isinstance(row, dict):
                 continue
@@ -386,22 +337,14 @@ class CompletionSampleLogger:
         prompts: list[Any] | None,
         gold_gloss: list[str] | None = None,
     ) -> None:
-        """Store the first N samples from this batch.
-
-        Args:
-            completions: The batch of model completions.
-            prompts: The batch of prompts (``None`` in tests).
-            gold_gloss: Per-sample gold glosses delivered by TRL 0.24 as a
-                kwarg (the dataset ``gold_gloss`` column), aligned with
-                ``completions``.  ``None`` when the column is missing.
-        """
+        """Store display samples and compute full-batch diagnostics."""
         if not self._reward_fns:
             return
         self._buffer.clear()
         n = min(self._n_samples, len(completions))
         for i in range(n):
             comp = completions[i]
-            text: str = comp[0]["content"] if isinstance(comp, list) else comp
+            text: str = _completion_text(comp)
             prompt = prompts[i] if prompts else None
             instruction = extract_user_text(prompt)
 
@@ -413,16 +356,13 @@ class CompletionSampleLogger:
                 gold = str(gold_gloss[i] or "")
 
             breakdown: dict[str, float] = {}
-            for name, fn, kwargs in self._component_fns:
-                # Skip components with weight 0 to save computation
+            for fn in self._component_fns:
+                name = fn.__name__
                 if self._weight_map.get(name, 0.0) <= 0.0:
                     continue
                 try:
-                    kwargs_call = dict(kwargs)
-                    # Components that need gold read it from the batch kwarg
-                    if "gold_gloss" in kwargs_call:
-                        kwargs_call["gold_gloss"] = gold
-                    breakdown[name] = fn(text, **kwargs_call)
+                    scores = fn([text], prompts=[prompt], gold_gloss=[gold])
+                    breakdown[name] = float(scores[0])
                 except Exception:
                     breakdown[name] = 0.0
 
@@ -435,6 +375,24 @@ class CompletionSampleLogger:
                     "gold": gold,
                 }
             )
+
+        self.last_group_diagnostics = None
+        effective_group_size = self._group_size
+        if effective_group_size is None and prompts is not None:
+            effective_group_size = _infer_group_size(prompts)
+        if effective_group_size is not None:
+            try:
+                self.last_group_diagnostics = compute_group_diagnostics(
+                    [_completion_text(c) for c in completions],
+                    (
+                        [str(g or "") for g in gold_gloss]
+                        if gold_gloss is not None
+                        else None
+                    ),
+                    effective_group_size,
+                )
+            except ValueError as exc:
+                logger.warning("Group diagnostics skipped for this batch: %s", exc)
 
     @property
     def wrapped_reward_fns(self) -> list[Callable[..., list[float]]]:
@@ -470,13 +428,15 @@ class CompletionSampleLogger:
             # Show match indicator (✓/✗) when gold is available
             gold = sample.get("gold", "")
             think, output = _split_think(comp)
+            difficulty = sample.get("difficulty", "?")
+            difficulty_badge = f"[difficulty={difficulty}]"
             if gold:
                 match = output.strip().upper() == gold.strip().upper()
                 indicator = "✓" if match else "✗"
-                lines.append(f"  Sample {idx}  [{indicator}]")
+                lines.append(f"  Sample {idx}  {difficulty_badge} [{indicator}]")
                 live_head = f"[{indicator}]"
             else:
-                lines.append(f"  Sample {idx}")
+                lines.append(f"  Sample {idx}  {difficulty_badge}")
                 live_head = ""
             lines.append(_SEPARATOR)
             lines.append(f"  PROMPT: {instr}")
@@ -511,30 +471,7 @@ class CompletionSampleLogger:
 
 
 class CompletionSampleCallback(TrainerCallback):
-    """Print completion samples and log grammar + reward metrics every ``every_n_steps``.
-
-    These samples are parsed by ``chain_monitor.py`` for live display.
-    Grammar metrics (masked probability mass) are logged to wandb
-    to track how the model internalizes the ASL vocabulary constraints.
-
-    Custom W&B chart panels:
-    * ``grammar/convergence_diagnostics`` — masked_mass, full_entropy, allowed_entropy
-    * ``rewards/breakdown_diagnostics`` — all 6 reward components together
-    """
-
-    # Reward component names (order determines legend order in W&B plot)
-    _REWARD_COMPONENTS: tuple[str, ...] = (
-        "translation_quality_reward",
-        "bleu_reward",
-        "gold_structure_reward",
-        "structural_dense_reward",
-        "viterbi_distance_reward",
-        "soft_viterbi_distance_reward",
-        "verifier_scaled_reward",
-        "gloss_order_reward",
-        "gloss_format_reward",
-        "gloss_repetition_reward",
-    )
+    """Print samples and log grammar, reward, and group diagnostics."""
 
     def __init__(
         self,
@@ -551,9 +488,9 @@ class CompletionSampleCallback(TrainerCallback):
         # Buffer per il pannello diagnostico convergenza
         self._diag_buffer: deque[dict[str, float]] = deque(maxlen=500)
         self._diag_defined = False
-        # Buffer per il pannello reward breakdown
-        self._reward_buffer: deque[dict[str, float]] = deque(maxlen=500)
-        self._reward_defined = False
+        # Pannello group diagnostics (groups/unique_outputs_mean,
+        # groups/abs_length_error_mean) — metric layout defined once.
+        self._groups_defined = False
 
     def on_log(
         self,
@@ -575,6 +512,17 @@ class CompletionSampleCallback(TrainerCallback):
             if output:
                 print(output)
             self._last_printed_step = step
+
+            group_diag = self._logger.last_group_diagnostics
+            if group_diag:
+                live_status_set(
+                    None,
+                    step=step,
+                    **{
+                        f"groups/{key}": float(value)
+                        for key, value in group_diag.items()
+                    },
+                )
 
             # ── W&B import once for both panels ─────────────────────────
             try:
@@ -613,14 +561,6 @@ class CompletionSampleCallback(TrainerCallback):
                         ent = stats.get("avg_masked_entropy", 0.0)
                         ent_allowed = stats.get("avg_masked_entropy_allowed", 0.0)
 
-                        # NO explicit step=: unsloth's GRPO profiler + trl log
-                        # to wandb ~17x/step WITHOUT step=, racing the run's
-                        # internal step counter ahead of global_step. Our
-                        # explicit-step logs were then REJECTED ("Tried to
-                        # log to step N < current M" — 482 warnings in
-                        # slurm-train-7073) and the panel data DROPPED.
-                        # Auto-step keeps the data (panels use their own
-                        # xs for plots; scalars stay monotonic).
                         wandb.log(
                             {
                                 "grammar/masked_mass_avg": mass,
@@ -628,6 +568,8 @@ class CompletionSampleCallback(TrainerCallback):
                                 "grammar/masked_entropy_allowed_avg": ent_allowed,
                                 "grammar/masked_mass_steps": stats["total_steps"],
                             },
+                            step=step,
+                            commit=False,
                         )
 
                         # ── Buffer & plot convergence diagnostics ────────
@@ -663,83 +605,33 @@ class CompletionSampleCallback(TrainerCallback):
                                         xname="Step",
                                     )
                                 },
+                                step=step,
+                                commit=False,
                             )
                 except Exception:
                     logger.debug("Failed to log masked mass to wandb", exc_info=True)
 
-            # ── Reward breakdown logging ───────────────────────────────
-            if self._logger._buffer:
+            # ── Group diagnostics logging (preregistered instrumentation) ──
+            # Per-group diversity (unique normalized outputs per group of G
+            # completions) and mean absolute word-length error vs gold,
+            # computed over the FULL rollout batch in
+            # CompletionSampleLogger._capture. Separate try/except so a
+            # failure here never disturbs the sample/reward panels above.
+            if group_diag:
                 try:
-                    # Only log and plot components that are active (weight > 0)
-                    active_components = [
-                        c
-                        for c in self._REWARD_COMPONENTS
-                        if self._logger._weight_map.get(c, 0.0) > 0.0
-                    ]
-
-                    # Define reward metrics once
-                    if not self._reward_defined and wandb.run:
-                        for comp in active_components:
-                            wandb.define_metric(
-                                f"rewards/{comp}",
-                                summary="last",
-                            )
-                        self._reward_defined = True
-
-                    # Compute per-interval averages from buffered samples
-                    reward_sums: dict[str, float] = {c: 0.0 for c in active_components}
-                    n_samples = 0
-                    for sample in self._logger._buffer:
-                        bd = sample.get("breakdown", {})
-                        for comp in active_components:
-                            reward_sums[comp] += bd.get(comp, 0.0)
-                        n_samples += 1
-
-                    if n_samples > 0 and wandb.run:
-                        reward_avgs = {
-                            c: reward_sums[c] / n_samples for c in active_components
-                        }
-
-                        # Log individual scalars (no explicit step= — see
-                        # grammar panel above for the auto-step rationale)
-                        wandb.log(
-                            {
-                                f"rewards/{comp}": reward_avgs[comp]
-                                for comp in active_components
-                            },
-                        )
-
-                        # Buffer & plot reward breakdown panel
-                        self._reward_buffer.append({"Step": step, **reward_avgs})
-
-                        if (
-                            step % self._plot_every_n == 0
-                            and len(self._reward_buffer) >= 2
-                        ):
-                            xs = [d["Step"] for d in self._reward_buffer]
-                            ys_list = [
-                                [d[comp] for d in self._reward_buffer]
-                                for comp in active_components
-                            ]
-                            # Derive short labels from component names
-                            labels = [
-                                c.replace("_reward", "") for c in active_components
-                            ]
-
-                            wandb.log(
-                                {
-                                    "rewards/breakdown_diagnostics": wandb.plot.line_series(
-                                        xs=xs,
-                                        ys=ys_list,
-                                        keys=labels,
-                                        title="Reward Component Convergence",
-                                        xname="Step",
-                                    )
-                                },
-                            )
+                    group_payload = {
+                        f"groups/{key}": float(value)
+                        for key, value in group_diag.items()
+                    }
+                    if not self._groups_defined and wandb.run:
+                        for metric_key in group_payload:
+                            wandb.define_metric(metric_key, summary="last")
+                        self._groups_defined = True
+                    if wandb.run:
+                        wandb.log(group_payload, step=step, commit=False)
                 except Exception:
                     logger.debug(
-                        "Failed to log reward breakdown to wandb", exc_info=True
+                        "Failed to log group diagnostics to wandb", exc_info=True
                     )
 
 
@@ -749,24 +641,7 @@ class CompletionSampleCallback(TrainerCallback):
 
 
 class SFTSampleCallback(TrainerCallback):
-    """Log SFT training progress with loss tracking and sample predictions.
-
-    Prints periodic summaries of SFT training metrics (loss, learning rate,
-    epoch progress) and, when a tokenizer + model are available, generates
-    a short sample prediction to verify the model is learning the gloss
-    mapping.  This gives visibility into the SFT pre-training phase that
-    runs before GRPO.
-
-    Args:
-        tokenizer: Tokenizer used for decoding sample predictions.
-        model: The model being trained (used for generate() on samples).
-        dataset: The SFT dataset (list of dicts with ``"prompt"`` message
-            list and ``"completion"`` message list keys — trl 0.24
-            conversational format).
-        every_n_steps: Print a progress summary every N steps.
-        sample_every_n_steps: Generate a sample prediction every N steps.
-        n_samples: Number of dataset samples to show per prediction round.
-    """
+    """Log SFT loss progress and periodic sample predictions."""
 
     def __init__(
         self,

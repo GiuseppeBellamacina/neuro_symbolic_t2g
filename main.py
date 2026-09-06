@@ -195,63 +195,35 @@ def test_reward_functions() -> None:
         download_aslg_dataset,
         extract_gloss_vocabulary,
     )
-    from src.datasets.transition_matrix import compute_bigram_transitions
     from src.rewards.t2g_rewards import (
         build_t2g_reward_functions,
-        gloss_format_reward,
-        gloss_repetition_reward,
+        edit_validity_reward,
         initialize_rewards,
-        structural_dense_reward,
-        translation_quality_reward,
     )
 
     # Load data
     dataset = download_aslg_dataset(cache_dir="data/aslg_pc12_test")
     vocab = extract_gloss_vocabulary(dataset, split="train")
-    bigram = compute_bigram_transitions(dataset, vocab, split="train", smoothing=1.0)
-
     # Initialize
-    initialize_rewards(bigram, vocab)
+    initialize_rewards(vocab)
 
-    # Test translation quality reward
+    # Test the production reward
     gold = "IX MAN WALK HOUSE"
     generated = "IX MAN WALK HOUSE"
-    score = translation_quality_reward(generated, gold)
+    score = edit_validity_reward(generated, gold)
     assert -1.0 <= score <= 1.0, f"Score out of range: {score}"
-    logger.info(f"✓ Translation quality (perfect match): {score:.4f}")
+    logger.info(f"✓ Edit-validity reward (perfect match): {score:.4f}")
 
     generated_bad = "DOG CAT BIRD FISH"
-    score_bad = translation_quality_reward(generated_bad, gold)
+    score_bad = edit_validity_reward(generated_bad, gold)
     assert score_bad < score, "Bad match should score lower"
-    logger.info(f"✓ Translation quality (bad match): {score_bad:.4f}")
-
-    # Test structural dense reward
-    struct_score = structural_dense_reward("IX MAN WALK")
-    assert -1.0 <= struct_score <= 1.0, f"Score out of range: {struct_score}"
-    logger.info(f"✓ Structural dense reward: {struct_score:.4f}")
-
-    # Test format reward
-    format_score = gloss_format_reward("IX MAN WALK")
-    assert format_score == 1.0, f"Clean gloss should score 1.0: {format_score}"
-    logger.info(f"✓ Format reward (clean glosses): {format_score}")
-
-    format_bad = gloss_format_reward("Here is the translation: IX MAN WALK")
-    assert format_bad < 1.0, "Free text should score < 1.0"
-    logger.info(f"✓ Format reward (free text): {format_bad}")
-
-    # Test repetition reward
-    rep_score = gloss_repetition_reward("IX MAN WALK HOUSE BOOK")
-    assert rep_score == 1.0, "Non-repetitive should score 1.0"
-    logger.info(f"✓ Repetition reward (normal): {rep_score}")
-
-    rep_bad = gloss_repetition_reward("IX IX IX IX IX IX IX IX")
-    assert rep_bad < 1.0, "Repetitive should score < 1.0"
-    logger.info(f"✓ Repetition reward (repetitive): {rep_bad}")
+    logger.info(f"✓ Edit-validity reward (bad match): {score_bad:.4f}")
 
     # Test build function
     funcs, weights = build_t2g_reward_functions()
     assert len(funcs) == len(weights), "Funcs and weights must match"
-    assert len(funcs) == 4, f"Expected 4 reward funcs, got {len(funcs)}"
+    assert [fn.__name__ for fn in funcs] == ["edit_validity_reward"]
+    assert weights == [1.0]
     logger.info(
         f"✓ Built {len(funcs)} reward functions with weights {[f'{w:.2f}' for w in weights]}"
     )

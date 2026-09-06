@@ -1,26 +1,6 @@
 #!/bin/bash
-# ============================================================================
-# Pulizia selettiva — rimuove checkpoints, logs, results, figures e log SLURM
-# di un modello specifico. Accetta sia il TAG di pipeline (es. sft-grpo)
-# sia il nome reale della cartella (es. qwen25-05b-sft-grpo).
-#
-# Cerca in:
-#   experiments/checkpoints/*<MODEL>*        (struttura flat)
-#   experiments/logs/*<MODEL>*
-#   experiments/results/*<MODEL>*
-#   experiments/figures/*<MODEL>*
-#   logs/slurm-{train,eval}-<JOBID>.log     (mappati via sacct JobName)
-#
-# Mapping tag→cartella reale, shell-only (il login node NON ha python): se il
-# tag corrisponde a un config experiments/configs/t2g/*.yaml, il basename di
-# training.output_dir viene estratto con grep e usato come candidato aggiuntivo
-# (es. clean-model sft-grpo trova experiments/checkpoints/qwen25-05b-sft-grpo).
-#
-# Uso:
-#   bash cluster/clean_model.sh                    # lista tutti i tag
-#   bash cluster/clean_model.sh sft-grpo       # dry-run
-#   bash cluster/clean_model.sh sft-grpo --all # cancella davvero
-# ============================================================================
+# Remove one experiment cell from the canonical
+# model/method/prompt[/ablations/variant]/run artifact hierarchy.
 
 set -euo pipefail
 cd "$HOME/neuro_symbolic_t2g"
@@ -31,50 +11,42 @@ for arg in "$@"; do
     case "$arg" in
         --all) FORCE=1 ;;
         --help|-h)
-            echo "Uso: bash cluster/clean_model.sh <TAG> [--all]"
-            echo ""
-            echo "TAG = tag del config (es. sft-grpo, grpo-only, sft-only, ...)"
-            echo "     oppure nome reale della cartella (es. qwen25-05b-sft-grpo)"
-            echo "Senza argomenti: lista tutti i tag trovati"
+            echo "Usage: bash cluster/clean_model.sh <ID> [--all]"
+            echo "IDs: baseline-zero baseline-few sft grpo-zero grpo-few"
+            echo "     sft-grpo-zero sft-grpo-few sft-grpo-zero-pda sft-grpo-zero-hot"
             exit 0
             ;;
         *)
-            if [ -z "$MODEL" ]; then
-                MODEL="$arg"
-            else
-                echo "❌ Troppi argomenti: $arg"
+            if [ -n "$MODEL" ]; then
+                echo "Too many arguments: $arg" >&2
                 exit 1
             fi
+            MODEL="$arg"
             ;;
     esac
 done
 
-# Candidati: il tag stesso + i basename di training.output_dir dei config il
-# cui nome matchano il tag (shell-only, niente python sul login node).
-model_candidates() {
-    local cfg tag dir
-    echo "$MODEL"
-    for cfg in experiments/configs/t2g/*.yaml experiments/configs/t2g/*.yaml; do
-        [ -f "$cfg" ] || continue
-        tag=$(basename "$cfg" .yaml | tr '_' '-')
-        if [ "$tag" = "$MODEL" ]; then
-            dir=$(sed -n 's/.*output_dir:[[:space:]]*"\([^"]*\)".*/\1/p' "$cfg" | head -1) || true
-            if [ -n "$dir" ]; then
-                echo "$(basename "$dir")"
-            fi
-        fi
-    done
+cell_path() {
+    case "$MODEL" in
+        baseline-zero) echo "qwen25-05b/baseline/zero-shot" ;;
+        baseline-few) echo "qwen25-05b/baseline/few-shot" ;;
+        sft) echo "qwen25-05b/sft/zero-shot" ;;
+        grpo-zero) echo "qwen25-05b/grpo/zero-shot" ;;
+        grpo-few) echo "qwen25-05b/grpo/few-shot" ;;
+        sft-grpo-zero) echo "qwen25-05b/sft-grpo/zero-shot" ;;
+        sft-grpo-few) echo "qwen25-05b/sft-grpo/few-shot" ;;
+        sft-grpo-zero-pda) echo "qwen25-05b/sft-grpo/zero-shot/ablations/pda" ;;
+        sft-grpo-zero-hot) echo "qwen25-05b/sft-grpo/zero-shot/ablations/hot" ;;
+        *) return 1 ;;
+    esac
 }
 
-# Log SLURM reali per un modello: i file sono logs/slurm-{train,eval}-<JOBID>.log
-# e il JOBID si mappa dal JobName SLURM (train-<TAG>/eval-<TAG> via sacct).
 slurm_logs_for_model() {
-    local model="$1"
     local start
     start=$(date -d '14 days ago' +%Y-%m-%d 2>/dev/null || date +%Y-%m-%d)
     sacct --me --noheader --format=JobID,JobName --parsable2 \
         --starttime="$start" 2>/dev/null \
-        | awk -F'|' -v m="$model" '
+        | awk -F'|' -v m="$MODEL" '
             $2 == "train-" m || $2 == "eval-" m {
                 if ($1 ~ /^[0-9]+$/) {
                     if ($2 ~ /^train-/) print "logs/slurm-train-" $1 ".log"
@@ -83,93 +55,57 @@ slurm_logs_for_model() {
             }' | sort -u
 }
 
-# Emette tutti i path (dir/file) da pulire, uno per riga.
 emit_targets() {
-    local cand d
-    for cand in $(model_candidates); do
-        [ -n "$cand" ] || continue
-        for d in experiments/checkpoints/*"${cand}"*/ experiments/checkpoints/grpo/t2g/*"${cand}"*/; do
-            [ -d "$d" ] && echo "$d"
-        done
-        for d in experiments/logs/*"${cand}"*/; do
-            [ -d "$d" ] && echo "$d"
-        done
-        for d in experiments/results/*"${cand}"*/; do
-            [ -d "$d" ] && echo "$d"
-        done
-        for d in experiments/figures/*"${cand}"*/; do
-            [ -d "$d" ] && echo "$d"
-        done
-        slurm_logs_for_model "$cand"
-    done | sort -u
+    local rel kind target
+    rel=$(cell_path) || return 1
+    for kind in checkpoints logs results figures; do
+        target="experiments/$kind/$rel"
+        [ -e "$target" ] && echo "$target"
+    done
+    slurm_logs_for_model
 }
 
-# ── Nessun modello specificato: lista tutti i tag trovati ─────────────────
 if [ -z "$MODEL" ]; then
-    echo "=== Modelli trovati (dry-run) ==="
-    echo ""
-    for d in experiments/checkpoints/*/; do
-        [ -d "$d" ] || continue
-        echo "  $(basename "$d") ($(du -sh "$d" 2>/dev/null | cut -f1))"
-    done
-    for d in experiments/checkpoints/grpo/t2g/*/; do
-        [ -d "$d" ] || continue
-        echo "  grpo/t2g/$(basename "$d") ($(du -sh "$d" 2>/dev/null | cut -f1))"
-    done
-    if [ -d "experiments/results" ]; then
-        for d in experiments/results/*/; do
-            [ -d "$d" ] || continue
-            echo "  results/$(basename "$d") ($(du -sh "$d" 2>/dev/null | cut -f1))"
+    echo "=== Canonical checkpoint runs ==="
+    find experiments/checkpoints -type d -name 'run_*' -print 2>/dev/null \
+        | sort | while read -r d; do
+            echo "  ${d#experiments/checkpoints/} ($(du -sh "$d" 2>/dev/null | cut -f1))"
         done
-    fi
     echo ""
-    echo "Per cancellare: bash cluster/clean_model.sh <TAG> --all"
+    echo "To remove a cell: bash cluster/clean_model.sh <ID> --all"
     exit 0
 fi
 
-TARGETS="$(emit_targets || true)"
+if ! cell_path >/dev/null; then
+    echo "Unknown canonical ID: $MODEL" >&2
+    exit 1
+fi
 
-# ── Dry-run per il modello specificato ────────────────────────────────────
-if [ "$FORCE" = "0" ]; then
-    echo "=== DRY RUN per '$MODEL' — aggiungi --all per cancellare ==="
-    echo ""
+TARGETS=$(emit_targets || true)
+if [ "$FORCE" -eq 0 ]; then
+    echo "=== DRY RUN for '$MODEL' — add --all to remove ==="
     if [ -z "$TARGETS" ]; then
-        echo "  (niente trovato per '$MODEL')"
+        echo "  (nothing found)"
     else
-        while IFS= read -r t; do
-            [ -z "$t" ] && continue
-            size=$(du -sh "$t" 2>/dev/null | cut -f1 || echo "?")
-            kind="FILE"
-            [ -d "$t" ] && kind="DIR "
-            echo "  [$kind] $t ($size)"
+        while IFS= read -r target; do
+            [ -n "$target" ] || continue
+            size=$(du -sh "$target" 2>/dev/null | cut -f1 || echo "?")
+            echo "  $target ($size)"
         done <<< "$TARGETS"
-        if [ "$(model_candidates | wc -l)" -gt 1 ]; then
-            echo ""
-            echo "  (candidati mappati dai config: $(model_candidates | tr '\n' ' '))"
-        fi
     fi
-    echo ""
-    echo "Per cancellare: bash cluster/clean_model.sh $MODEL --all"
     exit 0
 fi
 
-# ── Cancella ───────────────────────────────────────────────────────────────
-echo "Pulizia modello: $MODEL"
 CLEANED=0
-if [ -n "$TARGETS" ]; then
-    while IFS= read -r t; do
-        [ -z "$t" ] && continue
-        kind="FILE"
-        [ -d "$t" ] && kind="DIR "
-        echo "  [$kind] $t"
-        rm -rf "$t"
-        CLEANED=1
-    done <<< "$TARGETS"
-fi
+while IFS= read -r target; do
+    [ -n "$target" ] || continue
+    echo "Removing $target"
+    rm -rf "$target"
+    CLEANED=1
+done <<< "$TARGETS"
 
-echo ""
 if [ "$CLEANED" -eq 1 ]; then
-    echo "✅ Pulizia completata per '$MODEL'."
+    echo "Cleanup complete for '$MODEL'."
 else
-    echo "ℹ️  Nessuna cartella da pulire per '$MODEL'."
+    echo "Nothing found for '$MODEL'."
 fi

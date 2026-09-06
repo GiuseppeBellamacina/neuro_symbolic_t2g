@@ -107,7 +107,6 @@ fi
 
 # 3) Catena completa
 if [ ! -s "$CHAIN_FILE" ]; then
-    rm -f "$FAILED_FILE"   # legacy marker non più necessario
     [ "$QUIET" -eq 0 ] && echo "catena completa — nessun job in coda"
     exit 0
 fi

@@ -61,14 +61,14 @@ _GRPO_PHASE_START = re.compile(r"STEP 7: GRPO Training")
 _KV_STEP_EVAL = re.compile(r"^\s+step=(\d+)\s+eval_loss=([\d.]+)")
 # SFT best eval loss: "[sft] Best eval_loss=0.987654 (best checkpoint=...)"
 _SFT_BEST_EVAL = re.compile(r"\[sft\] Best eval_loss=([\d.]+)")
-# Eval generation bar: "Evaluating:  45%|████▍| 17/38 [" or legacy "Generating: ..."
+# Eval generation bar: "Evaluating:  45%|████▍| 17/38 [" or "Generating: ..."
 _TQDM_GENERATING = re.compile(r"(?:Generating|Evaluating).*\|\s*(\d+)/(\d+)\s*\[")
 # Plain-text eval progress line (E2, eval_t2g.py):
 # "  eval progress: 50/8771 (0.6%)" — fallback when the tqdm bar is mangled
 _EVAL_LOG_PROGRESS = re.compile(r"eval progress:\s*(\d+)/(\d+)")
 # tqdm time info: "[04:25<37:02, 33.17s/it]" or "[1:23:45<2:03:04"
 _TQDM_TIME = re.compile(r"\[([\d:]+)<([\d:]+)")
-# Eval phase header (legacy "Evaluating: baseline") and new seeded-sampling line
+# Eval phase header and seeded-sampling line
 # "Evaluating 100/8771 samples (seeded sample)"
 _EVAL_CHECKPOINT = re.compile(r"Evaluating:\s*(.+)")
 _EVAL_PROGRESS_LINE = re.compile(r"Evaluating\s+(\d+)/(\d+)\s+samples")

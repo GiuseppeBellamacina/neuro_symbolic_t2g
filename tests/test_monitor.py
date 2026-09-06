@@ -39,7 +39,7 @@ def test_completion_sample_extraction():
         "    IX MAN WALK HOUSE",
         "  GOLD:",
         "    IX MAN WALK ENTER HOUSE",
-        "  REWARDS: translation_quality_reward=+0.80  structural_dense_reward=+0.65  gloss_format_reward=+1.00  gloss_repetition_reward=+1.00",
+        "  REWARDS: edit_validity_reward=+0.80",
         "  TOTAL:   +0.80",
         "================================================================",
         "step=110 loss=0.004 reward=0.380 ",
@@ -52,7 +52,7 @@ def test_completion_sample_extraction():
     assert "PROMPT" in text or "prompt" in text.lower(), "Contains PROMPT"
     assert "OUTPUT" in text or "IX MAN WALK" in text, "Contains OUTPUT"
     assert "GOLD" in text or "ENTER HOUSE" in text, "Contains GOLD"
-    assert "REWARDS" in text or "translation_quality_reward" in text, "Contains REWARDS"
+    assert "REWARDS" in text or "edit_validity_reward" in text, "Contains REWARDS"
     assert "medium" in text.lower() or "difficulty" in text.lower(), "Difficulty badge"
     assert "mismatch" in text.lower(), "Match indicator present"
 
@@ -409,7 +409,7 @@ def test_completion_prompt_truncation_c7():
         "    IX MAN WALK HOUSE",
         "  GOLD:",
         "    IX MAN WALK ENTER HOUSE",
-        "  REWARDS: translation_quality_reward=+0.80",
+        "  REWARDS: edit_validity_reward=+0.80",
         "  TOTAL:   +0.80",
         "================================================================",
     ]
@@ -432,14 +432,14 @@ def test_live_table_kv_parser():
     from src.utils.live_training_table import _parse_kv_line
 
     entry = _parse_kv_line(
-        "step=5  loss=1.23456789  reward=0.50258335  completion_length=10"
+        "step=5  loss=1.23456789  reward=0.50258335  completions/mean_length=10"
         "  learning_rate=0.00000100  kl=0.12345678"
     )
     assert entry is not None
     assert entry["step"] == 5, f"step: {entry['step']}"
     assert abs(float(entry["loss"]) - 1.23456789) < 1e-8
     assert abs(float(entry["reward"]) - 0.50258335) < 1e-8
-    assert float(entry["completion_length"]) == 10.0
+    assert float(entry["completions/mean_length"]) == 10.0
     assert abs(float(entry["learning_rate"]) - 1e-6) < 1e-12
     assert abs(float(entry["kl"]) - 0.12345678) < 1e-8
 

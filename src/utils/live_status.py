@@ -44,7 +44,7 @@ _MAX_SAMPLES = 6
 
 # Baseline payload — every field the monitor may expect. All nullable.
 _BASE_PAYLOAD: dict[str, Any] = {
-    "phase": None,  # sft | sft_eval | grpo | grpo_eval | eval | null
+    "phase": None,  # sft | grpo | eval | null
     "step": None,
     "total_steps": None,
     "loss": None,
@@ -112,8 +112,8 @@ def live_status_set(phase: str | None = None, **fields: Any) -> None:
     """Merge fields into the live status and (re)write the file.
 
     Args:
-        phase: Current pipeline phase ("sft", "sft_eval", "grpo", "grpo_eval",
-            "eval" or None when idle). Phase changes are written un-throttled.
+        phase: Current pipeline phase ("sft", "grpo", "eval" or None when
+            idle). Phase changes are written un-throttled.
         **fields: Any payload fields to update (step, loss, reward, lr,
             eval_loss, eval_active, eval_progress, note, ...). ``None`` values
             overwrite existing ones (explicit reset) — pass only what you own.

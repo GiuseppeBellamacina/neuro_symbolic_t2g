@@ -19,7 +19,7 @@ tokenizer.  Nella maggior parte dei casi non serve toccare `chat_template`.
 #
 # generate_text() ora usa `tokenizer.chat_template` (quello nativo del modello)
 # per default e non lo sovrascrive più.  Passa questo template SOLO per modelli
-# base/legacy che non ne hanno uno proprio (`tokenizer.chat_template is None`).
+# base che non ne hanno uno proprio (`tokenizer.chat_template is None`).
 chat_template = """
 {%- for message in messages %}
     {{- '<|' + message['role'] + '|>\n' }}

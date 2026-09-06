@@ -1,0 +1,10 @@
+extends: ../sft-grpo/zero-shot.yaml
+
+experiment:
+  variant: pda
+  kind: ablation
+
+grammar:
+  use_grammarllm_pda: true
+  pda_temperature: 0.7
+  token_lookahead: true

@@ -1,151 +1,83 @@
-# Neuro-Symbolic T2G — Guida all'Addestramento
+# Training Guide
 
-## Cosa fa questo training
+The authoritative runtime configs are under `experiments/configs/qwen25-05b/`. Zero-shot and few-shot identify prompt conditioning, not training methods.
 
-Il progetto addestra **Qwen2.5-0.5B-Instruct** a tradurre frasi inglesi in **glosse ASL**
-(American Sign Language) usando **GRPO** (Group Relative Policy Optimization) con
-**constrained decoding**.
+## Training cells
 
-### La pipeline in 7 step
+| Config | Initialization | Training prompts | Evaluation |
+|---|---|---|---|
+| `sft/zero-shot.yaml` | base model | zero-shot | checkpoint supports zero-shot and few-shot evaluation |
+| `grpo/zero-shot.yaml` | base model | zero-shot | either prompt mode |
+| `grpo/few-shot.yaml` | base model | retrieval-backed few-shot | either prompt mode |
+| `sft-grpo/zero-shot.yaml` | SFT checkpoint | zero-shot | either prompt mode |
+| `sft-grpo/few-shot.yaml` | SFT checkpoint | retrieval-backed few-shot | either prompt mode |
 
-```
-┌─────────────┐    ┌──────────────┐    ┌──────────────────────┐
-│ 1. Dataset   │ →  │ 2. Modello    │ →  │ 3. Constrained       │
-│ ASLG-PC12    │    │ Qwen 0.5B     │    │ Decoding (vocab mask) │
-│ (87K coppie) │    │ + LoRA + 4bit │    │ solo glosse ASL      │
-└─────────────┘    └──────────────┘    └──────────────────────┘
-                                             ↓
-┌─────────────┐    ┌──────────────┐    ┌──────────────────────┐
-│ 6. GRPO      │ ←  │ 5. Reward     │ ←  │ 4. T2G Dataset       │
-│ Training     │    │ Functions (4) │    │ prompt→completion    │
-│ (trl.GRPOTrainer)│                │    │ (chat template)      │
-└─────────────┘    └──────────────┘    └──────────────────────┘
-```
+Retrieval is the internal implementation of few-shot prompting and applies to GRPO-only and SFT-GRPO few-shot cells. SFT itself is trained zero-shot.
 
-1. **Dataset**: ASLG-PC12 (87K frasi inglesi → glosse ASL) da HuggingFace
-2. **Modello**: Qwen2.5-0.5B-Instruct con LoRA (r=16) e quantizzazione 4-bit (QLoRA)
-3. **Constrained Decoding**: un `LogitsProcessor` forza ogni token generato a
-   appartenere al vocabolario gloss ASL (15K token). Il modello NON può generare
-   parole inglesi.
-4. **T2G Dataset**: ogni sample ha `prompt` (frase inglese) e `completion` (glosse gold)
-5. **9 Reward Functions**: guidano l'apprendimento senza supervisione umana
-6. **GRPO Training**: il modello genera G=8 completions per prompt, riceve reward,
-   e aggiorna i pesi LoRA per massimizzare la reward attesa
-7. **Salvataggio**: checkpoint ogni 100 step, modello finale in `experiments/checkpoints/grpo/t2g/qwen05/final/`
+## Objective and decoding
 
-### Le reward function
+Production GRPO uses:
 
-| Reward                                | Peso (optimal v2.1) | Cosa misura                                       |
-| ------------------------------------- | ------------------- | ------------------------------------------------- |
-| **Translation quality** (ROUGE-L)    | 0.20                | Similarità con le glosse gold                     |
-| **BLEU-4** (RVLF 2025) ⭐          | 0.20                | N-gram precision con effective_order + smoothing   |
-| **Gold-structure** (Gold Baseline) ⭐ | 0.20                | Confronto bigram vs gold reference                |
-| **Gloss-order** (Edit-distance)       | 0.10                | Levenshtein normalizzato vs gold                  |
-| **Verifier-scaled** (RECIPE)          | 0.10                | ROUGE × structural — confidence multiplier        |
-| **Format**                            | 0.10                | Assicura output di sole glosse (no free text)     |
-| **Repetition**                        | 0.10                | Penalizza sequenze ripetitive                     |
+- `reward.name: edit-validity` only;
+- `grpo.loss_type: dr_grpo`;
+- Trie vocabulary-constrained decoding as the primary decoding path.
 
-Tutte le reward sono mappate su range simmetrico [-1, 1]. Somma pesi = 1.0.
-Vedi `docs/REWARDS.md` per dettagli completi.
+Markov, hard-Viterbi, and soft-path scores are diagnostic only and do not update a policy. PDA changes decoding and is a manual ablation. The `hot` ablation changes rollout temperature from the inherited value to 1.3.
 
-### Cosa aspettarsi
+## Launch
 
-**Fase iniziale (step 0-200)**:
-
-- Il modello base produce output casuali/non sense
-- Translation reward ~0.0-0.1
-- Le glosse generate sono valide (constrained decoding) ma scorrette
-
-**Fase intermedia (step 200-800)**:
-
-- Il modello inizia a produrre glosse correlate all'input
-- Translation reward sale a ~0.2-0.4
-- Struttura bigram migliora (reward structure ~0.5-0.7)
-
-**Fase avanzata (step 800-1500)**:
-
-- Traduzioni ragionevolmente accurate
-- Translation reward ~0.5-0.7
-- Il modello impara pattern gloss tipici dell'ASL
-
-**Durata**: ~2-3 ore per 2000 step su L40S con batch_size=1, grad_accum=8, G=8, gradient_checkpointing=true.
-
-### Cosa NON aspettarsi
-
-- **Non è un traduttore perfetto**: Qwen 0.5B è un modello piccolo. La qualità sarà
-  sufficiente per dimostrare la metodologia neuro-simbolica, non per uso in produzione.
-- **Il constrained decoding garantisce output validi, non corretti**: le glosse generate
-  appartengono sempre al vocabolario ASL, ma possono essere sequenze senza senso.
-- **vLLM non è usato durante il training**: il `LogitsProcessor` di HuggingFace non è
-  compatibile con vLLM. vLLM serve solo per inferenza veloce post-training.
-- **gradient_checkpointing**: attivo in tutti i config — ricomputa le attivazioni
-  del forward nel backward pass, riducendo peak VRAM del ~30% a costo di ~20% più lento.
-  Essenziale per G=8 su GPU 22GB (cluster).
-- **Curriculum learning**: 3-stage (simple→medium→hard) abilitato in `sft-grpo`
-  e in tutte le sue celle di ablation. Calibrato sulla distribuzione reale di ASLG-PC12.
-
-### Monitorare il training
+Run preflight before training:
 
 ```bash
-# Tabella live (job, reward, metriche)
-t2g-monitor
-
-# Log della catena (tick)
-tail -f logs/chain.log
-
-# Log SLURM del job corrente
-tail -f logs/slurm-train-<JOB_ID>.log
-t2g-trainlog <JOB_ID>
-
-# Stato GPU sul nodo
-t2g-gpu
+CONFIG=experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml sbatch cluster/preflight.sh
 ```
 
-### Output attesi
-
-```
-experiments/checkpoints/grpo/t2g/qwen05/
-├── checkpoint-100/      # Dopo 100 step
-├── checkpoint-200/      # Dopo 200 step
-├── ...                  # Ogni 100 step
-└── final/               # Modello finale (step 2000)
-
-logs/
-├── slurm-train-<ID>.log # Log completo training
-├── slurm-eval-<ID>.log  # Log evaluation
-└── chain.log            # Log della pipeline
-```
-
-### Resume dopo interruzione
+Launch one cell:
 
 ```bash
-# Training ha crashato? Riprendi dall'ultimo checkpoint
-run-all --resume
-
-# Oppure manualmente
-CONFIG=experiments/configs/t2g/sft-grpo.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+CONFIG=experiments/configs/qwen25-05b/sft/zero-shot.yaml sbatch cluster/train.sh
+CONFIG=experiments/configs/qwen25-05b/grpo/zero-shot.yaml sbatch cluster/train.sh
+CONFIG=experiments/configs/qwen25-05b/grpo/few-shot.yaml sbatch cluster/train.sh
+CONFIG=experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml sbatch cluster/train.sh
+CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh
 ```
 
-# Ablation study completa (12 config)
+Resume with the same config identity:
 
 ```bash
-source cluster/aliases.sh
-run-all --ablation         # 12 config train+eval (~24h)
-monitor --all               # live dashboard
-ablation-summary            # tabella + grafico cross-config post-pipeline
+CONFIG=experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 ```
 
-### Configurazione
+The default campaign is **2 eval-only baselines + 5 train/eval configs = 12 queue entries**:
 
-Modifica `experiments/configs/t2g/sft-grpo.yaml` per:
+```bash
+bash cluster/run_all.sh
+```
 
-- **Durata**: `training.max_steps` (default 2000)
-- **Velocità**: `grpo.num_generations` (default 8, riduci a 4 per GPU piccole)
-- **GPU piccole (K80)**: `model.quantization: null`, `model.use_unsloth: false`
-- **Quality/speed tradeoff**: `grpo.temperature` (default 0.7 nella base, più alto = più esplorazione)
-- **OOM**: `training.gradient_checkpointing: true` (già attivo di default)
-- **Reward struttura**: `grammar.viterbi_diversity.*` per iperparametri Viterbi
-- **Ablation**: `grammar.enabled: false` per GRPO senza constrained decoding
-- **PDA**: `grammar.use_grammarllm_pda: true` per LL(1) completo
-- **Token lookahead**: `grammar.token_lookahead: true` (solo con PDA, grammarllm v0.5.0)
-- **Curriculum**: `curriculum.enabled: true/false`
+Run PDA and hot-temperature ablations manually; do not count them in the default campaign. Probes are analysis jobs, not training jobs.
+
+## Outputs
+
+```text
+experiments/{checkpoints,logs}/qwen25-05b/<method>/<train-prompt>/run_<timestamp>/
+experiments/{checkpoints,logs}/qwen25-05b/<method>/<train-prompt>/ablations/<pda|hot>/run_<timestamp>/
+```
+
+For SFT, `<train-prompt>` is `zero-shot`. Resume lookup, W&B run identity, and evaluation must retain the same method and training-prompt identity.
+
+## Offline requirements
+
+Compute jobs must use local artifacts and set:
+
+```text
+HF_HUB_OFFLINE=1
+TRANSFORMERS_OFFLINE=1
+HF_DATASETS_OFFLINE=1
+WANDB_MODE=offline
+WANDB_DISABLE_WEAVE=true
+WANDB_SILENT=true
+```
+
+Do not permit an online fallback. Prepare the Qwen snapshot, ASLG-PC12 cache, gloss vocabulary, transition data, and retrieval index where required before submission. Never place HF or W&B credentials in configs or logs.
+
+See [docs/TRAINING.md](docs/TRAINING.md) for the operational checklist and [docs/EXPERIMENT_DESIGN.md](docs/EXPERIMENT_DESIGN.md) for campaign identity.

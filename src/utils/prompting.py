@@ -107,7 +107,7 @@ def build_t2g_prompt(
     without a chat template.
 
     With ``examples=None`` (or an empty list) the user content is the raw
-    sentence — byte-identical to the legacy zero-shot prompt.  With
+    sentence in the canonical zero-shot format. With
     ``examples`` the user content is framed as a few-shot task (see the
     module docstring for the exact format).
 

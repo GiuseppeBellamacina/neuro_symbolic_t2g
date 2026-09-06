@@ -1,48 +1,8 @@
-"""
-T2G Evaluation Script — Multi-metric with plots.
+"""Evaluate T2G checkpoints with shared decoding and prompt protocols.
 
-Evaluates trained checkpoints on the ASLG-PC12 test set using:
-    - ROUGE-L F1 (translation quality)
-    - BLEU (sacreBLEU sentence + corpus)
-    - chrF2 (sacreBLEU, sentence + corpus)
-    - Token-level gloss F1 (micro + sentence mean)
-    - Pass@1 / Pass@k (multiple sampling)
-    - Gloss validity (free-text / repetition detection)
-    - Bigram log-probability (structural plausibility)
-    - Exact match accuracy
-    - Per-component reward breakdown (direct calls — no registry)
-    - Detailed metrics (percentiles, error distribution)
-
-**Honest primary metrics.**  The primary metric block is computed over
-*all* ``num_samples`` completions per prompt (never just the first one),
-so ROUGE-L/BLEU/chrF/F1/exact-match/bigram/validity are honest numbers
-for the actual decoding strategy.  ``pass_at_1`` is the fraction of
-prompts whose *first* completion reaches ROUGE-L >= 0.3 (a single
-honest draw), computed with the shared ``compute_pass_at_k`` helper
-(k=1) for consistency with the Pass@k curve.
-
-**Best-of-N is oracle-only.**  When ``--best-of-n`` is enabled, the gold
-reference is used to pick the best completion per prompt; those metrics
-are reported in a *separate* ``oracle_best_of_n`` block and never
-overwrite the primary (deployable) metrics.
-
-Optionally generates plots via ``visualization.py`` (plotnine):
-    - Completion length distribution (valid vs invalid)
-    - Baseline vs Post-GRPO comparison
-    - Reward component breakdown
-
-Usage:
-    # Single checkpoint eval
-    python -m src.training.eval_t2g --config experiments/configs/t2g/sft-grpo.yaml --checkpoint path/to/ckpt --plot
-
-    # Compare baseline (zero-shot) vs checkpoint — SAME decoding for both
-    python -m src.training.eval_t2g --config experiments/configs/t2g/sft-grpo.yaml --checkpoint path/to/ckpt --compare
-
-    # Best-of-N selection (DIAGNOSTIC ONLY — oracle; reported separately)
-    python -m src.training.eval_t2g --config experiments/configs/t2g/sft-grpo.yaml --checkpoint path/to/ckpt --best-of-n
-
-    # Baseline-only eval (generates baseline JSON for later comparison)
-    python -m src.training.eval_t2g --config experiments/configs/t2g/sft-grpo.yaml --eval-baseline-only --plot
+Primary metrics cover every completion. Oracle best-of-N metrics remain in a
+separate result block. Prompt mode and decoding budget are fingerprinted for
+safe offline baseline reuse.
 """
 
 from __future__ import annotations
@@ -55,7 +15,7 @@ import random
 import warnings
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -99,6 +59,7 @@ from src.training.retrieval_setup import (
     build_train_retriever,
     retrieve_few_shot_batch,
 )
+from src.utils.cache_meta import validate_dataset_name
 from src.utils.config import load_config
 from src.utils.live_status import live_status_reset, live_status_set
 from src.utils.log_dedup import dedupe_library_loggers
@@ -109,18 +70,57 @@ from src.utils.metrics import (
     check_gloss_validity,
     chrf_score,
     compute_detailed_metrics,
-    compute_evaluation_report,
     compute_pass_at_k,
     compute_reward_breakdown,
     corpus_chrf,
     corpus_gloss_f1,
     gloss_f1,
+    mean_abs_length_error,
+    normalize_gloss,
+    normalized_edit_similarity,
+    normalized_exact_match,
     rouge_l_score,
+    sacrebleu_signatures,
     seeded_sample_indices,
 )
 from src.utils.prompting import SYSTEM_PROMPT, build_t2g_prompt
 
 logger = logging.getLogger("t2g-eval")
+
+# Evaluation is deliberately invariant to training rollout temperature.
+EVAL_TEMPERATURE = 0.7
+EVAL_SAMPLING_N = 5
+BOOTSTRAP_SEED = 42
+
+
+def _stable_sample_id(source: Any, gold: Any) -> str:
+    """Stable dataset identity derived from the source/reference pair."""
+    payload = json.dumps(
+        {"source": str(source), "gold": str(gold)},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8", errors="replace")).hexdigest()
+
+
+def _ordered_sample_id_hash(sample_ids: list[str]) -> str:
+    if len(sample_ids) != len(set(sample_ids)):
+        raise ValueError("duplicate sample_id in evaluation set")
+    return hashlib.sha256("\n".join(sample_ids).encode()).hexdigest()
+
+
+def _generation_seed(protocol_seed: int, sample_id: str, mode: str, index: int) -> int:
+    payload = f"{protocol_seed}\0{sample_id}\0{mode}\0{index}".encode()
+    return int.from_bytes(hashlib.sha256(payload).digest()[:8], "big") % (2**31)
+
+
+def _seed_everything(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)  # noqa: NPY002
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +192,7 @@ def _generate_batch(
     max_new_tokens: int = 256,
     do_sample: bool = False,
     temperature: float = 0.7,
+    seed: int | None = None,
 ) -> list[str]:
     """Generate N completions in a single call via num_return_sequences.
 
@@ -215,6 +216,8 @@ def _generate_batch(
     }
     if logits_processor is not None:
         gen_kwargs["logits_processor"] = [logits_processor]
+    if seed is not None:
+        _seed_everything(seed)
     with torch.no_grad():
         outputs = model.generate(**inputs, **gen_kwargs)
     prompt_len = inputs["input_ids"].shape[1]
@@ -228,39 +231,307 @@ def _generate_batch(
     return completions
 
 
+def _generate_protocol_completions(
+    model: Any,
+    tokenizer: Any,
+    prompt: str,
+    logits_processor: Any,
+    sample_id: str,
+    protocol_seed: int,
+    mode: str,
+    n: int,
+    max_new_tokens: int,
+) -> list[str]:
+    """Generate independently seeded completions, invariant to call order/cache."""
+    if mode not in {"deployment", "sampling"}:
+        raise ValueError(f"unknown decoding mode: {mode}")
+    expected = 1 if mode == "deployment" else n
+    outputs: list[str] = []
+    for completion_index in range(expected):
+        generated = _generate_batch(
+            model,
+            tokenizer,
+            prompt,
+            logits_processor,
+            num_return_sequences=1,
+            max_new_tokens=max_new_tokens,
+            do_sample=mode == "sampling",
+            temperature=EVAL_TEMPERATURE,
+            seed=_generation_seed(protocol_seed, sample_id, mode, completion_index),
+        )
+        if len(generated) != 1:
+            raise ValueError(
+                f"{mode} generation returned {len(generated)} completions; expected 1"
+            )
+        outputs.extend(generated)
+        if logits_processor is not None:
+            logits_processor.reset()
+    if len(outputs) != expected:
+        raise ValueError(
+            f"{mode} generated {len(outputs)} completions; expected {expected}"
+        )
+    return outputs
+
+
 # ---------------------------------------------------------------------------
 # Cached-baseline reuse (compare mode)
 # ---------------------------------------------------------------------------
 
 
-def _prompt_context_fingerprint(config: dict[str, Any], num_samples: int) -> str:
-    """Stable identity of the zero-shot baseline eval context.
-
-    The baseline depends only on: base model, dataset + seed, system
-    prompt, few-shot retrieval settings, constrained-decoding setup and the
-    decoding ``num_samples``.  Hashing these lets a cached
-    ``eval_baseline.json`` be reused across SIBLING runs of the same model
-    tag (the baseline is re-evaluated identically in every one of them) —
-    while config changes that alter baseline generations (retrieval or
-    grammar toggles, different num_samples, new system prompt) invalidate
-    the cache and force a re-evaluation.
-    """
+def _prompt_context_fingerprint(
+    config: dict[str, Any],
+    num_samples: int,
+    prompt_mode: str = "auto",
+    max_new_tokens: int | None = None,
+    temperature: float = EVAL_TEMPERATURE,
+) -> str:
+    """Hash inputs that can change baseline prompts or generations."""
     grammar_cfg = config.get("grammar", {})
+    retrieval_cfg = config.get("retrieval", {})
+    effective_mode = _resolve_prompt_mode(prompt_mode, retrieval_cfg)
     payload = {
-        "version": 1,
+        "version": 3,
         "model": config.get("model", {}).get("name"),
         "dataset_name": config.get("dataset", {}).get("dataset_name"),
         "seed": config.get("dataset", {}).get("seed", 42),
         "system_prompt": SYSTEM_PROMPT,
-        "retrieval": config.get("retrieval", {}),
+        "prompt_mode": effective_mode,
+        "retrieval": _effective_retrieval_cfg(retrieval_cfg, effective_mode),
         "grammar": {
             "enabled": grammar_cfg.get("enabled", True),
             "use_grammarllm_pda": grammar_cfg.get("use_grammarllm_pda", False),
         },
         "num_samples": num_samples,
+        "max_new_tokens": max_new_tokens,
+        "temperature": float(temperature),
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Prompt-controlled protocol (preregistered): prompt mode + shared decoding
+# ---------------------------------------------------------------------------
+
+#: Valid values for the ``--prompt-mode`` CLI flag.
+PROMPT_MODES: tuple[str, ...] = ("auto", "zero-shot", "retrieval")
+
+
+def _resolve_prompt_mode(
+    prompt_mode: str,
+    retrieval_cfg: dict[str, Any] | None,
+) -> str:
+    """Resolve ``auto`` without mutating the retrieval config."""
+    if prompt_mode not in PROMPT_MODES:
+        raise ValueError(
+            f"Unknown prompt mode {prompt_mode!r} — expected one of {PROMPT_MODES}"
+        )
+    if prompt_mode == "auto":
+        retrieval_enabled = bool((retrieval_cfg or {}).get("enabled", False))
+        return "retrieval" if retrieval_enabled else "zero-shot"
+    return prompt_mode
+
+
+def _effective_retrieval_cfg(
+    retrieval_cfg: dict[str, Any] | None,
+    effective_mode: str,
+) -> dict[str, Any]:
+    """Copy retrieval settings with the effective mode applied."""
+    cfg = dict(retrieval_cfg or {})
+    cfg["enabled"] = effective_mode == "retrieval"
+    return cfg
+
+
+def _resolve_eval_max_new_tokens(
+    override: int | None,
+    gen_cfg: dict[str, Any],
+) -> int:
+    """Apply a positive shared override or use the trainer config value."""
+    if override is not None:
+        value = int(override)
+        if value <= 0:
+            raise ValueError(f"max_new_tokens override must be > 0, got {override!r}")
+        return value
+    return int(gen_cfg.get("max_completion_length", 256))
+
+
+def _bootstrap_prompt_report(
+    groups: list[list[str]], references: list[str], n_bootstrap: int = 1000
+) -> dict[str, Any]:
+    """Prompt-clustered CIs; corpus metrics are recomputed on resampled corpora."""
+    if len(groups) != len(references) or not groups:
+        raise ValueError("bootstrap requires non-empty aligned prompt groups")
+    width = len(groups[0])
+    if width < 1 or any(len(group) != width for group in groups):
+        raise ValueError("bootstrap requires a constant positive completion group size")
+    metric_fns = {
+        "rouge_l": rouge_l_score,
+        "bleu_sentence": bleu_sentence,
+        "chrf_sentence": chrf_score,
+        "gloss_f1_sentence": gloss_f1,
+        "normalized_edit_similarity": normalized_edit_similarity,
+    }
+    prompt_values = {
+        name: [
+            float(np.mean([fn(c, ref) for c in group]))
+            for group, ref in zip(groups, references)
+        ]
+        for name, fn in metric_fns.items()
+    }
+    rng = np.random.RandomState(BOOTSTRAP_SEED)
+    indices = [rng.randint(0, len(groups), len(groups)) for _ in range(n_bootstrap)]
+    report: dict[str, Any] = {
+        "prompt_count": len(groups),
+        "bootstrap_seed": BOOTSTRAP_SEED,
+    }
+    for name, values in prompt_values.items():
+        boots = [float(np.mean([values[i] for i in idx])) for idx in indices]
+        report[name] = {
+            "mean": float(np.mean(values)),
+            "ci_95": [
+                float(np.percentile(boots, 2.5)),
+                float(np.percentile(boots, 97.5)),
+            ],
+        }
+    corpus_boots: dict[str, list[float]] = {"bleu": [], "chrf": []}
+    for idx in indices:
+        comps = [completion for i in idx for completion in groups[i]]
+        refs = [references[i] for i in idx for _ in groups[i]]
+        corpus_boots["bleu"].append(bleu_corpus(comps, refs))
+        corpus_boots["chrf"].append(corpus_chrf(comps, refs))
+    flat = [completion for group in groups for completion in group]
+    flat_refs = [ref for group, ref in zip(groups, references) for _ in group]
+    report["bleu_corpus"] = {
+        "value": bleu_corpus(flat, flat_refs),
+        "ci_95": [
+            float(np.percentile(corpus_boots["bleu"], 2.5)),
+            float(np.percentile(corpus_boots["bleu"], 97.5)),
+        ],
+    }
+    report["chrf_corpus"] = {
+        "value": corpus_chrf(flat, flat_refs),
+        "ci_95": [
+            float(np.percentile(corpus_boots["chrf"], 2.5)),
+            float(np.percentile(corpus_boots["chrf"], 97.5)),
+        ],
+    }
+    return report
+
+
+def _compatibility_identity(
+    config: dict[str, Any],
+    sample_ids: list[str],
+    prompt_mode: str,
+    max_new_tokens: int,
+    protocol_seed: int,
+    sampling_n: int,
+) -> dict[str, Any]:
+    """Complete protocol identity shared by automatic and explicit baselines."""
+    dataset_cfg, model_cfg = config.get("dataset", {}), config.get("model", {})
+    grammar_cfg, retrieval_cfg = config.get("grammar", {}), config.get("retrieval", {})
+    return {
+        "metrics_version": METRICS_VERSION,
+        "ordered_sample_id_hash": _ordered_sample_id_hash(sample_ids),
+        "dataset": dataset_cfg.get("dataset_name"),
+        "model": model_cfg.get("name"),
+        "tokenizer": model_cfg.get("tokenizer_name", model_cfg.get("name")),
+        "vocab": dataset_cfg.get("vocab_path"),
+        "retrieval": _effective_retrieval_cfg(retrieval_cfg, prompt_mode),
+        "grammar": grammar_cfg,
+        "decoding": {
+            "deployment": {"do_sample": False, "n": 1},
+            "sampling": {
+                "do_sample": True,
+                "n": sampling_n,
+                "temperature": EVAL_TEMPERATURE,
+            },
+        },
+        "seed": protocol_seed,
+        "mode": prompt_mode,
+        "N": sampling_n,
+        "budget": max_new_tokens,
+        "temperature": EVAL_TEMPERATURE,
+    }
+
+
+def validate_compatibility(actual: dict[str, Any], expected: dict[str, Any]) -> None:
+    """Reject any baseline protocol mismatch, including ordered dataset IDs."""
+    if actual != expected:
+        differing = sorted(set(actual) | set(expected), key=str)
+        differing = [key for key in differing if actual.get(key) != expected.get(key)]
+        raise ValueError(
+            f"incompatible evaluation artifact; differing keys: {differing}"
+        )
+
+
+def paired_comparison(
+    baseline_generations: list[dict[str, Any]],
+    checkpoint_generations: list[dict[str, Any]],
+    n_bootstrap: int = 1000,
+) -> dict[str, Any]:
+    """Prompt-paired deployment deltas with clustered deterministic CIs."""
+
+    def deployment_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        selected = [row for row in rows if row.get("decoding_mode") == "deployment"]
+        ids = [str(row.get("sample_id", "")) for row in selected]
+        if not ids or any(not value for value in ids) or len(ids) != len(set(ids)):
+            raise ValueError("paired comparison requires unique deployment sample IDs")
+        return selected
+
+    baseline, checkpoint = deployment_rows(baseline_generations), deployment_rows(
+        checkpoint_generations
+    )
+    baseline_ids = [row["sample_id"] for row in baseline]
+    checkpoint_ids = [row["sample_id"] for row in checkpoint]
+    if baseline_ids != checkpoint_ids:
+        raise ValueError(
+            "paired comparison sample IDs are missing, reordered, or mismatched"
+        )
+    metric_fns = {
+        "rouge_l": rouge_l_score,
+        "bleu_sentence": bleu_sentence,
+        "chrf_sentence": chrf_score,
+        "normalized_edit_similarity": normalized_edit_similarity,
+        "exact_match": normalized_exact_match,
+    }
+    per_prompt: dict[str, list[float]] = {}
+    for name, fn in metric_fns.items():
+        per_prompt[name] = [
+            fn(c["completion"], c["gold_gloss"]) - fn(b["completion"], b["gold_gloss"])
+            for b, c in zip(baseline, checkpoint)
+        ]
+    rng = np.random.RandomState(BOOTSTRAP_SEED)
+    indices = [rng.randint(0, len(baseline), len(baseline)) for _ in range(n_bootstrap)]
+    result: dict[str, Any] = {
+        "prompt_count": len(baseline),
+        "bootstrap_seed": BOOTSTRAP_SEED,
+    }
+    for name, deltas in per_prompt.items():
+        boots = [float(np.mean([deltas[i] for i in idx])) for idx in indices]
+        result[name] = {
+            "delta": float(np.mean(deltas)),
+            "ci_95": [
+                float(np.percentile(boots, 2.5)),
+                float(np.percentile(boots, 97.5)),
+            ],
+        }
+    for name, fn in (("bleu_corpus", bleu_corpus), ("chrf_corpus", corpus_chrf)):
+        b_all = [row["completion"] for row in baseline]
+        c_all = [row["completion"] for row in checkpoint]
+        refs = [row["gold_gloss"] for row in baseline]
+        boots = [
+            fn([c_all[i] for i in idx], [refs[i] for i in idx])
+            - fn([b_all[i] for i in idx], [refs[i] for i in idx])
+            for idx in indices
+        ]
+        result[name] = {
+            "delta": fn(c_all, refs) - fn(b_all, refs),
+            "ci_95": [
+                float(np.percentile(boots, 2.5)),
+                float(np.percentile(boots, 97.5)),
+            ],
+        }
+    return result
 
 
 def _try_cached_baseline(
@@ -268,6 +539,7 @@ def _try_cached_baseline(
     num_samples: int,
     max_samples: int | None,
     fingerprint: str,
+    compatibility: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]] | None] | None:
     """Check ONE results dir for a compatible cached eval_baseline.json.
 
@@ -296,6 +568,11 @@ def _try_cached_baseline(
             return None
     elif n_eval != baseline.get("test_set_size"):
         return None  # cached was a subset, current wants the full test set
+    if compatibility is not None:
+        try:
+            validate_compatibility(baseline.get("compatibility", {}), compatibility)
+        except ValueError:
+            return None
 
     generations: list[dict[str, Any]] | None = None
     gen_path = results_dir / "generations_baseline.json"
@@ -312,10 +589,11 @@ def _load_cached_baseline(
     num_samples: int,
     max_samples: int | None,
     fingerprint: str,
+    compatibility: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]] | None, Path] | None:
     """Load a compatible cached ``eval_baseline.json`` — this run first,
-    then SIBLING runs of the same model tag (newest first), then runs under
-    OTHER model tags (cross-tag, fingerprint-guarded — ablation cells share
+    then sibling runs of the same canonical cell (newest first), then runs in
+    other canonical method cells (fingerprint-guarded — compatible cells share
     the same zero-shot baseline).
 
     The zero-shot baseline is identical for every run of the same prompt
@@ -329,12 +607,12 @@ def _load_cached_baseline(
     """
     # Current run dir first
     cached = _try_cached_baseline(
-        Path(results_dir), num_samples, max_samples, fingerprint
+        Path(results_dir), num_samples, max_samples, fingerprint, compatibility
     )
     if cached is not None:
         return *cached, Path(results_dir)
 
-    # Sibling run dirs of the same model tag, newest first
+    # Sibling run dirs in the current prompt-mode cell, newest first.
     parent = Path(results_dir).parent
     if parent.is_dir():
         siblings = sorted(
@@ -347,31 +625,38 @@ def _load_cached_baseline(
             reverse=True,
         )
         for d in siblings:
-            cached = _try_cached_baseline(d, num_samples, max_samples, fingerprint)
+            cached = _try_cached_baseline(
+                d, num_samples, max_samples, fingerprint, compatibility
+            )
             if cached is not None:
                 return *cached, d
 
-    # Cross-tag: other model tags under experiments/results/. The baseline
-    # is the same zero-shot BASE model evaluated with the same prompt
-    # context — ablation cells (sft-grpo-*, grpo-only, ...
-    # with sft-grpo, so re-evaluating it per tag is pure waste
-    # (~28 GPU-min each). The prompt-context fingerprint check in
-    # _try_cached_baseline guarantees the context matches exactly.
-    results_root = parent.parent
+    # Search only the canonical nested tree for this model. Fingerprint
+    # validation remains the authority for prompt-context equivalence.
+    from src.utils.paths import experiment_root
+
+    try:
+        root = experiment_root(results_dir, "results")
+    except ValueError:
+        return None
+    relative = Path(results_dir).relative_to(root / "results")
+    results_root = root / "results" / relative.parts[0]
     if results_root.is_dir():
-        for tag_dir in sorted(
-            (t for t in results_root.iterdir() if t.is_dir() and t != parent),
-            key=lambda t: t.stat().st_mtime,
+        candidates = sorted(
+            (
+                path.parent
+                for path in results_root.rglob("eval_baseline.json")
+                if path.parent != Path(results_dir)
+            ),
+            key=lambda path: path.stat().st_mtime,
             reverse=True,
-        ):
-            for d in sorted(
-                (r for r in tag_dir.glob("run_*") if r.is_dir()),
-                key=lambda r: r.stat().st_mtime,
-                reverse=True,
-            ):
-                cached = _try_cached_baseline(d, num_samples, max_samples, fingerprint)
-                if cached is not None:
-                    return *cached, d
+        )
+        for candidate in candidates:
+            cached = _try_cached_baseline(
+                candidate, num_samples, max_samples, fingerprint, compatibility
+            )
+            if cached is not None:
+                return *cached, candidate
     return None
 
 
@@ -386,9 +671,10 @@ def _compute_primary_metrics(
     all_completions: list[list[str]],
     all_references: list[str],
     token_to_idx: dict[str, int],
-    bigram: Any,
+    bigram: Any | None,
     reward_weights: dict[str, float],
     n_bootstrap: int = 1000,
+    truncation_hits: list[bool] | None = None,
 ) -> tuple[
     dict[str, Any], list[float], list[tuple[bool, str]], list[float], list[float]
 ]:
@@ -411,7 +697,7 @@ def _compute_primary_metrics(
         all_completions: Nested completions (one list per prompt).
         all_references: Gold reference per prompt (one per prompt).
         token_to_idx: Gloss token → index mapping for bigram scoring.
-        bigram: Bigram transition matrix.
+        bigram: Optional bigram transition matrix diagnostic.
         reward_weights: Reward weight map (weight > 0 ⇒ computed).
         n_bootstrap: Bootstrap resamples for the evaluation report CIs.
 
@@ -442,21 +728,33 @@ def _compute_primary_metrics(
     validity_rate = valid_count / max(len(flat_completions), 1)
     error_counts = Counter(err for _, err in validity if err)
 
-    # Bigram log-prob & exact match over ALL completions (not just the first)
+    if len(flat_completions) != len(flat_references):
+        raise ValueError("completion/reference counts do not align")
+    if len(all_completions) != len(all_references):
+        raise ValueError("prompt/reference group counts do not align")
+    if not all_completions or any(not group for group in all_completions):
+        raise ValueError("completion groups must be non-empty")
+    group_size = len(all_completions[0])
+    if any(len(group) != group_size for group in all_completions):
+        raise ValueError("completion group sizes do not align")
+    if len(flat_completions) != len(all_completions) * group_size:
+        raise ValueError("generated completion count is not exact")
+
+    # Bigram log-prob & normalized exact match over ALL completions.
     bigram_scores: list[float] = []
-    exact_matches: list[int] = []
+    exact_matches: list[float] = []
     for c, r in zip(flat_completions, flat_references):
         tokens = c.split()
         indices = [token_to_idx.get(t, token_to_idx.get("<UNK>", 0)) for t in tokens]
-        if len(indices) >= 2:
+        if bigram is not None and len(indices) >= 2:
             bos = token_to_idx.get("<BOS>", 0)
             eos = token_to_idx.get("<EOS>", 1)
             bigram_scores.append(
                 sequence_score_bigram(bigram, [bos] + indices + [eos]),
             )
-        else:
+        elif bigram is not None:
             bigram_scores.append(-10.0)
-        exact_matches.append(1 if c == r.strip() else 0)
+        exact_matches.append(normalized_exact_match(c, r))
 
     # Pass@1 / Pass@k via the shared helper (k=1 for pass@1)
     pass_at_1 = compute_pass_at_k(
@@ -479,9 +777,24 @@ def _compute_primary_metrics(
         references=flat_references,
         reward_weights=reward_weights,
     )
-    eval_report = compute_evaluation_report(
-        flat_completions, flat_references, n_bootstrap=n_bootstrap
+    eval_report = _bootstrap_prompt_report(
+        all_completions, all_references, n_bootstrap=n_bootstrap
     )
+
+    gen_lengths = [len(normalize_gloss(c).split()) for c in flat_completions]
+    ref_lengths = [len(normalize_gloss(r).split()) for r in flat_references]
+    signed_errors = [g - r for g, r in zip(gen_lengths, ref_lengths)]
+    valid_rouge = [
+        score if valid else 0.0 for score, (valid, _) in zip(rouge_scores, validity)
+    ]
+    edit_scores = [
+        normalized_edit_similarity(c, r)
+        for c, r in zip(flat_completions, flat_references)
+    ]
+    if truncation_hits is None:
+        truncation_hits = [False] * len(flat_completions)
+    if len(truncation_hits) != len(flat_completions):
+        raise ValueError("truncation-hit count does not align with completions")
 
     rouge_mean = float(np.mean(rouge_scores)) if rouge_scores else 0.0
     results: dict[str, Any] = {
@@ -492,7 +805,7 @@ def _compute_primary_metrics(
         # that are invalid (English free text, garbage, code blocks).
         # This metric shows the TRUE quality gap, not the misleading raw
         # ROUGE-L that makes no-grammar look "better".
-        "valid_rouge_l_mean": rouge_mean * validity_rate,
+        "valid_rouge_l_mean": float(np.mean(valid_rouge)),
         "bleu_sentence_mean": float(np.mean(bleu_scores)) if bleu_scores else 0.0,
         "bleu_corpus": bleu_corpus(flat_completions, flat_references),
         "chrf_sentence_mean": float(np.mean(chrf_scores)) if chrf_scores else 0.0,
@@ -502,10 +815,20 @@ def _compute_primary_metrics(
         ),
         "gloss_f1_micro": corpus_gloss_f1(flat_completions, flat_references)["micro"],
         "exact_match": float(np.mean(exact_matches)) if exact_matches else 0.0,
-        "bigram_log_prob_mean": (
-            float(np.mean(bigram_scores)) if bigram_scores else 0.0
+        "normalized_edit_similarity": float(np.mean(edit_scores)),
+        # Mean absolute word-length error vs gold over the SAME flat
+        # completion-reference pairs as every other primary metric
+        # (preregistered instrumentation; training-time group diagnostic
+        # companion is groups/abs_length_error_mean).
+        "mean_abs_length_error": mean_abs_length_error(
+            flat_completions, flat_references
         ),
-        "bigram_log_prob_std": (float(np.std(bigram_scores)) if bigram_scores else 0.0),
+        "mean_signed_length_error": float(np.mean(signed_errors)),
+        "mean_generated_length": float(np.mean(gen_lengths)),
+        "mean_reference_length": float(np.mean(ref_lengths)),
+        "length_ratio": float(np.sum(gen_lengths) / max(np.sum(ref_lengths), 1)),
+        "empty_rate": float(np.mean([length == 0 for length in gen_lengths])),
+        "truncation_hit_rate": float(np.mean(truncation_hits)),
         "validity_rate": validity_rate,
         "valid_count": valid_count,
         "invalid_count": len(flat_completions) - valid_count,
@@ -514,9 +837,21 @@ def _compute_primary_metrics(
         "detailed_metrics": detailed,
         "error_distribution": dict(error_counts.most_common(20)),
         "total_completions": len(flat_completions),
+        "prompt_count": len(all_completions),
+        "sacrebleu": {
+            **sacrebleu_signatures(),
+            "settings": "BLEU effective_order=true floor=0.1; chrF char_order=6 word_order=2",
+        },
         # ── Comprehensive report (BLEU + chrF + gloss F1 + bootstrap CI 95%) ──
         "evaluation_report": eval_report,
     }
+    if bigram is not None:
+        results["bigram_log_prob_mean"] = (
+            float(np.mean(bigram_scores)) if bigram_scores else 0.0
+        )
+        results["bigram_log_prob_std"] = (
+            float(np.std(bigram_scores)) if bigram_scores else 0.0
+        )
     if passk_full:
         results["pass_at_k"] = passk_full
 
@@ -558,6 +893,8 @@ def evaluate_checkpoint(
     max_samples: int | None = None,
     num_samples: int = 1,
     best_of_n: bool = False,
+    prompt_mode: str = "auto",
+    max_new_tokens: int | None = None,
 ) -> tuple[
     dict[str, Any],
     list[str],
@@ -571,7 +908,9 @@ def evaluate_checkpoint(
     """Evaluate a checkpoint on the test set with full metrics.
 
     Args:
-        config: Parsed YAML config.
+        config: Parsed YAML config. NEVER mutated — prompt-mode overrides
+            are applied to local copies only, so nothing leaks between the
+            baseline and checkpoint eval legs of ``--compare``.
         checkpoint_path: Path to the checkpoint directory, or ``None`` for
             zero-shot evaluation (loads the base model without LoRA).
         max_samples: Max test samples to evaluate, or ``None`` for the full
@@ -583,6 +922,16 @@ def evaluate_checkpoint(
             the gold reference, so it is NOT deployable.  Results are
             reported in a separate ``oracle_best_of_n`` block and never
             overwrite the primary metrics.
+        prompt_mode: ``"auto"`` (default) preserves the current config
+            behavior; ``"zero-shot"``/``"retrieval"`` override
+            ``retrieval.enabled`` for prompt construction and fingerprinting
+            only.  The effective mode is recorded in the results/decoding
+            metadata and in the prompt-context fingerprint.
+        max_new_tokens: Explicit shared decoding budget overriding
+            ``generation/grpo.max_completion_length`` (``None`` ⇒ config
+            default).  Record it in the fingerprint/decoding metadata so a
+            forced SFT=GRPO budget is never silently replaced by the
+            per-section 256/128 defaults.
 
     Returns:
         Tuple of ``(results, flat_completions, validity, all_references,
@@ -595,10 +944,10 @@ def evaluate_checkpoint(
         *bleu_scores* and *chrf_scores* are the per-completion score lists
         (fed to the distribution plots), and *generations* is a list of
         per-completion dicts (text/gold/completion/valid/rouge_l) suitable
-        for a standalone JSON dump (mirrors grpo-strict-generation's
-        ``completions_*.json`` format).
+        for a standalone generations JSON dump.
     """
     ds_cfg = config["dataset"]
+    validate_dataset_name(ds_cfg.get("dataset_name"))
     # Support both generation (SFT) and grpo (GRPO) — generation preferred
     gen_cfg = config.get("generation", config.get("grpo", {}))
 
@@ -607,24 +956,54 @@ def evaluate_checkpoint(
         cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
     )
     vocab = load_vocabulary(ds_cfg.get("vocab_path", "data/gloss_vocab.txt"))
-    bigram = load_transition_matrix(
-        ds_cfg.get("bigram_matrix_path", "data/bigram_transition.npy"),
-    )
+    bigram_path = Path(ds_cfg.get("bigram_matrix_path", "data/bigram_transition.npy"))
+    bigram = None
+    if bigram_path.is_file():
+        try:
+            bigram = load_transition_matrix(bigram_path, expected_size=len(vocab))
+        except (OSError, ValueError) as exc:
+            logger.warning("Bigram diagnostic disabled: %s", exc)
+    else:
+        logger.warning(
+            "Bigram diagnostic omitted: artifact not found at %s (core eval continues)",
+            bigram_path,
+        )
 
     # ── Optional few-shot retrieval (same strategy as GRPO training) ─────
     # When enabled, eval prompts are augmented with the same top_k
     # (text→gloss) examples retrieved from the TRAIN split, keeping
     # train/inference consistent.  Disabled ⇒ zero-shot, identical to the
-    # legacy eval.  Baseline and checkpoint evals share the same retriever,
+    # base-prompt eval. Baseline and checkpoint evals share the same retriever,
     # so ``--compare`` stays fair (same decoding AND same prompting).
+    #
+    # --prompt-mode (preregistered): 'zero-shot'/'retrieval' override
+    # retrieval.enabled for PROMPT CONSTRUCTION and the fingerprint only.
+    # The override is applied to a local COPY of the retrieval section —
+    # the caller's config is never mutated, so the baseline and checkpoint
+    # legs (and any later consumer of the config) see the original values.
     retrieval_cfg = config.get("retrieval", {})
+    effective_prompt_mode = _resolve_prompt_mode(prompt_mode, retrieval_cfg)
+    if prompt_mode != "auto":
+        logger.info(
+            "Prompt mode override: --prompt-mode=%s → effective '%s' "
+            "(config retrieval.enabled=%s ignored for prompt construction/"
+            "fingerprint)",
+            prompt_mode,
+            effective_prompt_mode,
+            retrieval_cfg.get("enabled", False),
+        )
+    effective_retrieval_cfg = _effective_retrieval_cfg(
+        retrieval_cfg, effective_prompt_mode
+    )
     retriever = build_train_retriever(
         dataset,
-        retrieval_cfg,
+        effective_retrieval_cfg,
         seed=ds_cfg.get("seed", 42),
     )
-    top_k = int(retrieval_cfg.get("top_k", 3))
-    max_self_similarity = float(retrieval_cfg.get("max_self_similarity", 0.98))
+    top_k = int(effective_retrieval_cfg.get("top_k", 3))
+    max_self_similarity = float(
+        effective_retrieval_cfg.get("max_self_similarity", 0.98)
+    )
     if retriever is not None:
         logger.info(
             "Few-shot retrieval enabled: backend=%s, top_k=%d, "
@@ -635,11 +1014,7 @@ def evaluate_checkpoint(
             max_self_similarity,
         )
 
-    initialize_rewards(
-        bigram,
-        vocab,
-        viterbi_diversity=config.get("grammar", {}).get("viterbi_diversity"),
-    )
+    initialize_rewards(vocab)
     token_to_idx = {t: i for i, t in enumerate(vocab)}
 
     # ── Load model ───────────────────────────────────────────────────────
@@ -647,11 +1022,7 @@ def evaluate_checkpoint(
         logger.info(f"Zero-shot mode: loading base model {config['model']['name']}")
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        # Offline-first: resolve the hub id to its LOCAL snapshot when
-        # cached. transformers 5.3's tokenizer init calls model_info()
-        # (network) for non-local ids (_patch_mistral_regex) — on DNS-less
-        # compute nodes this CRASHED the eval job (slurm-eval-7077). A
-        # local path short-circuits the check and skips all HEAD retries.
+        # Resolve cached hub IDs to local snapshots before tokenizer loading.
         base_src = resolve_model_source(config["model"]["name"])
         if base_src != config["model"]["name"]:
             logger.info(f"  Using cached snapshot: {base_src}")
@@ -696,7 +1067,7 @@ def evaluate_checkpoint(
             pdas, streamer, pda = create_grammarllm_pipeline(
                 vocab,
                 tokenizer,
-                temperature=gen_cfg.get("temperature", 0.7),
+                temperature=EVAL_TEMPERATURE,
                 num_return_sequences=eval_batch_size,
                 token_lookahead=grammar_cfg.get("token_lookahead", True),
             )
@@ -751,7 +1122,23 @@ def evaluate_checkpoint(
         else None
     )
 
-    do_sample = num_samples > 1
+    if num_samples <= 0:
+        raise ValueError("sampling N must be positive")
+
+    # ── Effective decoding budget (preregistered prompt-controlled protocol)
+    # An explicit override forces the SAME max_new_tokens across SFT and
+    # GRPO checkpoints (their config sections differ: generation=256 vs
+    # grpo=128 — the override must never silently fall back to those).
+    effective_max_new_tokens = _resolve_eval_max_new_tokens(max_new_tokens, gen_cfg)
+    if max_new_tokens is not None:
+        logger.info(
+            "max_new_tokens override ACTIVE: %d (config "
+            "generation/grpo.max_completion_length would be %s) — the same "
+            "budget is forced on every eval leg and recorded in the "
+            "fingerprint/decoding metadata",
+            effective_max_new_tokens,
+            gen_cfg.get("max_completion_length", 256),
+        )
     if best_of_n and num_samples <= 1:
         logger.warning(
             "best_of_n=True but num_samples=%d (need >1). Disabling best_of_n.",
@@ -771,6 +1158,7 @@ def evaluate_checkpoint(
     # ── Collect completions ──────────────────────────────────────────────
     # Multi-sample: list[list[str]] per prompt (always nested for consistency)
     all_completions: list[list[str]] = []
+    deployment_completions: list[list[str]] = []
     all_references: list[str] = []
     all_sample_ids: list[str] = []
     all_texts: list[str] = []
@@ -817,68 +1205,115 @@ def evaluate_checkpoint(
             examples=examples_batch[idx] if examples_batch is not None else None,
         )
 
-        # Generate N completions in a single model.generate() call
-        temp = 0.7 if do_sample else 1.0  # greedy ignores temperature
-        completions = _generate_batch(
+        sample_id = _stable_sample_id(text, gold)
+        deployed = _generate_protocol_completions(
             model,
             tokenizer,
             prompt,
             logits_processor,
-            num_return_sequences=num_samples,
-            max_new_tokens=gen_cfg.get("max_completion_length", 256),
-            do_sample=do_sample,
-            temperature=temp,
+            sample_id,
+            int(ds_cfg.get("seed", 42)),
+            "deployment",
+            1,
+            effective_max_new_tokens,
         )
-        if logits_processor is not None:
-            logits_processor.reset()
+        completions = _generate_protocol_completions(
+            model,
+            tokenizer,
+            prompt,
+            logits_processor,
+            sample_id,
+            int(ds_cfg.get("seed", 42)),
+            "sampling",
+            num_samples,
+            effective_max_new_tokens,
+        )
 
         # Store
         all_completions.append(completions)
+        deployment_completions.append(deployed)
         all_references.append(gold)
         all_texts.append(str(text))
-        all_sample_ids.append(
-            hashlib.sha256(str(text).encode("utf-8", errors="replace")).hexdigest()
+        all_sample_ids.append(sample_id)
+
+    prompt_count = len(all_references)
+    if not (
+        len(all_completions)
+        == len(deployment_completions)
+        == len(all_sample_ids)
+        == len(all_texts)
+        == len(all_difficulties)
+        == prompt_count
+    ):
+        raise ValueError("prompt/reference/sample_id/difficulty counts do not align")
+    if any(len(group) != 1 for group in deployment_completions):
+        raise ValueError("deployment must contain exactly one completion per prompt")
+    if any(len(group) != num_samples for group in all_completions):
+        raise ValueError(
+            f"sampling must contain exactly N={num_samples} completions per prompt"
         )
+    ordered_id_hash = _ordered_sample_id_hash(all_sample_ids)
 
     # Flatten completions for per-completion metrics. For num_samples=1 there
     # is 1 completion per prompt; for num_samples>1 ALL completions are scored
     # individually — primary metrics are honest averages over every completion.
     flat_completions = [c for comps in all_completions for c in comps]
-    flat_sample_ids = [
-        sid for i, sid in enumerate(all_sample_ids) for _ in all_completions[i]
-    ]
-    flat_texts = [txt for i, txt in enumerate(all_texts) for _ in all_completions[i]]
     flat_references = [
         ref for i, ref in enumerate(all_references) for _ in all_completions[i]
     ]
 
-    # Reward weight map — only components with weight > 0 are computed.
-    rewards_cfg = config.get("reward", {})
-    reward_weight_map = {
-        "translation_quality_reward": rewards_cfg.get("weight_translation", 0.0),
-        "bleu_reward": rewards_cfg.get("weight_bleu", 0.0),
-        "structural_dense_reward": rewards_cfg.get("weight_structure", 0.0),
-        "gold_structure_reward": rewards_cfg.get("weight_gold_structure", 0.0),
-        "viterbi_distance_reward": rewards_cfg.get("weight_viterbi", 0.0),
-        "soft_viterbi_distance_reward": rewards_cfg.get("weight_soft_viterbi", 0.0),
-        "verifier_scaled_reward": rewards_cfg.get("weight_verifier_scaled", 0.0),
-        "gloss_order_reward": rewards_cfg.get("weight_gloss_order", 0.0),
-        "gloss_format_reward": rewards_cfg.get("weight_format", 0.0),
-        "gloss_repetition_reward": rewards_cfg.get("weight_repetition", 0.0),
-    }
+    reward_weight_map = {"edit_validity_reward": 1.0}
 
-    # ── Primary metrics (honest, averaged over ALL completions) ─────────
+    (
+        sampling_metrics,
+        sampling_rouge,
+        sampling_validity,
+        sampling_bleu,
+        sampling_chrf,
+    ) = _compute_primary_metrics(
+        flat_completions,
+        flat_references,
+        all_completions,
+        all_references,
+        token_to_idx=token_to_idx,
+        bigram=bigram,
+        reward_weights=reward_weight_map,
+    )
+    deployed_flat = [group[0] for group in deployment_completions]
     results, rouge_scores, validity, bleu_scores, chrf_scores = (
         _compute_primary_metrics(
-            flat_completions,
-            flat_references,
-            all_completions,
+            deployed_flat,
+            list(all_references),
+            deployment_completions,
             all_references,
             token_to_idx=token_to_idx,
             bigram=bigram,
             reward_weights=reward_weight_map,
         )
     )
+    sampling_metrics["pass_at_k_standard_estimator"] = compute_pass_at_k(
+        all_completions, all_references, tuple(range(1, num_samples + 1)), threshold=0.3
+    )
+    sampling_metrics["success_criterion"] = "ROUGE-L>=0.3 AND lexical validity"
+    sampling_metrics["diversity"] = {
+        "unique_outputs_mean": float(
+            np.mean(
+                [len({normalize_gloss(c) for c in group}) for group in all_completions]
+            )
+        ),
+        "unique_output_ratio": float(
+            np.mean(
+                [
+                    len({normalize_gloss(c) for c in group}) / num_samples
+                    for group in all_completions
+                ]
+            )
+        ),
+    }
+    deployment_metrics = dict(results)
+    results["headline"] = "deployment"
+    results["deployment"] = deployment_metrics
+    results["sampling"] = sampling_metrics
     results["num_samples_evaluated"] = len(all_references)
     results["test_set_size"] = test_set_size
     results["num_completions_per_prompt"] = num_samples
@@ -887,16 +1322,42 @@ def evaluate_checkpoint(
     # _load_cached_baseline) refuses to reuse results computed with a
     # different version (e.g. pre corpus-BLEU-fix numbers).
     results["metrics_version"] = METRICS_VERSION
-    # Stamp the prompting context (model/dataset/system prompt/retrieval/
-    # grammar/decoding) — guards sibling-run baseline reuse against config
-    # changes that would alter baseline generations.
+    results["ordered_sample_ids"] = all_sample_ids
+    results["ordered_sample_id_hash"] = ordered_id_hash
+    # Stamp the prompting context (model/dataset/system prompt/EFFECTIVE
+    # retrieval mode/grammar/decoding incl. max_new_tokens) — guards
+    # sibling-run baseline reuse against config or protocol changes that
+    # would alter baseline generations.
     results["prompt_context_fingerprint"] = _prompt_context_fingerprint(
-        config, num_samples
+        config,
+        num_samples,
+        prompt_mode=prompt_mode,
+        max_new_tokens=effective_max_new_tokens,
     )
+    results["prompt_mode"] = effective_prompt_mode
     results["decoding"] = {
-        "do_sample": do_sample,
-        "temperature": (0.7 if do_sample else None),
-        "num_samples": num_samples,
+        "deployment": {"do_sample": False, "num_samples": 1, "temperature": None},
+        "sampling": {
+            "do_sample": True,
+            "num_samples": num_samples,
+            "temperature": EVAL_TEMPERATURE,
+        },
+        "max_new_tokens": effective_max_new_tokens,
+        "max_new_tokens_overridden": max_new_tokens is not None,
+        "prompt_mode": effective_prompt_mode,
+        "prompt_mode_requested": prompt_mode,
+    }
+    results["compatibility"] = _compatibility_identity(
+        config,
+        all_sample_ids,
+        effective_prompt_mode,
+        effective_max_new_tokens,
+        int(ds_cfg.get("seed", 42)),
+        num_samples,
+    )
+    results["bigram"] = {
+        "available": bigram is not None,
+        "reason": None if bigram is not None else "artifact missing or invalid",
     }
 
     # ── Per-difficulty breakdown ────────────────────────────────────────
@@ -910,10 +1371,10 @@ def evaluate_checkpoint(
             idxs = [i for i, d in enumerate(flat_difficulties) if d == level]
             if not idxs:
                 continue
-            level_rouge = [rouge_scores[i] for i in idxs]
-            level_bleu = [bleu_scores[i] for i in idxs]
-            level_chrf = [chrf_scores[i] for i in idxs]
-            level_valid = [validity[i][0] for i in idxs]
+            level_rouge = [sampling_rouge[i] for i in idxs]
+            level_bleu = [sampling_bleu[i] for i in idxs]
+            level_chrf = [sampling_chrf[i] for i in idxs]
+            level_valid = [sampling_validity[i][0] for i in idxs]
             breakdown[level] = {
                 "n_prompts": sum(1 for d in all_difficulties if d == level),
                 "rouge_l_mean": float(np.mean(level_rouge)),
@@ -937,7 +1398,27 @@ def evaluate_checkpoint(
                         np.mean([r >= 0.3 for r in first_rouge])
                     )
         if breakdown:
-            results["difficulty_breakdown"] = breakdown
+            results["sampling"]["difficulty_breakdown"] = breakdown
+            deployment_breakdown: dict[str, dict[str, float]] = {}
+            for level in breakdown:
+                prompt_idxs = [i for i, d in enumerate(all_difficulties) if d == level]
+                deployment_breakdown[level] = {
+                    "n_prompts": len(prompt_idxs),
+                    "rouge_l_mean": float(
+                        np.mean([rouge_scores[i] for i in prompt_idxs])
+                    ),
+                    "bleu_sentence_mean": float(
+                        np.mean([bleu_scores[i] for i in prompt_idxs])
+                    ),
+                    "chrf_sentence_mean": float(
+                        np.mean([chrf_scores[i] for i in prompt_idxs])
+                    ),
+                    "validity_rate": float(
+                        np.mean([validity[i][0] for i in prompt_idxs])
+                    ),
+                }
+            results["deployment"]["difficulty_breakdown"] = deployment_breakdown
+            results["difficulty_breakdown"] = deployment_breakdown
             logger.info(
                 "Per-difficulty breakdown: %s",
                 {k: round(v["rouge_l_mean"], 3) for k, v in breakdown.items()},
@@ -970,24 +1451,29 @@ def evaluate_checkpoint(
             len(selected),
         )
 
-    # ── Per-completion generations log (stile grpo-strict-generation) ────
-    # Salva ogni generazione con testo sorgente, gold, completion, validità
-    # ed ROUGE-L, per ispezione manuale e debugging (es. quali frasi vanno
-    # male, quali errori di validità sono più comuni, ecc).
+    # Per-completion records for inspection and debugging.
     generations: list[dict[str, Any]] = []
-    for i, (txt, ref, comp, (is_valid, err), rl, sid) in enumerate(
-        zip(
-            flat_texts,
-            flat_references,
-            flat_completions,
-            validity,
-            rouge_scores,
-            flat_sample_ids,
-        )
+    artifact_rows: list[tuple[str, int, int, str]] = []
+    for mode, groups in (
+        ("deployment", deployment_completions),
+        ("sampling", all_completions),
     ):
+        for prompt_index, group in enumerate(groups):
+            artifact_rows.extend(
+                (mode, prompt_index, completion_index, completion)
+                for completion_index, completion in enumerate(group)
+            )
+    for i, (mode, prompt_index, completion_index, comp) in enumerate(artifact_rows):
+        txt = all_texts[prompt_index]
+        ref = all_references[prompt_index]
+        sid = all_sample_ids[prompt_index]
+        is_valid, err = check_gloss_validity(comp)
+        rl = rouge_l_score(comp, ref)
         entry: dict[str, Any] = {
             "index": i,
             "sample_id": sid,
+            "decoding_mode": mode,
+            "completion_index": completion_index,
             "text": txt,
             "gold_gloss": ref,
             "completion": comp,
@@ -1004,7 +1490,7 @@ def evaluate_checkpoint(
 
     return (
         results,
-        flat_completions,
+        deployed_flat,
         validity,
         all_references,
         rouge_scores,
@@ -1019,7 +1505,12 @@ def evaluate_checkpoint(
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+def build_arg_parser() -> argparse.ArgumentParser:
+    """Build the CLI argument parser.
+
+    Extracted from :func:`main` so tests can exercise the argument wiring
+    (``--prompt-mode``, ``--max-new-tokens``) without launching an eval.
+    """
     parser = argparse.ArgumentParser(description="T2G checkpoint evaluation")
     parser.add_argument("--config", type=str, required=True, help="Config YAML path")
     parser.add_argument(
@@ -1042,6 +1533,28 @@ def main() -> None:
         default=None,
         help="Completions per prompt (1=greedy, >1=sampled for Pass@k). "
         "Overrides config evaluation.num_samples.",
+    )
+    parser.add_argument(
+        "--prompt-mode",
+        type=str,
+        choices=list(PROMPT_MODES),
+        default="auto",
+        help="Prompt-controlled protocol: 'auto' preserves the config "
+        "behavior (retrieval.enabled decides); 'zero-shot'/'retrieval' "
+        "override retrieval.enabled for prompt construction and the "
+        "baseline-cache fingerprint only. The effective mode is recorded "
+        "in the results/decoding metadata. Default: auto.",
+    )
+    parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=None,
+        help="Shared eval decoding budget overriding the per-section "
+        "generation/grpo.max_completion_length (SFT=256 vs GRPO=128). "
+        "When set, the SAME value is forced on every eval leg (baseline "
+        "and checkpoint) and recorded in the fingerprint/decoding "
+        "metadata. Also configurable as evaluation.max_new_tokens. "
+        "Default: None → config default.",
     )
     parser.add_argument(
         "--output", type=str, default=None, help="Path to save results JSON"
@@ -1091,15 +1604,17 @@ def main() -> None:
         "(metrics_version + decoding + sample count all match). Default: "
         "reuse the cached baseline (~28 min GPU saved per re-eval).",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    args = build_arg_parser().parse_args()
 
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
-    # HF libraries attach their own StreamHandler AND propagate to root —
-    # every library warning printed twice (slurm-eval-7077). Strip the
-    # library-owned handlers so each record prints exactly once.
+    # Remove library handlers that duplicate records propagated to root.
     dedupe_library_loggers()
 
     config = load_config(args.config)
@@ -1115,6 +1630,13 @@ def main() -> None:
         num_samples = eval_cfg.get("num_samples", 1)
     # best_of_n: CLI flag overrides config; config default is False
     best_of_n = args.best_of_n or eval_cfg.get("best_of_n", False)
+    # prompt_mode: CLI only (default 'auto' preserves config behavior).
+    prompt_mode = args.prompt_mode
+    # Shared eval decoding budget: CLI --max-new-tokens wins, then
+    # evaluation.max_new_tokens, else the per-section config default.
+    max_new_tokens_override = args.max_new_tokens
+    if max_new_tokens_override is None:
+        max_new_tokens_override = eval_cfg.get("max_new_tokens")
 
     # ── Log eval configuration ───────────────────────────────────────────
     logger.info(f"Config: {args.config}")
@@ -1123,6 +1645,15 @@ def main() -> None:
         f"Max samples: {max_samples if max_samples is not None else 'all (full test set)'}"
     )
     logger.info(f"Completions per prompt: {num_samples}")
+    logger.info(f"Prompt mode: {prompt_mode}")
+    logger.info(
+        "Max new tokens: %s",
+        (
+            f"{max_new_tokens_override} (explicit override — forced on ALL eval legs)"
+            if max_new_tokens_override is not None
+            else "config default (generation/grpo.max_completion_length)"
+        ),
+    )
     logger.info(f"Grammar enabled: {config.get('grammar', {}).get('enabled', True)}")
     logger.info(
         f"Use PDA: {config.get('grammar', {}).get('use_grammarllm_pda', False)}"
@@ -1149,42 +1680,42 @@ def main() -> None:
         torch.cuda.manual_seed_all(seed)
     logger.info(f"Reproducibility: seed={seed} (random, numpy, torch, cuda)")
 
-    # ── Resolve model_name, run_id, and directory paths ──────────────────
-    from datetime import datetime
+    # ── Resolve cell/run identity and directory paths ────────────────────
+    from src.utils.paths import (
+        PromptMode,
+        RunPath,
+        cell_base_dir,
+        cell_from_config,
+        cell_run_from_checkpoint,
+        evaluation_identifier,
+        evaluation_log_dir,
+        new_run_id,
+    )
 
-    run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
+    effective_prompt_mode = _resolve_prompt_mode(prompt_mode, config.get("retrieval"))
     if args.checkpoint is not None:
         checkpoint_path = Path(args.checkpoint).resolve()
-        parts = checkpoint_path.parts
-        if "checkpoints" in parts:
-            idx = parts.index("checkpoints")
-            if len(parts) > idx + 2:
-                model_name = parts[idx + 1]
-                run_id = parts[idx + 2]
-            else:
-                model_name = parts[idx + 1]
-                run_id = "default_run"
-        else:
-            model_name = config.get("wandb", {}).get("run_name", "t2g-model")
-            run_id = (
-                checkpoint_path.parent.name
-                if checkpoint_path.name in ["final", "checkpoint-*"]
-                else checkpoint_path.name
-            )
-
-        model_tag = run_id
+        identity = cell_run_from_checkpoint(checkpoint_path)
     else:
-        raw_model_name = config["model"]["name"].split("/")[-1].lower()
-        model_name = raw_model_name.replace(".", "")
-        if "run_name" in config.get("wandb", {}):
-            model_name = config["wandb"]["run_name"]
-        run_id = f"zero_shot_{run_timestamp}"
-        model_tag = "zero-shot"
-
-    results_dir = Path("experiments/results") / model_name / run_id
-    figures_dir = Path("experiments/figures") / model_name / run_id
-    logs_dir = Path("experiments/logs") / model_name / run_id
+        identity = RunPath(cell_from_config(config), new_run_id())
+    run_id = identity.run_id
+    eval_identity = RunPath(
+        identity.cell, run_id, cast(PromptMode, effective_prompt_mode)
+    )
+    model_tag = evaluation_identifier(eval_identity)
+    results_dir = (
+        cell_base_dir(
+            "experiments", "results", identity.cell, eval_identity.prompt_mode
+        )
+        / run_id
+    )
+    figures_dir = (
+        cell_base_dir(
+            "experiments", "figures", identity.cell, eval_identity.prompt_mode
+        )
+        / run_id
+    )
+    logs_dir = evaluation_log_dir("experiments", eval_identity)
 
     results_dir.mkdir(parents=True, exist_ok=True)
     figures_dir.mkdir(parents=True, exist_ok=True)
@@ -1219,9 +1750,9 @@ def main() -> None:
             max_samples=max_samples,
             num_samples=num_samples,
             best_of_n=best_of_n,
+            prompt_mode=prompt_mode,
+            max_new_tokens=max_new_tokens_override,
         )
-        model_tag = "baseline"
-
     elif args.compare:
         # Mode 2: baseline + checkpoint comparison (SAME decoding for both)
         # Step A: Load or evaluate baseline
@@ -1244,7 +1775,15 @@ def main() -> None:
                 results_dir,
                 num_samples=num_samples,
                 max_samples=max_samples,
-                fingerprint=_prompt_context_fingerprint(config, num_samples),
+                fingerprint=_prompt_context_fingerprint(
+                    config,
+                    num_samples,
+                    prompt_mode=prompt_mode,
+                    max_new_tokens=_resolve_eval_max_new_tokens(
+                        max_new_tokens_override,
+                        config.get("generation", config.get("grpo", {})),
+                    ),
+                ),
             )
             if cached is not None:
                 baseline_results, baseline_generations, cached_from = cached
@@ -1281,6 +1820,8 @@ def main() -> None:
                 max_samples=max_samples,
                 num_samples=num_samples,
                 best_of_n=False,
+                prompt_mode=prompt_mode,
+                max_new_tokens=max_new_tokens_override,
             )
             # Save baseline results for future reuse
             bl_out_dir = results_dir
@@ -1316,6 +1857,19 @@ def main() -> None:
             max_samples=max_samples,
             num_samples=num_samples,
             best_of_n=best_of_n,
+            prompt_mode=prompt_mode,
+            max_new_tokens=max_new_tokens_override,
+        )
+        if baseline_results is None:
+            raise ValueError("compare mode requires baseline results")
+        validate_compatibility(
+            baseline_results.get("compatibility", {}),
+            results.get("compatibility", {}),
+        )
+        if baseline_generations is None:
+            raise ValueError("paired comparison requires baseline generations")
+        results["paired_comparison"] = paired_comparison(
+            baseline_generations, generations
         )
 
     else:
@@ -1335,6 +1889,8 @@ def main() -> None:
             max_samples=max_samples,
             num_samples=num_samples,
             best_of_n=best_of_n,
+            prompt_mode=prompt_mode,
+            max_new_tokens=max_new_tokens_override,
         )
 
     # ── Log key metrics ─────────────────────────────────────────────────
@@ -1400,12 +1956,18 @@ def main() -> None:
         f" / {results.get('test_set_size', '?')} test set"
     )
     print(f"  Completions per prompt:  {results['num_completions_per_prompt']}")
+    print(f"  Prompt mode:             {results.get('prompt_mode', '?')}")
+    print(
+        f"  Max new tokens:          "
+        f"{results.get('decoding', {}).get('max_new_tokens', '?')}"
+        f"{' (override)' if results.get('decoding', {}).get('max_new_tokens_overridden') else ''}"
+    )
     print(
         f"  ROUGE-L (mean ± std):    {results['rouge_l_mean']:.4f} ± {results['rouge_l_std']:.4f}"
     )
     print(
         f"  Valid ROUGE-L:           {results['valid_rouge_l_mean']:.4f}  "
-        f"(rouge_l × validity = {results['rouge_l_mean']:.4f} × {results['validity_rate']:.4f})"
+        "(mean of ROUGE-L for valid outputs, zero for invalid outputs)"
     )
     print(
         f"  BLEU (sent/corpus):      {results['bleu_sentence_mean']:.4f} / "
@@ -1424,7 +1986,12 @@ def main() -> None:
         for k, v in results["pass_at_k"].items():
             print(f"  {k}:{' ' * (25 - len(k))}{v:.4f}")
     print(f"  Exact match:             {results['exact_match']:.4f}")
-    print(f"  Bigram log-prob (mean):  {results['bigram_log_prob_mean']:.4f}")
+    if "bigram_log_prob_mean" in results:
+        print(f"  Bigram log-prob (mean):  {results['bigram_log_prob_mean']:.4f}")
+    else:
+        print(
+            f"  Bigram diagnostic:       unavailable ({results.get('bigram', {}).get('reason', 'unknown')})"
+        )
     print(
         f"  Validity rate:           {results['validity_rate']:.4f}  "
         f"({results['valid_count']} valid / {results['invalid_count']} invalid)"
@@ -1500,11 +2067,10 @@ def main() -> None:
     )
     logger.info(f"Results saved to {out_path}")
 
-    # ── Save generations JSON (stile grpo-strict-generation) ────────────
+    # Save per-completion generations JSON.
     # File separato con ogni singola generazione (testo/gold/pred/valid/
     # rouge_l), utile per ispezione manuale e per costruire dataset di
     # analisi degli errori — analogo a completions_{name}.json in
-    # grpo-strict-generation/src/evaluation/eval_grpo.py.
     # Naming: sempre dallo stem dell'eval file (mai dal path pieno), e
     # scritto ACCANTO all'eval file — così `--output` custom resta coerente.
     gen_stem = out_path.stem
@@ -1622,23 +2188,7 @@ def main() -> None:
         )
 
         # 8. Reward breakdown bar chart
-        rewards_cfg = config.get("reward", {})
-        structure_weight = rewards_cfg.get(
-            "weight_gold_structure",
-            rewards_cfg.get("weight_structure", 0.4),
-        )
-        weights = {
-            "translation_quality_reward": rewards_cfg.get("weight_translation", 0.4),
-            "bleu_reward": rewards_cfg.get("weight_bleu", 0.0),
-            "structural_dense_reward": structure_weight,
-            "gold_structure_reward": structure_weight,
-            "viterbi_distance_reward": rewards_cfg.get("weight_viterbi", 0.0),
-            "soft_viterbi_distance_reward": rewards_cfg.get("weight_soft_viterbi", 0.0),
-            "verifier_scaled_reward": rewards_cfg.get("weight_verifier_scaled", 0.0),
-            "gloss_order_reward": rewards_cfg.get("weight_gloss_order", 0.0),
-            "gloss_format_reward": rewards_cfg.get("weight_format", 0.1),
-            "gloss_repetition_reward": rewards_cfg.get("weight_repetition", 0.1),
-        }
+        weights = {"edit_validity_reward": 1.0}
         plot_reward_breakdown(
             [{"label": model_tag, "scores": results["reward_breakdown"]}],
             reward_weights=weights,
@@ -1768,7 +2318,7 @@ def main() -> None:
 
     # ── wandb logging ───────────────────────────────────────────────────
     # Log all metrics to wandb (offline mode on cluster). Tags distinguish
-    # baseline vs GRPO runs, mirroring grpo-strict-generation's approach.
+    # baseline vs GRPO runs.
     try:
         import os
 
@@ -1779,23 +2329,17 @@ def main() -> None:
         import wandb
 
         wandb_cfg = config.get("wandb", {})
-        base_run_name = (
-            wandb_cfg.get("run_name") or config["model"]["name"].split("/")[-1]
-        )
-
         # Determine wandb tags based on eval mode
         wandb_tags = wandb_cfg.get("tags", ["t2g", "eval"])
         if "eval" not in wandb_tags:
             wandb_tags = list(wandb_tags) + ["eval"]
         if args.eval_baseline_only:
             wandb_tags = list(wandb_tags) + ["baseline"]
-            wandb_run_name = f"eval-baseline-{base_run_name}"
         elif args.compare:
             wandb_tags = list(wandb_tags) + ["compare", "grpo"]
-            wandb_run_name = f"eval-compare-{base_run_name}"
         else:
             wandb_tags = list(wandb_tags) + ["grpo"]
-            wandb_run_name = f"eval-{base_run_name}-{model_tag}"
+        wandb_run_name = model_tag
 
         wandb_dir = logs_dir
 

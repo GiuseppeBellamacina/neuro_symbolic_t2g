@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Parse T2G trainer log lines from stdin and display as a live table.
 
-Supports BOTH metric line formats:
-  * TRL dict-style: ``{'step': 5, 'loss': ..., 'reward': ...}`` (legacy)
+Supports both metric line formats:
+  * TRL dict-style: ``{'step': 5, 'loss': ..., 'reward': ...}``
   * KV-style: ``  step=5  loss=1.23456789  reward=0.50258335  ...``
     (printed by ``HighPrecisionLogCallback`` in ``src.training.callbacks``,
     used by both GRPO and SFT training)
@@ -30,17 +30,11 @@ _DEFAULT_COLS = [
     "loss",
     "reward",
     "reward_std",
-    "rewards/translation_quality_reward/mean",
-    "rewards/bleu_reward/mean",
-    "rewards/gold_structure_reward/mean",
-    "rewards/structural_dense_reward/mean",
-    "rewards/viterbi_distance_reward/mean",
-    "rewards/soft_viterbi_distance_reward/mean",
-    "rewards/verifier_scaled_reward/mean",
-    "rewards/gloss_order_reward/mean",
-    "rewards/gloss_format_reward/mean",
-    "rewards/gloss_repetition_reward/mean",
-    "completion_length",
+    "rewards/edit_validity_reward/mean",
+    "rewards/edit_validity_reward/std",
+    "completions/mean_length",
+    "completions/clipped_ratio",
+    "completions/mean_terminated_length",
     "learning_rate",
     "kl",
     "eval_loss",
@@ -48,21 +42,21 @@ _DEFAULT_COLS = [
 ]
 
 _SHORT_NAMES = {
-    "rewards/translation_quality_reward/mean": "translation",
-    "rewards/bleu_reward/mean": "bleu",
-    "rewards/gold_structure_reward/mean": "gold_struct",
-    "rewards/structural_dense_reward/mean": "structure",
-    "rewards/viterbi_distance_reward/mean": "viterbi",
-    "rewards/soft_viterbi_distance_reward/mean": "soft_viterbi",
-    "rewards/verifier_scaled_reward/mean": "verifier",
-    "rewards/gloss_order_reward/mean": "order",
-    "rewards/gloss_format_reward/mean": "format",
-    "rewards/gloss_repetition_reward/mean": "repetition",
-    "completion_length": "comp_len",
+    "rewards/edit_validity_reward/mean": "edit_validity",
+    "rewards/edit_validity_reward/std": "edit_validity_std",
+    "completions/mean_length": "comp_len",
+    "completions/clipped_ratio": "clipped",
+    "completions/mean_terminated_length": "term_len",
     "learning_rate": "lr",
     "kl": "kl",
     "eval_loss": "eval_loss",
 }
+
+
+def _reward_columns(keys: set[str]) -> list[str]:
+    """Return reward metrics in stable order without knowing component names."""
+    return sorted(key for key in keys if key.startswith("rewards/"))
+
 
 _DICT_PATTERN = re.compile(r"\{.*\}")
 _KV_PAIRS = re.compile(r"(?:\s|^)([A-Za-z0-9_][A-Za-z0-9_/.]*)=([^\s]+)")
@@ -73,7 +67,7 @@ def _parse_kv_line(line: str) -> dict[str, Any] | None:
 
     Format (src/training/callbacks.py)::
 
-         "step=5  loss=1.23456789  reward=0.50258335  completion_length=10"
+         "step=5  loss=1.23456789  reward=0.50258335  completions/mean_length=10"
 
     Only lines that start with ``step=`` are treated as metric lines; this
     excludes arbitrary log lines that merely contain ``key=value`` tokens.
@@ -138,7 +132,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    cols = args.cols.split(",") if args.cols else _DEFAULT_COLS
+    requested_cols = args.cols.split(",") if args.cols else None
     max_rows = args.rows
 
     header = ""
@@ -175,7 +169,7 @@ def main() -> None:
                 continue
             pending_separator = False
 
-            # Parse metric lines — dict-style (legacy TRL) or KV-style
+            # Parse metric lines — dict-style TRL or KV-style
             # (HighPrecisionLogCallback used by GRPO + SFT trainers).
             entry = None
             m = _DICT_PATTERN.search(stripped)
@@ -191,6 +185,9 @@ def main() -> None:
                 continue
 
             # Filter to available columns
+            cols = requested_cols or list(
+                dict.fromkeys([*_DEFAULT_COLS, *_reward_columns(set(entry))])
+            )
             current_active = [c for c in cols if c in entry]
             if not current_active:
                 continue

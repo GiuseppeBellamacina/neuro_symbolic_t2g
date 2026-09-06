@@ -32,7 +32,7 @@ class _ChatTokenizer:
         return "CHAT|" + repr(messages) + "|"
 
 
-def _legacy_manual_prompt(user_content: str) -> str:
+def _expected_manual_prompt(user_content: str) -> str:
     """Reproduce the pre-few-shot fallback output byte-for-byte."""
     return (
         f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n"
@@ -50,25 +50,25 @@ def _sample_examples() -> list[dict[str, str]]:
 
 
 # ---------------------------------------------------------------------------
-# Zero-shot regression: byte-identical to the legacy prompt
+# Zero-shot regression: byte-identical to the canonical manual prompt
 # ---------------------------------------------------------------------------
 
 
-def test_zero_shot_manual_fallback_byte_identical():
-    """``examples=None`` ⇒ byte-identical to the legacy zero-shot prompt."""
+def test_manual_prompt_fallback_byte_identical():
+    """``examples=None`` yields the canonical zero-shot prompt."""
     text = "The man walks into the house."
     prompt = build_t2g_prompt(text, _ManualTokenizer())
-    assert prompt == _legacy_manual_prompt(text)
+    assert prompt == _expected_manual_prompt(text)
 
 
-def test_zero_shot_empty_examples_byte_identical():
+def test_empty_examples_prompt_byte_identical():
     """An empty examples list must NOT change the prompt."""
     text = "The man walks into the house."
     prompt = build_t2g_prompt(text, _ManualTokenizer(), examples=[])
-    assert prompt == _legacy_manual_prompt(text)
+    assert prompt == _expected_manual_prompt(text)
 
 
-def test_zero_shot_chat_template_path_unchanged():
+def test_base_prompt_chat_template_path_unchanged():
     """The ``apply_chat_template`` path still receives system+user messages."""
     tok = _ChatTokenizer()
     text = "The man walks into the house."
@@ -146,7 +146,7 @@ def test_few_shot_prompt_exact_format():
         "Now translate:\n"
         "English: The man walks into the house."
     )
-    assert prompt == _legacy_manual_prompt(expected_user)
+    assert prompt == _expected_manual_prompt(expected_user)
 
 
 def test_few_shot_prompt_contains_all_parts():

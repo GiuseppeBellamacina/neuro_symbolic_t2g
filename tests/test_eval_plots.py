@@ -14,6 +14,7 @@ matplotlib = pytest.importorskip("matplotlib")
 matplotlib.use("Agg")  # headless
 
 from src.utils.visualization import (  # noqa: E402
+    plot_baseline_vs_grpo_comparison,
     plot_difficulty_breakdown,
     plot_metrics_dashboard,
     plot_score_distribution,
@@ -85,6 +86,68 @@ def test_metrics_dashboard_missing_metrics(tmp_path, capsys):
     out = tmp_path / "x.png"
     assert not out.exists() or out.stat().st_size < 20_000  # renders 1 panel or skips
     # at least it must not raise
+
+
+def test_metrics_dashboard_accepts_deployment_block(tmp_path):
+    out = tmp_path / "deployment.png"
+    plot_metrics_dashboard(
+        None,
+        {"deployment": FINAL, "sampling": {"rouge_l_mean": 0.1}},
+        output_path=str(out),
+    )
+    assert out.exists()
+
+
+def test_comparison_separates_chrf_and_omits_missing(tmp_path, monkeypatch):
+    import matplotlib.axes
+
+    limits = []
+    labels = []
+    original_ylim = matplotlib.axes.Axes.set_ylim
+    original_bar = matplotlib.axes.Axes.bar
+
+    def capture_ylim(self, *args, **kwargs):
+        limits.append((args, kwargs))
+        return original_ylim(self, *args, **kwargs)
+
+    def capture_bar(self, x, height, *args, **kwargs):
+        labels.append((kwargs.get("label"), list(height)))
+        return original_bar(self, x, height, *args, **kwargs)
+
+    monkeypatch.setattr(matplotlib.axes.Axes, "set_ylim", capture_ylim)
+    monkeypatch.setattr(matplotlib.axes.Axes, "bar", capture_bar)
+    out = tmp_path / "comparison.png"
+    plot_baseline_vs_grpo_comparison(
+        {"rouge_l_mean": 0.4, "chrf_corpus": 40.0},
+        {"rouge_l_mean": 0.6, "chrf_corpus": 55.0},
+        label="SFT",
+        output_path=str(out),
+    )
+    assert out.exists()
+    assert any(values == [55.0] for _, values in labels)
+    assert any(kwargs.get("bottom") == 0 and not args for args, kwargs in limits)
+    assert all(name != "GRPO" for name, _ in labels)
+
+
+def test_comparison_labels_sampling_as_diagnostic(tmp_path, monkeypatch):
+    import matplotlib.axes
+
+    titles = []
+    original = matplotlib.axes.Axes.set_title
+
+    def capture(self, label, *args, **kwargs):
+        titles.append(label)
+        return original(self, label, *args, **kwargs)
+
+    monkeypatch.setattr(matplotlib.axes.Axes, "set_title", capture)
+    out = tmp_path / "blocks.png"
+    plot_baseline_vs_grpo_comparison(
+        {"deployment": {"rouge_l_mean": 0.4}, "sampling": {"rouge_l_mean": 0.5}},
+        {"deployment": {"rouge_l_mean": 0.6}, "sampling": {"rouge_l_mean": 0.7}},
+        label="SFT",
+        output_path=str(out),
+    )
+    assert any("Sampling (diagnostic)" in title for title in titles)
 
 
 def test_score_distribution_renders(tmp_path):

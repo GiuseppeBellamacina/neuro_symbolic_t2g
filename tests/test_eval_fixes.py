@@ -17,6 +17,8 @@ import logging
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.models.model_loader import resolve_model_source  # noqa: E402
@@ -75,7 +77,7 @@ def test_resolve_hub_id_not_cached(monkeypatch):
 def _write_baseline(
     results_dir: Path,
     *,
-    metrics_version: int | None = 2,
+    metrics_version: int | None = 3,
     num_completions: int = 5,
     n_eval: int = 500,
     test_set_size: int = 8109,
@@ -137,6 +139,31 @@ def test_cached_baseline_rejects_old_metrics(tmp_path):
         load(tmp_path, num_samples=5, max_samples=500, fingerprint=_fingerprint())
         is None
     )
+
+
+def test_compatibility_rejects_same_count_different_ids():
+    from src.training.eval_t2g import validate_compatibility
+
+    with pytest.raises(ValueError, match="ordered_sample_id_hash"):
+        validate_compatibility(
+            {"metrics_version": 3, "ordered_sample_id_hash": "a"},
+            {"metrics_version": 3, "ordered_sample_id_hash": "b"},
+        )
+
+
+def test_paired_comparison_rejects_reordered_ids():
+    from src.training.eval_t2g import paired_comparison
+
+    def row(sample_id):
+        return {
+            "sample_id": sample_id,
+            "decoding_mode": "deployment",
+            "completion": "IX",
+            "gold_gloss": "IX",
+        }
+
+    with pytest.raises(ValueError, match="reordered"):
+        paired_comparison([row("a"), row("b")], [row("b"), row("a")], 10)
 
 
 def test_cached_baseline_rejects_missing_version(tmp_path):
@@ -210,8 +237,8 @@ def test_cached_baseline_absent(tmp_path):
 
 def test_cached_baseline_sibling_run_reuse(tmp_path):
     """A NEW run dir with no baseline reuses a sibling run's baseline
-    (same model tag): round-2 GRPO evals stop re-paying ~28 GPU-min."""
-    tag_dir = tmp_path / "qwen25-05b-sft-grpo"
+    (same canonical cell): round-2 GRPO evals stop re-paying ~28 GPU-min."""
+    tag_dir = tmp_path / "qwen25-05b" / "sft-grpo" / "zero-shot" / "eval-zero-shot"
     run1 = tag_dir / "run_20260829_120124"
     run2 = tag_dir / "run_20260830_100000"
     run1.mkdir(parents=True)
@@ -226,13 +253,15 @@ def test_cached_baseline_sibling_run_reuse(tmp_path):
     assert generations is not None
 
 
-def test_cached_baseline_cross_tag_reuse(tmp_path):
-    """A NEW model tag (e.g. sft-grpo-*) reuses the baseline cached by
-    a DIFFERENT tag (sft-grpo): ablation cells share the same zero-shot
+def test_cached_baseline_cross_method_reuse(tmp_path):
+    """A new ablation cell reuses the baseline cached by the main cell:
+    ablation cells share the same zero-shot
     base model + prompt context — ~28 GPU-min saved per tag."""
-    results = tmp_path / "experiments" / "results"
-    optimal_run = results / "qwen25-05b-sft-grpo" / "run_20260829_120124"
-    ablation_run = results / "qwen25-05b-sft-grpo-structure" / "run_20260830_120000"
+    results = tmp_path / "experiments" / "results" / "qwen25-05b"
+    optimal_run = results / "sft-grpo/zero-shot/eval-few-shot/run_20260829_120124"
+    ablation_run = (
+        results / "sft-grpo/zero-shot/ablations/hot/eval-few-shot/run_20260830_120000"
+    )
     optimal_run.mkdir(parents=True)
     ablation_run.mkdir(parents=True)
     _write_baseline(optimal_run, fingerprint=_fingerprint())
@@ -244,12 +273,14 @@ def test_cached_baseline_cross_tag_reuse(tmp_path):
     assert source == optimal_run
 
 
-def test_cached_baseline_cross_tag_rejects_stale_context(tmp_path):
-    """Cross-tag reuse must NOT fire when the prompt context differs
+def test_cached_baseline_cross_method_rejects_stale_context(tmp_path):
+    """Cross-method reuse must NOT fire when the prompt context differs
     (e.g. a tag trained with retrieval off vs baseline with retrieval on)."""
     results = tmp_path / "experiments" / "results"
-    optimal_run = results / "qwen25-05b-sft-grpo" / "run_20260829_120124"
-    other_run = results / "qwen25-05b-other" / "run_20260830_120000"
+    optimal_run = (
+        results / "qwen25-05b/sft-grpo/zero-shot/eval-zero-shot/run_20260829_120124"
+    )
+    other_run = results / "qwen25-05b/grpo/zero-shot/eval-zero-shot/run_20260830_120000"
     optimal_run.mkdir(parents=True)
     other_run.mkdir(parents=True)
     _write_baseline(optimal_run, fingerprint="different-prompt-context")
@@ -264,7 +295,7 @@ def test_cached_baseline_cross_tag_rejects_stale_context(tmp_path):
 def test_cached_baseline_sibling_rejects_stale_context(tmp_path):
     """A sibling baseline evaluated with a DIFFERENT prompt context
     (e.g. retrieval toggled between rounds) must not be reused."""
-    tag_dir = tmp_path / "qwen25-05b-sft-grpo"
+    tag_dir = tmp_path / "qwen25-05b" / "sft-grpo" / "zero-shot" / "eval-zero-shot"
     run1 = tag_dir / "run_20260829_120124"
     run2 = tag_dir / "run_20260830_100000"
     run1.mkdir(parents=True)

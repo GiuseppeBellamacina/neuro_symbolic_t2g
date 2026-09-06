@@ -1,0 +1,18 @@
+experiment:
+  model_tag: qwen25-05b
+  method: base
+  train_prompt_mode: none
+  variant: none
+  kind: probe
+
+probe:
+  name: markov
+  input_path: null  # Pass --input or INPUT=...; use an existing generations_*.json.
+  output_path: experiments/analysis/qwen25-05b/markov/report.json
+  vocab_path: data/gloss_vocab.txt
+  bigram_path: data/bigram_transition.npy
+  group_size: 4
+  max_states: 256
+  thresholds:
+    edit_bigram_spearman: 0.1
+    within_group_pairwise_accuracy: 0.55

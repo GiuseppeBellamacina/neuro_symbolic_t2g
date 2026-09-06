@@ -1,12 +1,24 @@
 #!/bin/bash
 # ============================================================================
-# Setup one-tantum per il cluster.
+# Setup one-tantum per il cluster — SOLO VERIFICA (verify-only).
 #
 # Uso (dal login node):
 #   cd ~/neuro_symbolic_t2g
 #   bash cluster/setup.sh
 #
-# Lo script rilancia se stesso dentro srun + Apptainer automaticamente.
+# Lo script rilancia se stesso dentro srun + Apptainer automaticamente e poi
+# VERIFICA soltanto: nessun `pip install`, nessun download HF, nessun
+# load_dataset con download, nessuna eccezione di download "ingoiata".
+#
+# ⚠️  I compute node NON hanno internet: l'acquisizione di dipendenze,
+#     modelli e dataset deve avvenire in un setup separato CON RETE
+#     (workflow di login / macchina locale) e va sincronizzata sul cluster
+#     prima di sottomettere train/eval. Questo script NON crea alcun
+#     workflow python sul login node.
+#
+# Opzionale:
+#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml bash cluster/setup.sh
+#   → verifica anche lo snapshot del modello specifico della config.
 # ============================================================================
 
 # ── 0. Auto-rilancio dentro srun + Apptainer se siamo sul login node ─────────
@@ -26,7 +38,14 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "$SCRIPT_DIR/_lib.sh"
 cd "$PROJ_DIR"
 
-echo "=== Setup Neuro-Symbolic T2G (Cluster) ==="
+# ── Offline env PRIMA di ogni python (verify-only: tutto locale) ─────────────
+export_offline_env
+
+echo "=== Setup Neuro-Symbolic T2G (Cluster) — VERIFY-ONLY ==="
+echo ""
+echo "ℹ️  I compute node NON hanno internet: questo script NON installa"
+echo "   nulla e NON scarica nulla. Verifica soltanto gli artifact già"
+echo "   presenti (dipendenze nell'immagine, cache HF, vocab/bigram)."
 echo ""
 
 # ── 1. Verifica ambiente ──────────────────────────────────────────────────────
@@ -43,75 +62,22 @@ if command -v nvidia-smi &>/dev/null; then
     nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1
 fi
 
-# ── 2. Installa dipendenze dal pyproject.toml ─────────────────────────────────
-# TUTTE le dipendenze opzionali TRANNE l'extra "dev" (isort/black/ruff/pytest =
-# formattazione e test, volutamente esclusi dal cluster):
-#   core      → incluso (scikit-learn incluso: backend retrieval tfidf, default)
-#   retrieval → incluso (sentence-transformers: backend minilm opzionale)
-#   dev       → ESCLUSO di proposito
-# sentence-transformers scaricherà il modello MiniLM in modo LAZY al primo uso
-# del backend minilm (retrieval.backend: "minilm"); il default resta tfidf →
-# zero costi se non attivi il backend.
-#
-# ⚠️ CONSTRAINT TORCH: il container ha già lo stack CUDA preinstallato e
-# ALLINEATO al driver del cluster (es. torch 2.7.1+cu118 su driver 12.4).
-# Senza constraint, pip risolve le versioni piene di unsloth/xformers contro
-# PyPI e reinstalla una torch più recente (es. 2.11+cu130) in ~/.local, che
-# HA LA PRECEDENZA sul torch del container → "CUDA initialization: driver
-# too old" → Unsloth "cannot find any torch accelerator". Fix: generiamo i
-# constraint dal container stesso (pip freeze del solo stack torch) così pip
-# mantiene le versioni preinstallate.
+# ── 2. Verifica artifact offline (fail-fast, NESSUN download) ─────────────────
+# Al posto di preparare dati o scaricare il modello, qui si verifica
+# SOLO che dataset/vocab/bigram/modello siano già presenti nelle path condivise.
+# CONFIG (opzionale) restringe la verifica dello snapshot HF al modello della
+# config; senza CONFIG si verifica che la cache HF contenga almeno una snapshot.
 echo ""
-echo "📦 Installazione dipendenze (core + retrieval, niente dev)..."
-TORCH_CONSTRAINTS=$(mktemp /tmp/t2g_constraints.XXXXXX)
-$PY -m pip freeze 2>/dev/null | grep -E '^(torch|torchvision|torchaudio|triton|xformers|nvidia-|triton-|cuda-|bitsandbytes)==' > "$TORCH_CONSTRAINTS" || true
-if [ -s "$TORCH_CONSTRAINTS" ]; then
-    echo "   Constraint GPU (versioni del container, non toccate):"
-    sed 's/^/     /' "$TORCH_CONSTRAINTS"
-    PIP_CONSTRAINT=("$TORCH_CONSTRAINTS")
-else
-    echo "   ⚠️ Nessun constraint GPU generato (container senza torch?) — installazione libera"
-    PIP_CONSTRAINT=()
-fi
-$PY -m pip cache purge 2>/dev/null || true
-echo "   Cache pip ripulita"
-$PY -m pip install --user -e ".[retrieval]" --retries 10 --timeout 60 \
-    ${PIP_CONSTRAINT:+--constraint "$TORCH_CONSTRAINTS"}
-rm -f "$TORCH_CONSTRAINTS"
-
-# Verifica post-install: la torch attiva deve essere quella del container
-# (stessa versione e stessa stringa CUDA di prima dell'install).
-TORCH_AFTER=$($PY -c "import torch; print(torch.__version__)" 2>/dev/null || echo "IMPORT-FAIL")
-echo "   torch attiva dopo l'install: $TORCH_AFTER"
-if [ "$TORCH_AFTER" = "IMPORT-FAIL" ]; then
-    echo "❌ torch non importabile dopo l'installazione — controllare i log sopra."
-    exit 1
-fi
-
-# ── 3+4. Dataset, vocabolario e matrici di transizione ────────────────────────
-# Funzione shared da _lib.sh (era triplicata in setup.sh/train.sh/eval.sh).
+echo "📦 Verifica artifact offline (dataset, vocab, bigram, modello HF)..."
 # setup.sh gira già DENTRO il container → forza python bare (RUN_PY_FORCE_BARE).
-echo ""
-echo "📊 Download e processing dataset ASLG-PC12 + matrici bigram..."
-RUN_PY_FORCE_BARE=1 prepare_data || echo "⚠️  Dataset processing fallito — verrà fatto al primo training"
+RUN_PY_FORCE_BARE=1 require_cluster_artifacts "${CONFIG:-}"
 
-# ── 5. Pre-download modello per Unsloth (offline cache) ────────────────────────
+# ── 3. Verifica import/versioni locali (nessun download) ──────────────────────
 echo ""
-echo "📥 Download modello Qwen2.5-0.5B-Instruct per la cache offline..."
+echo "🔍 Verifica installazione (import locali, zero rete)..."
 $PY -c "
-try:
-    from unsloth import FastLanguageModel
-    print('  Download Qwen2.5-0.5B-Instruct BNB 4-bit...')
-    FastLanguageModel.from_pretrained('Qwen/Qwen2.5-0.5B-Instruct', load_in_4bit=True)
-    print('  ✅ Modello scaricato e salvato nella cache locale.')
-except Exception as e:
-    print(f'  ⚠️ Errore nel download del modello: {e}')
-"
-
-# ── 6. Verifica installazione ─────────────────────────────────────────────────
-echo ""
-echo "🔍 Verifica installazione..."
-$PY -c "
+import os
+assert os.environ.get('HF_HUB_OFFLINE') == '1', 'HF_HUB_OFFLINE non è 1: env offline non attiva'
 import torch, transformers, trl, peft, datasets, sklearn
 print(f'  PyTorch:       {torch.__version__}')
 print(f'  CUDA:          {torch.cuda.is_available()}')
@@ -135,12 +101,27 @@ except ImportError:
 "
 
 echo ""
-echo "=== ✅ Setup completato! ==="
+echo "=== ✅ Verifica completata! ==="
 echo ""
 echo "💡 Per aggiungere ~/.local/bin al PATH in modo persistente:"
 echo "   source cluster/aliases.sh && install-aliases"
 echo ""
+echo "⚠️  ACQUISIZIONE DIPENDENZE/MODELLI/DATASET — fuori dai compute node:"
+echo "   I compute node non hanno internet: NESSUN pip install, NESSUN"
+echo "   download HF, NESSUN load_dataset con download è possibile da qui."
+echo "   Tutto va acquisito in un AMBIENTE SEPARATO CON RETE (workflow di"
+echo "   login con immagine apportata / macchina locale) e sincronizzato"
+echo "   sul cluster PRIMA di sottomettere train/eval:"
+echo ""
+echo "     1. dipendenze Python  → già bakeate nell'immagine Apptainer"
+echo "        (aggiornare/ricostruire il SIF fuori dai compute node);"
+echo "     2. cache HF           → dataset ASLG-PC12 + snapshot del modello"
+echo "        in $T2G_HF_HOME_DEFAULT (condivisa su NFS);"
+echo "     3. artifact dati      → data/gloss_vocab.txt,"
+echo "        data/bigram_transition.npy (+ sidecar *.meta.json) in $PROJ_DIR/data."
+echo ""
 echo "Prossimi passi:"
 echo "  1. Modifica cluster/train.sh con la tua queue, email e QoS"
-echo "  2. Lancia: sbatch cluster/train.sh"
-echo "  3. Oppure lancia pipeline completa: bash cluster/run_all.sh"
+echo "  2. Verifica rapida: bash cluster/preflight.sh"
+echo "  3. Lancia SFT: CONFIG=experiments/configs/qwen25-05b/sft/zero-shot.yaml sbatch cluster/train.sh"
+echo "  4. Oppure lancia pipeline completa: bash cluster/run_all.sh"

@@ -2,7 +2,8 @@
 Bootstrap entry point for T2G training scripts.
 
 Usage:
-    python -m src.training --config experiments/configs/t2g/sft-grpo.yaml [--resume] [--prepare-data]
+    python -m src.training --config experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml [--resume] [--prepare-data]
+    python -m src.training --config experiments/configs/qwen25-05b/sft/zero-shot.yaml
 
 Loads the config YAML and routes to the correct trainer (GRPO or SFT).
 """
@@ -37,7 +38,7 @@ def _peek_config(config_path: str) -> dict:
     is import-safe here: it only pulls in yaml + os (no torch/transformers).
 
     On any resolution failure it falls back to a plain YAML read, then to
-    ``{}`` (historical behavior — the trainer's own ``load_config`` will
+    ``{}`` (the trainer's own ``load_config`` will
     surface real errors later).
     """
     try:

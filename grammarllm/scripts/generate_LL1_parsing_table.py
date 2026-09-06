@@ -226,7 +226,7 @@ def find_first(symbol, productions, first_sets):
     ---
     Non viene più chiamata direttamente da parsing_table() (che ora usa
     compute_all_first_sets() direttamente).  Mantenuta per eventuali
-    chiamanti esterni o test che usano l'API legacy.
+    chiamanti esterni o test che usano questa API.
 
     Parametri
     ---------

@@ -1,0 +1,14 @@
+extends: ../base.yaml
+
+experiment:
+  model_tag: qwen25-05b
+  method: base
+  train_prompt_mode: zero-shot
+  variant: none
+  kind: baseline
+
+retrieval:
+  enabled: false
+
+wandb:
+  run_name: baseline-zero

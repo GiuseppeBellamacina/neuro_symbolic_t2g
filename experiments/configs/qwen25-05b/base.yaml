@@ -1,0 +1,92 @@
+# Shared Qwen2.5-0.5B recipe. Runnable configs override the experiment identity.
+experiment:
+  model_tag: qwen25-05b
+  method: base
+  train_prompt_mode: none
+  variant: none
+  kind: baseline
+
+model:
+  name: Qwen/Qwen2.5-0.5B-Instruct
+  num_gpus: 1
+  quantization: 4bit
+  dtype: bfloat16
+  use_unsloth: true
+  max_seq_length: 1024
+
+lora:
+  r: 32
+  lora_alpha: 64
+  lora_dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+  task_type: CAUSAL_LM
+  random_state: 3407
+
+dataset:
+  dataset_name: achrafothman/aslg_pc12
+  dataset_cache: data/aslg_pc12
+  vocab_path: data/gloss_vocab.txt
+  bigram_matrix_path: data/bigram_transition.npy
+  split: train
+  max_samples: null
+  seed: 42
+  thinking: false
+
+training:
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  lr_scheduler_type: cosine
+  optim: paged_adamw_8bit
+  weight_decay: 0.1
+  max_grad_norm: 0.1
+  bf16: true
+  gradient_checkpointing: true
+  logging_steps: 5
+  save_steps: 100
+  save_total_limit: 3
+
+grpo:
+  num_generations: 8
+  max_completion_length: 128
+  max_prompt_length: 256
+  beta: 0.04
+  temperature: 0.7
+  loss_type: dr_grpo
+  scale_rewards: none
+  mask_truncated_completions: true
+  importance_sampling_level: token
+  epsilon: 0.2
+
+reward:
+  name: edit-validity
+
+grammar:
+  enabled: true
+  use_grammarllm_pda: false
+  token_lookahead: false
+  track_score_history: false
+
+curriculum:
+  enabled: false
+
+retrieval:
+  enabled: false
+  backend: tfidf
+  model_name: null
+  top_k: 3
+  max_self_similarity: 0.98
+  cache_path: data/retriever_index
+
+evaluation:
+  batch_size: 8
+  max_samples: 2000
+  # Sampling diagnostics; deployment is always one greedy completion.
+  num_samples: 5
+  temperature: 0.7
+  bootstrap_seed: 42
+  best_of_n: false
+
+wandb:
+  project: neuro-symbolic-t2g
+  run_name: base
+  tags: [T2G, Qwen2.5-0.5B, ASL]

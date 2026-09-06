@@ -243,7 +243,7 @@ class PushdownAutomaton:
             coerentemente con stack.pop() usato altrove).
         visited : set[str] | None
             Ignorato — mantenuto solo per compatibilità di firma con i
-            call-site legacy.
+            call-site esterni.
 
         Ritorna
         -------

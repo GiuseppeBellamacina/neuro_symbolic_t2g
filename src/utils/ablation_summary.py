@@ -8,7 +8,7 @@ Usage:
     python -m src.utils.ablation_summary --results-dir experiments/results
     python -m src.utils.ablation_summary --output-dir experiments/figures
 
-Scans ``experiments/results/*/`` for ``eval_*.json`` and
+Scans the canonical ``experiments/results/<model>/<method>/<variant>/<prompt>/`` tree for ``eval_*.json`` and
 ``comparison.json`` files, extracts metrics, and produces:
     - ``ablation_summary.csv`` — machine-readable table
     - ``ablation_summary.md`` — human-readable Markdown table
@@ -28,7 +28,66 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+from src.utils.paths import is_run_id
+
 logger = logging.getLogger(__name__)
+
+
+def _result_label(results_dir: Path, run_dir: Path) -> str:
+    """Parse a stable method/train-prompt[/ablation]/eval-mode identity."""
+    relative = run_dir.relative_to(results_dir)
+    parts = relative.parts
+    if not parts or not is_run_id(parts[-1]):
+        raise ValueError(f"non-canonical result run: {run_dir}")
+    identity = parts[:-1]
+    if (
+        len(identity) == 3
+        and identity[1] == "baseline"
+        and identity[2] in {"zero-shot", "few-shot"}
+    ):
+        return f"base/{identity[2]}/eval-{identity[2]}"
+    if len(identity) == 4 and identity[3] in {"eval-zero-shot", "eval-few-shot"}:
+        return "/".join(identity[1:])
+    if (
+        len(identity) == 6
+        and identity[3] == "ablations"
+        and identity[5] in {"eval-zero-shot", "eval-few-shot"}
+    ):
+        return "/".join((identity[1], identity[2], identity[4], identity[5]))
+    raise ValueError(f"non-canonical result run: {run_dir}")
+
+
+def _is_completed(run_dir: Path) -> bool:
+    """Return whether a canonical run carries an explicit completion marker."""
+    return (run_dir / "COMPLETED").exists()
+
+
+def _metric_source(data: dict, block: str) -> dict:
+    value = data.get(block)
+    return value if isinstance(value, dict) else data
+
+
+def _read_eval(run_dir: Path) -> tuple[Path, dict] | None:
+    eval_files = [
+        path
+        for path in run_dir.glob("eval_*.json")
+        if path.name != "eval_baseline.json"
+    ]
+    eval_files.sort(
+        key=lambda path: (path.name == "eval_final.json", path.stat().st_mtime),
+        reverse=True,
+    )
+    for eval_path in eval_files:
+        try:
+            data = json.loads(eval_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(data, dict) and any(
+            key in _metric_source(data, "deployment") for key, _ in METRICS
+        ):
+            return eval_path, data
+    return None
+
 
 # Metrics to extract (key in eval JSON → display label)
 METRICS = [
@@ -73,50 +132,31 @@ def find_eval_results(results_dir: Path) -> list[dict]:
         logger.warning("Results directory not found: %s", results_dir)
         return entries
 
-    for config_dir in sorted(results_dir.iterdir()):
-        if not config_dir.is_dir():
-            continue
-
-        config_name = config_dir.name
-
-        # Each config may have multiple run_* subdirectories.
-        # Take the latest one (sorted = chronological).
-        run_dirs = sorted(
-            [
-                d
-                for d in config_dir.iterdir()
-                if d.is_dir() and d.name.startswith("run_")
-            ]
-        )
-        if not run_dirs:
-            # Maybe results are directly in the config dir (no run_ subdirs)
-            run_dirs = [config_dir]
-
-        latest_run = run_dirs[-1]
-
-        # Find eval_*.json (skip eval_baseline.json — that's the zero-shot ref)
-        eval_files = [
-            f for f in latest_run.glob("eval_*.json") if f.name != "eval_baseline.json"
-        ]
-
-        if not eval_files:
-            logger.debug("No eval_*.json in %s", latest_run)
-            continue
-
-        # Prefer eval_final.json (final metrics) — plain alphabetical sorting
-        # could pick another eval file when several exist
-        # "zero_shot"). Otherwise take the most recently modified eval file.
-        final_candidates = [f for f in eval_files if f.name == "eval_final.json"]
-        if final_candidates:
-            eval_path = final_candidates[0]
-        else:
-            eval_path = max(eval_files, key=lambda p: p.stat().st_mtime)
+    run_dirs = sorted(
+        path
+        for path in results_dir.rglob("run_*")
+        if path.is_dir() and is_run_id(path.name)
+    )
+    runs_by_label: dict[str, list[Path]] = {}
+    for run_dir in run_dirs:
         try:
-            with open(eval_path, encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception as e:
-            logger.warning("Failed to read %s: %s", eval_path, e)
+            label = _result_label(results_dir, run_dir)
+        except ValueError:
             continue
+        runs_by_label.setdefault(label, []).append(run_dir)
+
+    for config_name, candidates in sorted(runs_by_label.items()):
+        selected = next(
+            (
+                (run, result)
+                for run in sorted(candidates, reverse=True)
+                if _is_completed(run) and (result := _read_eval(run)) is not None
+            ),
+            None,
+        )
+        if selected is None:
+            continue
+        latest_run, (eval_path, data) = selected
 
         entry = {
             "config_name": config_name,
@@ -126,10 +166,17 @@ def find_eval_results(results_dir: Path) -> list[dict]:
         }
 
         # Extract metrics from eval JSON
-        for key, label in METRICS:
-            val = data.get(key)
-            if val is not None:
-                entry["metrics"][label] = float(val)
+        for block_name, suffix in (
+            ("deployment", ""),
+            ("sampling", " (sampling diagnostic)"),
+        ):
+            source = _metric_source(data, block_name)
+            if block_name == "sampling" and source is data:
+                continue
+            for key, label in METRICS:
+                val = source.get(key)
+                if val is not None:
+                    entry["metrics"][label + suffix] = float(val)
 
         # Extract delta metrics from comparison.json (if exists)
         comp_path = latest_run / "comparison.json"
@@ -161,6 +208,13 @@ def build_summary_table(entries: list[dict]) -> str:
         all_labels.append(label)
     for _, label in DELTA_METRICS:
         all_labels.append(label)
+    all_labels.extend(
+        sorted(
+            {label for entry in entries for label in entry["metrics"]}.difference(
+                all_labels
+            )
+        )
+    )
 
     # Build table
     header = "| Config | " + " | ".join(all_labels) + " |"
@@ -190,6 +244,13 @@ def build_csv(entries: list[dict]) -> str:
         return "config_name,run_id\n"
 
     all_labels = [label for _, label in METRICS] + [label for _, label in DELTA_METRICS]
+    all_labels.extend(
+        sorted(
+            {label for entry in entries for label in entry["metrics"]}.difference(
+                all_labels
+            )
+        )
+    )
     header = "config_name,run_id," + ",".join(all_labels)
     rows = [header]
 
@@ -222,41 +283,54 @@ def plot_ablation_comparison(entries: list[dict], output_path: Path) -> None:
         and any(e["metrics"].get(label) is not None for e in entries)
     ]
     if not chart_labels:
-        chart_labels = ["ROUGE-L", "Pass@1"]
+        logger.warning("No plottable metrics found")
+        return
 
-    n_metrics = len(chart_labels)
+    bounded_labels = [label for label in chart_labels if not label.startswith("chrF2")]
+    chrf_labels = [label for label in chart_labels if label.startswith("chrF2")]
+    groups = [("Bounded metrics [0,1]", bounded_labels), ("chrF2 [0,100]", chrf_labels)]
+    groups = [(title, labels) for title, labels in groups if labels]
     n_configs = len(entries)
     config_names = [e["config_name"] for e in entries]
 
     x = np.arange(n_configs)
-    width = 0.8 / n_metrics
+    fig, axes = plt.subplots(
+        len(groups),
+        1,
+        figsize=(max(14, n_configs * 1.5), 6 * len(groups)),
+        squeeze=False,
+    )
 
-    fig, ax = plt.subplots(figsize=(max(14, n_configs * 1.5), 7))
-
-    for i, label in enumerate(chart_labels):
-        values = [e["metrics"].get(label, 0.0) or 0.0 for e in entries]
-        bars = ax.bar(x + i * width - 0.4 + width / 2, values, width, label=label)
-        # Add value labels on top of bars
-        for bar, val in zip(bars, values):
-            if val > 0.001:
-                ax.text(
-                    bar.get_x() + bar.get_width() / 2,
-                    bar.get_height() + 0.005,
-                    f"{val:.3f}",
-                    ha="center",
-                    va="bottom",
-                    fontsize=7,
-                    rotation=45,
-                )
-
-    ax.set_xlabel("Config")
-    ax.set_ylabel("Score")
-    ax.set_title("Ablation Study — Cross-Config Comparison")
-    ax.set_xticks(x)
-    ax.set_xticklabels(config_names, rotation=45, ha="right")
-    ax.legend(loc="upper right")
-    ax.set_ylim(0, 1.05)
-    ax.grid(axis="y", alpha=0.3)
+    for ax, (group_title, labels) in zip(axes[:, 0], groups):
+        width = 0.8 / len(labels)
+        for i, label in enumerate(labels):
+            values = [e["metrics"].get(label, np.nan) for e in entries]
+            bars = ax.bar(x + i * width - 0.4 + width / 2, values, width, label=label)
+            # Add value labels on top of bars
+            for bar, val in zip(bars, values):
+                if np.isfinite(val) and abs(val) > 0.001:
+                    offset = max(abs(val) * 0.01, 0.005)
+                    ax.text(
+                        bar.get_x() + bar.get_width() / 2,
+                        bar.get_height() + offset,
+                        f"{val:.3f}",
+                        ha="center",
+                        va="bottom",
+                        fontsize=7,
+                        rotation=45,
+                    )
+        ax.set_xlabel("Config")
+        ax.set_ylabel(group_title)
+        ax.set_title(group_title)
+        ax.set_xticks(x)
+        ax.set_xticklabels(config_names, rotation=45, ha="right")
+        ax.legend(loc="upper right")
+        if group_title.startswith("Bounded"):
+            ax.set_ylim(0, 1.05)
+        else:
+            ax.set_ylim(bottom=0)
+        ax.grid(axis="y", alpha=0.3)
+    fig.suptitle("Ablation Study — Cross-Config Comparison")
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()

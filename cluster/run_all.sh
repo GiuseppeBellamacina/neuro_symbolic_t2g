@@ -14,9 +14,9 @@
 # run_all RIFIUTA e chiede chain-resume (o --force per ricominciare).
 #
 # Uso:
-#   bash cluster/run_all.sh                          # train+eval (default: sft-grpo)
-#   bash cluster/run_all.sh sft-grpo              # train+eval con config specifico
-#   bash cluster/run_all.sh --ablation               # ablation study completo
+#   bash cluster/run_all.sh                          # default campaign
+#   bash cluster/run_all.sh sft-grpo-zero             # config specifico
+#   bash cluster/run_all.sh --ablation               # alias della campagna default
 #   bash cluster/run_all.sh --eval-only              # solo evaluation
 #   bash cluster/run_all.sh --train-only             # solo training
 #   bash cluster/run_all.sh --resume                 # riparte dalla coda esistente
@@ -24,21 +24,9 @@
 #   bash cluster/run_all.sh --remove                 # svuota la coda
 #   bash cluster/run_all.sh --force                  # azzera lo stato (catena interrotta)
 #
-# Config specifici (passa il nome senza .yaml):
-#   bash cluster/run_all.sh sft-grpo              # config base
-#   bash cluster/run_all.sh sft-grpo             # config ottimale (default)
-#   bash cluster/run_all.sh sft                      # SFT baseline
-#   bash cluster/run_all.sh grpo_no_grammar          # ablation senza grammar
-#   (cerca in experiments/configs/t2g/ e experiments/configs/t2g/)
-#
-# Campagna (--ablation): decomposizione + ablation moduli + zero-shot
-#   1. GRPO-only (base, senza SFT)               [train + eval]
-#   2. SFT+GRPO pipeline principale              [train + eval]
-#   3-6. SFT+GRPO + singolo modulo sperimentale  [train + eval]
-#   7. SFT+GRPO + tutti i moduli                 [train + eval]
-#   8. SFT+GRPO senza constrained decoding       [train + eval]
-#   9. Zero-shot base (senza grammar)            [eval only]
-#  10. Zero-shot base + grammar                  [eval only]
+# Campagna default: 2 baseline eval-only + 5 train/eval = 12 entry.
+# Ogni entry eval addestrata esegue due leg (zero-shot, poi retrieval).
+# Le due ablation sono disponibili solo come selezioni manuali.
 
 # Interrompere:
 #   chain-stop                               # ferma (preserva stato + tick at)
@@ -74,34 +62,19 @@ for arg in "$@"; do
             echo "Uso: bash cluster/run_all.sh [opzioni] [config_name]"
             echo ""
             echo "Opzioni:"
-            echo "  (nessun argomento)  Default: sft-grpo (train + eval)"
-            echo "  config_name         Nome del config senza .yaml (es. sft-grpo)"
-            echo "  --ablation          Campagna completa (12 celle: 8 pipeline + 2 decomposizione + 2 zero-shot)"
+            echo "  (nessun argomento)  Campagna default (7 celle, 12 entry)"
+            echo "  config_name         ID semantico del config"
+            echo "  --ablation          Alias della campagna default"
             echo "  --eval-only         Solo evaluation (skip training)"
             echo "  --train-only        Solo training (skip eval)"
-            echo "  --resume            Riprendi dalla coda esistente (non richiede chain_failed)"
+            echo "  --resume            Riprendi dalla coda esistente"
             echo "  --append            Aggiungi job alla coda attiva"
             echo "  --remove            Svuota la coda"
             echo "  --force             Azzera lo stato anche se ci sono job pendenti"
             echo ""
             echo "Config disponibili (passa il nome senza .yaml):"
-            echo "  sft-grpo               Pipeline principale SFT+GRPO (default)"
-            echo "  sft-only               SFT supervised da solo (cella decomposizione)"
-            echo "  grpo-only              GRPO dal base, senza SFT (cella decomposizione)"
-            echo "  sft-grpo-structure     SFT+GRPO + structural_dense (ablation moduli)"
-            echo "  sft-grpo-viterbi       SFT+GRPO + viterbi_distance (ablation moduli)"
-            echo "  sft-grpo-soft-viterbi  SFT+GRPO + soft_viterbi (ablation moduli)"
-            echo "  sft-grpo-all-rewards   SFT+GRPO + tutti e 3 i moduli sperimentali"
-            echo "  sft-grpo-no-grammar     SFT+GRPO senza constrained decoding"
-            echo "  sft-grpo-pda            SFT+GRPO con constrained decoding PDA"
-            echo "  sft-grpo-hotrollout     Controllo Finding 1 (rollout T=1.3, riusa SFT)"
-            echo "  zero-shot               Base model senza grammar (solo eval)"
-            echo "  zero-shot-grammar       Base model con grammar (solo eval)"
-            echo ""
-            echo "Esempi:"
-            echo "  bash cluster/run_all.sh sft-grpo               # train + eval pipeline principale"
-            echo "  bash cluster/run_all.sh sft-grpo --train-only  # solo training"
-            echo "  bash cluster/run_all.sh --ablation             # tutte le 7 celle"
+            echo "  baseline-zero baseline-few sft grpo-zero grpo-few"
+            echo "  sft-grpo-zero sft-grpo-few sft-grpo-zero-pda sft-grpo-zero-hot"
             exit 0
             ;;
         -*)  # ignora flag non riconosciuti
@@ -115,51 +88,39 @@ for arg in "$@"; do
     esac
 done
 
-# ── Modelli T2G ───────────────────────────────────────────────────────────────
-if [ "$ABLATION" -eq 1 ]; then
-    # Campagna di decomposizione + ablation moduli: 7 celle train+eval.
-    # Ordine ALLINEATO ad app.py:ABLATION_MODELS (il TUI batch usa la stessa
-    # lista). sft-only NON è in coda: la sua cella si valuta con l'adapter
-    # già addestrato della pipeline (CHECKPOINT esplicito, vedi sft-only.yaml).
-    # Formato: TAG:CONFIG[:MODE]
-    # MODE: te=train+eval (default), e=eval-only, t=train-only
+# ── Config registry ───────────────────────────────────────────────────────────
+config_path() {
+    case "$1" in
+        baseline-zero) echo "experiments/configs/qwen25-05b/baseline/zero-shot.yaml" ;;
+        baseline-few) echo "experiments/configs/qwen25-05b/baseline/few-shot.yaml" ;;
+        sft) echo "experiments/configs/qwen25-05b/sft/zero-shot.yaml" ;;
+        grpo-zero) echo "experiments/configs/qwen25-05b/grpo/zero-shot.yaml" ;;
+        grpo-few) echo "experiments/configs/qwen25-05b/grpo/few-shot.yaml" ;;
+        sft-grpo-zero) echo "experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml" ;;
+        sft-grpo-few) echo "experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml" ;;
+        sft-grpo-zero-pda) echo "experiments/configs/qwen25-05b/ablations/sft-grpo-zero-pda.yaml" ;;
+        sft-grpo-zero-hot) echo "experiments/configs/qwen25-05b/ablations/sft-grpo-zero-hot.yaml" ;;
+        *) return 1 ;;
+    esac
+}
+
+if [ "$ABLATION" -eq 1 ] || [ -z "$CONFIG_NAME" ]; then
     MODELS=(
-        "zero-shot:experiments/configs/t2g/zero-shot.yaml:e"
-        "zero-shot-grammar:experiments/configs/t2g/zero-shot-grammar.yaml:e"
-        "sft-only:experiments/configs/t2g/sft-only.yaml:te"
-        "grpo-only:experiments/configs/t2g/grpo-only.yaml:te"
-        "sft-grpo:experiments/configs/t2g/sft-grpo.yaml:te"
-        "sft-grpo-structure:experiments/configs/t2g/sft-grpo-structure.yaml:te"
-        "sft-grpo-viterbi:experiments/configs/t2g/sft-grpo-viterbi.yaml:te"
-        "sft-grpo-soft-viterbi:experiments/configs/t2g/sft-grpo-soft-viterbi.yaml:te"
-        "sft-grpo-all-rewards:experiments/configs/t2g/sft-grpo-all-rewards.yaml:te"
-        "sft-grpo-no-grammar:experiments/configs/t2g/sft-grpo-no-grammar.yaml:te"
-        "sft-grpo-pda:experiments/configs/t2g/sft-grpo-pda.yaml:te"
-        "sft-grpo-hotrollout:experiments/configs/t2g/sft-grpo-hotrollout.yaml:te"
+        "baseline-zero:experiments/configs/qwen25-05b/baseline/zero-shot.yaml:e"
+        "baseline-few:experiments/configs/qwen25-05b/baseline/few-shot.yaml:e"
+        "sft:experiments/configs/qwen25-05b/sft/zero-shot.yaml:te"
+        "grpo-zero:experiments/configs/qwen25-05b/grpo/zero-shot.yaml:te"
+        "grpo-few:experiments/configs/qwen25-05b/grpo/few-shot.yaml:te"
+        "sft-grpo-zero:experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml:te"
+        "sft-grpo-few:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:te"
     )
-elif [ -n "$CONFIG_NAME" ]; then
-    # Config specifico passato come argomento (es. "sft-grpo")
-    # Cerca in experiments/configs/t2g/
-    CONFIG_PATH=""
-    for ext in ".yaml" ""; do
-        candidate="experiments/configs/t2g/${CONFIG_NAME}${ext}"
-        if [ -f "$candidate" ]; then
-            CONFIG_PATH="$candidate"
-            break
-        fi
-    done
-    if [ -z "$CONFIG_PATH" ]; then
+else
+    if ! CONFIG_PATH=$(config_path "$CONFIG_NAME"); then
         echo "❌ Config non trovato: $CONFIG_NAME"
-        echo "   Cercato in: experiments/configs/t2g/"
         echo "   Usa: bash cluster/run_all.sh --help per la lista dei config"
         exit 1
     fi
-    # Deriva il tag dal nome del config (senza percorso ed estensione)
-    TAG=$(basename "$CONFIG_PATH" .yaml | tr '_' '-')
-    MODELS=("${TAG}:${CONFIG_PATH}")
-else
-    # Default: pipeline principale SFT+GRPO.
-    MODELS=("sft-grpo:experiments/configs/t2g/sft-grpo.yaml")
+    MODELS=("${CONFIG_NAME}:${CONFIG_PATH}")
 fi
 
 mkdir -p "$STATE_DIR" logs
@@ -181,9 +142,6 @@ _launch_pipeline() {
     echo "   tail -f logs/chain.log          # log della catena"
     echo "   chain-hook-install              # resilienza: hook bashrc (consigliato)"
 }
-# Riprendi dalla coda ESISTENTE: non richiede più .chain_failed, basta che
-# job_chain sia non vuota (il caso reale: daemon ucciso dal reaper). Legacy:
-# ricostruisce da .chain_failed se la coda è vuota.
 _cmd_resume() {
     echo "============================================"
     echo "  RESUME Pipeline"
@@ -193,28 +151,8 @@ _cmd_resume() {
     if [ -s "$CHAIN_FILE" ]; then
         echo "Coda esistente ($(wc -l < "$CHAIN_FILE") job):"
         cat -n "$CHAIN_FILE"
-    elif [ -f "$FAILED_FILE" ]; then
-        local fjob ftype fcfg ftag fext
-        fjob=$(cat "$FAILED_FILE")
-        ftype=$(echo "$fjob" | cut -d: -f1)
-        fcfg=$(echo "$fjob" | cut -d: -f2)
-        ftag=$(echo "$fjob" | cut -d: -f3)
-        fext=$(echo "$fjob" | cut -d: -f4-)
-        if [ "$ftype" != "train" ] && [ "$ftype" != "eval" ]; then
-            echo "❌ chain_failed malformato: $fjob"
-            exit 1
-        fi
-        if [ "$ftype" = "train" ]; then
-            [ -n "$fext" ] || fext="--resume"
-            printf 'train:%s:%s:%s\neval:%s:%s\n' "$fcfg" "$ftag" "$fext" "$fcfg" "$ftag" > "$CHAIN_FILE"
-            echo "→ Ricostruita da .chain_failed: train $ftag ($fext) + eval"
-        else
-            printf 'eval:%s:%s\n' "$fcfg" "$ftag" > "$CHAIN_FILE"
-            echo "→ Ricostruita da .chain_failed: eval $ftag"
-        fi
-        rm -f "$FAILED_FILE"
     else
-        echo "❌ Nessuna coda da riprendere (job_chain vuoto, nessun chain_failed)."
+        echo "❌ Nessuna coda da riprendere (job_chain vuoto)."
         echo "   Usa: bash cluster/run_all.sh (senza --resume) per una nuova pipeline."
         exit 1
     fi

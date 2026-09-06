@@ -1,9 +1,6 @@
 """Client TUI locale per il driver T2G (remote/app.py).
 
-Pannello di controllo COMPLETO del cluster: monitor live (metriche training,
-completion samples, log tail) + gestione coda + start/pause/kill dei job.
-Sostituisce il vecchio monitor testuale (chain_monitor.py resta come
-libreria ausiliaria lato servizio).
+Monitor live e controllo di coda e job del cluster.
 
 Avvio:
 
@@ -32,6 +29,7 @@ from typing import Any, Iterable
 import httpx
 from dotenv import dotenv_values
 from rich.markup import escape
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -51,21 +49,18 @@ from textual.widgets import (
     TextArea,
 )
 
-# ── Config noti al driver (stessi nomi di remote/app.py:CONFIG_MAP) ──────────
+# Config noti al driver (stessi nomi di remote/app.py:CONFIG_MAP).
 
 CONFIG_NAMES: tuple[str, ...] = (
-    "sft-grpo",
-    "sft-only",
-    "grpo-only",
-    "sft-grpo-structure",
-    "sft-grpo-viterbi",
-    "sft-grpo-soft-viterbi",
-    "sft-grpo-all-rewards",
-    "sft-grpo-no-grammar",
-    "sft-grpo-pda",
-    "sft-grpo-hotrollout",
-    "zero-shot",
-    "zero-shot-grammar",
+    "sft",
+    "grpo-zero",
+    "grpo-few",
+    "sft-grpo-zero",
+    "sft-grpo-few",
+    "baseline-zero",
+    "baseline-few",
+    "sft-grpo-zero-pda",
+    "sft-grpo-zero-hot",
 )
 CONFIG_NAME_SET: frozenset[str] = frozenset(CONFIG_NAMES)
 
@@ -581,7 +576,9 @@ class DashboardScreen(T2GScreen):
         yield Header()
         yield Static(id="banner")
         yield LoadingIndicator(id="loading")
-        yield Static(id="job-panel")
+        with Vertical(id="job-panel"):
+            yield Static(id="job-summary")
+            yield ProgressBar(total=100, show_eta=False, id="job-progress")
         yield Static("", classes="panel-title", id="samples-title")
         with Vertical(id="samples-panel"):
             yield RichLog(id="samples-log", highlight=False, markup=True)
@@ -643,13 +640,19 @@ class DashboardScreen(T2GScreen):
         """Ridisegna i pannelli a partire da ``app.monitor_snapshot``."""
         if not self.is_mounted:
             return
-        snap = self.t2g_app.monitor_snapshot or self.t2g_app.status
-        if snap is None:
-            self.query_one("#job-panel", Static).update("Caricamento dal servizio…")
+        snap = (
+            self.t2g_app.monitor_snapshot
+            if self.t2g_app.monitor_snapshot is not None
+            else self.t2g_app.status
+        )
+        job_box = self.query_one("#job-summary", Static)
+        progress = self.query_one("#job-progress", ProgressBar)
+        if not isinstance(snap, dict):
+            job_box.update("Caricamento dal servizio…")
+            progress.display = False
             return
 
         banner = self.query_one("#banner", Static)
-        job_box = self.query_one("#job-panel", Static)
         samples_log = self.query_one("#samples-log", RichLog)
         tail_log = self.query_one("#tail-log", RichLog)
         queue_box = self.query_one("#queue-panel", Static)
@@ -665,15 +668,31 @@ class DashboardScreen(T2GScreen):
         )
 
         job_box.update(self._job_text(snap))
+        detail = snap.get("job_detail")
+        step = detail.get("step") if isinstance(detail, dict) else None
+        total = detail.get("total_steps") if isinstance(detail, dict) else None
+        try:
+            progress_value = max(0.0, min(float(str(step)), float(str(total))))
+            progress_total = float(str(total))
+        except (TypeError, ValueError):
+            progress.display = False
+        else:
+            progress.display = progress_total > 0
+            if progress_total > 0:
+                progress.update(total=progress_total, progress=progress_value)
         samples_log.clear()
-        for line in (snap.get("samples") or [])[-8:]:
-            samples_log.write(line)
-        if not snap.get("samples"):
+        samples_value = snap.get("samples")
+        samples = samples_value if isinstance(samples_value, list) else []
+        for line in samples[-8:]:
+            samples_log.write(Text.from_markup(escape(str(line))))
+        if not samples:
             samples_log.write("[dim]— nessun sample disponibile —[/dim]")
         tail_log.clear()
-        for line in snap.get("log_tail") or []:
-            tail_log.write(f"[dim]{escape(line)}[/dim]")
-        if not snap.get("log_tail"):
+        tail_value = snap.get("log_tail")
+        log_tail = tail_value if isinstance(tail_value, list) else []
+        for line in log_tail:
+            tail_log.write(Text.from_markup(f"[dim]{escape(str(line))}[/dim]"))
+        if not log_tail:
             tail_log.write("[dim]— log vuoto —[/dim]")
         queue_box.update(
             "\n\n".join(
@@ -690,6 +709,7 @@ class DashboardScreen(T2GScreen):
     def _job_text(self, snap: dict[str, Any]) -> str:
         active = snap.get("active_job")
         detail = snap.get("job_detail")
+        detail = detail if isinstance(detail, dict) else None
         stopped = bool(snap.get("stopped"))
         last_tick = escape(str(snap.get("last_tick_at") or "mai"))
         reach = (
@@ -739,7 +759,6 @@ class DashboardScreen(T2GScreen):
             if step is not None and total:
                 pct = min(100.0, 100.0 * float(step) / max(1, float(total)))
                 lines.append(f"step [bold]{step}/{total}[/bold] ({pct:.1f}%)")
-                self._update_progress(pct)
             metrics = []
             if detail.get("loss") is not None:
                 metrics.append(f"loss [bold]{escape(str(detail['loss']))}[/bold]")
@@ -785,15 +804,9 @@ class DashboardScreen(T2GScreen):
             )
         return "\n".join(lines)
 
-    def _update_progress(self, pct: float) -> None:
-        try:
-            bar = self.query_one("#job-progress", ProgressBar)
-        except Exception:
-            return
-        bar.update(total=100, progress=pct)
-
     def _queue_text(self, snap: dict[str, Any]) -> str:
-        queue = snap.get("queue") or []
+        queue_value = snap.get("queue")
+        queue = queue_value if isinstance(queue_value, list) else []
         if not queue:
             return "Coda: [bold]vuota[/bold]"
         rows = []
@@ -810,18 +823,22 @@ class DashboardScreen(T2GScreen):
         )
 
     def _errors_text(self, snap: dict[str, Any]) -> str:
-        errors = (snap.get("errors_recent") or [])[-3:]
+        errors_value = snap.get("errors_recent")
+        errors = errors_value[-3:] if isinstance(errors_value, list) else []
         if not errors:
             return ""
         rows = "\n".join(f"[red]✖ {escape(str(e))[:100]}[/red]" for e in errors)
         return rows
 
     def _events_text(self, snap: dict[str, Any]) -> str:
-        events = (snap.get("events") or [])[-5:]
+        events_value = snap.get("events")
+        events = events_value[-5:] if isinstance(events_value, list) else []
         if not events:
             return ""
         rows = []
         for event in events:
+            if not isinstance(event, dict):
+                continue
             # Full date+time (was time-only: events across days were
             # indistinguishable). ts is ISO "YYYY-MM-DDTHH:MM:SS".
             ts = str(event.get("ts", ""))[:19].replace("T", " ")
@@ -952,7 +969,7 @@ class AddJobScreen(T2GScreen):
         yield Header()
         yield Static(title, classes="title")
         yield Select(
-            [("train", "train"), ("eval", "eval")],
+            [("train", "train"), ("dual prompt eval", "eval")],
             prompt="Tipo",
             value="train",
             id="type",
@@ -1093,9 +1110,9 @@ class BatchStartScreen(T2GScreen):
         yield Static("Per ogni config selezionato accoda:", classes="hint")
         yield Select(
             [
-                ("train + eval", "train+eval"),
+                ("train + dual prompt eval", "train+eval"),
                 ("solo train", "train"),
-                ("solo eval", "eval"),
+                ("solo dual prompt eval", "eval"),
             ],
             value="train+eval",
             id="mode",
@@ -1223,22 +1240,16 @@ class LogScreen(T2GScreen):
             rich.write("[dim]— log vuoto o nessun job attivo —[/dim]")
 
 
-# ── Campaign summary lines (reusable: shown in the CampaignScreen and in
-# the confirmation) — order = app.py ABLATION_MODELS (ordine di riuso). ───
+# Campaign summary; order matches remote.app.DEFAULT_CAMPAIGN.
 
 _CAMPAIGN_LINES: list[str] = [
-    "1. zero-shot              (eval-only) — baseline, ~zero costo",
-    "2. zero-shot-grammar      (eval-only) — CACHEA la baseline --compare",
-    "3. sft-only               (train+eval) — addestra L'adapter SFT",
-    "4. grpo-only              (train+eval) — GRPO da base",
-    "5. sft-grpo               (train+eval) — RIUSA SFT di sft-only",
-    "6. sft-grpo-structure      (train+eval) — RIUSA SFT + baseline cached",
-    "7. sft-grpo-viterbi       (train+eval) — RIUSA SFT + baseline cached",
-    "8. sft-grpo-soft-viterbi  (train+eval) — RIUSA SFT + baseline cached",
-    "9. sft-grpo-all-rewards   (train+eval) — RIUSA SFT + baseline cached",
-    "10. sft-grpo-no-grammar   (train+eval) — RIUSA SFT (grammar OFF)",
-    "11. sft-grpo-pda          (train+eval) — RIUSA SFT (PDA vs Trie)",
-    "12. sft-grpo-hotrollout   (train+eval) — controllo Finding 1 (T=1.3, RIUSA SFT)",
+    "1. baseline-zero          (eval-only)",
+    "2. baseline-few           (eval-only)",
+    "3. sft                    (train + dual prompt eval)",
+    "4. grpo-zero              (train + dual prompt eval)",
+    "5. grpo-few               (train + dual prompt eval)",
+    "6. sft-grpo-zero          (train + dual prompt eval, reuse SFT)",
+    "7. sft-grpo-few           (train + dual prompt eval, reuse SFT)",
 ]
 
 
@@ -1256,7 +1267,7 @@ class CampaignScreen(T2GScreen):
         yield Header()
         yield Static("Campagna completa — ordine di riuso", classes="title")
         yield Static(
-            "12 celle, 22 entry (2 eval-only + 20 train/eval).\n"
+            "7 celle, 12 entry (2 eval-only + 5 train/dual-prompt-eval).\n"
             "L'ordine massimizza il riuso: la coda esistente viene SOSTITUITA.",
             classes="hint",
         )
@@ -1279,7 +1290,7 @@ class CampaignScreen(T2GScreen):
             self.t2g_app.push_screen(
                 ConfirmScreen(
                     "Avviare la CAMPAGNA COMPLETA?\n"
-                    "12 celle in ordine di riuso (22 entry).\n"
+                    "7 celle in ordine di riuso (12 entry).\n"
                     "La coda esistente viene SOSTITUITA.\n"
                     "Il primo job parte subito (tick immediato)."
                 ),
@@ -1289,13 +1300,16 @@ class CampaignScreen(T2GScreen):
     def _confirmed(self, ok: bool | None) -> None:
         if ok:
             self.t2g_app.run_worker(self.t2g_app.run_campaign())
+            # Return before the potentially slow queue rewrite/tick. The
+            # worker keeps running and app-level notifications remain visible.
+            self.t2g_app.switch_screen("dashboard")
 
 
 class ReplaceQueueScreen(T2GScreen):
     """Rimpiazza l'intera coda: ablation completa o lista custom.
 
     Due modalità (entrambe con conferma, avvisano che la coda esistente viene
-    SOSTITUITA): ``Ablation completa`` (12 config → 22 entry, stesso ordine di
+    SOSTITUITA): ``Ablation completa`` (7 config → 12 entry, stesso ordine di
     ``run_all.sh``) oppure coda custom, una ``tipo:config[:tag]`` per riga.
     """
 
@@ -1309,18 +1323,18 @@ class ReplaceQueueScreen(T2GScreen):
             classes="hint",
         )
         yield Button(
-            "Ablation completa (12 config → 22 job)", variant="primary", id="ablation"
+            "Campagna default (7 config → 12 job)", variant="primary", id="ablation"
         )
         yield Static(
             "…oppure definisci una coda custom (una entry per riga):", classes="hint"
         )
         yield Static(
-            "Formato [b]tipo:config[:tag][/b] — es. [b]train:sft-grpo[/b] "
-            "o [b]train:sft-grpo:my-run[/b]",
+            "Formato [b]tipo:config[:tag][/b] — es. [b]train:sft-grpo-zero[/b] "
+            "o [b]train:sft-grpo-zero:my-run[/b]",
             classes="hint",
         )
         yield TextArea(
-            "train:sft-grpo\n# le righe che iniziano con # sono ignorate\neval:grpo-only",
+            "train:sft-grpo-zero\n# le righe che iniziano con # sono ignorate\neval:baseline-zero",
             id="custom",
         )
         yield Button("Invia coda custom", variant="error", id="submit")
@@ -1337,7 +1351,7 @@ class ReplaceQueueScreen(T2GScreen):
         if event.button.id == "ablation":
             self.t2g_app.push_screen(
                 ConfirmScreen(
-                    "Avviare l'ABLATION COMPLETA?\n12 config → 22 entry. "
+                    "Avviare la CAMPAGNA DEFAULT?\n7 config → 12 entry. "
                     "La coda esistente viene SOSTITUITA."
                 ),
                 self._confirmed_ablation,
@@ -1590,6 +1604,7 @@ class T2GDashApp(App[None]):
                     f"[red]{escape(str(exc))}[/red]", severity="error", timeout=8
                 )
             else:
+                snapshot = snapshot if isinstance(snapshot, dict) else {}
                 self.monitor_snapshot = snapshot
                 self.status = snapshot  # campi status condivisi
                 screen = self.screen
@@ -1793,7 +1808,7 @@ class T2GDashApp(App[None]):
         """POST /queue {ablation: true} + tick immediato (Campagna ``C``).
 
         Sostituisce l'intera coda con la campagna in ordine di riuso
-        (app.py ABLATION_MODELS) e fa subito un tick così il primo job
+        (app.py DEFAULT_CAMPAIGN) e fa subito un tick così il primo job
         parte senza attendere l'hook/server.
         """
         if self.client is None:
@@ -1821,7 +1836,6 @@ class T2GDashApp(App[None]):
         except RemoteServiceError:
             pass  # il tick fallirà se QoS occupata: la catena avanza dopo
         await self.refresh_jobs()
-        self.switch_screen("dashboard")
 
     async def replace_queue(
         self,

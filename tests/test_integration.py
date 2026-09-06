@@ -12,7 +12,55 @@ from __future__ import annotations
 
 from typing import Any
 
-import numpy as np
+
+def test_sft_grpo_cells_reuse_preceding_standalone_sft(tmp_path, monkeypatch):
+    """Both canonical SFT-GRPO cells resolve the standalone campaign adapter."""
+    import json
+    from pathlib import Path
+
+    from src.training import sft_train
+    from src.training.grpo_t2g_train import resolve_reusable_sft_adapter
+    from src.utils.config import load_config
+
+    project = Path(__file__).resolve().parent.parent
+    standalone_cfg = load_config(
+        project / "experiments/configs/qwen25-05b/sft/zero-shot.yaml"
+    )
+    model_root = tmp_path / "checkpoints" / "qwen25-05b"
+    source = model_root / "sft" / "zero-shot" / "run_20260906_120000" / "final"
+    source.mkdir(parents=True)
+    (source / "adapter_config.json").write_text("{}", encoding="utf-8")
+    weights = b"canonical-standalone-adapter"
+    (source / "adapter_model.safetensors").write_bytes(weights)
+    (source / "sft_fingerprint.json").write_text(
+        json.dumps({"fingerprint": sft_train.compute_sft_fingerprint(standalone_cfg)}),
+        encoding="utf-8",
+    )
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("training/local fallback must not be invoked")
+
+    monkeypatch.setattr(sft_train, "run_sft", forbidden)
+
+    for prompt_mode in ("zero-shot", "few-shot"):
+        cfg = load_config(
+            project / f"experiments/configs/qwen25-05b/sft-grpo/{prompt_mode}.yaml"
+        )
+        run_dir = model_root / "sft-grpo" / prompt_mode / "run_20260906_130000"
+        sft_cfg = {
+            **cfg,
+            "training": {
+                **cfg["training"],
+                **cfg["sft_pretrain"]["training"],
+                "output_dir": str(run_dir / "sft_pretrain"),
+                "log_dir": str(tmp_path / "logs" / prompt_mode),
+                "trainer": "sft",
+            },
+        }
+
+        resolved = resolve_reusable_sft_adapter(sft_cfg, run_dir, model_root)
+        assert resolved == (source, "sft/zero-shot")
+        assert (resolved[0] / "adapter_model.safetensors").read_bytes() == weights
 
 
 def test_data_to_grammar_chain(dataset, tokenizer):
@@ -28,51 +76,34 @@ def test_data_to_grammar_chain(dataset, tokenizer):
     assert len(allowed) > 0, "Allowed IDs non-empty"
 
 
-def test_grammar_to_rewards_chain(dataset):
-    """Grammar → Rewards: reward functions work with real data."""
+def test_grammar_vocab_to_edit_validity_chain(dataset):
+    """Grammar vocabulary → production edit-validity reward."""
     from src.datasets.aslg_dataset import extract_gloss_vocabulary
-    from src.datasets.transition_matrix import compute_bigram_transitions
     from src.rewards.t2g_rewards import (
         build_t2g_reward_functions,
         initialize_rewards,
-        structural_dense_reward,
     )
 
     vocab = extract_gloss_vocabulary(dataset, split="train")
-    bigram = compute_bigram_transitions(dataset, vocab, split="train", smoothing=1.0)
-    initialize_rewards(bigram, vocab)
+    initialize_rewards(vocab)
 
     funcs, weights = build_t2g_reward_functions()
-    assert len(funcs) == 4, f"4 reward functions built, got {len(funcs)}"
+    assert len(funcs) == 1
+    assert funcs[0].__name__ == "edit_validity_reward"
+    assert weights == [1.0]
 
-    completions = ["IX MAN WALK HOUSE", "DOG CAT BIRD", "NOT CAN WANT GO"]
-    for fn in funcs:
-        results = fn(completions)
-        assert len(results) == len(
-            completions
-        ), f"{fn.__name__} returns {len(completions)} scores"
-        for r in results:
-            assert isinstance(r, float), f"{fn.__name__} score is float"
-
-    sd = structural_dense_reward("IX MAN WALK", normalize=True)
-    assert -1.0 <= sd <= 1.0, f"Structural dense in [-1,1], got {sd:.4f}"
+    gold = str(dataset["train"][0]["gloss"])
+    scores = funcs[0]([gold, f"{gold} __NOT_IN_VOCAB__"], gold_gloss=[gold, gold])
+    assert scores == [1.0, -1.0]
 
 
 def test_rewards_to_metrics_chain(dataset):
-    """Rewards → Metrics: metrics consistent with rewards."""
-    from src.datasets.aslg_dataset import extract_gloss_vocabulary
-    from src.datasets.transition_matrix import compute_bigram_transitions
-    from src.rewards.t2g_rewards import initialize_rewards
+    """Generated glosses and references produce evaluation metrics."""
     from src.utils.metrics import (
         compute_detailed_metrics,
         compute_pass_at_k,
-        compute_reward_breakdown,
         rouge_l_score,
     )
-
-    vocab = extract_gloss_vocabulary(dataset, split="train")
-    bigram = compute_bigram_transitions(dataset, vocab, split="train", smoothing=1.0)
-    initialize_rewards(bigram, vocab)
 
     completions = ["IX MAN WALK", "DOG CAT BIRD", "NOT CAN WANT"]
     references = ["IX MAN WALK", "IX MAN GO", "NOT CAN COME"]
@@ -85,102 +116,13 @@ def test_rewards_to_metrics_chain(dataset):
     rl = rouge_l_score(completions[0], references[0])
     assert abs(rl - 1.0) < 0.01, f"ROUGE-L perfect match = 1.0, got {rl:.4f}"
 
-    breakdown = compute_reward_breakdown(completions)
-    assert len(breakdown) >= 4, "Breakdown has >=4 keys"
-    assert all(np.isfinite(v) for v in breakdown.values()), "All values finite"
-
     detailed = compute_detailed_metrics(completions, references)
     assert "overall_pass_rate" in detailed, "Detailed metrics has pass_rate"
 
 
 def test_callbacks_interface(reward_setup):
-    """Callbacks: CompletionSampleLogger and SFTSampleCallback creation.
-
-    Uses the network-free ``reward_setup`` fixture (mini vocab + bigram) and
-    mock reward functions so the interceptor can be driven with a
-    ``gold_gloss`` kwarg — mirroring how TRL 0.24 forwards the dataset's
-    ``gold_gloss`` column to reward functions — and the logger capture
-    verified.  No dataset download, no model, no global gold registry.
-    """
-    from typing import Callable
-
-    from src.training.callbacks import (
-        CompletionSampleCallback,
-        CompletionSampleLogger,
-        SFTSampleCallback,
-    )
-
-    def _make_mock_reward(name: str) -> Callable[..., list[float]]:
-        """Build a GRPOTrainer-style reward fn (with gold_gloss kwarg)."""
-
-        def mock(
-            completions: list[Any],
-            prompts: list[Any] | None = None,
-            *,
-            gold_gloss: list[str] | None = None,
-            **kwargs: Any,
-        ) -> list[float]:
-            return [1.0] * len(completions)
-
-        mock.__name__ = name
-        return mock
-
-    reward_fns = [
-        _make_mock_reward("translation_quality_reward"),
-        _make_mock_reward("gold_structure_reward"),
-        _make_mock_reward("gloss_format_reward"),
-        _make_mock_reward("gloss_repetition_reward"),
-    ]
-    reward_weights = [0.40, 0.40, 0.10, 0.10]
-
-    logger = CompletionSampleLogger(reward_fns, reward_weights, n_samples=3)
-    assert logger is not None, "Logger created"
-    assert len(logger.wrapped_reward_fns) == 4, "Wrapped reward fns available"
-
-    completions = ["IX MAN WALK", "DOG CAT"]
-    gold_glosses = ["IX MAN WALK HOUSE", "DOG CAT BIRD"]
-    for fn in logger.wrapped_reward_fns:
-        # TRL 0.24 calls reward functions with the dataset's gold_gloss
-        # column forwarded as a kwarg; the interceptor must forward it.
-        result = fn(completions, gold_gloss=gold_glosses)
-        assert isinstance(result, list), f"{fn.__name__} returns list"
-        assert len(result) == len(completions), f"{fn.__name__} per-sample scores"
-
-    logger._capture(completions, None, gold_gloss=gold_glosses)
-    assert len(logger._buffer) > 0, "Buffer has samples after capture"
-
-    # The interceptor reads the per-batch gold_gloss kwarg (no registry)
-    for i, sample in enumerate(logger._buffer):
-        assert sample["gold"] == gold_glosses[i], "Per-sample gold captured"
-
-    formatted = logger.format_samples()
-    assert isinstance(formatted, str), "format_samples returns string"
-    assert len(formatted) > 0, "format_samples non-empty"
-    assert "COMPLETION SAMPLES" in formatted, "Contains header"
-    assert "GOLD:" in formatted, "Gold reference displayed"
-    assert "IX MAN WALK HOUSE" in formatted, "Gold value shown"
-
-    # Only active reward components in breakdown
-    sample = logger._buffer[0]
-    bd_keys = set(sample["breakdown"].keys())
-    expected_active = {
-        "translation_quality_reward",
-        "gold_structure_reward",
-        "gloss_format_reward",
-        "gloss_repetition_reward",
-    }
-    assert bd_keys == expected_active, f"Only active components: got {bd_keys}"
-    assert "viterbi_distance_reward" not in bd_keys, "Inactive not computed"
-
-    # Missing gold_gloss kwarg degrades gracefully (no crash, marker shown)
-    logger._capture(completions, None)
-    assert logger._buffer[0]["gold"] == "", "Empty gold when kwarg absent"
-    formatted_no_gold = logger.format_samples()
-    assert "gold non disponibile" in formatted_no_gold, "Graceful missing-gold marker"
-
-    cb = CompletionSampleCallback(logger, every_n_steps=5)
-    assert cb is not None, "Callback created"
-    assert cb._logger is logger, "Callback has logger"
+    """SFT callback remains constructible after reward initialization."""
+    from src.training.callbacks import SFTSampleCallback
 
     sft_cb = SFTSampleCallback(
         tokenizer=None, model=None, dataset=None, every_n_steps=25
@@ -201,9 +143,8 @@ def test_module_imports():
             [
                 "compute_bigram_transitions",
                 "load_transition_matrix",
-                "soft_viterbi_score",
-                "forward_log_probs",
-                "backward_log_probs",
+                "transition_score",
+                "sequence_score_bigram",
             ],
         ),
         ("src.grammar.gloss_grammar", ["GlossVocabularyMask"]),
@@ -213,8 +154,7 @@ def test_module_imports():
             [
                 "build_t2g_reward_functions",
                 "initialize_rewards",
-                "soft_viterbi_distance_reward",
-                "verifier_scaled_reward",
+                "edit_validity_reward",
             ],
         ),
         (

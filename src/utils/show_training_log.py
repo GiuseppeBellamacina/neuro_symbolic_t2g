@@ -1,10 +1,8 @@
 """Display training log from trainer_state.json as a formatted table or plot.
 
 Usage:
-    python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/checkpoint-500
-    python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/ --last
-    python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/ --plot
-    python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/ --plot --deg 5
+    python -m src.utils.show_training_log experiments/checkpoints/qwen25-05b/grpo/zero-shot/run_20260906_120000
+    python -m src.utils.show_training_log experiments/checkpoints/qwen25-05b/grpo/zero-shot/run_20260906_120000 --plot
 """
 
 from __future__ import annotations
@@ -13,6 +11,8 @@ import argparse
 import json
 from pathlib import Path
 
+from src.utils.paths import cell_run_from_checkpoint, experiment_root
+
 # Default columns to show for T2G training
 _DEFAULT_COLS = [
     "step",
@@ -20,33 +20,21 @@ _DEFAULT_COLS = [
     "eval_loss",
     "reward",
     "reward_std",
-    "rewards/translation_quality_reward/mean",
-    "rewards/bleu_reward/mean",
-    "rewards/gold_structure_reward/mean",
-    "rewards/structural_dense_reward/mean",
-    "rewards/viterbi_distance_reward/mean",
-    "rewards/soft_viterbi_distance_reward/mean",
-    "rewards/verifier_scaled_reward/mean",
-    "rewards/gloss_order_reward/mean",
-    "rewards/gloss_format_reward/mean",
-    "rewards/gloss_repetition_reward/mean",
-    "completion_length",
+    "rewards/edit_validity_reward/mean",
+    "rewards/edit_validity_reward/std",
+    "completions/mean_length",
+    "completions/clipped_ratio",
+    "completions/mean_terminated_length",
     "learning_rate",
     "grad_norm",
 ]
 
 _SHORT_NAMES = {
-    "rewards/translation_quality_reward/mean": "translation",
-    "rewards/bleu_reward/mean": "bleu",
-    "rewards/gold_structure_reward/mean": "gold_struct",
-    "rewards/structural_dense_reward/mean": "structure",
-    "rewards/viterbi_distance_reward/mean": "viterbi",
-    "rewards/soft_viterbi_distance_reward/mean": "soft_viterbi",
-    "rewards/verifier_scaled_reward/mean": "verifier",
-    "rewards/gloss_order_reward/mean": "order",
-    "rewards/gloss_format_reward/mean": "format",
-    "rewards/gloss_repetition_reward/mean": "repetition",
-    "completion_length": "comp_len",
+    "rewards/edit_validity_reward/mean": "edit_validity",
+    "rewards/edit_validity_reward/std": "edit_validity_std",
+    "completions/mean_length": "comp_len",
+    "completions/clipped_ratio": "clipped",
+    "completions/mean_terminated_length": "term_len",
     "learning_rate": "lr",
 }
 
@@ -115,11 +103,12 @@ def show_log(
     if tail:
         train_logs = train_logs[-tail:]
 
-    cols = columns or _DEFAULT_COLS
     # Filter columns to those that actually exist
     available = set()
     for entry in train_logs:
         available.update(entry.keys())
+    reward_cols = sorted(c for c in available if c.startswith("rewards/"))
+    cols = columns or list(dict.fromkeys([*_DEFAULT_COLS, *reward_cols]))
     cols = [c for c in cols if c in available]
 
     if not cols:
@@ -165,22 +154,30 @@ def plot_from_checkpoint(
     data = json.loads(ts_path.read_text(encoding="utf-8"))
 
     if output_dir is None:
-        parts = ts_path.parts
-        if "checkpoints" in parts:
-            idx = parts.index("checkpoints")
-            # Map experiments/checkpoints/<model_name>/run_<timestamp> -> experiments/figures/<model_name>/run_<timestamp>
-            fig_parts = list(parts[:idx]) + ["figures"] + list(parts[idx + 1 : idx + 3])
-            output_dir = str(Path(*fig_parts))
-        else:
-            output_dir = str(ts_path.parent.parent / "figures")
+        try:
+            identity = cell_run_from_checkpoint(ts_path)
+            root = experiment_root(ts_path, "checkpoints")
+            output_dir = str(
+                root
+                / "figures"
+                / identity.cell.model_tag
+                / identity.cell.method
+                / identity.cell.variant
+                / "eval-zero-shot"
+                / identity.run_id
+            )
+        except ValueError as exc:
+            raise ValueError(
+                "plot output requires a canonical checkpoint path"
+            ) from exc
 
     from .visualization import plot_training_curves
 
-    model_name = (
-        ts_path.parent.parent.name
-        if ts_path.parent.name.startswith("checkpoint")
-        else ts_path.parent.name
-    )
+    try:
+        identity = cell_run_from_checkpoint(ts_path)
+        model_name = f"{identity.cell.method}/{identity.cell.variant}"
+    except ValueError as exc:
+        raise ValueError("model label requires a canonical checkpoint path") from exc
     plot_training_curves(
         data,
         model_name=model_name,

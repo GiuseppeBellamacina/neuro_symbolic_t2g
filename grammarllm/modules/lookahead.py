@@ -67,7 +67,7 @@ def lookahead_paths(pda, trie):
     vocabulary token realizable from the current (stack, residue) state, ALL
     the grammar paths that token is compatible with. Includes merged tokens
     spanning terminal boundaries and tokens ending mid-terminal. Depth-0 exact
-    matches reproduce the legacy mask, so the legacy valid set is always a
+    matches reproduce the deterministic mask, so the base valid set is always a
     subset of this one.
 
     Why a LIST of paths and not one

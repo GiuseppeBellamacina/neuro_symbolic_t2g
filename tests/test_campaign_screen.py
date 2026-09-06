@@ -1,126 +1,116 @@
-"""Tests for the CampaignScreen (binding ``C``) + PDA config presence."""
-
 from __future__ import annotations
 
-import asyncio
-import sys
+import re
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import yaml
 
-from remote.tui import CampaignScreen  # noqa: E402
-from tests.test_remote_tui import _client, _make_app  # noqa: E402
+from remote import app, tui
 
-
-def test_campaign_screen_registered():
-    """La schermata 'campaign' è registrata nell'app."""
-    app = _make_app()
-    assert "campaign" in app.SCREENS
-    assert app.SCREENS["campaign"] is CampaignScreen
+ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_campaign_binding_on_dashboard():
-    """Il dashboard ha il binding 'C' per la campagna."""
-    app = _make_app()
-    dash_cls = app.SCREENS["dashboard"]
-    if isinstance(dash_cls, type):
-        keys = {b.key for b in dash_cls.BINDINGS}
-        assert "C" in keys
-
-
-def test_campaign_screen_shows_summary_and_confirm():
-    """'C' → CampaignScreen: mostra le 12 celle (incluso PDA) e il
-    confirmation flow porta a POST /queue {ablation: true} + tick."""
-    import remote.tui as tui
-
-    client, recorder = _client()
-    app = tui.T2GDashApp(
-        config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
-        client=client,
+def _run_all_default_models() -> list[tuple[str, str, str]]:
+    script = (ROOT / "cluster/run_all.sh").read_text(encoding="utf-8")
+    match = re.search(
+        r'if \[ "\$ABLATION".*?MODELS=\(\s*(.*?)\s*\)\s*else',
+        script,
+        re.DOTALL,
     )
-
-    async def _run() -> None:
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            await pilot.press("C")
-            await pilot.pause()
-            assert isinstance(app.screen, CampaignScreen)
-            statics = [
-                s.render() if hasattr(s, "render") else ""
-                for s in app.screen.query("Static")
-            ]
-            all_text = "\n".join(str(s) for s in statics)
-            assert "sft-grpo-pda" in all_text, "PDA nella lista"
-            assert "sft-grpo-hotrollout" in all_text, "hotrollout nella lista"
-            assert "12 celle" in all_text, "conteggio celle aggiornato"
-            assert "zero-shot" in all_text, "zero-shot nella lista"
-            assert "sft-only" in all_text, "sft-only nella lista"
-            assert "SOSTITUITA" in all_text.upper()
-            # submit → ConfirmScreen
-            import textual.widgets as tw  # noqa: E402
-
-            submit = app.screen.query_one("#submit", tw.Button)
-            submit.press()
-            await pilot.pause()
-            await pilot.pause()
-            # Conferma (ConfirmScreen è il dialogo attivo)
-            confirm = app.screen.query_one("#confirm", tw.Button)
-            confirm.press()
-            await pilot.pause()
-            await pilot.pause()
-            # attende il worker async (POST /queue + tick)
-            for _ in range(20):
-                if any(r.url.path == "/queue" for r in recorder.requests):
-                    break
-                await pilot.pause()
-            # dopo la conferma la TUI torna SUBITO alla dashboard: i binding
-            # del dashboard (g/r/a...) restano disponibili mentre il worker
-            # lavora in background
-            # dopo la conferma la TUI torna SUBITO alla dashboard: i binding
-            # del dashboard (g/r/a...) restano disponibili mentre il worker
-            # lavora in background
-            assert not isinstance(
-                app.screen, CampaignScreen
-            ), "torna alla dashboard dopo conferma"
-            calls = [r.url.path for r in recorder.requests]
-            assert "/queue" in calls
-            assert "/tick" in calls
-            # POST /queue body: ablation=True
-            q = [r for r in recorder.requests if r.url.path == "/queue"][0]
-            body = json.loads(q.read())
-            assert body.get("ablation") is True
-
-    import json  # noqa: E402
-
-    asyncio.run(_run())
+    assert match is not None, "default MODELS array not found in cluster/run_all.sh"
+    entries = re.findall(r'^\s*"([^"\n]+)"\s*$', match.group(1), re.MULTILINE)
+    return [tuple(entry.split(":")) for entry in entries]  # type: ignore[misc]
 
 
-def test_pda_config_exists():
-    """sft-grpo-pda.yaml esiste ed estende sft-grpo con PDA ON."""
-    from src.utils.config import resolve_config
-
-    cfg = resolve_config("experiments/configs/t2g/sft-grpo-pda.yaml")
-    assert cfg["grammar"]["use_grammarllm_pda"] is True
-    assert cfg["grammar"]["enabled"] is True
-    assert cfg["training"]["output_dir"] == (
-        "experiments/checkpoints/qwen25-05b-sft-grpo-pda"
+def test_registry_and_manual_selection_are_exact() -> None:
+    expected = (
+        "baseline-zero",
+        "baseline-few",
+        "sft",
+        "grpo-zero",
+        "grpo-few",
+        "sft-grpo-zero",
+        "sft-grpo-few",
+        "sft-grpo-zero-pda",
+        "sft-grpo-zero-hot",
     )
+    assert tuple(app.CONFIG_MAP) == expected
+    assert set(tui.CONFIG_NAMES) == set(expected)
+    assert all("probes/" not in path for path in app.CONFIG_MAP.values())
 
 
-def test_hotrollout_config_exists():
-    """sft-grpo-hotrollout.yaml: controllo Finding 1 (T=1.3, riusa SFT).
+def test_default_campaign_order_count_and_modes() -> None:
+    expected = [
+        (
+            "baseline-zero",
+            "experiments/configs/qwen25-05b/baseline/zero-shot.yaml",
+            "e",
+        ),
+        ("baseline-few", "experiments/configs/qwen25-05b/baseline/few-shot.yaml", "e"),
+        ("sft", "experiments/configs/qwen25-05b/sft/zero-shot.yaml", "te"),
+        ("grpo-zero", "experiments/configs/qwen25-05b/grpo/zero-shot.yaml", "te"),
+        ("grpo-few", "experiments/configs/qwen25-05b/grpo/few-shot.yaml", "te"),
+        (
+            "sft-grpo-zero",
+            "experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml",
+            "te",
+        ),
+        ("sft-grpo-few", "experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml", "te"),
+    ]
+    run_all_models = _run_all_default_models()
+    assert run_all_models == expected
+    assert app.DEFAULT_CAMPAIGN == expected
+    assert len(run_all_models) == 7
+    assert [mode for _, _, mode in run_all_models] == [
+        "e",
+        "e",
+        "te",
+        "te",
+        "te",
+        "te",
+        "te",
+    ]
+    assert [path for _, path, _ in run_all_models] == [path for _, path, _ in expected]
+    lines = app.build_queue_lines(app.QueueIn(ablation=True))
+    assert len(lines) == 12
+    assert [line.split(":", 1)[0] for line in lines[:2]] == ["eval", "eval"]
+    tags = {line.split(":")[2] for line in lines}
+    assert tags.isdisjoint({"sft-grpo-zero-pda", "sft-grpo-zero-hot"})
 
-    Differenza a fattore unico vs sft-grpo: solo la rollout temperature.
-    La sezione sft_pretrain NON viene toccata (fingerprint SFT invariata
-    → riuso dell'adapter di sft-only).
-    """
-    from src.utils.config import resolve_config
 
-    base = resolve_config("experiments/configs/t2g/sft-grpo.yaml")
-    cfg = resolve_config("experiments/configs/t2g/sft-grpo-hotrollout.yaml")
-    assert cfg["grpo"]["temperature"] == 1.3
-    assert cfg["grpo"]["num_generations"] == base["grpo"]["num_generations"]
-    assert cfg["sft_pretrain"] == base["sft_pretrain"], "fingerprint SFT invariata"
-    assert cfg["training"]["output_dir"] == (
-        "experiments/checkpoints/qwen25-05b-sft-grpo-hotrollout"
-    )
+def test_campaign_copy_has_exact_entry_count() -> None:
+    assert len(tui._CAMPAIGN_LINES) == 7
+    assert all("12" not in line for line in tui._CAMPAIGN_LINES)
+    assert all("dual prompt eval" in line for line in tui._CAMPAIGN_LINES[2:])
+
+
+def test_eval_script_runs_dual_trained_modes_and_one_baseline_mode() -> None:
+    script = (ROOT / "cluster/eval.sh").read_text(encoding="utf-8")
+    dispatch = """if [ "$EXPERIMENT_KIND" = "baseline" ]; then
+    if [ "$TRAIN_PROMPT_MODE" = "few-shot" ]; then
+        run_evaluation retrieval
+    else
+        run_evaluation zero-shot
+    fi
+else
+    run_evaluation zero-shot
+    run_evaluation retrieval
+fi"""
+    assert dispatch in script
+    assert "--prompt-mode ${prompt_mode}" in script
+
+
+def test_yaml_top_level_sections_have_one_blank_line() -> None:
+    config_root = ROOT / "experiments/configs/qwen25-05b"
+    for path in config_root.rglob("*.yaml"):
+        text = path.read_text(encoding="utf-8")
+        raw = yaml.safe_load(text)
+        top_level_keys = list(raw)
+        key_lines = {
+            match.group(1): index
+            for index, line in enumerate(text.splitlines())
+            if (match := re.fullmatch(r"([A-Za-z_][\w-]*):(?:\s+.*)?", line))
+        }
+        for key in top_level_keys[1:]:
+            line_index = key_lines[key]
+            assert text.splitlines()[line_index - 1] == "", f"{path}: before {key}"

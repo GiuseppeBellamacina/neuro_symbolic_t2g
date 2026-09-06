@@ -62,18 +62,17 @@ _PLOT_METRICS = [
     ("reward", "Mean Reward"),
     ("loss", "Loss"),
     ("eval_loss", "Eval Loss"),
-    ("rewards/translation_quality_reward/mean", "Translation Quality (ROUGE-L)"),
-    ("rewards/bleu_reward/mean", "BLEU-4"),
-    ("rewards/gold_structure_reward/mean", "Gold Structure (Bigram vs Gold)"),
-    ("rewards/structural_dense_reward/mean", "Structural (Bigram Proxy)"),
-    ("rewards/viterbi_distance_reward/mean", "Viterbi Distance"),
-    ("rewards/soft_viterbi_distance_reward/mean", "Soft Viterbi (DVL)"),
-    ("rewards/verifier_scaled_reward/mean", "Verifier-Scaled (RECIPE)"),
-    ("rewards/gloss_order_reward/mean", "Gloss Order (Edit Dist)"),
-    ("rewards/gloss_format_reward/mean", "Format Reward"),
-    ("rewards/gloss_repetition_reward/mean", "Repetition Penalty"),
-    ("completion_length", "Completion Length"),
+    ("rewards/edit_validity_reward/mean", "Edit Validity Reward"),
+    ("rewards/edit_validity_reward/std", "Edit Validity Reward Std"),
+    ("completions/mean_length", "Completion Length"),
+    ("completions/clipped_ratio", "Completion Clipped Ratio"),
+    ("completions/mean_terminated_length", "Terminated Completion Length"),
 ]
+
+
+def _reward_label(key: str) -> str:
+    component = key.removeprefix("rewards/").removesuffix("/mean")
+    return component.removesuffix("_reward").replace("_", " ").title()
 
 
 def plot_training_curves(
@@ -106,6 +105,16 @@ def plot_training_curves(
         for key, label in _PLOT_METRICS
         if any(key in e for e in train_logs)
     ]
+    known = {key for key, _ in available_metrics}
+    generic_rewards = sorted(
+        {
+            key
+            for entry in train_logs
+            for key in entry
+            if key.startswith("rewards/") and key not in known
+        }
+    )
+    available_metrics.extend((key, _reward_label(key)) for key in generic_rewards)
     if not available_metrics:
         print("No plottable metrics found.")
         return
@@ -201,43 +210,14 @@ def plot_training_curves(
 # Reward breakdown plot
 # ---------------------------------------------------------------------------
 
-_COMPONENT_ORDER = [
-    "translation_quality_reward",
-    "bleu_reward",
-    "gold_structure_reward",
-    "structural_dense_reward",
-    "viterbi_distance_reward",
-    "soft_viterbi_distance_reward",
-    "verifier_scaled_reward",
-    "gloss_order_reward",
-    "gloss_format_reward",
-    "gloss_repetition_reward",
-]
+_COMPONENT_ORDER = ["edit_validity_reward"]
 
 _COMPONENT_COLORS = {
-    "translation_quality_reward": "#4C72B0",
-    "bleu_reward": "#3498DB",
-    "gold_structure_reward": "#55A868",
-    "structural_dense_reward": "#8172B3",
-    "viterbi_distance_reward": "#937860",
-    "soft_viterbi_distance_reward": "#DA8BC3",
-    "verifier_scaled_reward": "#8C8C8C",
-    "gloss_order_reward": "#CCB974",
-    "gloss_format_reward": "#DD8452",
-    "gloss_repetition_reward": "#C44E52",
+    "edit_validity_reward": "#4C72B0",
 }
 
 _COMPONENT_LABELS = {
-    "translation_quality_reward": "Translation (ROUGE-L)",
-    "bleu_reward": "BLEU-4",
-    "gold_structure_reward": "Gold Structure",
-    "structural_dense_reward": "Structure (Bigram)",
-    "viterbi_distance_reward": "Viterbi",
-    "soft_viterbi_distance_reward": "Soft Viterbi (DVL)",
-    "verifier_scaled_reward": "Verifier (RECIPE)",
-    "gloss_order_reward": "Gloss Order",
-    "gloss_format_reward": "Format",
-    "gloss_repetition_reward": "Repetition",
+    "edit_validity_reward": "Edit Validity",
 }
 
 
@@ -270,6 +250,7 @@ def plot_reward_breakdown(
     if reward_weights is not None:
         all_components = {c for c in all_components if reward_weights.get(c, 0.0) > 0}
     components = [c for c in _COMPONENT_ORDER if c in all_components]
+    components.extend(sorted(all_components.difference(components)))
 
     if reward_weights is None:
         reward_weights = {c: 1.0 for c in components}
@@ -285,7 +266,7 @@ def plot_reward_breakdown(
             rows.append(
                 {
                     "stage": stage_label,
-                    "component": _COMPONENT_LABELS.get(c, c),
+                    "component": _COMPONENT_LABELS.get(c, _reward_label(c)),
                     "value": val,
                     "cumulative": cumulative,
                 }
@@ -296,7 +277,7 @@ def plot_reward_breakdown(
     # Sort components by order for consistent stacking
     df["component"] = pd.Categorical(
         df["component"],
-        categories=[_COMPONENT_LABELS.get(c, c) for c in components],
+        categories=[_COMPONENT_LABELS.get(c, _reward_label(c)) for c in components],
         ordered=True,
     )
     df["stage"] = pd.Categorical(
@@ -319,7 +300,7 @@ def plot_reward_breakdown(
     from plotnine import theme as pn_theme
 
     color_map = {
-        _COMPONENT_LABELS.get(c, c): _COMPONENT_COLORS.get(c, "#999999")
+        _COMPONENT_LABELS.get(c, _reward_label(c)): _COMPONENT_COLORS.get(c, "#999999")
         for c in components
     }
 
@@ -369,21 +350,20 @@ def plot_baseline_vs_grpo(
     baseline_pass1: float,
     grpo_pass1: float,
     model_name: str = "",
+    label: str = "Checkpoint",
     output_path: str = "experiments/logs/figures/baseline_vs_grpo.png",
 ) -> None:
-    """Clean comparison bar chart: baseline vs post-GRPO Pass@1.
+    """Clean comparison bar chart: base vs checkpoint Pass@1.
 
     Uses plotnine with direct value labels and delta annotation.
     """
     df = pd.DataFrame(
         {
-            "Model": ["Baseline", "Post-GRPO"],
+            "Model": ["Base", label],
             "Pass@1": [baseline_pass1, grpo_pass1],
         }
     )
-    df["Model"] = pd.Categorical(
-        df["Model"], categories=["Baseline", "Post-GRPO"], ordered=True
-    )
+    df["Model"] = pd.Categorical(df["Model"], categories=["Base", label], ordered=True)
 
     from plotnine import (
         aes,
@@ -396,7 +376,7 @@ def plot_baseline_vs_grpo(
         scale_y_continuous,
     )
 
-    color_map = {"Baseline": "#4C72B0", "Post-GRPO": "#DD8452"}
+    color_map = {"Base": "#4C72B0", label: "#DD8452"}
 
     p = (
         ggplot(df, aes(x="Model", y="Pass@1", fill="Model"))
@@ -416,11 +396,7 @@ def plot_baseline_vs_grpo(
         + labs(x="", y="Pass@1 (ROUGE-L >= 0.3)")
         + _get_theme()
         + ggtitle(
-            (
-                f"Baseline vs Post-GRPO — {model_name}"
-                if model_name
-                else "Baseline vs Post-GRPO"
-            ),
+            (f"Base vs {label} — {model_name}" if model_name else f"Base vs {label}"),
             subtitle=f"Delta = {grpo_pass1 - baseline_pass1:+.4f}",
         )
     )
@@ -663,26 +639,50 @@ def plot_metrics_dashboard(
         ("gloss_f1_micro", "Gloss F1 (micro)", ".4f"),
         ("validity_rate", "Validity", ".4f"),
     ]
-    present = [(k, d, f) for k, d, f in panels if k in final_metrics]
-    if not present:
+
+    def metric_blocks(metrics: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+        deployment = metrics.get("deployment")
+        sampling = metrics.get("sampling")
+        if isinstance(deployment, dict):
+            result = [("Deployment", deployment)]
+            if isinstance(sampling, dict):
+                result.append(("Sampling (diagnostic)", sampling))
+            return result
+        return [("", metrics)]
+
+    baseline_blocks = dict(metric_blocks(baseline_metrics)) if baseline_metrics else {}
+    plot_panels: list[
+        tuple[str, str, str, str, dict[str, Any], dict[str, Any] | None]
+    ] = []
+    for block_name, final_block in metric_blocks(final_metrics):
+        baseline_block = baseline_blocks.get(block_name)
+        if (
+            baseline_metrics is not None
+            and baseline_block is None
+            and len(baseline_blocks) == 1
+        ):
+            baseline_block = next(iter(baseline_blocks.values()))
+        for key, display, fmt in panels:
+            if key in final_block and (baseline_block is None or key in baseline_block):
+                plot_panels.append(
+                    (block_name, key, display, fmt, final_block, baseline_block)
+                )
+    if not plot_panels:
         print("No dashboard metrics found — skipping plot.")
         return
-    if baseline_metrics is not None:
-        present = [(k, d, f) for k, d, f in present if k in baseline_metrics]
-    if not present:
-        print("No overlapping dashboard metrics — skipping plot.")
-        return
 
-    n = len(present)
+    n = len(plot_panels)
     fig, axes = plt.subplots(1, n, figsize=(2.8 * n, 4.6))
     if n == 1:
         axes = [axes]
     colors = {"baseline": "#8172B2", "final": "#4C72B0"}
 
-    for ax, (key, display, fmt) in zip(axes, present):
-        final_val = float(final_metrics[key])
-        if baseline_metrics is not None:
-            base_val = float(baseline_metrics[key])
+    for ax, (block_name, key, display, fmt, final_block, baseline_block) in zip(
+        axes, plot_panels
+    ):
+        final_val = float(final_block[key])
+        if baseline_block is not None:
+            base_val = float(baseline_block[key])
             bars = ax.bar(
                 ["Baseline", label],
                 [base_val, final_val],
@@ -703,8 +703,10 @@ def plot_metrics_dashboard(
                 [label], [final_val], color=colors["final"], alpha=0.85, width=0.6
             )
             delta_txt = ""
-        ax.set_title(display, fontsize=11, fontweight="bold")
-        ax.set_ylim(0, max(final_val, max(b.get_height() for b in bars)) * 1.25)
+        panel_title = f"{block_name}\n{display}" if block_name else display
+        ax.set_title(panel_title, fontsize=11, fontweight="bold")
+        upper = max(final_val, max(b.get_height() for b in bars))
+        ax.set_ylim(0, upper * 1.25 if upper > 0 else 1.0)
         for bar in bars:
             h = bar.get_height()
             ax.annotate(
@@ -974,22 +976,8 @@ def plot_reward_radar(
         print("No reward breakdown data to plot.")
         return
 
-    # Short labels
-    label_map = {
-        "translation_quality_reward": "Translation",
-        "bleu_reward": "BLEU-4",
-        "gold_structure_reward": "Gold Struct",
-        "structural_dense_reward": "Struct Dense",
-        "viterbi_distance_reward": "Viterbi",
-        "soft_viterbi_distance_reward": "Soft Viterbi",
-        "verifier_scaled_reward": "Verifier",
-        "gloss_order_reward": "Gloss Order",
-        "gloss_format_reward": "Format",
-        "gloss_repetition_reward": "Repetition",
-    }
-
     components = list(reward_breakdown.keys())
-    labels = [label_map.get(c, c) for c in components]
+    labels = [_COMPONENT_LABELS.get(c, _reward_label(c)) for c in components]
     values = [reward_breakdown[c] for c in components]
     n = len(components)
 
@@ -1257,10 +1245,10 @@ def _highlight_diff(gold: str, pred: str) -> str:
 
 
 def plot_baseline_vs_grpo_comparison(
-    baseline_metrics: dict[str, float],
-    grpo_metrics: dict[str, float],
+    baseline_metrics: dict[str, Any],
+    grpo_metrics: dict[str, Any],
     model_name: str = "",
-    label: str = "GRPO",
+    label: str = "Checkpoint",
     output_path: str = "experiments/logs/figures/baseline_vs_grpo.png",
 ) -> None:
     """Grouped bar chart comparing baseline vs a checkpoint on key metrics.
@@ -1279,6 +1267,16 @@ def plot_baseline_vs_grpo_comparison(
     """
     import matplotlib.pyplot as plt
 
+    def blocks(metrics: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+        deployment = metrics.get("deployment")
+        sampling = metrics.get("sampling")
+        if isinstance(deployment, dict):
+            result = [("Deployment", deployment)]
+            if isinstance(sampling, dict):
+                result.append(("Sampling (diagnostic)", sampling))
+            return result
+        return [("", metrics)]
+
     metrics_to_compare = [
         ("rouge_l_mean", "ROUGE-L"),
         ("valid_rouge_l_mean", "Valid ROUGE-L"),
@@ -1294,57 +1292,86 @@ def plot_baseline_vs_grpo_comparison(
         ("gloss_validity_rate", "Gloss Validity"),
     ]
 
-    present = [
-        m
-        for m in metrics_to_compare
-        if m[0] in baseline_metrics and m[0] in grpo_metrics
-    ]
-    labels = [m[1] for m in present]
-    baseline_vals = [baseline_metrics[m[0]] for m in present]
-    grpo_vals = [grpo_metrics[m[0]] for m in present]
+    baseline_blocks = dict(blocks(baseline_metrics))
+    final_blocks = blocks(grpo_metrics)
+    groups: list[
+        tuple[str, str, list[tuple[str, str]], dict[str, Any], dict[str, Any]]
+    ] = []
+    for block_name, final_block in final_blocks:
+        base_block = baseline_blocks.get(block_name)
+        if base_block is None and len(baseline_blocks) == 1 and len(final_blocks) == 1:
+            base_block = next(iter(baseline_blocks.values()))
+        if base_block is None:
+            continue
+        present = [
+            metric
+            for metric in metrics_to_compare
+            if metric[0] in base_block and metric[0] in final_block
+        ]
+        bounded = [m for m in present if not m[0].startswith("chrf_")]
+        chrf = [m for m in present if m[0].startswith("chrf_")]
+        if bounded:
+            groups.append(
+                (block_name, "Bounded metrics [0,1]", bounded, base_block, final_block)
+            )
+        if chrf:
+            groups.append((block_name, "chrF2 [0,100]", chrf, base_block, final_block))
 
-    if not labels:
+    if not groups:
         print("No overlapping metrics to compare.")
         return
 
-    x = np.arange(len(labels))
-    width = 0.35
-
-    fig, ax = plt.subplots(figsize=(max(10, len(labels) * 1.3), 6))
-    bars1 = ax.bar(
-        x - width / 2,
-        baseline_vals,
-        width,
-        label="Baseline",
-        color="#8172B2",
-        alpha=0.85,
+    fig, axes = plt.subplots(
+        len(groups),
+        1,
+        figsize=(max(10, max(len(g[2]) for g in groups) * 1.3), 5 * len(groups)),
+        squeeze=False,
     )
-    bars2 = ax.bar(
-        x + width / 2, grpo_vals, width, label=label, color="#4C72B0", alpha=0.85
-    )
-
-    for bars in [bars1, bars2]:
-        for bar in bars:
-            h = bar.get_height()
-            ax.annotate(
-                f"{h:.3f}",
-                xy=(bar.get_x() + bar.get_width() / 2, h),
-                xytext=(0, 3),
-                textcoords="offset points",
-                ha="center",
-                fontsize=8,
-            )
-
-    ax.set_ylabel("Score")
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels, fontsize=10)
-    ax.set_ylim(0, max(max(baseline_vals), max(grpo_vals)) * 1.2)
-    title = f"Baseline vs {label} Comparison"
+    for ax, (block_name, scale_name, present, base_block, final_block) in zip(
+        axes[:, 0], groups
+    ):
+        metric_labels = [m[1] for m in present]
+        baseline_vals = [float(base_block[m[0]]) for m in present]
+        final_vals = [float(final_block[m[0]]) for m in present]
+        x = np.arange(len(metric_labels))
+        width = 0.35
+        bars1 = ax.bar(
+            x - width / 2,
+            baseline_vals,
+            width,
+            label="Base",
+            color="#8172B2",
+            alpha=0.85,
+        )
+        bars2 = ax.bar(
+            x + width / 2, final_vals, width, label=label, color="#4C72B0", alpha=0.85
+        )
+        for bars in (bars1, bars2):
+            for bar in bars:
+                height = bar.get_height()
+                ax.annotate(
+                    f"{height:.3f}",
+                    (bar.get_x() + bar.get_width() / 2, height),
+                    xytext=(0, 3),
+                    textcoords="offset points",
+                    ha="center",
+                    fontsize=8,
+                )
+        ax.set_ylabel(scale_name)
+        ax.set_xticks(x)
+        ax.set_xticklabels(metric_labels, fontsize=10)
+        if scale_name.startswith("Bounded"):
+            ax.set_ylim(0, 1.05)
+        else:
+            ax.set_ylim(bottom=0)
+        subtitle = f"{block_name} — {scale_name}" if block_name else scale_name
+        ax.set_title(subtitle, fontsize=11, fontweight="bold")
+        ax.legend()
+        ax.grid(True, axis="y", alpha=0.3)
+    title = f"Base vs {label} Comparison"
     if model_name:
         title += f" — {model_name}"
-    ax.set_title(title, fontsize=13, fontweight="bold")
-    ax.legend()
-    ax.grid(True, axis="y", alpha=0.3)
+    fig.suptitle(title, fontsize=13, fontweight="bold")
     plt.tight_layout()
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=150)

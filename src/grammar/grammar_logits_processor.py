@@ -273,10 +273,9 @@ class GrammarPDALogitsProcessor(LogitsProcessor, MaskedMassTracker):
         The ``GlossVocabularyLogitsProcessor`` is the recommended default.
 
     .. note::
-        Migration to grammarllm v0.5.0: the old ``MaskLogitsProcessor`` no
-        longer exists. The new ``StatelessLogitsProcessor`` is stateless —
-        it re-simulates the PDA state from the input_ids history at each
-        step (with an LRU cache for O(1) amortized cost). This is a cleaner
+        ``StatelessLogitsProcessor`` re-simulates the PDA state from the
+        ``input_ids`` history at each step (with an LRU cache for O(1)
+        amortized cost). This is a cleaner
         fit for HF ``generate()`` and adds beam-search safety. The
         ``__call__`` delegates to the new processor's ``__call__``, which
         applies the grammar mask internally.
@@ -310,7 +309,7 @@ class GrammarPDALogitsProcessor(LogitsProcessor, MaskedMassTracker):
 
         self.tokenizer = tokenizer
         # Normalize to list of base PDA templates. Accept either a single
-        # PDA (backward compat with old callers) or a list (from
+        # PDA (for callers supplying one template) or a list (from
         # create_grammarllm_pipeline which now returns pdas: list).
         if isinstance(pda, list):
             base_pdas = pda

@@ -141,9 +141,16 @@ enqueue() {
 }
 
 rewrite_queue() {
-    local content="$1" sep
+    local content="$1" sep active_id
     sep=$(printf '\x1f')
     mkdir -p "$STATE_DIR"
+    active_id=$(active_job_id)
+    if [ -z "$active_id" ]; then
+        rm -f "$LAST_JOB_FILE"
+        log_line "rewrite_queue (driver esterno): last_job stale rimosso (nessun job SLURM attivo)"
+    else
+        log_line "rewrite_queue (driver esterno): last_job preservato (job SLURM attivo: $active_id)"
+    fi
     if [ -z "$content" ]; then
         rm -f "$CHAIN_FILE"
     else

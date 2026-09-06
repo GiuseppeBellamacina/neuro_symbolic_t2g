@@ -35,7 +35,6 @@ Due tipi di terminali gestiti
 
 import itertools
 import logging
-import re
 
 try:
     from ..modules.lookahead import REGEX_TERMINALS_KEY
@@ -225,12 +224,11 @@ def generate_token_maps(tokenizer, table_parsing, regex_dict=None):
             filtered_terminals = [t for t in terminals if t not in non_terminal_keys]
             for terminal in filtered_terminals:
                 if terminal not in map_terminal_tokens:
-                    regex = re.compile(rf"^{re.escape(terminal)}$")
-                    matched = [
-                        token_id
-                        for token_str, token_id in vocab.items()
-                        if regex.match(token_str)
-                    ]
+                    # Exact terminals are tokenizer vocabulary keys.  The old
+                    # anchored-regex scan was semantically equivalent but
+                    # O(terminals × vocab), making the ~15.5K-gloss PDA setup
+                    # take minutes.  Direct dictionary lookup is O(1).
+                    matched = [vocab[terminal]] if terminal in vocab else []
                     if not matched:
                         logging.warning(
                             f"Terminal '{terminal}' has no matching token IDs in the vocabulary. "

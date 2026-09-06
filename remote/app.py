@@ -1,20 +1,8 @@
-"""Driver esterno della catena T2G su gcluster (FastAPI + SQLite).
+"""FastAPI/SQLite driver for the remote T2G cluster chain.
 
-Deployato su Render (free tier), tickato da cronjob.org (POST /tick ogni 5
-min). Ogni tick: (1) ssh sul login node con la chiave da env; (2) esegue il
-helper lato cluster `cluster_helper.sh tick`, che chiama il tick one-shot
-idempotente `chain_tick.sh --quiet`; (3) sincronizza lo snapshot KEY=VALUE
-machine-readable in un DB SQLite locale (cache + diario eventi).
-
-FONTE DI VERITÀ = stato sul cluster (`.chain_state/`): il filesystem di Render
-è effimero, quindi il DB è solo cache/diario riletto a ogni tick. GET /status
-risponde anche a cluster irraggiungibile (ultimo stato noto +
-`cluster_reachable: false`). Sicurezza: mai loggare token/chiave; ogni route
-richiede X-Auth-Token; chiave da T2G_SSH_KEY_CONTENT scritta su file 0600.
-La chiave è OPZIONALE: se non sono impostate né T2G_SSH_KEY_CONTENT né
-T2G_SSH_KEY_FILE, ssh/scp usano l'autenticazione di default dell'utente
-(ssh-agent / identità default / ~/.ssh/config) — il caso del deploy LOCALE
-di test, esattamente come fa sync_cluster.ps1.
+Cluster state remains authoritative; SQLite caches snapshots and events so
+status stays available during SSH outages. Authentication and SSH credentials
+come from environment variables.
 """
 
 from __future__ import annotations
@@ -27,6 +15,7 @@ import re
 import secrets
 import sqlite3
 import subprocess
+import tempfile
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -37,6 +26,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 _log = logging.getLogger("uvicorn.error")
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|[@-_])")
 
 # ── dotenv: carica .env dalla repo root e dalla cwd (deploy locale) ──────────
 # python-dotenv è dipendenza core del progetto. override=False: le env vars
@@ -117,54 +108,31 @@ settings = Settings.from_env()
 # ── Config noti (nome → path). Nomi cella = schema pipeline-first. ──────────
 
 CONFIG_MAP: dict[str, str] = {
-    "sft-grpo": "experiments/configs/t2g/sft-grpo.yaml",
-    "sft-only": "experiments/configs/t2g/sft-only.yaml",
-    "grpo-only": "experiments/configs/t2g/grpo-only.yaml",
-    "sft-grpo-structure": "experiments/configs/t2g/sft-grpo-structure.yaml",
-    "sft-grpo-viterbi": "experiments/configs/t2g/sft-grpo-viterbi.yaml",
-    "sft-grpo-soft-viterbi": "experiments/configs/t2g/sft-grpo-soft-viterbi.yaml",
-    "sft-grpo-all-rewards": "experiments/configs/t2g/sft-grpo-all-rewards.yaml",
-    "sft-grpo-no-grammar": "experiments/configs/t2g/sft-grpo-no-grammar.yaml",
-    "sft-grpo-pda": "experiments/configs/t2g/sft-grpo-pda.yaml",
-    "sft-grpo-hotrollout": "experiments/configs/t2g/sft-grpo-hotrollout.yaml",
-    "zero-shot": "experiments/configs/t2g/zero-shot.yaml",
-    "zero-shot-grammar": "experiments/configs/t2g/zero-shot-grammar.yaml",
+    "baseline-zero": "experiments/configs/qwen25-05b/baseline/zero-shot.yaml",
+    "baseline-few": "experiments/configs/qwen25-05b/baseline/few-shot.yaml",
+    "sft": "experiments/configs/qwen25-05b/sft/zero-shot.yaml",
+    "grpo-zero": "experiments/configs/qwen25-05b/grpo/zero-shot.yaml",
+    "grpo-few": "experiments/configs/qwen25-05b/grpo/few-shot.yaml",
+    "sft-grpo-zero": "experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml",
+    "sft-grpo-few": "experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml",
+    "sft-grpo-zero-pda": "experiments/configs/qwen25-05b/ablations/sft-grpo-zero-pda.yaml",
+    "sft-grpo-zero-hot": "experiments/configs/qwen25-05b/ablations/sft-grpo-zero-hot.yaml",
 }
 
 CONFIG_PATHS: set[str] = set(CONFIG_MAP.values())
+EVAL_ONLY_CONFIGS = frozenset({"baseline-zero", "baseline-few"})
 
-# Campagna completa in ORDINE DI RIUSO (maximizza elementi già
-# addestrati/valutati): zero-shot prime le baselines (~zero costo, e la
-# grammar-one CACHEA la baseline --compare per tutte le celle successive),
-# sft-only addestra l'adapter SFT che TUTTE le celle pipeline riusano via
-# fingerprint cross-tag (match garantito da sft-only.yaml = sft_pretrain),
-# poi le celle GRPO riusano SFT + baseline.
-# MODE: e = eval-only · te = train+eval.
-ABLATION_MODELS: list[tuple[str, str, str]] = [
-    # 1-2. Baseline zero-shot (eval-only, ~30 min; la 2 CACHEA la baseline
-    # --compare per tutte le celle successive)
-    ("zero-shot", "experiments/configs/t2g/zero-shot.yaml", "e"),
-    ("zero-shot-grammar", "experiments/configs/t2g/zero-shot-grammar.yaml", "e"),
-    # 3. SFT-only: addestra L'adapter SFT (la pipeline lo riusa via fingerprint)
-    ("sft-only", "experiments/configs/t2g/sft-only.yaml", "te"),
-    # 4. GRPO-only (da base, nessun SFT da riusare)
-    ("grpo-only", "experiments/configs/t2g/grpo-only.yaml", "te"),
-    # 5-10. Pipeline cells: RIUSANO l'adapter SFT di sft-only (skip SFT) +
-    # la baseline cached
-    ("sft-grpo", "experiments/configs/t2g/sft-grpo.yaml", "te"),
-    ("sft-grpo-structure", "experiments/configs/t2g/sft-grpo-structure.yaml", "te"),
-    ("sft-grpo-viterbi", "experiments/configs/t2g/sft-grpo-viterbi.yaml", "te"),
-    (
-        "sft-grpo-soft-viterbi",
-        "experiments/configs/t2g/sft-grpo-soft-viterbi.yaml",
-        "te",
-    ),
-    ("sft-grpo-all-rewards", "experiments/configs/t2g/sft-grpo-all-rewards.yaml", "te"),
-    ("sft-grpo-no-grammar", "experiments/configs/t2g/sft-grpo-no-grammar.yaml", "te"),
-    ("sft-grpo-pda", "experiments/configs/t2g/sft-grpo-pda.yaml", "te"),
-    # 11. Cella di controllo Finding 1 (rollout T=1.3 per rompere il
-    # determinismo SFT; riusa adapter SFT — vedi config header)
-    ("sft-grpo-hotrollout", "experiments/configs/t2g/sft-grpo-hotrollout.yaml", "te"),
+# Default campaign: 2 eval-only baselines + 5 train/eval cells = 12 entries.
+# Each trained eval entry runs both prompt modes inside one cluster job.
+# Ablations remain manual-only.
+DEFAULT_CAMPAIGN: list[tuple[str, str, str]] = [
+    ("baseline-zero", CONFIG_MAP["baseline-zero"], "e"),
+    ("baseline-few", CONFIG_MAP["baseline-few"], "e"),
+    ("sft", CONFIG_MAP["sft"], "te"),
+    ("grpo-zero", CONFIG_MAP["grpo-zero"], "te"),
+    ("grpo-few", CONFIG_MAP["grpo-few"], "te"),
+    ("sft-grpo-zero", CONFIG_MAP["sft-grpo-zero"], "te"),
+    ("sft-grpo-few", CONFIG_MAP["sft-grpo-few"], "te"),
 ]
 
 HELPER_NAME = "cluster_helper.sh"  # file locale in remote/ (per auto-install scp)
@@ -281,17 +249,7 @@ class SSHResult:
 
 
 class ClusterSSH:
-    """Esegue comandi sul login node: `ssh [-i <key>] -p <port> -o ...`.
-
-    BatchMode=yes (niente prompt); StrictHostKeyChecking=accept-new (host
-    registrato al primo contatto in un known_hosts sotto data_dir, scrivibile
-    e indipendente dall'HOME di Render).
-
-    La chiave è OPZIONALE: se `settings.ssh_key_file` è None (nessuna env
-    T2G_SSH_KEY_FILE/T2G_SSH_KEY_CONTENT) NON passa `-i` e lascia che ssh
-    usi l'autenticazione di default (ssh-agent / identità default /
-    ~/.ssh/config) — richiesto per il deploy locale di test su Windows.
-    """
+    """Run non-interactive SSH/SCP commands with optional explicit identity."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -458,12 +416,7 @@ def _parse_entry(entry: str) -> dict:
 
 
 def _store_snapshot(state: dict) -> None:
-    """Salva lo snapshot (cache) e logga i NUOVI errori (puntatore errors_offset).
-
-    L'helper torna solo le ultime 5 righe di chain_errors: delta ≤ 5 → nuove
-    dedotte con precisione; delta maggiore → ultime 5; count calato (file
-    resettato) → riparte dalla coda nota.
-    """
+    """Cache a snapshot and append errors not seen in earlier snapshots."""
     now = datetime.now().isoformat(timespec="seconds")
     for key, value in {
         "cluster_reachable": "1",
@@ -558,12 +511,7 @@ def _cluster() -> Iterator[ClusterSSH]:
 
 
 def _cached_status() -> dict:
-    """Stato dal DB cache + ultimi 10 eventi; funziona a cluster irraggiungibile.
-
-    Usato sia da GET /status sia come risposta dei POST: `_helper_do` →
-    `_store_snapshot` ha appena scritto lo snapshot fresco, quindi i valori
-    letti sono quelli reali dell'ultimo tick.
-    """
+    """Return cached cluster state and recent events."""
     return {
         "active_job": _kv_json("active_job"),
         "queue": _kv_json("queue", default=[]),
@@ -580,15 +528,11 @@ def _cached_status() -> dict:
 
 
 def resolve_config(config: str) -> str:
-    """Risolve un config (nome noto, path o nome file) nel path canonico."""
+    """Resolve a semantic ID or an exact canonical path."""
     if config in CONFIG_MAP:
         return CONFIG_MAP[config]
     if config in CONFIG_PATHS:
         return config
-    wanted = Path(config).name  # tollera "sft-grpo.yaml" o il path completo
-    for path in CONFIG_PATHS:
-        if Path(path).name == wanted:
-            return path
     raise HTTPException(
         422,
         f"config non valido: {config!r}. Nomi noti: {', '.join(sorted(CONFIG_MAP))}",
@@ -598,7 +542,10 @@ def resolve_config(config: str) -> str:
 def build_entry(job: "JobIn") -> str:
     """Costruisce la riga di coda `type:cfg:tag[:extra]` con validazione."""
     cfg = resolve_config(job.config)
-    tag = job.tag if job.tag else Path(cfg).stem.replace("_", "-")
+    config_id = next(name for name, path in CONFIG_MAP.items() if path == cfg)
+    if job.type == "train" and config_id in EVAL_ONLY_CONFIGS:
+        raise HTTPException(422, f"config eval-only non addestrabile: {config_id}")
+    tag = job.tag if job.tag else config_id
     if not _TAG_RE.fullmatch(tag):
         raise HTTPException(422, f"tag non valido: {tag!r} (consentito [A-Za-z0-9._-])")
     entry = f"{job.type}:{cfg}:{tag}"
@@ -615,7 +562,7 @@ def build_queue_lines(payload: "QueueIn") -> list[str]:
         raise HTTPException(422, "indicare 'ablation' OPPURE 'jobs', non entrambi")
     if payload.ablation:
         lines: list[str] = []
-        for tag, cfg, mode in ABLATION_MODELS:
+        for tag, cfg, mode in DEFAULT_CAMPAIGN:
             if mode == "e":  # eval-only
                 lines.append(f"eval:{cfg}:{tag}")
             else:  # "te" → train + eval
@@ -873,15 +820,20 @@ def _job_detail_from_log(
 
     try:
         cm = _import_chain_monitor()
-        tmp = Path(settings.data_dir) / "monitor_tail.log"
-        tmp.write_text(
-            "\n".join(log_tail_lines) + "\n", encoding="utf-8", errors="replace"
-        )
-        job = cm.JobInfo(job_type=job_type, config="", tag=tag)
-        if job_type == "eval":
-            cm._parse_eval_log(tmp, job)
-        else:
-            cm._parse_training_log(tmp, job)
+        with tempfile.TemporaryDirectory(
+            prefix="t2g-monitor-", dir=settings.data_dir
+        ) as tmp_dir:
+            tmp = Path(tmp_dir) / "tail.log"
+            tmp.write_text(
+                "\n".join(str(line) for line in log_tail_lines) + "\n",
+                encoding="utf-8",
+                errors="replace",
+            )
+            job = cm.JobInfo(job_type=job_type, config="", tag=tag)
+            if job_type == "eval":
+                cm._parse_eval_log(tmp, job)
+            else:
+                cm._parse_training_log(tmp, job)
     except Exception as exc:  # parser robusto: mai fallire il monitor
         _log.warning("chain_monitor parse fallito: %s", exc)
         return detail
@@ -989,7 +941,7 @@ def _job_detail_from_live(
     """
     if not active_job or not active_job.get("id"):
         return None
-    if not live or not live.get("phase"):
+    if not isinstance(live, dict) or not live.get("phase"):
         return None
     name = active_job.get("name") or ""
     phase = str(live.get("phase"))
@@ -1036,7 +988,8 @@ def _monitor_snapshot(ssh: ClusterSSH) -> dict:
     """
     state = _helper_monitor(ssh)
     tail_lines, log_path = _decode_log_tail(state)
-    live = state.get("live_status")
+    live_value = state.get("live_status")
+    live = live_value if isinstance(live_value, dict) else None
     job_detail = _job_detail_from_live(state.get("active_job"), live, log_path)
     if job_detail is None:
         job_detail = _job_detail_from_log(state.get("active_job"), tail_lines, log_path)
@@ -1050,15 +1003,20 @@ def _monitor_snapshot(ssh: ClusterSSH) -> dict:
         }
     )
     # Samples: prima dal live status (già formattati), poi dal log tail.
-    if live and live.get("samples"):
-        snapshot["samples"] = list(live["samples"])[-8:]
+    live_samples = live.get("samples") if live else None
+    if isinstance(live_samples, list) and live_samples:
+        snapshot["samples"] = [str(sample) for sample in live_samples[-8:]]
     elif tail_lines:
         try:
             cm = _import_chain_monitor()
             samples = cm._extract_completion_samples(
                 tail_lines, max_lines=cm._SAMPLE_MAX_LINES
             )
-            snapshot["samples"] = samples[-8:] if samples else []
+            snapshot["samples"] = (
+                [_ANSI_ESCAPE_RE.sub("", str(sample)) for sample in samples[-8:]]
+                if samples
+                else []
+            )
         except Exception as exc:
             _log.warning("extract_completion_samples fallito: %s", exc)
     return snapshot

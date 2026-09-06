@@ -1,0 +1,8 @@
+extends: ../sft-grpo/zero-shot.yaml
+
+experiment:
+  variant: hot
+  kind: ablation
+
+grpo:
+  temperature: 1.3

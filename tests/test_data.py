@@ -85,7 +85,7 @@ def test_transition_matrix(dataset):
     with tempfile.TemporaryDirectory() as tmp:
         mpath = str(Path(tmp) / "test_bigram.npy")
         save_transition_matrix(bigram, mpath)
-        reloaded = load_transition_matrix(mpath)
+        reloaded = load_transition_matrix(mpath, expected_size=V)
         assert np.allclose(bigram, reloaded), "Bigram save/load round-trip"
 
     indices = [0, 1, 2, 3, 4]
@@ -210,7 +210,7 @@ def test_cache_meta_invalidation(tmp_path):
     path = tmp_path / "gloss_vocab.txt"
     path.write_text("IX\nMAN\n", encoding="utf-8")
 
-    # Legacy cache without sidecar → never trusted.
+    # A cache without a sidecar is never trusted.
     assert not _cache_is_current(path, seed=42, train_size=100)
 
     _write_cache_meta(path, seed=42, train_size=100)
@@ -223,97 +223,25 @@ def test_cache_meta_invalidation(tmp_path):
     assert not _cache_is_current(tmp_path / "missing.npy", seed=42, train_size=100)
 
 
-# ---------------------------------------------------------------------------
-# 9. Vectorized diverse-Viterbi equivalence (perf rewrite regression)
-# ---------------------------------------------------------------------------
+def test_transition_matrix_rejects_vocab_size_mismatch(tmp_path):
+    """A stale bigram is rejected before evaluation can index it."""
+    import pytest
+
+    from src.datasets.transition_matrix import load_transition_matrix
+
+    path = tmp_path / "bigram.npy"
+    np.save(path, np.ones((3, 3), dtype=np.float32))
+
+    with pytest.raises(ValueError, match="size mismatch"):
+        load_transition_matrix(path, expected_size=4)
 
 
-def test_diverse_viterbi_matches_reference():
-    """The vectorized max-plus DP must match the original per-state DP.
+def test_dataset_name_validator_rejects_alternatives():
+    """Config dataset alternatives cannot be silently ignored by loaders."""
+    import pytest
 
-    compute_diverse_viterbi_path was rewritten for performance (the old
-    per-state loop with an inner np.log over a V-length column cost
-    O(L·V²) log evaluations per decode — the 391 s/it GRPO steps of run
-    7078).  This test compares it against a reference implementation of
-    the ORIGINAL algorithm on small random matrices: scores must match
-    and paths may differ only on exact ties (float32 vs float64
-    argmax), which never happens when the scores differ.
-    """
-    from src.datasets.transition_matrix import (
-        _find_overrepresented,
-        _path_diversity,
-        compute_diverse_viterbi_path,
-    )
+    from src.utils.cache_meta import validate_dataset_name
 
-    def reference(
-        matrix,
-        start,
-        end,
-        length,
-        self_loop_penalty=0.5,
-        max_occurrences=2,
-        diversity_threshold=0.3,
-        max_iters=3,
-    ):
-        """The original per-state DP (pre-rewrite), verbatim semantics."""
-        V = matrix.shape[0]
-        eps = 1e-10
-        penalty_matrix = matrix.copy()
-        special = {start, end}
-        path = [start, end]
-        vlp = float("-inf")
-        for iteration in range(max_iters + 1):
-            dp = np.full((length, V), -np.inf, dtype=np.float64)
-            backtrack = np.zeros((length, V), dtype=np.int32)
-            dp[0, start] = 0.0
-            for t in range(1, length - 1):
-                for s in range(V):
-                    trans_log = np.log(np.maximum(penalty_matrix[:, s], eps))
-                    trans_log[s] -= self_loop_penalty
-                    scores = dp[t - 1, :] + trans_log
-                    best = int(np.argmax(scores))
-                    dp[t, s] = scores[best]
-                    backtrack[t, s] = best
-            t_final = length - 1
-            trans_log = np.log(np.maximum(penalty_matrix[:, end], eps))
-            scores = dp[t_final - 1, :] + trans_log
-            best = int(np.argmax(scores))
-            dp[t_final, end] = scores[best]
-            backtrack[t_final, end] = best
-            vlp = float(dp[t_final, end])
-            path = [end]
-            for t in range(t_final, 0, -1):
-                path.append(int(backtrack[t, path[-1]]))
-            path.reverse()
-            div = _path_diversity(path, exclude_tokens=special)
-            if div >= diversity_threshold or iteration >= max_iters:
-                return path, vlp
-            overrep = _find_overrepresented(path, max_occurrences)
-            if not overrep:
-                return path, vlp
-            for tok in overrep:
-                penalty_matrix[tok, tok] *= 0.3
-        return path, vlp
-
-    rng = np.random.default_rng(123)
-    n_checked = 0
-    for _ in range(20):
-        V = int(rng.integers(6, 25))
-        m = (
-            rng.random((V, V)) ** 3
-        )  # skewed: forces degenerate loops → diversity iterations
-        m /= m.sum(axis=1, keepdims=True)
-        for length in (2, 3, 5, 8, 11):
-            p_new, s_new = compute_diverse_viterbi_path(m, 0, V - 1, length)
-            p_ref, s_ref = reference(m, 0, V - 1, length)
-            n_checked += 1
-            assert np.isclose(
-                s_new, s_ref, rtol=1e-4, atol=1e-5
-            ), f"score mismatch V={V} L={length}: {s_new:.6f} vs {s_ref:.6f}"
-            if p_new != p_ref:
-                # Path differences allowed ONLY on exact score ties
-                # (float32 argmax vs float64 argmax).
-                assert (
-                    abs(s_new - s_ref) < 1e-4
-                ), f"path differs with different scores V={V} L={length}"
-    assert n_checked == 100
+    assert validate_dataset_name(None) == "achrafothman/aslg_pc12"
+    with pytest.raises(ValueError, match="Unsupported dataset"):
+        validate_dataset_name("someone/other_dataset")

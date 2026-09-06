@@ -1,0 +1,42 @@
+extends: ../base.yaml
+
+experiment:
+  # kind is lifecycle (produces a checkpoint); prompt mode is conditioning.
+  model_tag: qwen25-05b
+  method: sft
+  train_prompt_mode: zero-shot
+  variant: none
+  kind: train
+
+training:
+  trainer: sft
+  num_train_epochs: 3
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 8
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-5
+  lr_scheduler_type: cosine
+  warmup_steps: 50
+  optim: paged_adamw_8bit
+  weight_decay: 0.1
+  max_grad_norm: 1.0
+  bf16: true
+  gradient_checkpointing: true
+  logging_steps: 10
+  save_steps: 200
+  save_total_limit: 1
+  max_seq_length: 768
+  eval_fraction: 0.02
+  eval_steps: 200
+  early_stopping_patience: 3
+
+generation:
+  max_completion_length: 256
+  max_prompt_length: 256
+  temperature: 0.7
+
+retrieval:
+  enabled: false
+
+wandb:
+  run_name: sft

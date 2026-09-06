@@ -12,12 +12,17 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
+
+from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -25,47 +30,10 @@ import remote.app as app_module
 
 AUTH = {"X-Auth-Token": "test-token"}
 
-# Ordine ESATTO di remote/app.py:ABLATION_MODELS (= cluster/run_all.sh) -
-# se cambia, aggiornare sia app.ABLATION_MODELS sia questa lista.
-EXPECTED_ABLATION_MODELS: list[tuple[str, str, str]] = [
-    ("zero-shot", "experiments/configs/t2g/zero-shot.yaml", "e"),
-    ("zero-shot-grammar", "experiments/configs/t2g/zero-shot-grammar.yaml", "e"),
-    ("sft-only", "experiments/configs/t2g/sft-only.yaml", "te"),
-    ("grpo-only", "experiments/configs/t2g/grpo-only.yaml", "te"),
-    ("sft-grpo", "experiments/configs/t2g/sft-grpo.yaml", "te"),
-    (
-        "sft-grpo-structure",
-        "experiments/configs/t2g/sft-grpo-structure.yaml",
-        "te",
-    ),
-    ("sft-grpo-viterbi", "experiments/configs/t2g/sft-grpo-viterbi.yaml", "te"),
-    (
-        "sft-grpo-soft-viterbi",
-        "experiments/configs/t2g/sft-grpo-soft-viterbi.yaml",
-        "te",
-    ),
-    (
-        "sft-grpo-all-rewards",
-        "experiments/configs/t2g/sft-grpo-all-rewards.yaml",
-        "te",
-    ),
-    (
-        "sft-grpo-no-grammar",
-        "experiments/configs/t2g/sft-grpo-no-grammar.yaml",
-        "te",
-    ),
-    ("sft-grpo-pda", "experiments/configs/t2g/sft-grpo-pda.yaml", "te"),
-    (
-        "sft-grpo-hotrollout",
-        "experiments/configs/t2g/sft-grpo-hotrollout.yaml",
-        "te",
-    ),
-]
-
 
 def _ablation_queue() -> list[str]:
     lines: list[str] = []
-    for tag, cfg, mode in EXPECTED_ABLATION_MODELS:
+    for tag, cfg, mode in app_module.DEFAULT_CAMPAIGN:
         if mode == "e":
             lines.append(f"eval:{cfg}:{tag}")
         else:
@@ -193,8 +161,6 @@ class FakeClusterSSH:
 @pytest.fixture()
 def client(monkeypatch, tmp_path):
     """TestClient con ClusterSSH sostituito dal doppio e DB su tmp_path."""
-    from fastapi.testclient import TestClient
-
     monkeypatch.setenv("T2G_AUTH_TOKEN", "test-token")
     monkeypatch.setenv("T2G_DB_PATH", str(tmp_path / "t2g_driver.db"))
     monkeypatch.setenv("T2G_DATA_DIR", str(tmp_path))
@@ -286,7 +252,7 @@ def test_ssh_key_explicit_but_missing_file_502(client, monkeypatch):
 def test_shq_preserves_unit_separator():
     """_shq deve lasciare intatto il separatore \x1f della coda (viaggia dentro
     le virgolette singole del comando remoto, sicuro su commandline ssh)."""
-    entry = "train:experiments/configs/t2g/sft.yaml:a\x1feval:experiments/configs/t2g/sft.yaml:a"
+    entry = "train:experiments/configs/qwen25-05b/sft/zero-shot.yaml:a\x1feval:experiments/configs/qwen25-05b/sft/zero-shot.yaml:a"
     q = app_module._shq(entry)
     assert "\x1f" in q
     assert q.count("'") % 2 == 0  # quoting bilanciato: apri-chiudi
@@ -299,8 +265,10 @@ def test_shq_preserves_unit_separator():
 def test_status_format_after_tick(client):
     test_client, fake = client
     fake.active_job = "12345|train-foo|RUNNING"
-    fake.queue = ["train:experiments/configs/t2g/sft-grpo.yaml:run1"]
-    fake.last_job = "12345:train:experiments/configs/t2g/sft-grpo.yaml:run1:0"
+    fake.queue = ["train:experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml:run1"]
+    fake.last_job = (
+        "12345:train:experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml:run1:0"
+    )
 
     resp = test_client.post("/tick", headers=AUTH)
     assert resp.status_code == 200
@@ -321,13 +289,17 @@ def test_status_format_after_tick(client):
         "name": "train-foo",
         "state": "RUNNING",
     }
-    assert body["queue"] == ["train:experiments/configs/t2g/sft-grpo.yaml:run1"]
+    assert body["queue"] == [
+        "train:experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml:run1"
+    ]
     assert body["stopped"] is False
     assert body["cluster_reachable"] is True
     assert any(e["type"] == "tick" for e in body["events"])
 
     st = test_client.get("/status", headers=AUTH).json()
-    assert st["queue"] == ["train:experiments/configs/t2g/sft-grpo.yaml:run1"]
+    assert st["queue"] == [
+        "train:experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml:run1"
+    ]
     assert st["cluster_reachable"] is True
     assert st["last_tick_at"]
 
@@ -382,19 +354,20 @@ def test_jobs_add_and_list(client):
     resp = test_client.post(
         "/jobs",
         headers=AUTH,
-        json={"type": "train", "config": "sft-grpo", "tag": "run1"},
+        json={"type": "train", "config": "sft-grpo-zero", "tag": "run1"},
     )
     assert resp.status_code == 201
-    assert resp.json()["added"] == "train:experiments/configs/t2g/sft-grpo.yaml:run1"
-    assert fake.queue == ["train:experiments/configs/t2g/sft-grpo.yaml:run1"]
+    expected = "train:experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml:run1"
+    assert resp.json()["added"] == expected
+    assert fake.queue == [expected]
     assert " enqueue " in fake.commands[-1]
 
     jobs = test_client.get("/jobs", headers=AUTH).json()
     assert jobs == [
         {
-            "entry": "train:experiments/configs/t2g/sft-grpo.yaml:run1",
+            "entry": expected,
             "type": "train",
-            "config": "experiments/configs/t2g/sft-grpo.yaml",
+            "config": "experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml",
             "tag": "run1",
             "extra": None,
         }
@@ -404,20 +377,23 @@ def test_jobs_add_and_list(client):
 def test_jobs_tag_derived_and_mode(client):
     test_client, _ = client
     resp = test_client.post(
-        "/jobs", headers=AUTH, json={"type": "eval", "config": "sft-only"}
-    )
-    assert resp.status_code == 201
-    assert resp.json()["added"] == "eval:experiments/configs/t2g/sft-only.yaml:sft-only"
-
-    resp = test_client.post(
-        "/jobs",
-        headers=AUTH,
-        json={"type": "train", "config": "grpo-only", "tag": "x", "mode": "--resume"},
+        "/jobs", headers=AUTH, json={"type": "eval", "config": "sft"}
     )
     assert resp.status_code == 201
     assert (
         resp.json()["added"]
-        == "train:experiments/configs/t2g/grpo-only.yaml:x:--resume"
+        == "eval:experiments/configs/qwen25-05b/sft/zero-shot.yaml:sft"
+    )
+
+    resp = test_client.post(
+        "/jobs",
+        headers=AUTH,
+        json={"type": "train", "config": "grpo-zero", "tag": "x", "mode": "--resume"},
+    )
+    assert resp.status_code == 201
+    assert (
+        resp.json()["added"]
+        == "train:experiments/configs/qwen25-05b/grpo/zero-shot.yaml:x:--resume"
     )
 
 
@@ -438,12 +414,36 @@ def test_jobs_validation(client):
     assert not fake.commands  # nessuna ssh se la validazione fallisce
 
 
+@pytest.mark.parametrize("config", ["baseline-zero", "baseline-few"])
+@pytest.mark.parametrize("endpoint", ["/jobs", "/jobs/start"])
+def test_baseline_train_rejected_before_ssh(client, config, endpoint):
+    test_client, fake = client
+    resp = test_client.post(
+        endpoint, headers=AUTH, json={"type": "train", "config": config}
+    )
+    assert resp.status_code == 422
+    assert "eval-only" in resp.json()["detail"]
+    assert fake.commands == []
+
+
 # ── /queue ────────────────────────────────────────────────────────────────────
 
 
-def test_ablation_order_matches_run_all(client):
-    # Pin dell'ordine: app.ABLATION_MODELS deve coincidere con run_all.sh:134-147
-    assert app_module.ABLATION_MODELS == EXPECTED_ABLATION_MODELS
+def test_default_campaign_excludes_manual_ablations():
+    tags = {tag for tag, _, _ in app_module.DEFAULT_CAMPAIGN}
+    assert len(app_module.DEFAULT_CAMPAIGN) == 7
+    assert tags.isdisjoint({"sft-grpo-zero-pda", "sft-grpo-zero-hot"})
+
+
+def test_ablation_manual_enqueue(client):
+    test_client, fake = client
+    resp = test_client.post(
+        "/jobs", headers=AUTH, json={"type": "eval", "config": "sft-grpo-zero-pda"}
+    )
+    assert resp.status_code == 201
+    entry = "eval:experiments/configs/qwen25-05b/ablations/sft-grpo-zero-pda.yaml:sft-grpo-zero-pda"
+    assert resp.json()["added"] == entry
+    assert fake.queue == [entry]
 
 
 def test_queue_replace_ablation_shortcut(client):
@@ -451,7 +451,7 @@ def test_queue_replace_ablation_shortcut(client):
     resp = test_client.post("/queue", headers=AUTH, json={"ablation": True})
     assert resp.status_code == 200
     body = resp.json()
-    assert body["count"] == 22  # 12 celle: 2 eval-only + 10 train+eval
+    assert body["count"] == 12
     expected = _ablation_queue()
     assert body["queue"] == expected
     assert fake.queue == expected
@@ -465,15 +465,15 @@ def test_queue_replace_explicit_jobs(client):
         headers=AUTH,
         json={
             "jobs": [
-                {"type": "eval", "config": "sft-only"},
-                {"type": "train", "config": "grpo-only", "tag": "exp1"},
+                {"type": "eval", "config": "sft"},
+                {"type": "train", "config": "grpo-zero", "tag": "exp1"},
             ]
         },
     )
     assert resp.status_code == 200
     assert resp.json()["queue"] == [
-        "eval:experiments/configs/t2g/sft-only.yaml:sft-only",
-        "train:experiments/configs/t2g/grpo-only.yaml:exp1",
+        "eval:experiments/configs/qwen25-05b/sft/zero-shot.yaml:sft",
+        "train:experiments/configs/qwen25-05b/grpo/zero-shot.yaml:exp1",
     ]
 
 
@@ -499,9 +499,9 @@ def test_delete_jobs_by_tag(client):
         headers=AUTH,
         json={
             "jobs": [
-                {"type": "train", "config": "sft-grpo", "tag": "t1"},
-                {"type": "eval", "config": "sft-grpo", "tag": "t1"},
-                {"type": "eval", "config": "sft-only", "tag": "t2"},
+                {"type": "train", "config": "sft-grpo-zero", "tag": "t1"},
+                {"type": "eval", "config": "sft-grpo-zero", "tag": "t1"},
+                {"type": "eval", "config": "sft", "tag": "t2"},
             ]
         },
     )
@@ -509,9 +509,9 @@ def test_delete_jobs_by_tag(client):
     assert resp.status_code == 200
     assert resp.json()["removed"] == 2
     assert resp.json()["status"]["queue"] == [
-        "eval:experiments/configs/t2g/sft-only.yaml:t2"
+        "eval:experiments/configs/qwen25-05b/sft/zero-shot.yaml:t2"
     ]
-    assert fake.queue == ["eval:experiments/configs/t2g/sft-only.yaml:t2"]
+    assert fake.queue == ["eval:experiments/configs/qwen25-05b/sft/zero-shot.yaml:t2"]
 
 
 def test_delete_jobs_unknown_tag_no_rewrite(client):
@@ -522,7 +522,7 @@ def test_delete_jobs_unknown_tag_no_rewrite(client):
     assert resp.status_code == 200
     assert resp.json()["removed"] == 0
     assert len(fake.commands) == n_before + 1  # solo lo status, niente rewrite
-    assert len(fake.queue) == 22
+    assert len(fake.queue) == 12
 
 
 # ── /pause / /resume ───────────────────────────────────────────────────────────
@@ -642,7 +642,7 @@ def _fake_with_live(fake, live: dict | None) -> None:
 def test_monitor_uses_live_status_when_present(client):
     """LIVE_STATUS valido → job_detail da live (source=live) + samples dal live."""
     test_client, fake = client
-    fake.active_job = "12345|train-sft-grpo|RUNNING"
+    fake.active_job = "12345|train-sft-grpo-zero|RUNNING"
     fake.log_lines = TRAIN_LOG_LINES
     _fake_with_live(fake, LIVE_STATUS_BODY)
 
@@ -663,7 +663,7 @@ def test_monitor_uses_live_status_when_present(client):
 def test_monitor_falls_back_to_log_without_live_status(client):
     """Senza LIVE_STATUS → job_detail dal parsing del log (source=log)."""
     test_client, fake = client
-    fake.active_job = "12345|train-sft-grpo|RUNNING"
+    fake.active_job = "12345|train-sft-grpo-zero|RUNNING"
     fake.log_lines = TRAIN_LOG_LINES
     _fake_with_live(fake, None)  # nessun live status
 
@@ -677,7 +677,7 @@ def test_monitor_falls_back_to_log_without_live_status(client):
 def test_monitor_live_status_with_broken_json_falls_back(client):
     """LIVE_STATUS non-JSON → ignorato, fallback al log senza crash."""
     test_client, fake = client
-    fake.active_job = "12345|train-sft-grpo|RUNNING"
+    fake.active_job = "12345|train-sft-grpo-zero|RUNNING"
     fake.log_lines = TRAIN_LOG_LINES
 
     orig_run = fake.run
@@ -694,6 +694,107 @@ def test_monitor_live_status_with_broken_json_falls_back(client):
     resp = test_client.get("/monitor", headers=AUTH)
     assert resp.status_code == 200
     assert resp.json()["job_detail"] is not None
+
+
+@pytest.mark.parametrize("live_value", ["null", "[]", '"bad"'])
+def test_monitor_malformed_live_snapshot_falls_back(client, live_value):
+    test_client, fake = client
+    fake.active_job = "12345|train-sft-grpo-zero|RUNNING"
+    fake.log_lines = TRAIN_LOG_LINES
+    orig_run = fake.run
+
+    def _run(remote_cmd, timeout=None):
+        result = orig_run(remote_cmd, timeout)
+        if fake._subcommand(remote_cmd) == "monitor":
+            result = app_module.SSHResult(
+                result.rc,
+                result.stdout + f"LIVE_STATUS={live_value}\n",
+                result.stderr,
+            )
+        return result
+
+    fake.run = _run
+    resp = test_client.get("/monitor", headers=AUTH)
+    assert resp.status_code == 200
+    assert resp.json()["job_detail"]["step"] == 105
+
+
+def test_log_fallback_samples_strip_ansi(client, monkeypatch):
+    test_client, fake = client
+    fake.active_job = "12345|train-sft-grpo-zero|RUNNING"
+    fake.log_lines = TRAIN_LOG_LINES
+
+    class FakeMonitor:
+        _SAMPLE_MAX_LINES = 20
+        JobInfo = SimpleNamespace
+
+        @staticmethod
+        def _parse_training_log(path, job):
+            job.step = 0
+            job.stage_total = 0
+            job.last_reward = None
+            job.sft_active = False
+            job.sft_step = 0
+            job.sft_total = 0
+            job.sft_loss = None
+            job.sft_eval_loss = None
+            job.sft_eval_loss_best = None
+            job.eval_label = None
+            job.eval_metrics = {}
+
+        @staticmethod
+        def _extract_completion_samples(lines, max_lines):
+            return ["[✓] \x1b[31mred\x1b[0m"]
+
+    monkeypatch.setattr(app_module, "_import_chain_monitor", lambda: FakeMonitor)
+    resp = test_client.get("/monitor", headers=AUTH)
+    assert resp.status_code == 200
+    assert resp.json()["samples"] == ["[✓] red"]
+
+
+def test_concurrent_log_parsing_uses_isolated_temp_files(client, monkeypatch):
+    _, _fake = client
+    paths: list[Path] = []
+    barrier = threading.Barrier(2)
+
+    class JobInfo:
+        def __init__(self, **kwargs):
+            self.step = 0
+            self.stage_total = 0
+            self.last_reward = None
+            self.sft_active = False
+            self.sft_step = 0
+            self.sft_total = 0
+            self.sft_loss = None
+            self.sft_eval_loss = None
+            self.sft_eval_loss_best = None
+            self.eval_label = None
+            self.eval_metrics = {}
+
+    def parse(path, job):
+        paths.append(path)
+        barrier.wait(timeout=5)
+        job.step = int(path.read_text(encoding="utf-8").strip())
+
+    fake_monitor = SimpleNamespace(
+        JobInfo=JobInfo,
+        _parse_training_log=parse,
+        _parse_eval_log=parse,
+    )
+    monkeypatch.setattr(app_module, "_import_chain_monitor", lambda: fake_monitor)
+    active = {"id": "1", "name": "train-test", "state": "RUNNING"}
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        details = list(
+            pool.map(
+                lambda value: app_module._job_detail_from_log(
+                    active, [str(value)], None
+                ),
+                (101, 202),
+            )
+        )
+    assert {detail["step"] for detail in details} == {101, 202}
+    assert len(set(paths)) == 2
+    assert all(not path.exists() for path in paths)
 
 
 def test_jobs_batch_enqueues_in_order_and_ticks(client):
@@ -720,8 +821,8 @@ def test_jobs_batch_enqueues_in_order_and_ticks(client):
         headers=AUTH,
         json={
             "jobs": [
-                {"type": "train", "config": "sft-grpo"},
-                {"type": "eval", "config": "sft-grpo"},
+                {"type": "train", "config": "sft-grpo-zero"},
+                {"type": "eval", "config": "sft-grpo-zero"},
             ],
             "start_now": True,
         },
@@ -729,9 +830,11 @@ def test_jobs_batch_enqueues_in_order_and_ticks(client):
     assert resp.status_code == 201
     body = resp.json()
     assert body["started_now"] is True
-    assert body["active_job"]["name"] == "train-sft-grpo"
+    assert body["active_job"]["name"] == "train-sft-grpo-zero"
     # train consumato dal tick, eval in coda
-    assert fake.queue == ["eval:experiments/configs/t2g/sft-grpo.yaml:sft-grpo"]
+    assert fake.queue == [
+        "eval:experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml:sft-grpo-zero"
+    ]
     assert len(body["queued"]) == 2
     joined = " ".join(fake.commands)
     assert joined.count("enqueue") >= 2
@@ -747,13 +850,32 @@ def test_jobs_batch_atomic_validation(client):
         headers=AUTH,
         json={
             "jobs": [
-                {"type": "train", "config": "sft-grpo"},
+                {"type": "train", "config": "sft-grpo-zero"},
                 {"type": "train", "config": "config_inesistente"},
             ]
         },
     )
     assert resp.status_code == 422
     assert fake.queue == []  # niente scritture sul cluster
+
+
+@pytest.mark.parametrize("config", ["baseline-zero", "baseline-few"])
+def test_jobs_batch_with_baseline_train_is_atomically_rejected(client, config):
+    test_client, fake = client
+    resp = test_client.post(
+        "/jobs/batch",
+        headers=AUTH,
+        json={
+            "jobs": [
+                {"type": "eval", "config": "sft"},
+                {"type": "train", "config": config},
+            ]
+        },
+    )
+    assert resp.status_code == 422
+    assert "eval-only" in resp.json()["detail"]
+    assert fake.queue == []
+    assert fake.commands == []
 
 
 def test_jobs_batch_empty_rejected(client):
@@ -769,7 +891,7 @@ def test_jobs_batch_without_start_now_only_enqueues(client):
     resp = test_client.post(
         "/jobs/batch",
         headers=AUTH,
-        json={"jobs": [{"type": "eval", "config": "sft-only"}], "start_now": False},
+        json={"jobs": [{"type": "eval", "config": "sft"}], "start_now": False},
     )
     assert resp.status_code == 201
     assert resp.json()["started_now"] is False
@@ -806,7 +928,7 @@ def test_monitor_without_active_job(client):
 def test_monitor_parses_job_detail_from_log(client):
     """Con un job attivo: job_detail popolato dai parser di chain_monitor."""
     test_client, fake = client
-    fake.active_job = "12345|train-sft-grpo|RUNNING"
+    fake.active_job = "12345|train-sft-grpo-zero|RUNNING"
     fake.log_lines = TRAIN_LOG_LINES
 
     resp = test_client.get("/monitor", headers=AUTH)
@@ -815,7 +937,7 @@ def test_monitor_parses_job_detail_from_log(client):
     detail = body["job_detail"]
     assert detail is not None
     assert detail["id"] == "12345"
-    assert detail["name"] == "train-sft-grpo"
+    assert detail["name"] == "train-sft-grpo-zero"
     assert detail["state"] == "RUNNING"
     assert detail["step"] == 105  # ultima riga KV step
     assert detail["loss"] == "0.5311"
@@ -830,13 +952,13 @@ def test_monitor_parses_job_detail_from_log(client):
 def test_monitor_eval_job_uses_eval_parser(client):
     """Job eval-*: riconosciuto dal nome (prefisso eval) senza crash."""
     test_client, fake = client
-    fake.active_job = "999|eval-sft-grpo|RUNNING"
+    fake.active_job = "999|eval-sft-grpo-zero|RUNNING"
     fake.log_lines = ["Evaluating 100/8771 samples (seeded sample)", "  Pass@1: 0.1234"]
 
     resp = test_client.get("/monitor", headers=AUTH)
     assert resp.status_code == 200
     body = resp.json()
-    assert body["job_detail"]["name"] == "eval-sft-grpo"
+    assert body["job_detail"]["name"] == "eval-sft-grpo-zero"
 
 
 def test_start_job_enqueues_and_ticks(client):
@@ -860,12 +982,12 @@ def test_start_job_enqueues_and_ticks(client):
     fake.run = _tick_side_effect  # type: ignore[method-assign]
 
     resp = test_client.post(
-        "/jobs/start", headers=AUTH, json={"type": "train", "config": "sft-grpo"}
+        "/jobs/start", headers=AUTH, json={"type": "train", "config": "sft-grpo-zero"}
     )
     assert resp.status_code == 201
     body = resp.json()
     assert body["started_now"] is True
-    assert body["active_job"]["name"] == "train-sft-grpo"
+    assert body["active_job"]["name"] == "train-sft-grpo-zero"
     joined = " ".join(fake.commands)
     assert "enqueue" in joined
     assert " tick" in joined
@@ -877,17 +999,19 @@ def test_start_job_enqueued_when_busy(client):
     fake.active_job = "111|train-altro|RUNNING"
 
     resp = test_client.post(
-        "/jobs/start", headers=AUTH, json={"type": "train", "config": "sft-grpo"}
+        "/jobs/start", headers=AUTH, json={"type": "train", "config": "sft-grpo-zero"}
     )
     assert resp.status_code == 201
     assert resp.json()["started_now"] is False
-    assert fake.queue == ["train:experiments/configs/t2g/sft-grpo.yaml:sft-grpo"]
+    assert fake.queue == [
+        "train:experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml:sft-grpo-zero"
+    ]
 
 
 def test_kill_cancels_active_job(client):
     """POST /kill: scancel dell'id attivo; snapshot di ritorno."""
     test_client, fake = client
-    fake.active_job = "12345|train-sft-grpo|RUNNING"
+    fake.active_job = "12345|train-sft-grpo-zero|RUNNING"
 
     resp = test_client.post("/kill", headers=AUTH)
     assert resp.status_code == 200
@@ -906,7 +1030,7 @@ def test_kill_without_active_job_409(client):
 
 def test_logs_endpoint_returns_tail(client):
     test_client, fake = client
-    fake.active_job = "12345|train-sft-grpo|RUNNING"
+    fake.active_job = "12345|train-sft-grpo-zero|RUNNING"
     fake.log_lines = [f"linea-{i}" for i in range(300)]
 
     resp = test_client.get("/logs", headers=AUTH, params={"lines": 50})
@@ -961,8 +1085,6 @@ def test_auth_disabled_without_token(monkeypatch, tmp_path):
 
 def test_ssh_alias_no_user_no_port(monkeypatch, tmp_path):
     """T2G_SSH_HOST=gcluster senza user/porta: target = solo host, niente -p."""
-    from fastapi.testclient import TestClient
-
     monkeypatch.setenv("T2G_AUTH_TOKEN", "test-token")
     monkeypatch.setenv("T2G_DB_PATH", str(tmp_path / "t2g_driver.db"))
     monkeypatch.setenv("T2G_DATA_DIR", str(tmp_path))
@@ -977,20 +1099,20 @@ def test_ssh_alias_no_user_no_port(monkeypatch, tmp_path):
     assert app_module.settings.ssh_user == ""
     assert app_module.settings.ssh_port == 0
 
-    # Cattura il comando ssh costruito da ClusterSSH reale
-    built_cmds: list[list[str]] = []
-    real_cls = app_module.ClusterSSH
+    calls: list[tuple[list[str], int]] = []
 
-    class SpySSH(real_cls):
-        def __init__(self, settings):
-            super().__init__(settings)
-            built_cmds.append(list(self.base))
+    def fake_run(args: list[str], timeout: int) -> app_module.SSHResult:
+        calls.append((args, timeout))
+        return app_module.SSHResult(0, "STATUS_OK=1\nQUEUE_COUNT=0\n", "")
 
-    monkeypatch.setattr(app_module, "ClusterSSH", lambda settings: SpySSH(settings))
-    with TestClient(app_module.app) as test_client:
-        resp = test_client.post("/tick", headers=AUTH)
-        assert resp.status_code == 200
-    cmd = built_cmds[0]
+    monkeypatch.setattr(app_module.ClusterSSH, "_run", staticmethod(fake_run))
+    ssh = app_module.ClusterSSH(app_module.settings)
+    result = ssh.run("bash ~/neuro_symbolic_t2g/cluster/cluster_helper.sh status")
+    cmd = ssh.base
     assert cmd[-1] == "gcluster"  # target = solo alias
     assert not any(t == "-p" for t in cmd)  # nessuna porta esplicita
     assert not any("@" in t for t in cmd)  # nessun user@
+    assert calls[0][0][:-1] == cmd
+    assert calls[0][0][-1].endswith("cluster_helper.sh status")
+    assert result.rc == 0
+    assert "STATUS_OK=1" in result.stdout

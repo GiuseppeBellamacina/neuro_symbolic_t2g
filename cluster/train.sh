@@ -5,11 +5,15 @@
 # Rileva automaticamente il tipo di training dal YAML (training.trainer: sft|grpo).
 #
 # Uso:
-#   CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/train.sh
-#   CONFIG=experiments/configs/t2g/sft-only.yaml sbatch cluster/train.sh
-#   CONFIG=experiments/configs/t2g/sft-grpo.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml sbatch cluster/train.sh
+#   CONFIG=experiments/configs/qwen25-05b/sft/zero-shot.yaml sbatch cluster/train.sh
+#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 #
-# Per il primo avvio eseguire prima:  bash cluster/setup.sh
+# OFFLINE: i compute node NON hanno internet. Tutto il necessario
+# (dipendenze nell'immagine, cache HF di dataset+modello, vocab/bigram)
+# viene preparato in un ambiente con rete separato e sincronizzato sul
+# cluster PRIMA della sottomissione. Nessun pip install, nessun download,
+# nessun fallback: artifact mancanti → fail-fast immediato.
 # ============================================================================
 
 # ┌────────────────────────────────────────────────────────┐
@@ -31,7 +35,7 @@ EXTRA_ARGS="${EXTRA_ARGS:-}"
 
 if [ -z "$CONFIG" ]; then
     echo "❌ CONFIG non impostato. Uso:"
-    echo "  CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/train.sh"
+    echo "  CONFIG=experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml sbatch cluster/train.sh"
     exit 1
 fi
 
@@ -63,42 +67,42 @@ echo "============================================"
 
 mkdir -p logs
 
-export WANDB_MODE=offline
-export PYTHONUNBUFFERED=1
+# ── Offline env PRIMA di ogni python/apptainer ───────────────────────────────
+# HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE/HF_DATASETS_OFFLINE/WANDB_*: i compute
+# node non hanno DNS — con questi export transformers/datasets trattano ogni
+# modello come locale, saltano i check di rete (nessun retry ~30s, nessun
+# ConnectError: vedi slurm-eval-7077) e W&B resta offline. huggingface_hub
+# legge i flag all'import: devono precedere la PRIMA invocazione python.
+export_offline_env
 
-# Prepara dataset/vocab/bigram se mancanti (funzione shared da _lib.sh,
-# idempotente — era triplicata tra setup.sh/train.sh/eval.sh).
-# set -e qui: se la preparazione fallisce, il job fallisce LOUD (niente
-# training silenzioso su dati mancanti).
-prepare_data
-
-# ── Offline-first: i compute node NON hanno DNS ──────────────────────────────
-# Tutto il necessario è pre-cacheato da setup.sh/prepare_data. Senza questi
-# export ogni richiesta hub costa ~30s di retry (HEAD dataset/modello, lookup
-# peft al save) o può CRASHARE (transformers 5.3 tokenizer _patch_mistral_regex
-# → model_info → ConnectError, vedi slurm-eval-7077). Con HF_HUB_OFFLINE=1
-# transformers tratta ogni modello come locale e salta i check di rete.
-# DOPO prepare_data: il fallback download al primo avvio conserva la rete.
-export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1
+# ── Verifica artifact offline (fail-fast, NESSUN download) ───────────────────
+# Sostituisce la vecchia prepare_data: sui compute node il download/la
+# rigenerazione NON è possibile. Manca qualcosa → il job fallisce in pochi
+# secondi con le istruzioni per preparare/caricare gli artifact da un
+# ambiente con rete.
+require_cluster_artifacts "$CONFIG"
 
 echo ""
 echo "Avvio training..."
 echo ""
 
 # ── Esecuzione ────────────────────────────────────────────────────────────────
-# Se Apptainer è disponibile, usalo
+# Se Apptainer è disponibile, usalo (env offline passato esplicitamente)
 if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
     apptainer run --nv \
-        --env WANDB_MODE=offline \
-        --env PYTHONUNBUFFERED=1 \
-        --env HF_HUB_OFFLINE=1 \
-        --env TRANSFORMERS_OFFLINE=1 \
-        --env HF_DATASETS_OFFLINE=1 \
-        --env PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8 \
+        --env "HF_HUB_OFFLINE=${HF_HUB_OFFLINE}" \
+        --env "TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE}" \
+        --env "HF_DATASETS_OFFLINE=${HF_DATASETS_OFFLINE}" \
+        --env "WANDB_MODE=${WANDB_MODE}" \
+        --env "WANDB_DISABLE_WEAVE=${WANDB_DISABLE_WEAVE}" \
+        --env "WANDB_SILENT=${WANDB_SILENT}" \
+        --env "PYTHONUNBUFFERED=${PYTHONUNBUFFERED}" \
+        --env "HF_HOME=${HF_HOME}" \
+        --env "HF_HUB_CACHE=${HF_HUB_CACHE}" \
+        --env "PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8" \
         /shared/sifs/latest.sif \
         python -m src.training --config "${CONFIG}" ${EXTRA_ARGS}
 else
-    export PYTHONUNBUFFERED=1
     python -m src.training --config "${CONFIG}" ${EXTRA_ARGS}
 fi
 
