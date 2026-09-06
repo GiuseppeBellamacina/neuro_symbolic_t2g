@@ -9,12 +9,17 @@ def _text(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
 
 
-def test_login_aliases_do_not_run_monitor_or_summary_with_bare_python() -> None:
+def test_login_aliases_restore_full_python_monitor_and_wrap_summary() -> None:
     aliases = _text("cluster/aliases.sh")
     monitor_body = aliases.split("monitor() {", 1)[1].split("\n}", 1)[0]
     summary_body = aliases.split("ablation-summary() {", 1)[1].split("\n}", 1)[0]
 
-    assert "python" not in monitor_body
+    assert (
+        'cd "$PROJ_DIR" && python3 -u -m src.utils.chain_monitor "$@"' in monitor_body
+    )
+    assert "--samples [N]" in aliases
+    assert "--metrics" in aliases
+    assert "--all [N]" in aliases
     assert "srun " in summary_body
     assert "apptainer run" in summary_body
     assert summary_body.index("srun ") < summary_body.index("apptainer run")

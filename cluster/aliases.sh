@@ -426,49 +426,9 @@ chain-hook-uninstall() {
     echo "✅ Hook rimosso da ~/.bashrc"
 }
 
-# Monitor live shell-only della pipeline (uso: monitor [--poll N] [--once]).
-# Non richiede Python/Apptainer e non apre una seconda allocation SLURM.
+# Monitor Python completo della pipeline: tabella, metriche, sample e chain.
 monitor() {
-    local poll=10 once=0 active_id="" active_name="" prefix="" logfile=""
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            --poll) poll="$2"; shift 2 ;;
-            --once) once=1; shift ;;
-            --help|-h)
-                echo "Uso: monitor [--poll SECONDI] [--once]"
-                echo "Mostra stato SLURM, coda e ultime righe del log (solo shell)."
-                return 0
-                ;;
-            *) echo "❌ Argomento sconosciuto: $1"; return 2 ;;
-        esac
-    done
-    case "$poll" in ''|*[!0-9]*) echo "❌ --poll richiede un intero."; return 2 ;; esac
-
-    while :; do
-        [ "$once" -eq 1 ] || clear
-        echo "──── T2G pipeline · $(date) ────"
-        chain-show
-        active_id=$(active_job_id)
-        active_name=$(active_job_name)
-        if [ -n "$active_id" ]; then
-            case "$active_name" in
-                preflight-*) prefix="preflight" ;;
-                probe-*) prefix="probe" ;;
-                structured-*) prefix="structured" ;;
-                eval-*) prefix="eval" ;;
-                train-*) prefix="train" ;;
-                *) prefix="" ;;
-            esac
-            if [ -n "$prefix" ]; then
-                logfile="$PROJ_DIR/logs/slurm-${prefix}-${active_id}.log"
-                echo ""
-                echo "──── Ultime 30 righe: $logfile ────"
-                if [ -f "$logfile" ]; then tail -n 30 "$logfile"; else echo "Log non ancora disponibile."; fi
-            fi
-        fi
-        [ "$once" -eq 1 ] && break
-        sleep "$poll"
-    done
+    cd "$PROJ_DIR" && python3 -u -m src.utils.chain_monitor "$@"
 }
 
 # Alias t2g-* (allineati alla documentazione CLUSTER.md)
@@ -576,8 +536,8 @@ claudio() {
     echo "                    — hook bashrc che avanza la catena al login"
     echo ""
     echo "── Monitor ──"
-    echo "   monitor [--poll N] [--once]"
-    echo "                    — monitor shell-only (stato, coda, log)"
+    echo "   monitor [--poll N] [--tab] [--samples [N]] [--metrics] [--all [N]]"
+    echo "                    — monitor completo: chain, metriche e sample"
     echo "   ablation-summary  — genera report su compute via srun + Apptainer"
     echo ""
     echo "── Utilità ──"
