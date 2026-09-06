@@ -1,0 +1,11 @@
+extends: ../../grpo/few-shot.yaml
+
+experiment:
+  kind: ablation
+  variant: reward-rouge-l
+
+reward:
+  name: rouge-l-validity
+
+wandb:
+  run_name: grpo-few-reward-rouge-l

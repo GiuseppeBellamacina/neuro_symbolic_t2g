@@ -12,9 +12,12 @@ sft
 grpo-zero           grpo-few
 sft-grpo-zero       sft-grpo-few
 sft-grpo-zero-pda   sft-grpo-zero-hot
+grpo-few-reward-edit        grpo-few-reward-token-f1
+grpo-few-reward-chrfpp      grpo-few-reward-rouge-l
+grpo-few-reward-sbleu2
 ```
 
-The default queue is **2 eval-only baselines + 5 train/eval cells = 12 entries**. PDA and hot are manual. Markov and rollout probes are non-training analyses and are not queue configs. Zero-shot/few-shot name prompt conditioning; the baseline is the untrained base method. See `docs/EXPERIMENT_DESIGN.md`.
+The default queue is **2 eval-only baselines + 5 train/eval cells = 12 entries**. PDA, hot, and all reward configs are manual. Markov and rollout probes are non-training analyses and are not queue configs. Zero-shot/few-shot name prompt conditioning; the baseline is the untrained base method. See `docs/EXPERIMENT_DESIGN.md`.
 
 ## Local service
 
@@ -83,6 +86,14 @@ curl -X POST -H "X-Auth-Token: $TOKEN" -H "Content-Type: application/json" -d '{
 ```
 
 The API field `ablation` is retained as the queue-replacement command name; it expands the current 12-entry default campaign, not the manual PDA/hot variants.
+
+Reward training (`grpo-few-reward-*`) requires an exact `mode` such as `--reward-qualification-report experiments/analysis/qwen25-05b/rewards/report.json`. The path must be repository-relative, remain below `experiments/analysis/`, and contain no traversal or shell metacharacters. Eval entries have no qualification mode. In the TUI custom queue editor, use:
+
+```text
+train:grpo-few-reward-edit:reward-edit:--reward-qualification-report=experiments/analysis/qwen25-05b/rewards/report.json
+```
+
+Reward train rows missing the explicit fourth field are rejected; other custom modes are not accepted by the editor.
 
 ## Operational rules
 

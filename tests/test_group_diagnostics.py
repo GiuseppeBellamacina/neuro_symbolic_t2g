@@ -334,6 +334,45 @@ def _install_fake_wandb(monkeypatch) -> _FakeWandbRun:
 
 
 class TestCallbackWandbGroups:
+    def test_exact_grammar_keys_reach_wandb_and_live(self, monkeypatch):
+        fake_run = _install_fake_wandb(monkeypatch)
+        logger = _make_logger(group_size=2)
+        live_updates = []
+        monkeypatch.setattr(
+            "src.training.callbacks.live_status_set",
+            lambda *a, **kw: live_updates.append(kw),
+        )
+
+        class Processor:
+            def get_diagnostics(self, reset_after=False):
+                assert reset_after is True
+                return {
+                    "allowed_mass_mean": 0.4,
+                    "removed_mass_mean": 0.6,
+                    "log_allowed_mass_mean": -1.0,
+                    "allowed_mass_min": 0.2,
+                    "entropy_raw_mean": 2.0,
+                    "entropy_allowed_mean": 1.0,
+                    "active_rows": 6,
+                    "steps": 3,
+                }
+
+        callback = CompletionSampleCallback(
+            logger, every_n_steps=5, logits_processor=Processor()
+        )
+        from transformers import TrainerControl, TrainerState, TrainingArguments
+
+        state = TrainerState()
+        state.global_step = 5
+        callback.on_log(
+            TrainingArguments(output_dir="x"), state, TrainerControl(), logs={}
+        )
+        payload = next(p for p in fake_run.logged if "grammar/allowed_mass_mean" in p)
+        assert payload["grammar/removed_mass_mean"] == 0.6
+        assert payload["grammar/active_rows"] == 6.0
+        assert any(update.get("grammar/steps") == 3.0 for update in live_updates)
+        assert not any("masked_mass" in key for key in payload)
+
     def test_groups_keys_logged(self, monkeypatch):
         fake_run = _install_fake_wandb(monkeypatch)
         logger = _make_logger(group_size=2)
@@ -443,7 +482,9 @@ class TestTrlNativePassthrough:
             "train/reward_std",
             "train/entropy",
         }
-        assert set(fake_run.defined) == {f"train/{key}" for key in cb._WANDB_KEYS}
+        assert set(fake_run.defined) == {
+            f"train/{key}" for key in (*cb._WANDB_KEYS, *cb._reward_keys())
+        }
 
         state.global_step = 8
         cb.on_log(
@@ -453,7 +494,7 @@ class TestTrlNativePassthrough:
             logs={"loss": 1.0},
         )
         assert [kwargs["step"] for kwargs in fake_run.log_kwargs] == [7, 8]
-        assert len(fake_run.defined) == len(cb._WANDB_KEYS)
+        assert len(fake_run.defined) == len(cb._WANDB_KEYS) + len(cb._reward_keys())
 
     def test_trl_metrics_printed_undropped(self, capsys):
         """Every TRL-native key must reach the printed line (the

@@ -379,23 +379,30 @@ def compute_reward_breakdown(
     completions: list[str],
     references: list[str] | None = None,
     reward_weights: dict[str, float] | None = None,
+    reward_config: dict[str, Any] | None = None,
 ) -> dict[str, float]:
-    """Average the initialized production edit-validity reward."""
-    from src.rewards.t2g_rewards import edit_validity_reward
+    """Average the configured optimized reward plus common edit diagnostic."""
+    from src.rewards.t2g_rewards import build_t2g_reward_functions, edit_validity_reward
 
-    name = "edit_validity_reward"
-    if reward_weights is not None and reward_weights.get(name, 0.0) <= 0.0:
-        return {}
     if references is None:
         return {}
     if len(references) != len(completions):
         raise ValueError("compute_reward_breakdown requires aligned references")
+    functions, _ = build_t2g_reward_functions(reward_config)
+    optimized = functions[0]
+    name = optimized.__name__
+    if reward_weights is not None and reward_weights.get(name, 1.0) <= 0.0:
+        return {}
     if not completions:
-        return {name: 0.0}
-    scores = [
+        return {name: 0.0, "edit_validity_diagnostic": 0.0}
+    optimized_scores = optimized(completions, gold_gloss=references)
+    edit_scores = [
         edit_validity_reward(comp, gold) for comp, gold in zip(completions, references)
     ]
-    return {name: float(np.mean(scores))}
+    return {
+        name: float(np.mean(optimized_scores)),
+        "edit_validity_diagnostic": float(np.mean(edit_scores)),
+    }
 
 
 # ---------------------------------------------------------------------------

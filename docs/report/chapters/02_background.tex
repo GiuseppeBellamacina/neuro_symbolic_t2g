@@ -1,0 +1,20 @@
+\chapter{Fondamenti}\label{chap:background}
+\section{Modello autoregressivo}
+Dato un prompt $x$ e una glossa tokenizzata $y$, il modello fattorizza
+$p_\theta(y\mid x)=\prod_t p_\theta(y_t\mid x,y_{<t})$. Il tokenizer opera su
+subtoken, mentre metriche e vocabolario di glosse operano soprattutto su token
+separati da spazi: confondere i due livelli produce gate e vincoli errati.
+
+\section{Supervisione, policy optimization e vincoli}
+SFT apprende dai target gold; GRPO confronta più completion dello stesso prompt;
+il constraint modifica il supporto disponibile in generazione. Sono interventi
+diversi: un Trie può garantire compatibilità lessicale senza migliorare il
+contenuto, e un reward ben formulato può essere empiricamente poco informativo.
+BLEU \cite{papineni2002bleu}, ROUGE \cite{lin2004rouge} e chrF misurano aspetti
+diversi e vanno letti insieme.
+
+\section{Riproducibilità}
+Un numero senza identità di dataset, modello, tokenizer, vocabolario, retrieval,
+grammar, decoding, seed e budget non è un risultato riproducibile. Il progetto
+materializza queste identità negli artifact e usa ID stabili per cache e
+bootstrap appaiato. Provenienza e failure espliciti sono parte del metodo.

@@ -26,7 +26,7 @@
 #
 # Campagna default: 2 baseline eval-only + 5 train/eval = 12 entry.
 # Ogni entry eval addestrata esegue due leg (zero-shot, poi retrieval).
-# Le due ablation sono disponibili solo come selezioni manuali.
+# Le ablation sono disponibili solo come selezioni manuali.
 
 # Interrompere:
 #   chain-stop                               # ferma (preserva stato + tick at)
@@ -75,6 +75,8 @@ for arg in "$@"; do
             echo "Config disponibili (passa il nome senza .yaml):"
             echo "  baseline-zero baseline-few sft grpo-zero grpo-few"
             echo "  sft-grpo-zero sft-grpo-few sft-grpo-zero-pda sft-grpo-zero-hot"
+            echo "  grpo-few-reward-edit grpo-few-reward-token-f1 grpo-few-reward-chrfpp"
+            echo "  grpo-few-reward-rouge-l grpo-few-reward-sbleu2"
             exit 0
             ;;
         -*)  # ignora flag non riconosciuti
@@ -100,6 +102,11 @@ config_path() {
         sft-grpo-few) echo "experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml" ;;
         sft-grpo-zero-pda) echo "experiments/configs/qwen25-05b/ablations/sft-grpo-zero-pda.yaml" ;;
         sft-grpo-zero-hot) echo "experiments/configs/qwen25-05b/ablations/sft-grpo-zero-hot.yaml" ;;
+        grpo-few-reward-edit) echo "experiments/configs/qwen25-05b/ablations/rewards/edit.yaml" ;;
+        grpo-few-reward-token-f1) echo "experiments/configs/qwen25-05b/ablations/rewards/token-f1.yaml" ;;
+        grpo-few-reward-chrfpp) echo "experiments/configs/qwen25-05b/ablations/rewards/chrfpp.yaml" ;;
+        grpo-few-reward-rouge-l) echo "experiments/configs/qwen25-05b/ablations/rewards/rouge-l.yaml" ;;
+        grpo-few-reward-sbleu2) echo "experiments/configs/qwen25-05b/ablations/rewards/sbleu2.yaml" ;;
         *) return 1 ;;
     esac
 }
@@ -121,6 +128,10 @@ else
         exit 1
     fi
     MODELS=("${CONFIG_NAME}:${CONFIG_PATH}")
+    if [[ "$CONFIG_NAME" == grpo-few-reward-* ]] && [[ "${EXTRA_ARGS:-}" != *"--reward-qualification-report"* ]]; then
+        echo "❌ $CONFIG_NAME richiede EXTRA_ARGS='--reward-qualification-report PATH'" >&2
+        exit 2
+    fi
 fi
 
 mkdir -p "$STATE_DIR" logs
@@ -249,6 +260,9 @@ for entry in "${MODELS[@]}"; do
 
     if [ "$DO_TRAIN" -eq 1 ]; then
         E="train:${CFG}:${TAG}"
+        if [[ "$TAG" == grpo-few-reward-* ]]; then
+            E="${E}:${EXTRA_ARGS}"
+        fi
         if [ "$APPEND" -eq 1 ] && echo "$EXISTING_ENTRIES" | grep -qF "$E"; then
             SKIPPED=$((SKIPPED + 1))
         else

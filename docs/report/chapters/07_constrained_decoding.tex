@@ -1,0 +1,25 @@
+\chapter{Decodifica vincolata}\label{chap:constraints}
+\section{Trie primario e maschera del vocabolario}
+\warningbox{Non attribuire al Trie il filtraggio di voci numeriche o subtoken. È
+\pathcode{GlossVocabularyMask} a filtrare token ID secondo le proprie regole. Il
+Trie viene poi compilato sulle stringhe in \pathcode{mask.vocab}, usando le
+codifiche normali e con spazio prefisso. Sono due stadi distinti.}
+Con storia $h_t$ e insieme ammesso $A(h_t)$, il logits processor pone a
+$-\infty$ i logit fuori insieme e rinormalizza. Al termine di una glossa consente
+la successiva o EOS e gestisce separatori/newline. Il vincolo garantisce un
+percorso compilato, non correttezza semantica.
+
+\section{PDA manuale}
+\pathcode{ablations/sft-grpo-zero-pda.yaml} abilita GrammarLLM PDA e lookahead.
+La grammatica LL(1) rappresenta prima glossa, coda e EOS; lo stack di parsing è
+diverso dal cammino prefisso del Trie. Il confronto mantiene fissi modello,
+inizializzazione, dati, prompt, seed e budget e richiede il gate sull'intero
+vocabolario reale. PDA non è il percorso di produzione né un quinto metodo.
+
+\section{Massa mascherata}
+Prima del masking,
+\begin{equation}M_t=\sum_{v\in A(h_t)}\operatorname{softmax}(z_t)_v,\qquad
+R_t=1-M_t.\end{equation}
+Massa ammessa/rimossa ed entropia condizionata descrivono il conflitto tra policy
+e vincolo. Sono diagnostici congelati, non reward né obiettivi trainabili. Valori
+bassi di $M_t$ non provano che il constraint corregga il significato.

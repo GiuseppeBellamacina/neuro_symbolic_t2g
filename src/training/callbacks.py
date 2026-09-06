@@ -63,17 +63,16 @@ class HighPrecisionLogCallback(TrainerCallback):
         "completions/mean_length",
         "completions/clipped_ratio",
         "completions/mean_terminated_length",
-        "rewards/edit_validity_reward/mean",
-        "rewards/edit_validity_reward/std",
         "loss",
         "grad_norm",
         "learning_rate",
     )
 
-    def __init__(self) -> None:
+    def __init__(self, reward_function_name: str = "edit_validity_reward") -> None:
         self._reward_sum: float = 0.0
         self._reward_count: int = 0
         self._wandb_metrics_defined = False
+        self._reward_function_name = reward_function_name
 
     def on_train_begin(
         self,
@@ -98,12 +97,12 @@ class HighPrecisionLogCallback(TrainerCallback):
             if not wandb.run:
                 return
             if not self._wandb_metrics_defined:
-                for key in self._WANDB_KEYS:
+                for key in (*self._WANDB_KEYS, *self._reward_keys()):
                     wandb.define_metric(f"train/{key}", summary="last")
                 self._wandb_metrics_defined = True
             payload = {
                 f"train/{key}": value
-                for key in self._WANDB_KEYS
+                for key in (*self._WANDB_KEYS, *self._reward_keys())
                 if (value := self._finite_scalar(logs.get(key))) is not None
             }
             if payload:
@@ -112,6 +111,10 @@ class HighPrecisionLogCallback(TrainerCallback):
             logger.debug(
                 "Failed to log curated training metrics to wandb", exc_info=True
             )
+
+    def _reward_keys(self) -> tuple[str, str]:
+        prefix = f"rewards/{self._reward_function_name}"
+        return f"{prefix}/mean", f"{prefix}/std"
 
     def on_log(
         self,
@@ -528,66 +531,55 @@ class CompletionSampleCallback(TrainerCallback):
             try:
                 import wandb
             except ImportError:
-                return  # wandb not installed, skip both panels
+                wandb = None
 
-            # Log masked probability mass / entropy to wandb
+            # Log exact constrained-decoding diagnostics to W&B and live status.
             if self._logits_processor is not None and hasattr(
-                self._logits_processor, "get_masked_mass_stats"
+                self._logits_processor, "get_diagnostics"
             ):
                 try:
-
-                    # ── Define W&B metric layout once ───────────────────
-                    if not self._diag_defined and wandb.run:
-                        wandb.define_metric(
-                            "grammar/masked_mass_avg",
-                            summary="last",
-                        )
-                        wandb.define_metric(
-                            "grammar/masked_entropy_avg",
-                            summary="last",
-                        )
-                        wandb.define_metric(
-                            "grammar/masked_entropy_allowed_avg",
-                            summary="last",
-                        )
+                    metric_keys = (
+                        "allowed_mass_mean",
+                        "removed_mass_mean",
+                        "log_allowed_mass_mean",
+                        "allowed_mass_min",
+                        "entropy_raw_mean",
+                        "entropy_allowed_mean",
+                        "active_rows",
+                        "steps",
+                    )
+                    if not self._diag_defined and wandb is not None and wandb.run:
+                        for key in metric_keys:
+                            wandb.define_metric(f"grammar/{key}", summary="last")
                         self._diag_defined = True
 
-                    # Use reset_after=True for per-interval metrics
-                    stats = self._logits_processor.get_masked_mass_stats(
-                        reset_after=True
-                    )
-                    if stats["total_steps"] > 0 and wandb.run:
-                        mass = stats["avg_masked_mass"]
-                        ent = stats.get("avg_masked_entropy", 0.0)
-                        ent_allowed = stats.get("avg_masked_entropy_allowed", 0.0)
-
-                        wandb.log(
-                            {
-                                "grammar/masked_mass_avg": mass,
-                                "grammar/masked_entropy_avg": ent,
-                                "grammar/masked_entropy_allowed_avg": ent_allowed,
-                                "grammar/masked_mass_steps": stats["total_steps"],
-                            },
-                            step=step,
-                            commit=False,
-                        )
+                    stats = self._logits_processor.get_diagnostics(reset_after=True)
+                    if stats["steps"] > 0:
+                        payload = {
+                            f"grammar/{key}": float(stats[key]) for key in metric_keys
+                        }
+                        live_status_set(None, step=step, **payload)
+                        if wandb is not None and wandb.run:
+                            wandb.log(payload, step=step, commit=False)
 
                         # ── Buffer & plot convergence diagnostics ────────
                         self._diag_buffer.append(
                             {
                                 "Step": step,
-                                "masked_mass": mass,
-                                "full_entropy": ent,
-                                "allowed_entropy": ent_allowed,
+                                "removed_mass": float(stats["removed_mass_mean"]),
+                                "full_entropy": float(stats["entropy_raw_mean"]),
+                                "allowed_entropy": float(stats["entropy_allowed_mean"]),
                             }
                         )
 
                         if (
-                            step % self._plot_every_n == 0
+                            wandb is not None
+                            and wandb.run
+                            and step % self._plot_every_n == 0
                             and len(self._diag_buffer) >= 2
                         ):
                             xs = [d["Step"] for d in self._diag_buffer]
-                            ys_mass = [d["masked_mass"] for d in self._diag_buffer]
+                            ys_mass = [d["removed_mass"] for d in self._diag_buffer]
                             ys_ent = [d["full_entropy"] for d in self._diag_buffer]
                             ys_ent_a = [d["allowed_entropy"] for d in self._diag_buffer]
 
@@ -597,7 +589,7 @@ class CompletionSampleCallback(TrainerCallback):
                                         xs=xs,
                                         ys=[ys_mass, ys_ent, ys_ent_a],
                                         keys=[
-                                            "masked_mass",
+                                            "removed_mass",
                                             "full_entropy",
                                             "allowed_entropy",
                                         ],
@@ -609,7 +601,7 @@ class CompletionSampleCallback(TrainerCallback):
                                 commit=False,
                             )
                 except Exception:
-                    logger.debug("Failed to log masked mass to wandb", exc_info=True)
+                    logger.debug("Failed to log grammar diagnostics", exc_info=True)
 
             # ── Group diagnostics logging (preregistered instrumentation) ──
             # Per-group diversity (unique normalized outputs per group of G
@@ -623,11 +615,11 @@ class CompletionSampleCallback(TrainerCallback):
                         f"groups/{key}": float(value)
                         for key, value in group_diag.items()
                     }
-                    if not self._groups_defined and wandb.run:
+                    if not self._groups_defined and wandb is not None and wandb.run:
                         for metric_key in group_payload:
                             wandb.define_metric(metric_key, summary="last")
                         self._groups_defined = True
-                    if wandb.run:
+                    if wandb is not None and wandb.run:
                         wandb.log(group_payload, step=step, commit=False)
                 except Exception:
                     logger.debug(

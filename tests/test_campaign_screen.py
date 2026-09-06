@@ -33,6 +33,11 @@ def test_registry_and_manual_selection_are_exact() -> None:
         "sft-grpo-few",
         "sft-grpo-zero-pda",
         "sft-grpo-zero-hot",
+        "grpo-few-reward-edit",
+        "grpo-few-reward-token-f1",
+        "grpo-few-reward-chrfpp",
+        "grpo-few-reward-rouge-l",
+        "grpo-few-reward-sbleu2",
     )
     assert tuple(app.CONFIG_MAP) == expected
     assert set(tui.CONFIG_NAMES) == set(expected)
@@ -75,7 +80,14 @@ def test_default_campaign_order_count_and_modes() -> None:
     assert len(lines) == 12
     assert [line.split(":", 1)[0] for line in lines[:2]] == ["eval", "eval"]
     tags = {line.split(":")[2] for line in lines}
-    assert tags.isdisjoint({"sft-grpo-zero-pda", "sft-grpo-zero-hot"})
+    assert tags.isdisjoint(
+        set(
+            expected_name
+            for expected_name in app.CONFIG_MAP
+            if "reward-" in expected_name
+        )
+        | {"sft-grpo-zero-pda", "sft-grpo-zero-hot"}
+    )
 
 
 def test_campaign_copy_has_exact_entry_count() -> None:

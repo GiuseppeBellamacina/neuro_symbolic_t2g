@@ -37,7 +37,19 @@ EXPECTED = {
 def test_exact_tree_identities_and_validator() -> None:
     assert {
         p.relative_to(CONFIG_DIR).as_posix() for p in CONFIG_DIR.rglob("*.yaml")
-    } == {"base.yaml", "probes/rollouts.yaml", "probes/markov.yaml", *EXPECTED}
+    } == {
+        "base.yaml",
+        "probes/rollouts.yaml",
+        "probes/rewards.yaml",
+        "probes/markov.yaml",
+        "probes/structured.yaml",
+        *EXPECTED,
+        "ablations/rewards/edit.yaml",
+        "ablations/rewards/token-f1.yaml",
+        "ablations/rewards/chrfpp.yaml",
+        "ablations/rewards/rouge-l.yaml",
+        "ablations/rewards/sbleu2.yaml",
+    }
     for name, cell in EXPECTED.items():
         path = CONFIG_DIR / name
         assert cell_from_config(resolve_config(path)) == cell

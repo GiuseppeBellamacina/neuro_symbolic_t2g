@@ -1,0 +1,24 @@
+\chapter{Benchmark structured-loss a stati ridotti}\label{chap:structured}
+È un benchmark isolato: congela Qwen, estrae il vettore dell'ultimo layer al
+confine assistant e allena soltanto una testa di emissione posizionale. Non è
+collegato al trainer SFT/GRPO, al driver o alla TUI.
+
+Lo spazio ha le 512 glosse train più frequenti più \pathcode{<OTHER>}; BOS/EOS
+esistono solo nel grafo. Sequenze oltre 64 sono escluse e registrate, mai
+troncate. Il grafo usa $\alpha=0.1$ e scala 0.25; dev/test non definiscono stati o
+archi. Dichiarando $y_0=\mathrm{BOS}$, lo score comprende l'arco EOS finale:
+\begin{equation}S(y;x,L)=\sum_{t=1}^{L}e_t(y_t;x)+
+\sum_{t=1}^{L}a(y_{t-1},y_t)+a(y_L,\mathrm{EOS}).\end{equation}
+Con $\log Z=\log\sum_{|z|=L}\exp S(z;x,L)$, l'implementazione riporta
+\begin{equation}\mathrm{NLL}=(\log Z-S)/L,\end{equation}
+non la somma non normalizzata. La partizione termina esattamente a $L$.
+
+Le braccia sono CE indipendente, uniform-support, true-weights e
+shuffled-weights a supporto fisso. Feature e righe sono condivise; argmax
+posizionale a lunghezza gold non è Viterbi. Le metriche di estrazione stanno nel
+manifest separato dalle metriche delle teste. La resource gate segnala pass/fail
+ma non promuove automaticamente: true-weights deve battere i controlli su tutti
+i seed configurati e la decisione resta manuale. Avvio offline:
+\begin{lstlisting}[language=bash]
+sbatch cluster/structured_probe.sh
+\end{lstlisting}

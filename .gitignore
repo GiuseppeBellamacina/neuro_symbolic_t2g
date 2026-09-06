@@ -59,3 +59,14 @@ experiments/configs/t2g/grpo_optimal_old.yaml
 
 # Local deepwork orchestration state (never commit)
 .slim/deepwork/
+
+# Latex
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc

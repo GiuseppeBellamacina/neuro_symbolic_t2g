@@ -117,6 +117,11 @@ CONFIG_MAP: dict[str, str] = {
     "sft-grpo-few": "experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml",
     "sft-grpo-zero-pda": "experiments/configs/qwen25-05b/ablations/sft-grpo-zero-pda.yaml",
     "sft-grpo-zero-hot": "experiments/configs/qwen25-05b/ablations/sft-grpo-zero-hot.yaml",
+    "grpo-few-reward-edit": "experiments/configs/qwen25-05b/ablations/rewards/edit.yaml",
+    "grpo-few-reward-token-f1": "experiments/configs/qwen25-05b/ablations/rewards/token-f1.yaml",
+    "grpo-few-reward-chrfpp": "experiments/configs/qwen25-05b/ablations/rewards/chrfpp.yaml",
+    "grpo-few-reward-rouge-l": "experiments/configs/qwen25-05b/ablations/rewards/rouge-l.yaml",
+    "grpo-few-reward-sbleu2": "experiments/configs/qwen25-05b/ablations/rewards/sbleu2.yaml",
 }
 
 CONFIG_PATHS: set[str] = set(CONFIG_MAP.values())
@@ -140,6 +145,8 @@ HELPER_REMOTE = "~/neuro_symbolic_t2g/cluster/cluster_helper.sh"  # path sul clu
 
 _TAG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 _EXTRA_RE = re.compile(r"[-A-Za-z0-9][A-Za-z0-9 ._=/:,-]{0,127}\Z")
+_REWARD_REPORT_RE = re.compile(r"experiments/analysis/[A-Za-z0-9][A-Za-z0-9._/-]*\Z")
+_REWARD_REPORT_OPTION = "--reward-qualification-report"
 
 # ── DB SQLite locale (cache + diario eventi) ─────────────────────────────────
 
@@ -545,6 +552,26 @@ def build_entry(job: "JobIn") -> str:
     config_id = next(name for name, path in CONFIG_MAP.items() if path == cfg)
     if job.type == "train" and config_id in EVAL_ONLY_CONFIGS:
         raise HTTPException(422, f"config eval-only non addestrabile: {config_id}")
+    is_reward_train = job.type == "train" and config_id.startswith("grpo-few-reward-")
+    if is_reward_train:
+        prefix = f"{_REWARD_REPORT_OPTION} "
+        report_path = (
+            job.mode[len(prefix) :] if job.mode and job.mode.startswith(prefix) else ""
+        )
+        if (
+            not report_path
+            or not _REWARD_REPORT_RE.fullmatch(report_path)
+            or any(part in ("", ".", "..") for part in report_path.split("/"))
+        ):
+            raise HTTPException(
+                422,
+                "reward ablation requires exact mode="
+                "'--reward-qualification-report experiments/analysis/...'",
+            )
+    elif job.mode and _REWARD_REPORT_OPTION in job.mode:
+        raise HTTPException(
+            422, "reward qualification mode allowed only on reward train"
+        )
     tag = job.tag if job.tag else config_id
     if not _TAG_RE.fullmatch(tag):
         raise HTTPException(422, f"tag non valido: {tag!r} (consentito [A-Za-z0-9._-])")

@@ -1,0 +1,29 @@
+\chapter{Diagnostica congelata e decisioni}\label{chap:diagnostics}
+\section{Rollout e reward}
+I probe consumano \pathcode{generations_*.json}; non cercano input e non generano
+automaticamente. Rollout raggruppa per ID, controlla gold coerente e misura
+varianza, saturazione, unicità, best-minus-mean, correlazioni e bucket di
+lunghezza. Le boundary del reward sono quelle del \cref{chap:rewards}; superarle
+autorizza solo l'ispezione/ablazione manuale.
+
+\section{Markov, Viterbi hard e soft}
+Il bigram $O(L)$ può usare il lessico completo; hard/soft usano piccoli grafi e
+falliscono prima dell'allocazione oltre \pathcode{max_states=256}. Il Viterbi hard
+massimizza transizioni logaritmiche e applica $-\lambda\mathbf1[i=j]$ soltanto
+alle transizioni \emph{interiori}; l'arco finale verso EOS non riceve la penalità
+di self-loop. Soft sostituisce max con log-sum-exp temperata. Si analizzano
+Spearman, discriminazione pairwise, lunghezza e correlazione parziale.
+In formula, solo per i passi interni,
+\begin{equation}
+\delta_t(j)=\max_i\{\delta_{t-1}(i)+\log P_{ij}-\lambda\mathbf1[i=j]\};
+\end{equation}
+la chiusura usa $\max_i\{\delta(i)+\log P_{i,\mathrm{EOS}}\}$ senza penalità.
+
+Non è una Differentiable Viterbi Layer: non vi sono emissioni apprese,
+backpointer differenziabili o gradienti \cite{viterbiplannet2026}. La decisione è
+se il segnale aggiunga ranking oltre edit/bigram sui medesimi sample; anche in
+caso positivo serve un'ablazione di training isolata per una pretesa causale.
+\begin{lstlisting}[language=bash]
+INPUT=experiments/results/.../generations_x.json sbatch cluster/probe.sh rollouts experiments/configs/qwen25-05b/probes/rollouts.yaml
+INPUT=experiments/results/.../generations_x.json sbatch cluster/probe.sh markov experiments/configs/qwen25-05b/probes/markov.yaml
+\end{lstlisting}

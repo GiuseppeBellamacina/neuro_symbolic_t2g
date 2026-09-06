@@ -426,6 +426,67 @@ def test_baseline_train_rejected_before_ssh(client, config, endpoint):
     assert fake.commands == []
 
 
+@pytest.mark.parametrize(
+    "config",
+    [name for name in app_module.CONFIG_MAP if name.startswith("grpo-few-reward-")],
+)
+@pytest.mark.parametrize("endpoint", ["/jobs", "/jobs/start"])
+def test_reward_train_requires_exact_safe_report_mode(client, config, endpoint):
+    test_client, fake = client
+    for mode in (
+        None,
+        "--reward-qualification-report",
+        "--reward-qualification-report ../report.json",
+        "--reward-qualification-report experiments/analysis/x;touch-pwned",
+        "--resume --reward-qualification-report experiments/analysis/report.json",
+    ):
+        payload = {"type": "train", "config": config}
+        if mode is not None:
+            payload["mode"] = mode
+        response = test_client.post(endpoint, headers=AUTH, json=payload)
+        assert response.status_code == 422
+    assert fake.commands == []
+
+
+def test_reward_train_accepts_safe_report_and_eval_has_no_mode(client):
+    test_client, fake = client
+    mode = "--reward-qualification-report experiments/analysis/rewards/report.json"
+    response = test_client.post(
+        "/jobs",
+        headers=AUTH,
+        json={"type": "train", "config": "grpo-few-reward-edit", "mode": mode},
+    )
+    assert response.status_code == 201
+    assert response.json()["added"].endswith(f":grpo-few-reward-edit:{mode}")
+
+    response = test_client.post(
+        "/jobs",
+        headers=AUTH,
+        json={"type": "eval", "config": "grpo-few-reward-edit"},
+    )
+    assert response.status_code == 201
+    assert fake.queue[-1].endswith(":grpo-few-reward-edit")
+
+
+def test_reward_batch_mode_only_on_train(client):
+    test_client, fake = client
+    mode = "--reward-qualification-report experiments/analysis/rewards/report.json"
+    response = test_client.post(
+        "/jobs/batch",
+        headers=AUTH,
+        json={
+            "jobs": [
+                {"type": "train", "config": "grpo-few-reward-token-f1", "mode": mode},
+                {"type": "eval", "config": "grpo-few-reward-token-f1"},
+            ],
+            "start_now": False,
+        },
+    )
+    assert response.status_code == 201
+    assert fake.queue[0].endswith(f":grpo-few-reward-token-f1:{mode}")
+    assert fake.queue[1].endswith(":grpo-few-reward-token-f1")
+
+
 # ── /queue ────────────────────────────────────────────────────────────────────
 
 

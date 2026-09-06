@@ -354,6 +354,50 @@ def test_processor_mask_distinguishes_bare_and_spaced_tokens(
     ), "spaced 'ĠW' must be allowed after a gloss"
 
 
+def test_pda_diagnostics_use_applied_mask_and_reset_prompt_length(
+    regression_pipeline, tokenizer
+):
+    from src.grammar.grammar_logits_processor import GrammarPDALogitsProcessor
+
+    pdas, _, _ = regression_pipeline
+    processor = GrammarPDALogitsProcessor(tokenizer, pdas, track_diagnostics=True)
+    width = len(tokenizer)
+    raw = torch.linspace(-1, 1, width).unsqueeze(0)
+
+    first_prompt = torch.tensor([[tokenizer.eos_token_id]])
+    filtered = processor(first_prompt, raw.clone())
+    expected = torch.softmax(raw, -1)[filtered.isfinite()].sum().item()
+    assert processor.get_diagnostics()["allowed_mass_mean"] == pytest.approx(expected)
+
+    processor.reset_generation_state()
+    second_prompt = torch.tensor([[1, 2, tokenizer.eos_token_id]])
+    processor(second_prompt, raw.clone())
+    assert processor._grammar_processor.prompt_len == 3
+    assert processor.get_diagnostics()["steps"] == 2
+
+
+def test_pda_diagnostics_disabled_avoids_raw_clone(
+    regression_pipeline, tokenizer, monkeypatch
+):
+    from src.grammar.grammar_logits_processor import GrammarPDALogitsProcessor
+
+    pdas, _, _ = regression_pipeline
+    processor = GrammarPDALogitsProcessor(tokenizer, pdas, track_diagnostics=False)
+    scores = torch.zeros(1, len(tokenizer))
+    original_clone = torch.Tensor.clone
+    clones = 0
+
+    def counted_clone(self, *args, **kwargs):
+        nonlocal clones
+        if self is scores:
+            clones += 1
+        return original_clone(self, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "clone", counted_clone)
+    processor(torch.tensor([[tokenizer.eos_token_id]]), scores)
+    assert clones == 0
+
+
 # ---------------------------------------------------------------------------
 # 5. Full-vocabulary production gate (env-gated; never skips when enabled)
 # ---------------------------------------------------------------------------

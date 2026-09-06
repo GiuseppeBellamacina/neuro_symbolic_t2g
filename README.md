@@ -79,7 +79,7 @@ SFT uses `sft/zero-shot` as its training identity. There is no extra hierarchy l
 
 ## Offline operation
 
-Cluster compute jobs are offline. Model, dataset, vocabulary, transition data, and retrieval caches must be prepared before launch. Hugging Face offline flags and `WANDB_MODE=offline` must be set before Python starts; credentials must not be committed. W&B runs may be synchronized later from a networked environment.
+Run `bash cluster/setup.sh` on the internet-enabled login node. It enters `/shared/sifs/latest.sif` directly (no `srun`/GPU), installs into shared `~/.local`, and prepares model, dataset, and vocabulary caches without running host Python. Cluster train/eval/preflight/probe jobs remain offline; run `sbatch cluster/preflight.sh` after setup. Hugging Face offline flags and `WANDB_MODE=offline` must be set before compute Python starts; credentials must not be committed.
 
 See [Training](TRAINING.md), [Cluster Operation](CLUSTER.md), and [Evaluation](docs/EVALUATION.md).
 

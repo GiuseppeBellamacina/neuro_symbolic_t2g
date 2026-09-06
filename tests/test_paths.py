@@ -142,3 +142,10 @@ def test_ablation_eval_identifier_and_log_path(tmp_path: Path) -> None:
         tmp_path
         / "logs/qwen25-05b/sft-grpo/zero-shot/ablations/hot/run_20260906_123456/eval-few-shot"
     )
+
+
+def test_reward_ablation_path_schema(tmp_path: Path) -> None:
+    cell = Cell("qwen25-05b", "grpo", "few-shot", "reward-token-f1", "ablation")
+    assert cell_base_dir(tmp_path, "checkpoints", cell) == (
+        tmp_path / "checkpoints/qwen25-05b/grpo/few-shot/ablations/reward-token-f1"
+    )

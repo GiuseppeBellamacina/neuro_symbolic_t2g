@@ -7,7 +7,7 @@ This is the authoritative campaign definition. It describes intended comparisons
 - **Method** is the learned system: `base`, `sft`, `grpo`, or `sft-grpo`.
 - **Prompt mode** is input conditioning: `zero-shot` or retrieval-backed `few-shot`. Zero-shot is prompting, **not a training method**.
 - **Baseline** means the untrained `base` method evaluated with the named prompt mode. It is not synonymous with zero-shot.
-- **Variant** is a controlled ablation. Current variants are `pda` and `hot`.
+- **Variant** is a controlled ablation. Current variants are `pda`, `hot`, and the five `reward-*` single-reward variants.
 
 ## Primary 2x2
 
@@ -30,7 +30,7 @@ The additional reference cells are:
 
 The default campaign is **2 eval-only baselines + 5 train/eval cells = 12 queue entries**: 2 baseline evaluations, plus SFT and the four primary 2x2 cells, each with one training and one dual-prompt evaluation entry.
 
-`bash cluster/run_all.sh` enqueues the default campaign. The two staged ablations are not included.
+`bash cluster/run_all.sh` enqueues the default campaign. Staged ablations are not included.
 
 ## Staged ablations
 
@@ -38,8 +38,14 @@ Run only after the primary campaign passes preflight and produces interpretable 
 
 1. `ablations/sft-grpo-zero-pda.yaml` — decoding formalism only: PDA versus the primary Trie path. Manual; see `PDA.md`.
 2. `ablations/sft-grpo-zero-hot.yaml` — rollout temperature only: 1.3 versus the inherited 0.7. Manual stability probe.
+3. `ablations/rewards/*.yaml` — five manual single-reward comparisons over GRPO few-shot. Qualification on one frozen rollout artifact is mandatory before launch; see `REWARD_ABLATIONS.md`.
 
 Markov probes are analyses over frozen generations. They never train a policy and are not campaign cells; see `MARKOV_DIAGNOSTICS.md`.
+
+The reduced-state structured-loss benchmark is also outside the campaign and is
+never exposed through the TUI. It freezes Qwen and trains three head-only arms
+on shared cached boundary features. It may consume GPU training time but never
+updates the policy; see `STRUCTURED_LOSS.md`.
 
 ## Exact config tree
 
@@ -64,6 +70,7 @@ ablations/
 probes/
   rollouts.yaml
   markov.yaml
+  structured.yaml
 ```
 
 `base.yaml` is the shared recipe, not an additional campaign cell. Runnable files declare `experiment.model_tag`, `method`, `train_prompt_mode`, `variant`, and `kind`; those fields determine artifact paths. `kind` is lifecycle: `train` produces a checkpoint, while `baseline`, `ablation`, and `probe` identify their respective job classes. Prompt conditioning remains in `train_prompt_mode`.

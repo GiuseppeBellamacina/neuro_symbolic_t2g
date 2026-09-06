@@ -1,0 +1,40 @@
+\chapter{Operazioni sul cluster}\label{chap:cluster}
+\section{Setup online sul login node}
+\begin{lstlisting}[language=bash]
+ssh <user>@gcluster.dmi.unict.it
+cd ~/neuro_symbolic_t2g
+bash cluster/setup.sh
+\end{lstlisting}
+Il setup online esegue Apptainer \pathcode{/shared/sifs/latest.sif} direttamente
+sul login node: niente \pathcode{srun}, allocazione GPU o Python host. Installa in
+\pathcode{~/.local} senza alterare lo stack torch/CUDA, verifica versioni, scarica
+Qwen e ASLG-PC12 e costruisce vocabolario/sidecar. \pathcode{BUILD_BIGRAM=1}
+abilita la matrice opzionale.
+Le versioni presidiate includono Transformers 5.3.0, TRL 0.24.0, PEFT 0.19.1,
+Unsloth 2026.7.1 e torchao 0.16--0.17.
+
+\section{Compute rigorosamente offline}
+Preflight, train, eval e probe esportano prima di Python:
+\begin{lstlisting}
+HF_HUB_OFFLINE=1
+TRANSFORMERS_OFFLINE=1
+HF_DATASETS_OFFLINE=1
+WANDB_MODE=offline
+WANDB_DISABLE_WEAVE=true
+WANDB_SILENT=true
+\end{lstlisting}
+Il preflight controlla import, snapshot, dataset, vocab, retrieval/bigram se
+richiesti e W\&B. Non scarica e non allena.
+
+\section{Coda e campaign chain}
+La QoS ammette un solo job submitted/attivo per utente: \pathcode{run_all.sh}
+mantiene una chain sequenziale di 12 voci. Non lanciare una seconda campagna in
+parallelo. Comandi:
+\begin{lstlisting}[language=bash]
+CONFIG=experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml sbatch cluster/preflight.sh
+bash cluster/run_all.sh
+CONFIG=experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+\end{lstlisting}
+Usare gli strumenti \pathcode{chain-show}/monitor per osservare l'avanzamento.
+Una failure va corretta e ripresa con la stessa identità, non aggirata cambiando
+path. PDA e reward usano i gate aggiuntivi descritti nei capitoli 6 e 7.

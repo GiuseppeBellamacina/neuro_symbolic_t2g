@@ -32,6 +32,10 @@
 
 # ── Variabili progetto ────────────────────────────────────────────────────────
 EXTRA_ARGS="${EXTRA_ARGS:-}"
+if [[ "$CONFIG" == *"/ablations/rewards/"* ]] && [[ "$EXTRA_ARGS" != *"--reward-qualification-report"* ]]; then
+    echo "❌ Reward ablations require EXTRA_ARGS='--reward-qualification-report PATH'" >&2
+    exit 2
+fi
 
 if [ -z "$CONFIG" ]; then
     echo "❌ CONFIG non impostato. Uso:"

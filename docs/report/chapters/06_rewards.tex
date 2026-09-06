@@ -1,0 +1,69 @@
+\chapter{Reward: definizione, qualificazione e limiti}\label{chap:rewards}
+\section{Contratto comune e gate}
+Esiste sempre \emph{un solo} reward selezionato da \pathcode{reward.name}, mai una
+somma pesata. La completion viene normalizzata con
+\pathcode{extract_gloss_text}, poi Unicode \pathcode{casefold} e
+\pathcode{split}; la reference è testo piano e riceve casefold+split. Il gate
+richiede completion e reference non vuote e ogni token generato nel vocabolario.
+Un fallimento restituisce \pathcode{invalid_score}, default $-1$. Il builder lo
+accetta soltanto finito e in $[-1,1]$: NaN, infinito e valori esterni sono
+rifiutati. La
+similarità viene clampata in $[0,1]$ e $R=2s-1$, quindi ogni reward è
+rigorosamente in $[-1,1]$.
+
+\section{Le cinque candidate esatte}
+\begin{description}[style=nextline]
+\item[edit-validity] $s=1-d_{Lev}(g,y)/\max(|g|,|y|)$, Levenshtein sui token.
+\item[token-f1-validity] F1 dell'intersezione multinsieme con conteggi clipped;
+premia contenuto ma è intenzionalmente invariante al riordino.
+\item[chrfpp-validity] SacreBLEU chrF++: char order 6, word order 2, $\beta=2$,
+whitespace disattivato e nessun epsilon smoothing.
+\item[rouge-l-validity] F1 dalla LCS sui token, senza stemming.
+\item[sbleu2-exp-validity] sentence BLEU-2, effective order, smoothing
+esponenziale e tokenizer \pathcode{none} \cite{post2018sacrebleu}.
+\end{description}
+Correttezza della formula non equivale a utilità empirica. Edit penalizza ogni
+operazione uniformemente; multiset F1 ignora ordine; chrF++ tollera vicinanza di
+caratteri; ROUGE-L conserva ordine ma ammette sottosequenze; BLEU-2 è fragile su
+frasi corte, specialmente a una glossa.
+
+\section{Qualificazione congelata}
+Prima di un'ablazione si misurano tutte le candidate sullo stesso artifact con
+$G=8$, retrieval, Trie, $T=0.7$, massimo 128. Le soglie per candidata sono:
+gruppi a varianza zero $\le0.50$, all-min $\le0.50$, score unici medi $\ge1.50$,
+best-minus-mean $\ge0.05$, oltre a ranking, lunghezza e perturbazioni. Il report
+registra hash input/vocabolario, identità decoding, protocollo e reward, firme
+SacreBLEU e digest SHA-256 congiunto di \pathcode{src/rewards/t2g_rewards.py} e
+\pathcode{src/utils/text_utils.py}.
+
+Le perturbazioni sono metric-specifiche: l'inversione per token-F1 è invarianza
+attesa e non fa gate. No-op, palindromi e casi non valutabili sono contati in
+\pathcode{no_op_count} e \pathcode{structurally_unevaluable_count}, non
+mascherati come successi o failure e non fanno gate. Degradazioni attese valutabili richiedono
+media non negativa e \emph{evidenza positiva} di calo. È screening manuale, non
+prova di superiorità.
+
+\section{Hard gate a due livelli}
+\pathcode{cluster/train.sh} richiede in \pathcode{EXTRA_ARGS} l'opzione
+\pathcode{--reward-qualification-report} per config reward-ablation. In modo
+indipendente, il trainer Python valida subito dopo il config e prima di risolvere
+run, dati o modello. Rifiuta report mancante/non JSON, protocollo stale,
+candidate fallita o ineleggibile, mismatch di digest/impostazioni/SacreBLEU,
+gruppo, temperatura, prompt/retrieval, Trie o max length, artifact sorgente
+mancante/hash-alterato e vocabolario mancante, stale o non coincidente col
+config. L'invocazione Python diretta non aggira il gate; nessun gate promuove
+automaticamente una metrica.
+\begin{lstlisting}[language=bash]
+python -m src.analysis rewards --config experiments/configs/qwen25-05b/probes/rewards.yaml --input experiments/results/.../generations_x.json
+EXTRA_ARGS="--reward-qualification-report experiments/analysis/qwen25-05b/rewards/report.json" bash cluster/run_all.sh grpo-few-reward-token-f1
+\end{lstlisting}
+Le config sono manual-only. TUI/driver mostrano il campo report solo per train
+reward, accettano path repository-relative sotto \pathcode{experiments/analysis/}
+e nella modalità train+eval inoltrano il report soltanto alla voce train.
+
+\section{Copertura dei test borderline}
+La suite copre vocabolario vuoto, gold vuoto o mancante, OOV e casefold Unicode.
+Copre inoltre spazi e punteggiatura, operazioni edit, duplicati e riordino,
+sequenze disgiunte, SacreBLEU a un token, bound stretti, chat TRL malformata o
+con final message, errori config e provenienza. Questi test provano invarianti e
+failure mode, non superiorità empirica.

@@ -4,20 +4,21 @@ This guide covers current SLURM operation for the Qwen2.5-0.5B campaign. Config 
 
 ## Setup
 
-Upload the repository, request an interactive GPU session, and prepare all runtime artifacts:
+Upload the repository and run setup directly on the internet-enabled login node:
 
 ```bash
 ssh <user>@gcluster.dmi.unict.it
-srun --account <queue> --partition <queue> --qos gpu-xlarge --gres=gpu:1 --pty bash
 cd ~/neuro_symbolic_t2g
 bash cluster/setup.sh
 ```
 
-Setup must populate local Hugging Face model and dataset caches, the gloss vocabulary, transition data, and retrieval cache used by few-shot configs. Compute jobs must not download artifacts.
+Setup uses `/shared/sifs/latest.sif` through Apptainer without `srun` or a GPU. Python and pip run only inside the container, while shared `$HOME`, `~/.local`, `HF_HOME=$HOME/.cache/huggingface`, and `HF_HUB_CACHE` remain visible. It installs core + retrieval into the user site under constraints generated from every preinstalled critical ML/CUDA package. The post-install gate rejects any change to that captured stack and enforces the tested Transformers 5.3.0, TRL 0.24.0, PEFT 0.19.1, Unsloth 2026.7.1, and torchao 0.16–0.17 combination plus the original torch/CUDA identity. It then caches Qwen with `snapshot_download`, caches ASLG-PC12, and creates the deterministic 90/10 train-derived vocabulary and sidecar. Use `BUILD_BIGRAM=1 bash cluster/setup.sh` to build the optional Markov bigram.
+
+`pip-reset` removes user packages first and then runs this complete online setup. `pip-setup` runs setup without first clearing `~/.local`.
 
 ## Offline contract
 
-Training, evaluation, preflight, and probes run with Hugging Face offline and W&B offline:
+Training, evaluation, preflight, and probes run on compute with Hugging Face offline and W&B offline. Setup is the only online acquisition step:
 
 ```text
 HF_HUB_OFFLINE=1

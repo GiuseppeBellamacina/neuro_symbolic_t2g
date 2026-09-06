@@ -3,10 +3,10 @@
 #
 # Login node:
 #   INPUT=experiments/results/.../generations_*.json \
-#     bash cluster/probe.sh {rollouts|markov} [config.yaml]
+#     bash cluster/probe.sh {rollouts|rewards|markov} [config.yaml]
 # Batch submission:
 #   INPUT=experiments/results/.../generations_*.json \
-#     sbatch cluster/probe.sh {rollouts|markov} [config.yaml]
+#     sbatch cluster/probe.sh {rollouts|rewards|markov} [config.yaml]
 #
 #SBATCH --job-name=probe-t2g
 #SBATCH --account=thesis-course
@@ -21,8 +21,8 @@
 
 COMMAND="${1:-rollouts}"
 case "$COMMAND" in
-    rollouts|markov) ;;
-    *) echo "usage: INPUT=path/to/generations.json $0 {rollouts|markov} [config.yaml]" >&2; exit 2 ;;
+    rollouts|rewards|markov) ;;
+    *) echo "usage: INPUT=path/to/generations.json $0 {rollouts|rewards|markov} [config.yaml]" >&2; exit 2 ;;
 esac
 CONFIG="${2:-experiments/configs/qwen25-05b/probes/${COMMAND}.yaml}"
 
@@ -78,5 +78,8 @@ fi
 ARGS=("$COMMAND" --config "$CONFIG" --input "$INPUT")
 if [ -n "${OUTPUT:-}" ]; then
     ARGS+=(--output "$OUTPUT")
+fi
+if [ "${FORCE:-0}" = "1" ]; then
+    ARGS+=(--force)
 fi
 run_py -m src.analysis "${ARGS[@]}"

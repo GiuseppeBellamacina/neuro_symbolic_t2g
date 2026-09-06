@@ -68,3 +68,36 @@ def test_production_trainer_has_no_markov_reward_loading():
     assert "load_transition_matrix" not in source
     assert "viterbi_distance_reward" not in source
     assert "initialize_rewards(vocab)" in source
+
+
+def test_tuple_optional_dependency_flags_are_normalized_before_trl_import():
+    source = train.Path(train.__file__).read_text(encoding="utf-8")
+    assert '"_weave_available"' in source
+    assert "isinstance(getattr(_trl_iu, _optional_flag, False), tuple)" in source
+
+
+def test_base_enables_and_training_passes_exact_diagnostics():
+    base = (
+        train.Path(train.__file__).parents[2]
+        / "experiments/configs/qwen25-05b/base.yaml"
+    ).read_text(encoding="utf-8")
+    source = train.Path(train.__file__).read_text(encoding="utf-8")
+    assert "track_diagnostics: true" in base
+    assert 'track_diagnostics=grammar_cfg.get("track_diagnostics", False)' in source
+    assert "reset_generation_state()" in source
+
+
+def test_reward_ablation_python_gate_cannot_be_bypassed():
+    config = {
+        "experiment": {"variant": "reward-edit"},
+        "reward": {"name": "edit-validity"},
+    }
+    with pytest.raises(ValueError, match="reward-qualification-report"):
+        train.validate_reward_qualification(config, None)
+
+
+def test_primary_config_does_not_require_qualification():
+    assert (
+        train.validate_reward_qualification({"experiment": {"variant": "none"}}, None)
+        is None
+    )

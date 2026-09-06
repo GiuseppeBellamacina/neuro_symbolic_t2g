@@ -1,0 +1,35 @@
+\chapter{Disegno sperimentale canonico}\label{chap:experiments}
+\section{Sette celle e dodici voci}
+Le sette celle sono due baseline eval-only (base zero/few), SFT zero-shot e il
+$2\times2$ GRPO: inizializzazione base/SFT per prompt train zero/few. La coda ha
+12 voci: 2 eval baseline più train+eval per le 5 celle apprese. Ogni eval appresa
+esegue zero-shot e retrieval. Non contare le due gambe come metodi diversi.
+
+\begin{center}\begin{tabular}{lll}\toprule
+Metodo & Inizializzazione & Prompt train\\\midrule
+SFT & base & zero-shot\\
+GRPO & base & zero-shot\\
+GRPO & base & few-shot\\
+SFT-GRPO & SFT & zero-shot\\
+SFT-GRPO & SFT & few-shot\\\bottomrule
+\end{tabular}\end{center}
+
+\section{Config e artifact}
+La radice è \pathcode{experiments/configs/qwen25-05b/}; \pathcode{base.yaml} è
+ricetta condivisa, non cella. I runnable dichiarano \pathcode{model_tag},
+\pathcode{method}, \pathcode{train_prompt_mode}, \pathcode{variant} e
+\pathcode{kind}. Checkpoint/log seguono
+\begin{lstlisting}
+experiments/{checkpoints,logs}/qwen25-05b/<method>/<train-prompt>/[ablations/<variant>/]run_<timestamp>/
+\end{lstlisting}
+e risultati
+\begin{lstlisting}
+experiments/results/qwen25-05b/<method>/<train-prompt>/[ablations/<variant>/]eval-<prompt>/run_<timestamp>/
+\end{lstlisting}
+Le baseline usano \pathcode{baseline/<prompt>/run_*}. Identità config e artifact
+devono concordare; non copiare YAML in gerarchie parallele.
+
+\section{Ablazioni fuori matrice}
+PDA, hot e cinque reward sono manuali. Rollout/reward/Markov sono probe su
+generazioni congelate. Structured-loss è un benchmark head-only. Nessuno entra
+nella campagna primaria senza nuova preregistrazione.

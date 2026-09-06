@@ -50,7 +50,7 @@ function Upload {
     # Do NOT recurse from $LOCAL root: that would traverse .venv/ (thousands
     # of site-packages __pycache__ dirs, takes minutes and hangs).
     Write-Progress -Activity "Upload" -Status "Cleaning __pycache__..." -PercentComplete 0
-    $uploadDirs = @("src", "cluster", "experiments/configs", "tests", "grammarllm")
+    $uploadDirs = @("src", "cluster", "experiments/configs", "grammarllm")
     foreach ($dir in $uploadDirs) {
         $dirPath = Join-Path $LOCAL $dir
         if (Test-Path $dirPath) {

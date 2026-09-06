@@ -1,0 +1,30 @@
+\chapter{Valutazione e inferenza}\label{chap:evaluation}
+\section{Deployment e sampling}
+Su 2.000 esempi test seeded, ogni prompt ha una completion \method{deployment}
+greedy (\pathcode{do_sample=false}) e $N=5$ draw \method{sampling} indipendenti a
+$T=0.7$. Le headline sono solo greedy; sampling misura qualità attesa,
+diversità/headroom e Pass@k. Un oracle scelto col gold è non deployable e va
+separato. I seed per sample derivano deterministicamente da seed di protocollo,
+ID stabile sorgente+gold, mode e indice: batching, cache e resume non li cambiano.
+
+\section{Metriche e interpretazione}
+Si riportano corpus BLEU-4 e chrF2, ROUGE-L medio, micro token-F1, exact match
+normalizzato, edit similarity, validità e lunghezze. Il successo Pass@k richiede
+ROUGE-L $\ge0.3$ e validità lessicale; lo stimatore è
+$1-\binom{n-c}{k}/\binom nk$ \cite{chen2021codex}. Includere errore di lunghezza
+signed/assoluto, ratio, empty e truncation-hit. Validità non è qualità; una
+decodifica vincolata può aumentare la prima e peggiorare le altre metriche.
+
+\section{Intervalli e confronti}
+Il bootstrap è deterministico e clustered per prompt. Le metriche sentence dei
+draw sono prima aggregate nel prompt; BLEU/chrF corpus vengono ricalcolati a ogni
+resample. Un delta appaiato richiede gli stessi ID unici nello stesso ordine e
+gli stessi indici bootstrap. Non usare intervalli indipendenti per sostituire il
+test appaiato.
+
+\section{Identità della cache}
+Cache e baseline esplicita devono coincidere su versione metrica, hash degli ID,
+dataset, modello, tokenizer, vocabolario, retrieval, grammar, decoding, seed,
+mode, $N$, budget e temperatura. Ogni mismatch fallisce esplicitamente. Gli
+artifact conservano \pathcode{decoding_mode}, \pathcode{completion_index}, raw
+generations, metriche, config, checkpoint e firme SacreBLEU.

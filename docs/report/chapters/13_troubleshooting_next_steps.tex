@@ -1,0 +1,34 @@
+\chapter{Troubleshooting, limiti e passi successivi}\label{chap:troubleshooting}
+\section{Diagnosi per sintomo}
+\begin{longtable}{p{.28\textwidth}p{.60\textwidth}}\toprule
+Sintomo & Azione\\\midrule
+Config/identity mismatch & Stampare config risolta; verificare method, prompt,
+variant, kind e checkpoint source; non rinominare directory a mano.\\
+Cache/model offline mancante & Non abilitare rete nel job: rieseguire setup sul
+login node, quindi preflight.\\
+Output vuoti o tutti invalidi & Ispezionare chat extraction, EOS, vocabolario,
+OOV e massa ammessa; distinguere gate reward da Trie.\\
+Reward senza varianza & Controllare gruppi, gold, $G=8$, gate e distribuzione;
+non lanciare training per ``vedere se migliora''.\\
+OOM & Verificare config effettiva, batch/accumulo, max length, quantizzazione e
+processi concorrenti; non cambiare più assi nell'esperimento.\\
+Eval non appaiabile & Rigenerare con stessi ID ordinati e identica protocol
+identity; non forzare la cache.\\
+PDA fallisce & Eseguire preflight con \pathcode{PDA=1} sul vocabolario completo.\\
+W\&B non visibile & Il compute è offline: preservare directory e sincronizzare
+dopo, da nodo con rete.\\\bottomrule
+\end{longtable}
+
+\section{LEGACY --- NON CONFRONTABILE}
+\warningbox{Artifact, metriche o figure anteriori al protocollo canonico
+\pathcode{qwen25-05b}, incluse versioni metriche precedenti, sono LEGACY E NON
+CONFRONTABILI. Non unirli a tabelle correnti.}
+Questo manuale omette valori storici: non sono evidenza della campagna attuale.
+
+\section{Passi successivi responsabili}
+Direzioni possibili, non implementazioni presenti: valutazione umana/linguistica
+ASL; più seed e potenza; retrieval appreso con anti-leakage; reward d'ordine
+qualificato e isolato; transizioni condizionate alla sorgente; vera testa
+strutturata con Viterbi e gradient-flow test; studio causale della massa rimossa.
+Ogni estensione richiede ipotesi, controllo, failure mode, test, budget e criterio
+di decisione preregistrati. Superare un probe non dimostra beneficio di training.

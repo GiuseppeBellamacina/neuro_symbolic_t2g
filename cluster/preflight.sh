@@ -39,6 +39,7 @@
 #SBATCH --output=logs/slurm-preflight-%j.log
 
 CONFIG="${CONFIG:-}"
+REWARD_QUALIFICATION_REPORT="${REWARD_QUALIFICATION_REPORT:-}"
 
 # ── 0. Relancio sotto container (convenzioni setup.sh) ───────────────────────
 # - login node            → exec srun (apptainer) come setup.sh;
@@ -110,6 +111,19 @@ echo ""
 # ── Check 2: artifact offline (dataset/vocab/modello; bigram opzionale) ──────
 echo "── 2. Artifact offline (require_cluster_artifacts) ──"
 require_cluster_artifacts "$CONFIG"
+if [[ "$CONFIG" == *"/ablations/rewards/"* ]]; then
+    [ -n "$REWARD_QUALIFICATION_REPORT" ] || {
+        echo "❌ REWARD_QUALIFICATION_REPORT required for reward ablation preflight" >&2
+        exit 2
+    }
+    run_py -c "
+import sys
+from src.training.grpo_t2g_train import validate_reward_qualification
+from src.utils.config import resolve_config
+validate_reward_qualification(resolve_config(sys.argv[1]), sys.argv[2])
+print('  ✅ scientific reward qualification report valid')
+" "$CONFIG" "$REWARD_QUALIFICATION_REPORT"
+fi
 echo ""
 
 # ── Check 3: import dipendenze + versioni (locale, zero rete) ────────────────
@@ -117,13 +131,15 @@ echo "── 3. Import dipendenze ──"
 run_py -c "
 import os
 assert os.environ.get('HF_HUB_OFFLINE') == '1', 'HF_HUB_OFFLINE non è 1'
-import torch, transformers, trl, peft, datasets, sklearn
+import torch, transformers, trl, peft, datasets, sklearn, sacrebleu
+assert sacrebleu.__version__ == '2.6.0', f'sacrebleu must be 2.6.0, got {sacrebleu.__version__}'
 print(f'  PyTorch:       {torch.__version__} (CUDA: {torch.cuda.is_available()})')
 print(f'  Transformers:  {transformers.__version__}')
 print(f'  TRL:           {trl.__version__}')
 print(f'  PEFT:          {peft.__version__}')
 print(f'  Datasets:      {datasets.__version__}')
 print(f'  scikit-learn:  {sklearn.__version__}')
+print(f'  SacreBLEU:     {sacrebleu.__version__}')
 try:
     import sentence_transformers
     print(f'  sentence-transformers: {sentence_transformers.__version__}')

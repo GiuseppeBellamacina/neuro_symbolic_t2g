@@ -15,6 +15,7 @@ Uses the ``tokenizer`` fixture from conftest.py.
 
 from __future__ import annotations
 
+import pytest
 import torch
 
 
@@ -131,143 +132,38 @@ def test_grammar_build(tokenizer):
     assert streamer is not None, "Streamer created"
 
 
-def test_masked_mass_tracking(tokenizer):
-    """MaskedMassTracker tracks entropy and mass statistics (with track_diagnostics=True)."""
-    from src.grammar.gloss_grammar import GlossVocabularyMask
-    from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
-
-    test_vocab = [
-        "<BOS>",
-        "<EOS>",
-        "<UNK>",
-        "IX",
-        "MAN",
-        "WALK",
-        "HOUSE",
-        "BOOK",
-        "DOG",
-        "CAT",
-    ]
-    mask = GlossVocabularyMask(test_vocab, tokenizer)
-    # track_diagnostics=True is required for mass tracking
-    processor = GlossVocabularyLogitsProcessor(
-        mask, device="cpu", track_diagnostics=True
-    )
-
-    vocab_size = tokenizer.vocab_size
-    for _ in range(5):
-        scores = torch.randn(1, vocab_size) * 0.5
-        dummy_input_ids = torch.zeros(1, 5, dtype=torch.long)
-        _ = processor(dummy_input_ids, scores)
-
-    stats = processor.get_masked_mass_stats()
-    assert stats["total_steps"] == 5, f"Total steps = 5, got {stats['total_steps']}"
-    assert (
-        0.0 <= stats["avg_masked_mass"] <= 1.0
-    ), f"Mass in [0,1]: {stats['avg_masked_mass']}"
-    assert stats["avg_masked_mass"] > 0.0, "Mass > 0"
-    assert (
-        0.0 <= stats["avg_masked_entropy"] <= 12.0
-    ), f"Entropy in [0, log(V)]: {stats['avg_masked_entropy']}"
-    assert stats["avg_masked_entropy"] > 0.0, "Entropy > 0"
-
-    processor.reset()
-    stats_reset = processor.get_masked_mass_stats()
-    assert stats_reset["total_steps"] == 0, "Reset clears total_steps"
-    assert stats_reset["avg_masked_mass"] == 0.0, "Reset clears mass"
-
-
-def test_pda_logits_processor_mass_tracking(tokenizer):
-    """PDA logits processor mass tracking."""
-    from src.grammar.gloss_grammar import create_grammarllm_pipeline
-    from src.grammar.grammar_logits_processor import GrammarPDALogitsProcessor
-
-    test_vocab = [
-        "<BOS>",
-        "<EOS>",
-        "<UNK>",
-        "IX",
-        "MAN",
-        "WALK",
-        "HOUSE",
-        "BOOK",
-        "DOG",
-        "CAT",
-    ]
-    _, _, pda = create_grammarllm_pipeline(test_vocab, tokenizer)
-    processor = GrammarPDALogitsProcessor(tokenizer, pda)
-
-    vocab_size = tokenizer.vocab_size
-    valid_init = processor.get_valid_tokens()
-    assert len(valid_init) > 0, f"PDA initial valid tokens non-empty: {len(valid_init)}"
-
-    for _ in range(5):
-        scores = torch.randn(1, vocab_size) * 0.5
-        dummy_input_ids = torch.zeros(1, 5, dtype=torch.long)
-        _ = processor(dummy_input_ids, scores)
-
-    stats = processor.get_masked_mass_stats()
-    assert stats["total_steps"] == 5, f"PDA total steps = 5, got {stats['total_steps']}"
-    assert 0.0 <= stats["avg_masked_mass"] <= 1.0
-    assert stats["avg_masked_mass"] > 0.0, "PDA mass > 0"
-    assert 0.0 <= stats["avg_masked_entropy"] <= 12.0
-    assert stats["avg_masked_entropy"] > 0.0, "PDA entropy > 0"
-
-    processor.reset()
-    stats_reset = processor.get_masked_mass_stats()
-    assert stats_reset["total_steps"] == 0, "PDA reset clears total_steps"
-
-    # Accumulate again
-    for _ in range(3):
-        scores = torch.randn(1, vocab_size) * 0.5
-        dummy_input_ids = torch.zeros(1, 5, dtype=torch.long)
-        _ = processor(dummy_input_ids, scores)
-
-    stats2 = processor.get_masked_mass_stats()
-    assert (
-        stats2["total_steps"] == 3
-    ), f"PDA after reset + 3 steps: {stats2['total_steps']}"
-
-    # reset_after=True path
-    stats3 = processor.get_masked_mass_stats(reset_after=True)
-    assert stats3["total_steps"] == 3, "reset_after returns correct total_steps"
-    stats_after = processor.get_masked_mass_stats()
-    assert stats_after["total_steps"] == 0, "reset_after clears counters"
-
-
-def test_build_allowed_mask():
-    """_build_allowed_mask edge cases."""
+def test_exact_per_row_diagnostics_and_invariants():
     from src.grammar.masked_mass_tracker import MaskedMassTracker
 
     tracker = MaskedMassTracker()
     tracker._init_masked_stats()
+    logits = torch.log(torch.tensor([[0.1, 0.2, 0.7], [0.6, 0.3, 0.1]]))
+    allowed = torch.tensor([[True, True, False], [False, True, True]])
+    tracker._track_masked_stats(logits, allowed)
+    stats = tracker.get_diagnostics()
+    assert stats["allowed_mass_mean"] == pytest.approx(0.35)
+    assert stats["removed_mass_mean"] == pytest.approx(0.65)
+    assert stats["allowed_mass_min"] == pytest.approx(0.3)
+    assert stats["allowed_mass_mean"] + stats["removed_mass_mean"] == pytest.approx(1)
+    assert (
+        torch.exp(torch.tensor(stats["log_allowed_mass_mean"]))
+        <= stats["allowed_mass_mean"]
+    )
+    assert stats["active_rows"] == 2
+    assert stats["steps"] == 1
 
-    # Empty set
-    mask = tracker._build_allowed_mask(set(), vocab_size=10, device="cpu")
-    assert mask.shape == (10,), "Empty set: shape correct"
-    assert mask.sum().item() == 0, "Empty set: all False"
-    assert mask.dtype == torch.bool, "Empty set: dtype bool"
 
-    # Normal usage
-    mask = tracker._build_allowed_mask({0, 5, 9}, vocab_size=10, device="cpu")
-    assert mask[0].item() and mask[5].item() and mask[9].item(), "Positions 0,5,9 True"
-    assert not mask[1].item(), "Position 1 False"
-    assert mask.sum().item() == 3, "Sum=3"
+def test_b1_post_eos_exclusion_and_interval_reset():
+    from src.grammar.masked_mass_tracker import MaskedMassTracker
 
-    # Out of range
-    mask = tracker._build_allowed_mask({-5, -1, 100, 200}, vocab_size=10, device="cpu")
-    assert mask.sum().item() == 0, "Out-of-range: all False"
-
-    # Mixed
-    mask = tracker._build_allowed_mask({-1, 0, 5, 100}, vocab_size=10, device="cpu")
-    assert mask[0].item() and mask[5].item(), "Mixed: only 0,5 True"
-    assert mask.sum().item() == 2, "Mixed: sum=2"
-
-    # vocab_size=0
-    mask = tracker._build_allowed_mask({0, 1, 2}, vocab_size=0, device="cpu")
-    assert mask.shape == (0,), "vocab_size=0: shape (0,)"
-    assert mask.sum().item() == 0, "vocab_size=0: sum=0"
-
-    # All valid
-    mask = tracker._build_allowed_mask({0, 1, 2, 3, 4}, vocab_size=5, device="cpu")
-    assert mask.sum().item() == 5, "All valid: sum=5"
+    tracker = MaskedMassTracker()
+    tracker._init_masked_stats()
+    scores = torch.zeros(1, 3)
+    allowed = torch.tensor([[True, False, False]])
+    tracker._track_masked_stats(scores, allowed, torch.tensor([True]))
+    tracker._track_masked_stats(scores, allowed, torch.tensor([False]))
+    tracker._track_masked_stats(scores, allowed, torch.tensor([True]))
+    stats = tracker.get_diagnostics(reset_after=True)
+    assert stats["active_rows"] == 2
+    assert stats["steps"] == 2
+    assert tracker.get_diagnostics()["steps"] == 0

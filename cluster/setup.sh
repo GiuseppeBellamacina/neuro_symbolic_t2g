@@ -1,127 +1,183 @@
 #!/bin/bash
-# ============================================================================
-# Setup one-tantum per il cluster — SOLO VERIFICA (verify-only).
-#
-# Uso (dal login node):
-#   cd ~/neuro_symbolic_t2g
-#   bash cluster/setup.sh
-#
-# Lo script rilancia se stesso dentro srun + Apptainer automaticamente e poi
-# VERIFICA soltanto: nessun `pip install`, nessun download HF, nessun
-# load_dataset con download, nessuna eccezione di download "ingoiata".
-#
-# ⚠️  I compute node NON hanno internet: l'acquisizione di dipendenze,
-#     modelli e dataset deve avvenire in un setup separato CON RETE
-#     (workflow di login / macchina locale) e va sincronizzata sul cluster
-#     prima di sottomettere train/eval. Questo script NON crea alcun
-#     workflow python sul login node.
-#
-# Opzionale:
-#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml bash cluster/setup.sh
-#   → verifica anche lo snapshot del modello specifico della config.
-# ============================================================================
+# Online login-node bootstrap. All Python and pip execution stays in Apptainer.
 
-# ── 0. Auto-rilancio dentro srun + Apptainer se siamo sul login node ─────────
-if [ -z "$APPTAINER_CONTAINER" ]; then
-    echo "🚀 Login node rilevato → rilancio inside srun + Apptainer..."
-    ACCOUNT="${SLURM_ACCOUNT:-thesis-course}"
-    exec srun --account "$ACCOUNT" --partition "$ACCOUNT" --qos gpu-xlarge \
-         --gres=gpu:1 --gres=shard:22000 --mem=48G --cpus-per-task=8 \
-         apptainer run --nv /shared/sifs/latest.sif \
-         bash "$0" "$@"
+set -euo pipefail
+
+SIF="${T2G_SIF:-/shared/sifs/latest.sif}"
+if [ -z "${APPTAINER_CONTAINER:-}" ]; then
+    command -v apptainer >/dev/null 2>&1 || {
+        echo "ERROR: apptainer is not available on the login node." >&2
+        exit 1
+    }
+    [ -f "$SIF" ] || { echo "ERROR: container not found: $SIF" >&2; exit 1; }
+    exec apptainer exec \
+        --cleanenv \
+        --home "$HOME:$HOME" \
+        --bind "$HOME:$HOME" \
+        --env "HF_HOME=$HOME/.cache/huggingface" \
+        --env "HF_HUB_CACHE=$HOME/.cache/huggingface/hub" \
+        --env "T2G_SETUP_CONTAINER=1" \
+        "$SIF" bash "$0" "$@"
 fi
 
-set -e
+[ "${T2G_SETUP_CONTAINER:-0}" = "1" ] || {
+    echo "ERROR: setup must be launched by its login-node Apptainer wrapper." >&2
+    exit 1
+}
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=cluster/_lib.sh
 source "$SCRIPT_DIR/_lib.sh"
 cd "$PROJ_DIR"
 
-# ── Offline env PRIMA di ogni python (verify-only: tutto locale) ─────────────
-export_offline_env
+export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
+export HF_HUB_CACHE="${HF_HUB_CACHE:-$HF_HOME/hub}"
+export PYTHONUNBUFFERED=1
+mkdir -p "$HF_HOME" "$HF_HUB_CACHE"
 
-echo "=== Setup Neuro-Symbolic T2G (Cluster) — VERIFY-ONLY ==="
-echo ""
-echo "ℹ️  I compute node NON hanno internet: questo script NON installa"
-echo "   nulla e NON scarica nulla. Verifica soltanto gli artifact già"
-echo "   presenti (dipendenze nell'immagine, cache HF, vocab/bigram)."
-echo ""
+PYTHON_BIN=$(command -v python3 || command -v python || true)
+[ -n "$PYTHON_BIN" ] || { echo "ERROR: Python missing inside $SIF" >&2; exit 1; }
 
-# ── 1. Verifica ambiente ──────────────────────────────────────────────────────
-if command -v python3 &>/dev/null; then
-    PY=python3
-elif command -v python &>/dev/null; then
-    PY=python
-else
-    echo "❌ Python non trovato nel container!"
-    exit 1
-fi
-echo "   Python: $($PY --version 2>&1)"
-if command -v nvidia-smi &>/dev/null; then
-    nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1
-fi
+CONSTRAINTS=$(mktemp "${TMPDIR:-/tmp}/t2g-constraints.XXXXXX")
+STACK_INFO=$(mktemp "${TMPDIR:-/tmp}/t2g-stack.XXXXXX")
+trap 'rm -f "$CONSTRAINTS" "$STACK_INFO"' EXIT
 
-# ── 2. Verifica artifact offline (fail-fast, NESSUN download) ─────────────────
-# Al posto di preparare dati o scaricare il modello, qui si verifica
-# SOLO che dataset/vocab/bigram/modello siano già presenti nelle path condivise.
-# CONFIG (opzionale) restringe la verifica dello snapshot HF al modello della
-# config; senza CONFIG si verifica che la cache HF contenga almeno una snapshot.
-echo ""
-echo "📦 Verifica artifact offline (dataset, vocab, bigram, modello HF)..."
-# setup.sh gira già DENTRO il container → forza python bare (RUN_PY_FORCE_BARE).
-RUN_PY_FORCE_BARE=1 require_cluster_artifacts "${CONFIG:-}"
+echo "==> Capturing the critical container stack"
+"$PYTHON_BIN" - "$CONSTRAINTS" "$STACK_INFO" <<'PY'
+import importlib.metadata as metadata
+import json
+import re
+import sys
 
-# ── 3. Verifica import/versioni locali (nessun download) ──────────────────────
-echo ""
-echo "🔍 Verifica installazione (import locali, zero rete)..."
-$PY -c "
-import os
-assert os.environ.get('HF_HUB_OFFLINE') == '1', 'HF_HUB_OFFLINE non è 1: env offline non attiva'
-import torch, transformers, trl, peft, datasets, sklearn
-print(f'  PyTorch:       {torch.__version__}')
-print(f'  CUDA:          {torch.cuda.is_available()}')
-print(f'  Transformers:  {transformers.__version__}')
-print(f'  TRL:           {trl.__version__}')
-print(f'  PEFT:          {peft.__version__}')
-print(f'  Datasets:      {datasets.__version__}')
-print(f'  scikit-learn:  {sklearn.__version__}')
-try:
-    import sentence_transformers
-    print(f'  sentence-transformers: {sentence_transformers.__version__}')
-except Exception as e:
-    print('  ⚠️  sentence-transformers NON importabile (extra retrieval mancante?)')
-    print(f'      {e}')
-    print('      Il backend minilm non sarà disponibile; il default tfidf funziona.')
-try:
-    import unsloth
-    print(f'  Unsloth:       {unsloth.__version__}')
-except ImportError:
-    print('  Unsloth:       Non installato')
-"
+constraints, stack_info = sys.argv[1:]
+critical = {
+    "torch", "torchao", "triton", "xformers", "bitsandbytes", "transformers",
+    "accelerate", "trl", "peft", "unsloth", "unsloth-zoo",
+    "sentence-transformers", "sacrebleu",
+}
+
+def normalize_name(name):
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+names = {
+    normalize_name(dist.metadata["Name"])
+    for dist in metadata.distributions()
+    if dist.metadata.get("Name")
+}
+protected = sorted(
+    name for name in names if name in critical or name.startswith("nvidia-")
+)
+before = {name: metadata.version(name) for name in protected}
+with open(constraints, "w", encoding="utf-8") as handle:
+    for name, version in before.items():
+        handle.write(f"{name}=={version}\n")
+
+import torch
+
+with open(stack_info, "w", encoding="utf-8") as handle:
+    json.dump(
+        {
+            "packages": before,
+            "torch_identity": {"torch": torch.__version__, "cuda": torch.version.cuda},
+        },
+        handle,
+        sort_keys=True,
+    )
+print(f"Protected {len(before)} installed distributions")
+print(f"Expected torch={torch.__version__}, CUDA={torch.version.cuda}")
+PY
+
+echo "==> Installing project core + retrieval into the shared user site"
+"$PYTHON_BIN" -m pip install --user --constraint "$CONSTRAINTS" ".[retrieval]"
+
+echo "==> Verifying the complete critical stack"
+"$PYTHON_BIN" - "$STACK_INFO" <<'PY'
+import importlib.metadata as metadata
+import json
+import re
+import sys
+
+from packaging.version import Version
+import torch
+
+def normalize_name(name):
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+def validate_versions(before, after, torch_before, torch_after):
+    changed = {
+        name: (version, after.get(name))
+        for name, version in before.items()
+        if after.get(name) != version
+    }
+    if changed:
+        raise RuntimeError(f"pip changed protected packages: {changed}")
+    if torch_after != torch_before:
+        raise RuntimeError(
+            f"torch/CUDA identity changed: expected {torch_before}, got {torch_after}"
+        )
+    exact = {
+        "transformers": "5.3.0",
+        "trl": "0.24.0",
+        "peft": "0.19.1",
+        "unsloth": "2026.7.1",
+        "unsloth-zoo": "2026.7.1",
+        "sacrebleu": "2.6.0",
+    }
+    wrong = {
+        name: (wanted, after.get(name))
+        for name, wanted in exact.items()
+        if after.get(name) != wanted
+    }
+    torchao = after.get("torchao")
+    if torchao is None or not (Version("0.16") <= Version(torchao) < Version("0.18")):
+        wrong["torchao"] = (">=0.16,<0.18", torchao)
+    if wrong:
+        raise RuntimeError(f"tested package versions not active: {wrong}")
+
+expected = json.load(open(sys.argv[1], encoding="utf-8"))
+installed = {
+    normalize_name(dist.metadata["Name"]): dist.version
+    for dist in metadata.distributions()
+    if dist.metadata.get("Name")
+}
+torch_identity = {"torch": torch.__version__, "cuda": torch.version.cuda}
+validate_versions(
+    expected["packages"], installed, expected["torch_identity"], torch_identity
+)
+sentence_transformers = installed.get("sentence-transformers")
+if sentence_transformers and "sentence-transformers" not in expected["packages"]:
+    print(f"sentence-transformers={sentence_transformers} (newly installed)")
+print(f"torch={torch.__version__}, CUDA={torch.version.cuda} (preserved)")
+print("tested critical package versions are active")
+PY
+
+MODEL_ID="${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}"
+BUILD_BIGRAM="${BUILD_BIGRAM:-0}"
+echo "==> Downloading model/tokenizer and preparing ASLG-PC12 artifacts"
+"$PYTHON_BIN" -m src.utils.setup_artifacts \
+    --model-id "$MODEL_ID" \
+    --dataset-cache "data/aslg_pc12" \
+    --vocab-path "data/gloss_vocab.txt" \
+    --bigram-path "data/bigram_transition.npy" \
+    --build-bigram "$BUILD_BIGRAM"
+
+echo "==> Lightweight online verification"
+"$PYTHON_BIN" - "$MODEL_ID" <<'PY'
+import sys
+
+from datasets import load_dataset
+from huggingface_hub import snapshot_download
+from transformers import AutoTokenizer
+
+model_id = sys.argv[1]
+snapshot = snapshot_download(model_id, local_files_only=True)
+AutoTokenizer.from_pretrained(snapshot, local_files_only=True)
+dataset = load_dataset("achrafothman/aslg_pc12", cache_dir="data/aslg_pc12")
+assert "train" in dataset and len(dataset["train"]) > 0
+print("model/tokenizer and dataset cache are readable")
+PY
 
 echo ""
-echo "=== ✅ Verifica completata! ==="
-echo ""
-echo "💡 Per aggiungere ~/.local/bin al PATH in modo persistente:"
-echo "   source cluster/aliases.sh && install-aliases"
-echo ""
-echo "⚠️  ACQUISIZIONE DIPENDENZE/MODELLI/DATASET — fuori dai compute node:"
-echo "   I compute node non hanno internet: NESSUN pip install, NESSUN"
-echo "   download HF, NESSUN load_dataset con download è possibile da qui."
-echo "   Tutto va acquisito in un AMBIENTE SEPARATO CON RETE (workflow di"
-echo "   login con immagine apportata / macchina locale) e sincronizzato"
-echo "   sul cluster PRIMA di sottomettere train/eval:"
-echo ""
-echo "     1. dipendenze Python  → già bakeate nell'immagine Apptainer"
-echo "        (aggiornare/ricostruire il SIF fuori dai compute node);"
-echo "     2. cache HF           → dataset ASLG-PC12 + snapshot del modello"
-echo "        in $T2G_HF_HOME_DEFAULT (condivisa su NFS);"
-echo "     3. artifact dati      → data/gloss_vocab.txt,"
-echo "        data/bigram_transition.npy (+ sidecar *.meta.json) in $PROJ_DIR/data."
-echo ""
-echo "Prossimi passi:"
-echo "  1. Modifica cluster/train.sh con la tua queue, email e QoS"
-echo "  2. Verifica rapida: bash cluster/preflight.sh"
-echo "  3. Lancia SFT: CONFIG=experiments/configs/qwen25-05b/sft/zero-shot.yaml sbatch cluster/train.sh"
-echo "  4. Oppure lancia pipeline completa: bash cluster/run_all.sh"
+echo "Online setup complete. No SLURM allocation or GPU was requested."
+echo "Next, submit the offline compute verification:"
+echo "  CONFIG=${CONFIG:-experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml} sbatch cluster/preflight.sh"

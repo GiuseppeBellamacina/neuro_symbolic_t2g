@@ -38,13 +38,13 @@ def test_sample_logger_preserves_gold_alignment_and_breakdown(reward_setup):
     assert "edit_validity_reward" in formatted
 
 
-def test_sample_logger_without_gold_uses_neutral_score(reward_setup):
+def test_sample_logger_without_gold_uses_invalid_score(reward_setup):
     logger = _edit_validity_logger(n_samples=1)
     logger._capture(["IX MAN WALK HOUSE"], prompts=None, gold_gloss=None)
 
     sample = logger._buffer[0]
     assert sample["gold"] == ""
-    assert sample["breakdown"] == {"edit_validity_reward": 0.0}
+    assert sample["breakdown"] == {"edit_validity_reward": -1.0}
     assert "gold non disponibile" in logger.format_samples()
 
 

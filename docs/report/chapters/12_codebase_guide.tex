@@ -1,0 +1,41 @@
+\chapter{Guida alla codebase ed estensioni}\label{chap:codebase}
+\section{Mappa per directory e simboli}
+\begin{description}[style=nextline]
+\item[\pathcode{src/datasets/}] prepara righe, split, matrici e grafi strutturati.
+\item[\pathcode{src/models/}] \pathcode{model_loader.py} carica Qwen/adapter;
+\pathcode{structured_gloss_head.py} implementa la testa ridotta.
+\item[\pathcode{src/training/}] entry point SFT, GRPO, eval e benchmark strutturato.
+\item[\pathcode{src/grammar/}] implementa logits processor Trie/PDA e telemetria.
+\item[\pathcode{src/rewards/t2g_rewards.py}] registry, normalizzazione, gate e metriche reward.
+\item[\pathcode{src/retrieval/}] indice e ricerca TF--IDF.
+\item[\pathcode{src/analysis/}] rollout, reward, Markov e structured benchmark.
+\item[\pathcode{src/utils/}] config, path/identity, prompt, metriche, cache e monitor.
+\item[\pathcode{experiments/configs/}] ricette canoniche; \pathcode{cluster/} launcher
+offline/chain; \pathcode{remote/} API e TUI; \pathcode{tests/} invarianti.
+\end{description}
+
+\section{Ricette di estensione}
+\paragraph{Nuova config.} Estendere la base, cambiare un asse, assegnare identità
+univoca, aggiungere validazione/path test e registrarla nel driver solo se deve
+essere esposta. Non confondere prompt e method.
+\paragraph{Nuovo reward.} Implementare similarità pura, riusare normalizzazione,
+gate, clamp e transform, registrare un solo nome, aggiungere borderline e
+perturbation contract, config manuale e qualificazione con digest/hash.
+\paragraph{Nuovo probe.} Consumare artifact congelato esplicito, versionare
+schema/protocollo, separare diagnostica da training e definire boundary prima di
+guardare i risultati.
+\paragraph{Nuovo backend retrieval.} Implementare build/query, fingerprint di
+corpus e parametri, esclusione self-match, cache fail-closed e test anti-leakage.
+\paragraph{Nuova route/API.} Aggiungere modello request, autenticazione,
+validazione repository-relative, operazione idempotente e test API/TUI; non
+considerare SQLite fonte autoritativa.
+
+\section{Validazione}
+La suite comprende config, dataset, prompt/retrieval, reward, grammar, metriche,
+training/eval, cache/path, launcher offline, probe, API e TUI. Comandi canonici:
+\begin{lstlisting}[language=bash]
+uv run python -m pytest tests/ -v
+python tests/validate_configs.py
+\end{lstlisting}
+Uno skip GPU/cache è un prerequisito assente, non un pass. Registrare comando,
+versioni, pass/fail/skip e non riportare conteggi storici come correnti.

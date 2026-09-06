@@ -143,11 +143,12 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
                     node = node.children[tid]
                 node.is_terminal = True
 
-    def reset(self) -> None:
-        """Reset step counter, prompt length, and diagnostic metrics for a new generation."""
+    def reset_generation_state(self) -> None:
+        """Reset prompt-dependent state without clearing diagnostics."""
         self.step_count = 0
         self.prompt_len = -1
-        self._reset_masked_stats()
+
+    reset = reset_generation_state
 
     def __call__(
         self,
@@ -231,11 +232,13 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
 
         # Track masked probability mass + entropy only if diagnostics are explicitly enabled
         if self.track_diagnostics:
-            with torch.no_grad():
-                probs = torch.nn.functional.softmax(scores, dim=-1)
-            # Find a single allowed mask representing the root state for logging
-            # (or log based on batch mean allowed mask)
-            self._track_masked_stats(probs, mask.any(dim=0))
+            active = self._active_rows(
+                input_ids,
+                self.prompt_len,
+                self.eos_token_id,
+                getattr(self.tokenizer, "pad_token_id", None),
+            )
+            self._track_masked_stats(scores, mask, active)
 
         scores = scores.clone()
         scores[~mask] = -float("inf")
@@ -303,11 +306,13 @@ class GrammarPDALogitsProcessor(LogitsProcessor, MaskedMassTracker):
         pda: PushdownAutomaton | list[PushdownAutomaton],
         temperature: float = 1.0,
         track_score_history: bool = False,
+        track_diagnostics: bool = False,
     ) -> None:
         LogitsProcessor.__init__(self)
         MaskedMassTracker._init_masked_stats(self)
 
         self.tokenizer = tokenizer
+        self.track_diagnostics = track_diagnostics
         # Normalize to list of base PDA templates. Accept either a single
         # PDA (for callers supplying one template) or a list (from
         # create_grammarllm_pipeline which now returns pdas: list).
@@ -322,7 +327,7 @@ class GrammarPDALogitsProcessor(LogitsProcessor, MaskedMassTracker):
             tokenizer=tokenizer,
             base_pdas=base_pdas,
             sequences_per_prompt=1,
-            prompt_len=0,
+            prompt_len=-1,
             temperature=temperature,
             track_score_history=track_score_history,
         )
@@ -336,12 +341,14 @@ class GrammarPDALogitsProcessor(LogitsProcessor, MaskedMassTracker):
             track_score_history,
         )
 
-    def reset(self) -> None:
-        """Reset PDA, grammar processor cache, step counter, and masked mass/entropy stats."""
+    def reset_generation_state(self) -> None:
+        """Reset PDA and prompt-dependent state without clearing diagnostics."""
         self.step_count = 0
-        self._reset_masked_stats()
         self.pda.reset()
         self._grammar_processor.reset()
+        self._grammar_processor.prompt_len = -1
+
+    reset = reset_generation_state
 
     def __call__(
         self,
@@ -352,30 +359,11 @@ class GrammarPDALogitsProcessor(LogitsProcessor, MaskedMassTracker):
 
         Tracks masked mass and entropy diagnostics before delegating.
         """
-        probs = self._pre_process(scores)
-
-        # StatelessLogitsProcessor determines valid tokens from input_ids
-        # history (re-simulated, with LRU cache). We track the mask here
-        # for diagnostics using the PDA's current valid token set.
-        # Filter out-of-range token IDs (can occur when the grammar's
-        # token map includes IDs >= scores.shape[-1], e.g. Qwen2.5 has
-        # vocab_size=151643 but eos_token_id=151643 — the new external
-        # StatelessLogitsProcessor indexes scores[i, valid_ids] without
-        # bounds checking, causing IndexError). We pre-filter here so the
-        # wrapped processor never sees out-of-range IDs.
-        raw_valid = self.get_valid_tokens()
-        vocab_size = scores.shape[-1]
-        valid_in_range = {t for t in raw_valid if 0 <= t < vocab_size}
-        allowed_mask = self._build_allowed_mask(
-            valid_in_range, vocab_size, scores.device
-        )
-
-        # Track masked probability mass + entropy (shared mixin)
-        self._track_masked_stats(probs, allowed_mask)
+        self.step_count += 1
 
         # Update prompt_len on the wrapped processor so it can extract the
         # generated-token history from input_ids correctly on first call.
-        if self._grammar_processor.prompt_len == 0:
+        if self._grammar_processor.prompt_len < 0:
             self._grammar_processor.prompt_len = input_ids.shape[1]
 
         # Auto-expand base_pdas to match batch_size. StatelessLogitsProcessor
@@ -390,23 +378,18 @@ class GrammarPDALogitsProcessor(LogitsProcessor, MaskedMassTracker):
             while len(proc.base_pdas) < batch_size:
                 proc.base_pdas.append(base_template.clone())
 
-        # Defensive: monkey-patch the tokenizer's eos_token_id on the wrapped
-        # processor's tokenizer view if it's out of range, to prevent the
-        # `scores[i, self.tokenizer.eos_token_id] = 0` lines (528, 537) in
-        # StatelessLogitsProcessor from raising IndexError. We point it to
-        # a valid in-range ID (the last valid gloss token, or 0 as fallback).
-        # This only affects the EOS-forcing path when the PDA reaches end
-        # state — the actual EOS token is still emitted by HF generate()
-        # via the model's own eos_token_id handling.
-        eos_id = getattr(self.tokenizer, "eos_token_id", None)
-        if eos_id is not None and eos_id >= vocab_size:
-            # Use a safe in-range sentinel for the wrapped processor's
-            # internal EOS-forcing. The real EOS emission is handled by HF.
-            self._grammar_processor.tokenizer_eos_fallback = (
-                valid_in_range and next(iter(valid_in_range)) or 0
+        raw_scores = scores.clone() if self.track_diagnostics else None
+        filtered = self._grammar_processor(input_ids, scores)
+        if raw_scores is not None:
+            applied_mask = torch.isfinite(filtered)
+            active = self._active_rows(
+                input_ids,
+                self._grammar_processor.prompt_len,
+                getattr(self.tokenizer, "eos_token_id", None),
+                getattr(self.tokenizer, "pad_token_id", None),
             )
-
-        return self._grammar_processor(input_ids, scores)
+            self._track_masked_stats(raw_scores, applied_mask, active)
+        return filtered
 
     def update_state(self, token_id: int) -> None:
         """Update the PDA state after a token is generated.
@@ -440,7 +423,7 @@ class GrammarPDALogitsProcessor(LogitsProcessor, MaskedMassTracker):
     def points(self) -> list[tuple[float, float]] | None:
         """Entropy/invalid-mass trajectory points (if metrics enabled)."""
         # StatelessLogitsProcessor doesn't expose points; return None for
-        # API compatibility. Use masked_mass_stats() for diagnostics.
+        # API compatibility. Use get_diagnostics() for diagnostics.
         return None
 
     @property

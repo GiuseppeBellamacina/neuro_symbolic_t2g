@@ -355,7 +355,7 @@ def test_reward_breakdown(reward_setup):
     completions = ["IX MAN WALK HOUSE", "DOG CAT", "NOT CAN WANT"]
     references = ["IX MAN WALK HOUSE", "IX MAN WALK", "NOT CAN WANT"]
     result = compute_reward_breakdown(completions, references=references)
-    assert set(result) == {"edit_validity_reward"}
+    assert set(result) == {"edit_validity_reward", "edit_validity_diagnostic"}
     assert result["edit_validity_reward"] == pytest.approx(1 / 3)
     assert compute_reward_breakdown(completions) == {}
 

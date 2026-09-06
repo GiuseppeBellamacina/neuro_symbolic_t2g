@@ -270,7 +270,16 @@ def _validate_cross_section(cfg: dict[str, Any], errors: list[str], path: str) -
                 "few-shot",
             }:
                 errors.append(f"{path}: experiment.train_prompt_mode enum invalido")
-            if experiment.get("variant") not in {"none", "pda", "hot"}:
+            if experiment.get("variant") not in {
+                "none",
+                "pda",
+                "hot",
+                "reward-edit",
+                "reward-token-f1",
+                "reward-chrfpp",
+                "reward-rouge-l",
+                "reward-sbleu2",
+            }:
                 errors.append(f"{path}: experiment.variant enum invalido")
             if experiment.get("kind") not in {"baseline", "train", "ablation", "probe"}:
                 errors.append(f"{path}: experiment.kind enum invalido")
@@ -335,6 +344,65 @@ def validate_config(config_path: Path, verbose: bool = False) -> list[str]:
             errors.append(f"{path}: probe schema consente solo experiment e probe")
         if not isinstance(cfg.get("probe"), dict) or not cfg["probe"].get("name"):
             errors.append(f"{path}: probe.name mancante")
+        if cfg.get("probe", {}).get("name") == "structured":
+            required = {
+                "model_name",
+                "dataset_cache",
+                "output_root",
+                "feature_artifact",
+                "top_k",
+                "max_gloss_length",
+                "alpha",
+                "transition_scale",
+                "head_lr",
+                "weight_decay",
+                "steps",
+                "seed",
+                "train_samples",
+                "dev_samples",
+                "dev_fraction",
+                "feature_batch_size",
+                "seeds",
+                "max_peak_memory_bytes",
+                "max_arm_runtime_seconds",
+            }
+            missing = required - set(cfg["probe"])
+            if missing:
+                errors.append(
+                    f"{path}: structured probe chiavi mancanti: {sorted(missing)}"
+                )
+            expected = {
+                "top_k": int,
+                "max_gloss_length": int,
+                "alpha": float,
+                "transition_scale": float,
+                "head_lr": float,
+                "weight_decay": float,
+                "steps": int,
+                "seed": int,
+                "train_samples": int,
+                "dev_samples": int,
+                "dev_fraction": float,
+                "feature_batch_size": int,
+                "seeds": list,
+                "max_peak_memory_bytes": int,
+                "max_arm_runtime_seconds": float,
+            }
+            for key, expected_type in expected.items():
+                value = cfg["probe"].get(key)
+                if value is not None and not isinstance(value, expected_type):
+                    errors.append(
+                        f"{path}: probe.{key} deve essere {expected_type.__name__}"
+                    )
+            fixed = {
+                "top_k": 512,
+                "max_gloss_length": 64,
+                "alpha": 0.1,
+                "transition_scale": 0.25,
+            }
+            for key, expected_value in fixed.items():
+                if cfg["probe"].get(key) != expected_value:
+                    errors.append(f"{path}: probe.{key} deve essere {expected_value}")
         _validate_cross_section(cfg, errors, path)
         return errors
 

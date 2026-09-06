@@ -1,0 +1,21 @@
+\chapter{Modello, QLoRA e SFT}\label{chap:sft}
+\section{Configurazione esatta}
+La base usa Qwen2.5-0.5B-Instruct, sequenza massima 1024, pesi 4-bit, calcolo
+bfloat16, Unsloth e una GPU. LoRA modifica
+\begin{equation}W=W_0+\frac{\alpha}{r}BA,\end{equation}
+con $r=32$, $\alpha=64$, dropout 0.05, seed 3407 e target elencati in
+\pathcode{base.yaml}: proiezioni q/k/v/o e gate/up/down \cite{hu2021lora}. Il
+backbone quantizzato resta congelato; gli adapter non sono per questo ``4-bit''.
+
+\section{Obiettivo e ricetta SFT}
+\begin{equation}\mathcal L_{\rm SFT}=-\sum_{t=1}^{T}\log p_\theta(y_t\mid x,y_{<t}).\end{equation}
+La config canonica \pathcode{sft/zero-shot.yaml} usa 3 epoche, batch/device 4,
+accumulo 4, learning rate $2\,10^{-5}$, cosine scheduler, warmup 50, eval fraction
+0.02 ed early stopping patience 3. SFT è addestrato zero-shot ma valutato con
+entrambi i prompt.
+
+\section{Fingerprint e riuso}
+Il checkpoint SFT è riusabile soltanto se fingerprint di config, modello,
+tokenizer, dataset/split e adapter coincidono. \method{sft-grpo} riusa l'adapter
+SFT; non va selezionato un checkpoint solo perché è il più recente. Conservare
+config risolta e origine, e usare \pathcode{--resume} solo con la stessa identità.

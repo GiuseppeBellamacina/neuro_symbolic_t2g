@@ -104,6 +104,7 @@ def deduplicate_by_text(dataset: Dataset) -> tuple[Dataset, int]:
 def download_aslg_dataset(
     cache_dir: str | None = None,
     seed: int = 42,
+    online: bool | None = None,
 ) -> DatasetDict:
     """Download (or load from cache) the ASLG-PC12 dataset.
 
@@ -111,6 +112,10 @@ def download_aslg_dataset(
         cache_dir: Directory to cache the downloaded dataset.
             Defaults to ``data/aslg_pc12``.
         seed: Random seed for reproducible splits.
+        online: Explicit acquisition mode. ``True`` permits downloads for
+            setup; ``False`` requires the caller to have enabled HF offline
+            mode before importing this module. ``None`` follows the process
+            environment.
 
     Returns:
         A Hugging Face ``DatasetDict`` with ``"train"`` and ``"test"`` splits.
@@ -119,17 +124,11 @@ def download_aslg_dataset(
         RuntimeError: If the dataset cannot be downloaded or loaded.
     """
     cache = cache_dir or DEFAULT_CACHE_DIR
+    if online is True and os.environ.get("HF_HUB_OFFLINE") == "1":
+        raise RuntimeError("online dataset acquisition requested in HF offline mode")
+    if online is False and os.environ.get("HF_HUB_OFFLINE") != "1":
+        raise RuntimeError("offline dataset loading requires HF_HUB_OFFLINE=1")
     logger.info(f"Loading dataset '{DATASET_NAME}' (cache: {cache})...")
-
-    # NOTE (offline-first): the REAL offline enforcement lives in
-    # cluster/train.sh + cluster/eval.sh (export HF_HUB_OFFLINE=1 +
-    # TRANSFORMERS_OFFLINE=1, set before python starts — huggingface_hub
-    # reads these at import time). The setdefault below is only a
-    # belt-and-braces for old `datasets` stacks: datasets >= 3 ignores
-    # HF_DATASETS_OFFLINE (proven by the HEAD retries in
-    # slurm-train-7073/7077 despite this line), and it must stay
-    # setdefault-only so setup.sh's first download keeps network access.
-    os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
     try:
         ds: DatasetDict = load_dataset(  # type: ignore[assignment]

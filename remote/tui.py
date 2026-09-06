@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -61,11 +62,45 @@ CONFIG_NAMES: tuple[str, ...] = (
     "baseline-few",
     "sft-grpo-zero-pda",
     "sft-grpo-zero-hot",
+    "grpo-few-reward-edit",
+    "grpo-few-reward-token-f1",
+    "grpo-few-reward-chrfpp",
+    "grpo-few-reward-rouge-l",
+    "grpo-few-reward-sbleu2",
 )
 CONFIG_NAME_SET: frozenset[str] = frozenset(CONFIG_NAMES)
+REWARD_CONFIG_NAMES: frozenset[str] = frozenset(
+    name for name in CONFIG_NAMES if name.startswith("grpo-few-reward-")
+)
+REWARD_REPORT_PREFIX = "experiments/analysis/"
+REWARD_REPORT_OPTION = "--reward-qualification-report"
+_SAFE_REPORT_PATH_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*\Z")
 
 # Riga che delimita la sezione gestita dal TUI dentro .env (idempotente).
 ENV_MARKER = "# >>> t2g-tui >>>"
+
+
+def validate_reward_report_path(value: str) -> str:
+    """Return a shell-safe repository-relative path below experiments/analysis."""
+    path = value.strip()
+    if (
+        not path
+        or not path.startswith(REWARD_REPORT_PREFIX)
+        or Path(path).is_absolute()
+        or "\\" in path
+        or any(part in ("", ".", "..") for part in path.split("/"))
+        or not _SAFE_REPORT_PATH_RE.fullmatch(path)
+    ):
+        raise ValueError(
+            "Report: usa un path relativo sicuro sotto experiments/analysis/"
+        )
+    return path
+
+
+def _reward_mode(config: str, job_type: str, report_path: str) -> str | None:
+    if job_type != "train" or config not in REWARD_CONFIG_NAMES:
+        return None
+    return f"{REWARD_REPORT_OPTION} {validate_reward_report_path(report_path)}"
 
 
 @dataclass(frozen=True)
@@ -323,6 +358,7 @@ class RemoteServiceClient:
         job_type: str,
         config: str,
         tag: str | None = None,
+        mode: str | None = None,
     ) -> dict[str, Any]:
         """POST /jobs/start → accoda + tick immediato (parte subito se libero).
 
@@ -331,6 +367,8 @@ class RemoteServiceClient:
         payload: dict[str, Any] = {"type": job_type, "config": config}
         if tag:
             payload["tag"] = tag
+        if mode:
+            payload["mode"] = mode
         return self._request("POST", "/jobs/start", json=payload, timeout=90.0)
 
     def start_batch(
@@ -983,6 +1021,11 @@ class AddJobScreen(T2GScreen):
         yield Input(
             placeholder="Tag (opzionale - di default derivato dal config)", id="tag"
         )
+        yield Static("Report qualificazione (path repo-relative)", id="report-label")
+        yield Input(
+            placeholder="experiments/analysis/.../report.json",
+            id="qualification-report",
+        )
         # Accodare anche l'eval dopo il train (train + checkbox eval): il
         # batch endpoint enqueue train+eval. Disponibile sia in start_mode
         # ('s') sia in normal mode ('a').
@@ -999,6 +1042,7 @@ class AddJobScreen(T2GScreen):
         self._last_derived_tag: str | None = None
         self._prefill_tag()
         self._sync_eval_checkbox()
+        self._sync_report_field()
         self.query_one("#type", Select).focus()
 
     # ── Azioni (binding) ──
@@ -1011,8 +1055,10 @@ class AddJobScreen(T2GScreen):
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "config":
             self._prefill_tag()
+            self._sync_report_field(clear=True)
         elif event.select.id == "type":
             self._sync_eval_checkbox()
+            self._sync_report_field(clear=True)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "submit":
@@ -1032,6 +1078,22 @@ class AddJobScreen(T2GScreen):
         if checkbox is not None:
             checkbox.display = self._type_value() == "train"
 
+    def _needs_report(self) -> bool:
+        return (
+            self._type_value() == "train"
+            and self._config_value() in REWARD_CONFIG_NAMES
+        )
+
+    def _sync_report_field(self, *, clear: bool = False) -> None:
+        needed = self._needs_report()
+        report = self.query_one("#qualification-report", Input)
+        label = self.query_one("#report-label", Static)
+        if clear or not needed:
+            report.value = ""
+        report.display = needed
+        report.disabled = not needed
+        label.display = needed
+
     def _prefill_tag(self) -> None:
         """Suggerisce il tag derivato dal config (stessa regola del driver)."""
         config = self._config_value()
@@ -1047,26 +1109,41 @@ class AddJobScreen(T2GScreen):
         tag = self.query_one("#tag", Input).value.strip() or None
         checkbox = self.query_one("#also-eval", Checkbox)
         also_eval = bool(checkbox.value) and job_type == "train"
+        try:
+            mode = _reward_mode(
+                config,
+                job_type,
+                self.query_one("#qualification-report", Input).value,
+            )
+        except ValueError as exc:
+            self.t2g_app.notify(
+                f"[red]{escape(str(exc))}[/red]", severity="error", timeout=8
+            )
+            return
         if also_eval:
             # Batch train+eval: un solo endpoint, la eval resta in coda dopo.
             # Disponibile sia in start_mode ('s') che in normal mode ('a').
             if self.start_mode:
                 self.t2g_app.run_worker(
-                    self.t2g_app.start_batch_job(job_type, config, tag)
+                    self.t2g_app.start_batch_job(job_type, config, tag, mode)
                 )
             else:
-                self.t2g_app.run_worker(self._do_submit_batch(job_type, config, tag))
+                self.t2g_app.run_worker(
+                    self._do_submit_batch(job_type, config, tag, mode)
+                )
         elif self.start_mode:
-            self.t2g_app.run_worker(self.t2g_app.start_job(job_type, config, tag))
+            self.t2g_app.run_worker(self.t2g_app.start_job(job_type, config, tag, mode))
         else:
-            self.t2g_app.run_worker(self._do_submit(job_type, config, tag))
+            self.t2g_app.run_worker(self._do_submit(job_type, config, tag, mode))
 
-    async def _do_submit(self, job_type: str, config: str, tag: str | None) -> None:
-        if await self.t2g_app.add_job(job_type, config, tag):
+    async def _do_submit(
+        self, job_type: str, config: str, tag: str | None, mode: str | None
+    ) -> None:
+        if await self.t2g_app.add_job(job_type, config, tag, mode):
             self.t2g_app.switch_screen("dashboard")
 
     async def _do_submit_batch(
-        self, job_type: str, config: str, tag: str | None
+        self, job_type: str, config: str, tag: str | None, mode: str | None
     ) -> None:
         """Accoda train+eval insieme (POST /jobs/batch senza tick).
 
@@ -1117,9 +1194,17 @@ class BatchStartScreen(T2GScreen):
             value="train+eval",
             id="mode",
         )
+        yield Static("Report qualificazione (path repo-relative)", id="report-label")
+        yield Input(
+            placeholder="experiments/analysis/.../report.json",
+            id="qualification-report",
+        )
         yield Checkbox("Avvia subito (tick immediato)", value=True, id="start-now")
         yield Button("Accoda selezione", variant="primary", id="submit")
         yield Footer()
+
+    def on_mount(self) -> None:
+        self._sync_report_field()
 
     # ── Azioni (binding) ──
 
@@ -1131,6 +1216,14 @@ class BatchStartScreen(T2GScreen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "submit":
             self._submit()
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        if event.checkbox.id and event.checkbox.id.startswith("cfg-"):
+            self._sync_report_field(clear=True)
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "mode":
+            self._sync_report_field(clear=True)
 
     # ── Interno ──
 
@@ -1145,6 +1238,22 @@ class BatchStartScreen(T2GScreen):
                 selected.append(name)
         return selected
 
+    def _needs_report(self) -> bool:
+        mode = str(self.query_one("#mode", Select).value)
+        return mode in ("train+eval", "train") and any(
+            name in REWARD_CONFIG_NAMES for name in self._selected_configs()
+        )
+
+    def _sync_report_field(self, *, clear: bool = False) -> None:
+        needed = self._needs_report()
+        report = self.query_one("#qualification-report", Input)
+        label = self.query_one("#report-label", Static)
+        if clear or not needed:
+            report.value = ""
+        report.display = needed
+        report.disabled = not needed
+        label.display = needed
+
     def _submit(self) -> None:
         selected = self._selected_configs()
         if not selected:
@@ -1156,11 +1265,24 @@ class BatchStartScreen(T2GScreen):
             return
         mode = str(self.query_one("#mode", Select).value)
         start_now = bool(self.query_one("#start-now", Checkbox).value)
+        report_path = self.query_one("#qualification-report", Input).value
+        if self._needs_report():
+            try:
+                validate_reward_report_path(report_path)
+            except ValueError as exc:
+                self.t2g_app.notify(
+                    f"[red]{escape(str(exc))}[/red]", severity="error", timeout=8
+                )
+                return
 
         jobs: list[dict[str, str]] = []
         for name in selected:
             if mode in ("train+eval", "train"):
-                jobs.append({"type": "train", "config": name})
+                train_job = {"type": "train", "config": name}
+                reward_mode = _reward_mode(name, "train", report_path)
+                if reward_mode:
+                    train_job["mode"] = reward_mode
+                jobs.append(train_job)
             if mode in ("train+eval", "eval"):
                 jobs.append({"type": "eval", "config": name})
 
@@ -1310,7 +1432,7 @@ class ReplaceQueueScreen(T2GScreen):
 
     Due modalità (entrambe con conferma, avvisano che la coda esistente viene
     SOSTITUITA): ``Ablation completa`` (7 config → 12 entry, stesso ordine di
-    ``run_all.sh``) oppure coda custom, una ``tipo:config[:tag]`` per riga.
+    ``run_all.sh``) oppure coda custom, una ``tipo:config[:tag[:mode]]`` per riga.
     """
 
     BINDINGS = [Binding("escape", "go_back", "Back")]
@@ -1329,8 +1451,9 @@ class ReplaceQueueScreen(T2GScreen):
             "…oppure definisci una coda custom (una entry per riga):", classes="hint"
         )
         yield Static(
-            "Formato [b]tipo:config[:tag][/b] — es. [b]train:sft-grpo-zero[/b] "
-            "o [b]train:sft-grpo-zero:my-run[/b]",
+            "Formato [b]tipo:config[:tag[:mode]][/b]. Reward train: "
+            "[b]train:grpo-few-reward-edit:tag:--reward-qualification-report="
+            "experiments/analysis/.../report.json[/b]",
             classes="hint",
         )
         yield TextArea(
@@ -1399,16 +1522,16 @@ class ReplaceQueueScreen(T2GScreen):
 
     @staticmethod
     def _parse_custom(text: str) -> list[dict[str, str]]:
-        """Parsa le righe ``tipo:config[:tag]`` in job per POST /queue."""
+        """Parse safe ``type:config[:tag[:mode]]`` rows for POST /queue."""
         jobs: list[dict[str, str]] = []
         for raw in text.splitlines():
             line = raw.strip()
             if not line or line.startswith("#"):
                 continue
             parts = line.split(":")
-            if len(parts) not in (2, 3):
+            if len(parts) not in (2, 3, 4):
                 raise ValueError(
-                    f"Formato non valido: {line!r} (atteso tipo:config[:tag])"
+                    f"Formato non valido: {line!r} (atteso tipo:config[:tag[:mode]])"
                 )
             job_type, config = parts[0].strip(), parts[1].strip()
             if job_type not in ("train", "eval"):
@@ -1418,8 +1541,30 @@ class ReplaceQueueScreen(T2GScreen):
                     f"Config non valido: {config!r} (nome noto o path .yaml)"
                 )
             job: dict[str, str] = {"type": job_type, "config": config}
-            if len(parts) == 3 and parts[2].strip():
+            if len(parts) >= 3 and parts[2].strip():
                 job["tag"] = parts[2].strip()
+            if len(parts) == 4:
+                raw_mode = parts[3].strip()
+                option = f"{REWARD_REPORT_OPTION}="
+                if not raw_mode.startswith(option):
+                    raise ValueError(
+                        "Mode custom consentito solo per report qualificazione reward"
+                    )
+                path = raw_mode[len(option) :]
+                mode = _reward_mode(config, job_type, path)
+                if mode is None:
+                    raise ValueError(
+                        "Report qualificazione consentito solo per reward train"
+                    )
+                job["mode"] = mode
+            if (
+                job_type == "train"
+                and config in REWARD_CONFIG_NAMES
+                and "mode" not in job
+            ):
+                raise ValueError(
+                    "Reward train richiede il report qualificazione come quarto campo"
+                )
             jobs.append(job)
         return jobs
 
@@ -1636,7 +1781,7 @@ class T2GDashApp(App[None]):
     # ── Mutazioni ──
 
     async def start_batch_job(
-        self, job_type: str, config: str, tag: str | None
+        self, job_type: str, config: str, tag: str | None, mode: str | None = None
     ) -> None:
         """POST /jobs/batch per un singolo config: train+eval insieme.
 
@@ -1646,6 +1791,10 @@ class T2GDashApp(App[None]):
         jobs: list[dict[str, Any]] = [{"type": job_type, "config": config}]
         if tag:
             jobs[0]["tag"] = tag
+        if mode:
+            jobs[0]["mode"] = mode
+        if mode:
+            jobs[0]["mode"] = mode
         if job_type == "train":
             eval_job: dict[str, Any] = {"type": "eval", "config": config}
             if tag:
@@ -1687,13 +1836,15 @@ class T2GDashApp(App[None]):
         self.switch_screen("dashboard")
         await self.refresh_monitor()
 
-    async def start_job(self, job_type: str, config: str, tag: str | None) -> None:
+    async def start_job(
+        self, job_type: str, config: str, tag: str | None, mode: str | None = None
+    ) -> None:
         """POST /jobs/start: accoda + tick immediato (parte subito se libero)."""
         if self.client is None:
             return
         try:
             result = await asyncio.to_thread(
-                self.client.start_job, job_type, config, tag
+                self.client.start_job, job_type, config, tag, mode
             )
         except RemoteServiceError as exc:
             self.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=10)
@@ -1761,12 +1912,16 @@ class T2GDashApp(App[None]):
         )
         await self.refresh_monitor()
 
-    async def add_job(self, job_type: str, config: str, tag: str | None) -> bool:
+    async def add_job(
+        self, job_type: str, config: str, tag: str | None, mode: str | None = None
+    ) -> bool:
         """POST /jobs: accoda un job; True se riuscito."""
         if self.client is None:
             return False
         try:
-            result = await asyncio.to_thread(self.client.add_job, job_type, config, tag)
+            result = await asyncio.to_thread(
+                self.client.add_job, job_type, config, tag, mode
+            )
         except RemoteServiceError as exc:
             self.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=8)
             return False

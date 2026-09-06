@@ -1,0 +1,24 @@
+\chapter{Dati, split e prompting}\label{chap:data}
+\section{Preprocessing ASLG-PC12}
+Il loader in \pathcode{src/datasets/aslg_dataset.py} legge \pathcode{text} e
+\pathcode{gloss}, scarta righe vuote e deduplica prima dello split usando il testo
+inglese normalizzato (minuscole e spazi compressi). Dal train grezzo deriva uno
+split deterministico 90/10 con seed 42; un test grezzo eventuale non viene usato.
+Ogni riga riceve un ID SHA-256 del testo normalizzato e gold, e difficoltà per
+lunghezza: 1--5, 6--15, almeno 16 glosse.
+
+\section{Vocabolario e anti-leakage}
+\pathcode{data/gloss_vocab.txt} è costruito soltanto dal train, ordinato in modo
+deterministico e accompagnato da sidecar; include BOS, EOS e UNK. Dev/test non
+definiscono lessico, archi o pesi. La matrice bigram è opzionale e diagnostica.
+La stessa separazione vale per l'indice retrieval.
+
+\section{Prompt e retrieval TF--IDF}
+\pathcode{src/utils/prompting.py} usa il chat template del tokenizer, con fallback
+ChatML. Zero-shot contiene istruzione e sorgente; few-shot antepone esempi
+\texttt{English:/ASL gloss:}. Il retriever in
+\pathcode{src/retrieval/example_retriever.py} usa TF--IDF, $k=3$, soglia di
+autosimilarità 0.98 e cache \pathcode{data/retriever_index}. Le dimostrazioni
+provengono solo dal train e il candidato corrente va escluso: controllare ID e
+hash evita self-retrieval e contaminazione. Nell'evaluator il nome CLI è
+\pathcode{retrieval}; negli artifact è \pathcode{few-shot}.

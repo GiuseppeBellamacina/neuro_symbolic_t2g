@@ -1,0 +1,29 @@
+\chapter{API remota, TUI e monitoraggio}\label{chap:remote}
+Il servizio FastAPI in \pathcode{remote/} esegue via SSH tick idempotenti. Lo
+stato autoritativo è \pathcode{.chain_state/} sul cluster; SQLite remoto è solo
+cache/journal. Pause è soft e non cancella il job attivo. Tutte le route tranne
+\pathcode{GET /} richiedono \pathcode{X-Auth-Token}.
+
+\begin{lstlisting}[language=bash]
+uv run --extra dev uvicorn app:app --port 8000 --app-dir remote
+uv run --extra tui python remote/tui.py --url http://localhost:8000 --token local-token
+\end{lstlisting}
+Il registry espone celle canoniche e varianti manuali. Il campo storico API
+\pathcode{ablation:true} seleziona/sostituisce la coda predefinita, non include
+automaticamente PDA/hot. Per reward train il report qualificato è obbligatorio;
+eval-only non deve riceverlo.
+Rollout e Markov non sono queue config; il benchmark structured è assente da
+driver e TUI. Un 401 indica autenticazione, mentre un 502 segnala tipicamente un
+problema SSH/cluster; lo status può restituire cache marcata non raggiungibile.
+
+\section{W\&B offline e sicurezza}
+I compute scrivono run W\&B offline in directory isolate per gamba eval. Il sync
+è successivo da ambiente con rete \cite{wandboffline}. Non mettere token HF,
+W\&B, API o chiavi SSH in repository, YAML, log o command history condivisa;
+preferire environment/secret store, permessi minimi e rotazione. Esporre l'API
+solo su interfaccia fidata o tunnel SSH, usare token forte e non stampare header.
+Validare ogni path come repository-relative e non accettare argomenti shell
+arbitrari dalla TUI.
+
+Da Windows gli script \pathcode{sync_cluster.ps1} scaricano log, checkpoint e
+risultati. Conservare la gerarchia timestampata: appiattirla perde provenienza.

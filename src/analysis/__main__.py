@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ import yaml
 
 from src.analysis.markov_diagnostics import load_markov_artifacts, run_markov_probe
 from src.analysis.rollout_probe import (
+    load_generation_artifact,
     load_grouped_generations,
     run_rollout_probe,
     write_json_report,
@@ -55,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser = argparse.ArgumentParser(description="Offline frozen-generation probes")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for command in ("rollouts", "markov"):
+    for command in ("rollouts", "rewards", "markov"):
         child = subparsers.add_parser(command)
         child.add_argument("--config", required=True)
         child.add_argument(
@@ -63,6 +65,11 @@ def main(argv: list[str] | None = None) -> int:
             help="Existing eval generations_*.json (required unless config sets input_path)",
         )
         child.add_argument("--output", help="Repository-local report path override")
+        child.add_argument(
+            "--force",
+            action="store_true",
+            help="Explicitly overwrite an existing report",
+        )
     args = parser.parse_args(argv)
     config = _config(args.config)
     input_value = args.input or config.get("input_path")
@@ -76,21 +83,57 @@ def main(argv: list[str] | None = None) -> int:
     if not output_value:
         raise ValueError("output_path is required in config or via --output")
     output = _repo_output(str(output_value))
-    rows = load_grouped_generations(generations, config.get("group_size"))
+    if output.exists() and not args.force:
+        raise FileExistsError(f"refusing to overwrite report without --force: {output}")
+    metadata: dict[str, Any] = {}
+    provenance: dict[str, Any] = {}
+    if args.command == "rewards":
+        rows, metadata, provenance = load_generation_artifact(
+            generations, config.get("group_size"), decoding_mode="sampling"
+        )
+    else:
+        rows = load_grouped_generations(generations, config.get("group_size"))
 
-    if args.command == "rollouts":
+    if args.command in {"rollouts", "rewards"}:
         vocab = None
         if config.get("vocab_path"):
             vocab_path = _resolve(str(config["vocab_path"]))
             if not vocab_path.is_file():
                 raise FileNotFoundError(f"vocabulary not found: {vocab_path}")
             vocab = vocab_path.read_text(encoding="utf-8").splitlines()
+            vocab_bytes = vocab_path.read_bytes()
+            provenance["vocab"] = {
+                "path": str(vocab_path),
+                "sha256": hashlib.sha256(vocab_bytes).hexdigest(),
+                "bytes": len(vocab_bytes),
+            }
+        identity = dict(metadata.get("qualification_identity") or metadata)
+        identity.update(
+            {
+                "group_size": config.get("group_size"),
+                "decoding_population": "sampling",
+                "required_temperature": config.get("required_temperature"),
+                "required_max_completion_length": config.get(
+                    "required_max_completion_length"
+                ),
+            }
+        )
         report = run_rollout_probe(
             rows,
             vocab,
             low_threshold=float(config.get("low_threshold", 0.0)),
             high_threshold=float(config.get("high_threshold", 1.0)),
+            thresholds=config.get("thresholds") if args.command == "rewards" else None,
+            include_perturbations=bool(config.get("perturbations", True)),
+            qualification_identity=identity,
         )
+        if args.command == "rewards":
+            report.update(
+                {
+                    "protocol_version": "reward-qualification-report-v2",
+                    "provenance": {"input": provenance, "artifact_metadata": metadata},
+                }
+            )
     else:
         vocab, matrix = load_markov_artifacts(
             _resolve(str(config["vocab_path"])),

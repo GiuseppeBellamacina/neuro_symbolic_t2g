@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import gc
+import hashlib
 
 # Normalize tuple-valued optional-dependency flags before importing TRL.
 import importlib
+import json
 import logging
 import os
 import random
@@ -26,10 +28,13 @@ warnings.filterwarnings(
 )
 
 _trl_iu = importlib.import_module("trl.import_utils")  # noqa: E402
-if isinstance(_trl_iu._mergekit_available, tuple):
-    _trl_iu._mergekit_available = False
-if isinstance(_trl_iu._llm_blender_available, tuple):
-    _trl_iu._llm_blender_available = False
+for _optional_flag in (
+    "_mergekit_available",
+    "_llm_blender_available",
+    "_weave_available",
+):
+    if isinstance(getattr(_trl_iu, _optional_flag, False), tuple):
+        setattr(_trl_iu, _optional_flag, False)
 
 import wandb
 from dotenv import load_dotenv
@@ -59,6 +64,7 @@ from src.retrieval import ExampleRetriever
 from src.rewards.t2g_rewards import (
     build_t2g_reward_functions,
     initialize_rewards,
+    reward_protocol,
 )
 from src.training.retrieval_setup import (
     build_train_retriever,
@@ -441,7 +447,88 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Ignore SFT adapter reuse and always retrain SFT from scratch "
         "(bypasses fingerprint matching for saved SFT adapters)",
     )
+    parser.add_argument(
+        "--reward-qualification-report",
+        help="Required scientific qualification report for reward-* ablations",
+    )
     return parser
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def validate_reward_qualification(
+    config: dict[str, Any], report_path: str | Path | None
+) -> dict[str, Any] | None:
+    """Hard gate reward ablations before any data or model is loaded."""
+    experiment = config.get("experiment", {})
+    variant = str(experiment.get("variant", ""))
+    if not variant.startswith("reward-"):
+        return None
+    configured = report_path or config.get("reward", {}).get("qualification_report")
+    if not configured:
+        raise ValueError(
+            "reward-* ablations require --reward-qualification-report PATH"
+        )
+    source = Path(configured)
+    if not source.is_file():
+        raise ValueError(f"reward qualification report not found: {source}")
+    try:
+        report = json.loads(source.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError(f"invalid reward qualification report: {source}") from exc
+    if report.get("protocol_version") != "reward-qualification-report-v2":
+        raise ValueError("stale reward qualification report protocol")
+    qualification = report.get("reward_qualification", {})
+    if qualification.get("protocol") != reward_protocol():
+        raise ValueError("reward qualification code/settings/SacreBLEU mismatch")
+    reward_name = config.get("reward", {}).get("name")
+    candidate = qualification.get("rewards", {}).get(reward_name)
+    if not isinstance(candidate, dict) or candidate.get("passed") is not True:
+        raise ValueError(f"reward candidate did not pass qualification: {reward_name}")
+    if candidate.get("eligible_to_authorize_training") is not True:
+        raise ValueError("diagnostic report is ineligible to authorize training")
+    expected_identity = {
+        "group_size": int(config.get("grpo", {}).get("num_generations", 0)),
+        "temperature": float(config.get("grpo", {}).get("temperature", 0.7)),
+        "prompt_mode": (
+            "retrieval"
+            if config.get("retrieval", {}).get("enabled", False)
+            else "zero-shot"
+        ),
+        "retrieval_enabled": bool(config.get("retrieval", {}).get("enabled", False)),
+        "trie_enabled": bool(config.get("grammar", {}).get("enabled", True))
+        and not bool(config.get("grammar", {}).get("use_grammarllm_pda", False)),
+        "max_completion_length": int(
+            config.get("grpo", {}).get("max_completion_length", 0)
+        ),
+    }
+    identity = qualification.get("identity", {})
+    for key, expected in expected_identity.items():
+        if identity.get(key) != expected:
+            raise ValueError(
+                f"reward qualification identity mismatch for {key}: "
+                f"expected {expected!r}, got {identity.get(key)!r}"
+            )
+    input_provenance = report.get("provenance", {}).get("input", {})
+    artifact = Path(str(input_provenance.get("path", "")))
+    if not artifact.is_file() or _sha256(artifact) != input_provenance.get("sha256"):
+        raise ValueError("reward qualification source artifact is missing or stale")
+    vocab_info = input_provenance.get("vocab", {})
+    vocab_path = Path(str(vocab_info.get("path", "")))
+    configured_vocab = Path(
+        str(config.get("dataset", {}).get("vocab_path", ""))
+    ).resolve()
+    if (
+        not vocab_path.is_file()
+        or vocab_path.resolve() != configured_vocab
+        or _sha256(vocab_path) != vocab_info.get("sha256")
+    ):
+        raise ValueError(
+            "reward qualification vocabulary is missing, stale, or mismatched"
+        )
+    return report
 
 
 def resolve_reusable_sft_adapter(
@@ -473,6 +560,7 @@ def main() -> None:
     args = build_arg_parser().parse_args()
 
     config = load_config(args.config)
+    validate_reward_qualification(config, args.reward_qualification_report)
     # ── Resolve timestamped output/log directories and resume logic ──────
     output_dir, log_dir, run_id, cell = training_run_paths(config, resume=args.resume)
     run_timestamp = run_id.removeprefix("run_")
@@ -685,6 +773,7 @@ def main() -> None:
                 pdas,
                 temperature=grpo_cfg.get("temperature", 0.7),
                 track_score_history=grammar_cfg.get("track_score_history", False),
+                track_diagnostics=grammar_cfg.get("track_diagnostics", False),
             )
             logits_processor_for_gen = grammar_lp
             print("  GrammarLLM PDA pipeline ready")
@@ -692,7 +781,11 @@ def main() -> None:
             print("  Using lightweight GlossVocabularyMask for constrained decoding")
             gloss_mask = GlossVocabularyMask(vocab, tokenizer)
             logits_processor_for_gen = GlossVocabularyLogitsProcessor(
-                gloss_mask, device="cuda" if torch.cuda.is_available() else "cpu"
+                gloss_mask,
+                device="cuda" if torch.cuda.is_available() else "cpu",
+                track_diagnostics=config.get("grammar", {}).get(
+                    "track_diagnostics", False
+                ),
             )
             print("  Vocabulary mask ready")
 
@@ -999,7 +1092,7 @@ def main() -> None:
         nonlocal _lp_called
         if logits_processor_for_gen is not None:
             # Prompt offsets are generation-specific; never reuse cached state.
-            logits_processor_for_gen.reset()
+            logits_processor_for_gen.reset_generation_state()
             _kwargs["logits_processor"] = [logits_processor_for_gen] + _kwargs.get(
                 "logits_processor", []
             )
@@ -1028,7 +1121,7 @@ def main() -> None:
     try:
         trainer.remove_callback(ProgressCallback)
         trainer.add_callback(TqdmOnlyProgressCallback)
-        trainer.add_callback(HighPrecisionLogCallback())
+        trainer.add_callback(HighPrecisionLogCallback(reward_fns[0].__name__))
     except Exception:
         pass
 

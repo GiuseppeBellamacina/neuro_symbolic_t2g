@@ -1,193 +1,131 @@
-"""
-MaskedMassTracker — shared diagnostics mixin for logits processors.
-
-Provides masked probability mass, entropy, and allowed-token entropy tracking
-for both ``GlossVocabularyLogitsProcessor`` and ``GrammarPDALogitsProcessor``.
-
-Usage in subclasses::
-
-    class MyProcessor(LogitsProcessor, MaskedMassTracker):
-        def __call__(self, input_ids, scores):
-            probs = self._pre_process(scores)
-            allowed_mask = self._build_allowed_mask(token_ids, ...)
-            self._track_masked_stats(probs, allowed_mask)
-            # ... apply mask to scores ...
-
-        def reset(self):
-            self.step_count = 0
-            self._reset_masked_stats()
-"""
+"""Exact constrained-decoding diagnostics shared by logits processors."""
 
 from __future__ import annotations
 
-from typing import Any
-
 import torch
-import torch.nn.functional as F
 
 
 class MaskedMassTracker:
-    """Mixin that tracks masked probability mass, entropy, and allowed-token
-    entropy at each generation step.
+    """Accumulate exact, equal-weight statistics over active row/steps."""
 
-    Subclasses must call ``_pre_process(scores)`` at the start of
-    ``__call__``, ``_track_masked_stats(probs, allowed_mask)`` before
-    applying the mask, and ``_reset_masked_stats()`` inside ``reset()``.
-
-    The ``get_masked_mass_stats(reset_after=False)`` method provides
-    per-interval averages for W&B logging.
-    """
-
-    # ── Pre-processing (softmax + step counter) ──────────────────────
-
-    def _pre_process(
-        self,
-        scores: torch.FloatTensor,
-    ) -> torch.Tensor:
-        """Increment step counter and compute softmax probabilities.
-
-        Must be called at the start of ``__call__`` before any masking.
-        Guards against zero ``vocab_size`` for processors that lazily
-        detect the vocabulary dimension (e.g. ``GlossVocabularyLogitsProcessor``).
-
-        Returns:
-            Softmax probability tensor with same shape as ``scores``.
-        """
-        self.step_count += 1
-
-        # Lazy vocab_size detection (only GlossVocabularyLogitsProcessor uses this)
-        vs: Any = getattr(self, "vocab_size", -1)
-        if vs == 0:
-            self.vocab_size: int = scores.shape[-1]  # type: ignore[attr-defined]
-
-        with torch.no_grad():
-            return F.softmax(scores, dim=-1)
-
-    # ── Allowed mask builder ──────────────────────────────────────────
-
-    def _build_allowed_mask(
-        self,
-        token_ids: set[int],
-        vocab_size: int,
-        device: torch.device | str,
-    ) -> torch.Tensor:
-        """Build a boolean mask marking allowed token positions.
-
-        Args:
-            token_ids: Set of allowed integer token IDs.
-            vocab_size: Total vocabulary size.
-            device: Torch device for the output tensor.
-
-        Returns:
-            1-D ``torch.BoolTensor`` of shape ``(vocab_size,)`` where
-            ``True`` marks positions in ``token_ids``.
-        """
-        mask = torch.zeros(vocab_size, dtype=torch.bool, device=device)
-        for tid in token_ids:
-            if 0 <= tid < vocab_size:
-                mask[tid] = True
-        return mask
-
-    # ── Stats initialisation / reset ─────────────────────────────────
+    _STAT_KEYS = (
+        "allowed_mass_mean",
+        "removed_mass_mean",
+        "log_allowed_mass_mean",
+        "allowed_mass_min",
+        "entropy_raw_mean",
+        "entropy_allowed_mean",
+    )
 
     def _init_masked_stats(self) -> None:
-        """Initialise (or re-initialise) the tracked accumulators."""
-        self._masked_mass_sum: float = 0.0
-        self._masked_mass_count: int = 0
-        self._masked_entropy_sum: float = 0.0
-        self._entropy_allowed_sum: float = 0.0
-        # Ensure step_count exists (normally set by subclasses, but
-        # initialised here as a safety net).
+        self._reset_diagnostics()
         if not hasattr(self, "step_count"):
-            self.step_count: int = 0  # type: ignore[annotation-unchecked]
+            self.step_count = 0
 
-    def _reset_masked_stats(self) -> None:
-        """Reset accumulators for a new generation."""
-        self._masked_mass_sum = 0.0
-        self._masked_mass_count = 0
-        self._masked_entropy_sum = 0.0
-        self._entropy_allowed_sum = 0.0
+    def _reset_diagnostics(self) -> None:
+        self._diag_sums = {
+            "allowed_mass": 0.0,
+            "removed_mass": 0.0,
+            "log_allowed_mass": 0.0,
+            "entropy_raw": 0.0,
+            "entropy_allowed": 0.0,
+        }
+        self._diag_allowed_min = float("inf")
+        self._diag_rows = 0
+        self._diag_steps = 0
 
-    # ── Per-step tracking ─────────────────────────────────────────────
+    @staticmethod
+    def _active_rows(
+        input_ids: torch.LongTensor,
+        prompt_len: int,
+        eos_token_id: int | None,
+        pad_token_id: int | None,
+    ) -> torch.Tensor:
+        """Rows become inactive on calls after their first generated EOS/pad."""
+        history = input_ids[:, max(prompt_len, 0) :]
+        active = torch.ones(
+            input_ids.shape[0], dtype=torch.bool, device=input_ids.device
+        )
+        if history.numel() == 0:
+            return active
+        stop_ids = {
+            token for token in (eos_token_id, pad_token_id) if token is not None
+        }
+        for token_id in stop_ids:
+            active &= ~(history == token_id).any(dim=1)
+        return active
 
     def _track_masked_stats(
         self,
-        probs: torch.Tensor,
+        raw_scores: torch.Tensor,
         allowed_mask: torch.Tensor,
+        active_rows: torch.Tensor | None = None,
     ) -> None:
-        """Accumulate masked mass, full entropy, and allowed-token entropy as tensors.
-
-        Avoids calling `.item()` to prevent GPU-CPU synchronization bottlenecks.
-        """
-        eps = 1e-12
-        device = probs.device
-        dtype = probs.dtype
-
-        # Initialize GPU accumulators on the correct device if needed
-        if isinstance(self._masked_mass_sum, float):
-            self._masked_mass_sum = torch.tensor(0.0, device=device, dtype=dtype)
-            self._masked_entropy_sum = torch.tensor(0.0, device=device, dtype=dtype)
-            self._entropy_allowed_sum = torch.tensor(0.0, device=device, dtype=dtype)
-
-        # ── Masked probability mass ──────────────────────────────────
-        masked_mass = probs[:, ~allowed_mask].sum(dim=-1).mean()
-        self._masked_mass_sum += masked_mass
-        self._masked_mass_count += 1
-
-        # ── Full-distribution entropy ─────────────────────────────────
-        entropy = -(probs * torch.log(probs + eps)).sum(dim=-1).mean()
-        self._masked_entropy_sum += entropy
-
-        # ── Allowed-token entropy (re-normalized) ─────────────────────
-        allowed_sum = probs[:, allowed_mask].sum(dim=-1)
-        safe_mask = allowed_sum > eps
-        if safe_mask.any():
-            probs_allowed = probs[:, allowed_mask]
-            probs_allowed = probs_allowed / probs_allowed.sum(dim=-1, keepdim=True)
-            entropy_allowed = (
-                -(probs_allowed * torch.log(probs_allowed + eps))
-                .sum(dim=-1)[safe_mask]
-                .mean()
+        """Track exact per-row values from raw logits and a 2-D applied mask."""
+        if raw_scores.ndim != 2 or allowed_mask.shape != raw_scores.shape:
+            raise ValueError(
+                "raw_scores and allowed_mask must have identical 2-D shapes"
             )
-            self._entropy_allowed_sum += entropy_allowed
+        if allowed_mask.dtype != torch.bool:
+            raise TypeError("allowed_mask must be boolean")
+        if active_rows is None:
+            active_rows = torch.ones(
+                raw_scores.shape[0], dtype=torch.bool, device=raw_scores.device
+            )
+        if active_rows.shape != (raw_scores.shape[0],):
+            raise ValueError("active_rows must have shape (batch_size,)")
 
-    # ── Public stats interface ────────────────────────────────────────
+        active_rows = active_rows.to(device=raw_scores.device, dtype=torch.bool)
+        valid = active_rows & allowed_mask.any(dim=1)
+        if not bool(valid.any()):
+            return
 
-    def get_masked_mass_stats(self, reset_after: bool = False) -> dict[str, float]:
-        """Return average masked probability mass, entropy, and allowed-token
-        entropy since last reset.
-        """
-        if self._masked_mass_count == 0:
-            return {
-                "avg_masked_mass": 0.0,
-                "avg_masked_entropy": 0.0,
-                "avg_masked_entropy_allowed": 0.0,
-                "total_steps": 0,
+        with torch.no_grad():
+            logits = raw_scores[valid].float()
+            allowed = allowed_mask[valid]
+            log_all = torch.logsumexp(logits, dim=-1)
+            log_allowed = torch.logsumexp(
+                logits.masked_fill(~allowed, -torch.inf), dim=-1
+            )
+            log_mass = log_allowed - log_all
+            allowed_mass = log_mass.exp()
+            removed_mass = 1.0 - allowed_mass
+
+            log_probs = logits - log_all[:, None]
+            probs = log_probs.exp()
+            entropy_raw = -(probs * log_probs).sum(dim=-1)
+
+            allowed_log_probs = logits - log_allowed[:, None]
+            allowed_probs = allowed_log_probs.exp().masked_fill(~allowed, 0.0)
+            entropy_allowed = -(
+                allowed_probs * allowed_log_probs.masked_fill(~allowed, 0.0)
+            ).sum(dim=-1)
+
+            values = {
+                "allowed_mass": allowed_mass,
+                "removed_mass": removed_mass,
+                "log_allowed_mass": log_mass,
+                "entropy_raw": entropy_raw,
+                "entropy_allowed": entropy_allowed,
             }
+            for key, value in values.items():
+                self._diag_sums[key] += float(value.sum().cpu())
+            self._diag_allowed_min = min(
+                self._diag_allowed_min, float(allowed_mass.min().cpu())
+            )
+            self._diag_rows += int(valid.sum().cpu())
+            self._diag_steps += 1
 
-        # Retrieve the accumulated tensor values from the GPU using `.item()`
-        mass_val = (
-            self._masked_mass_sum.item()
-            if isinstance(self._masked_mass_sum, torch.Tensor)
-            else self._masked_mass_sum
-        )
-        ent_val = (
-            self._masked_entropy_sum.item()
-            if isinstance(self._masked_entropy_sum, torch.Tensor)
-            else self._masked_entropy_sum
-        )
-        allowed_ent_val = (
-            self._entropy_allowed_sum.item()
-            if isinstance(self._entropy_allowed_sum, torch.Tensor)
-            else self._entropy_allowed_sum
-        )
-
-        stats = {
-            "avg_masked_mass": mass_val / self._masked_mass_count,
-            "avg_masked_entropy": ent_val / self._masked_mass_count,
-            "avg_masked_entropy_allowed": allowed_ent_val / self._masked_mass_count,
-            "total_steps": self._masked_mass_count,
+    def get_diagnostics(self, reset_after: bool = False) -> dict[str, float | int]:
+        """Return interval aggregates, optionally atomically clearing the interval."""
+        rows = self._diag_rows
+        stats: dict[str, float | int] = {
+            f"{key}_mean": self._diag_sums[key] / rows if rows else 0.0
+            for key in self._diag_sums
         }
+        stats["allowed_mass_min"] = self._diag_allowed_min if rows else 0.0
+        stats["active_rows"] = rows
+        stats["steps"] = self._diag_steps
         if reset_after:
-            self._reset_masked_stats()
+            self._reset_diagnostics()
         return stats

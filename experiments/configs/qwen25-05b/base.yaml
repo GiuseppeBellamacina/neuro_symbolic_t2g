@@ -65,6 +65,7 @@ grammar:
   use_grammarllm_pda: false
   token_lookahead: false
   track_score_history: false
+  track_diagnostics: true
 
 curriculum:
   enabled: false

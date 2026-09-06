@@ -215,6 +215,7 @@ def _generate_batch(
         "num_return_sequences": num_return_sequences,
     }
     if logits_processor is not None:
+        logits_processor.reset_generation_state()
         gen_kwargs["logits_processor"] = [logits_processor]
     if seed is not None:
         _seed_everything(seed)
@@ -264,8 +265,6 @@ def _generate_protocol_completions(
                 f"{mode} generation returned {len(generated)} completions; expected 1"
             )
         outputs.extend(generated)
-        if logits_processor is not None:
-            logits_processor.reset()
     if len(outputs) != expected:
         raise ValueError(
             f"{mode} generated {len(outputs)} completions; expected {expected}"
@@ -673,6 +672,7 @@ def _compute_primary_metrics(
     token_to_idx: dict[str, int],
     bigram: Any | None,
     reward_weights: dict[str, float],
+    reward_config: dict[str, Any] | None = None,
     n_bootstrap: int = 1000,
     truncation_hits: list[bool] | None = None,
 ) -> tuple[
@@ -776,6 +776,7 @@ def _compute_primary_metrics(
         flat_completions,
         references=flat_references,
         reward_weights=reward_weights,
+        reward_config=reward_config,
     )
     eval_report = _bootstrap_prompt_report(
         all_completions, all_references, n_bootstrap=n_bootstrap
@@ -1078,12 +1079,16 @@ def evaluate_checkpoint(
                     config.get("grammar", {}).get("pda_temperature", 1.0)
                 ),
                 track_score_history=grammar_cfg.get("track_score_history", False),
+                track_diagnostics=grammar_cfg.get("track_diagnostics", False),
             )
         else:
             gloss_mask = GlossVocabularyMask(vocab, tokenizer)
             logits_processor = GlossVocabularyLogitsProcessor(
                 gloss_mask,
                 device=str(model.device),
+                track_diagnostics=config.get("grammar", {}).get(
+                    "track_diagnostics", False
+                ),
             )
     else:
         logger.info("⚠️  grammar.enabled=false — unconstrained generation (ablation)")
@@ -1262,7 +1267,12 @@ def evaluate_checkpoint(
         ref for i, ref in enumerate(all_references) for _ in all_completions[i]
     ]
 
-    reward_weight_map = {"edit_validity_reward": 1.0}
+    reward_config = config.get("reward")
+    reward_name = (
+        str((reward_config or {}).get("name", "edit-validity")).replace("-", "_")
+        + "_reward"
+    )
+    reward_weight_map = {reward_name: 1.0}
 
     (
         sampling_metrics,
@@ -1278,6 +1288,7 @@ def evaluate_checkpoint(
         token_to_idx=token_to_idx,
         bigram=bigram,
         reward_weights=reward_weight_map,
+        reward_config=reward_config,
     )
     deployed_flat = [group[0] for group in deployment_completions]
     results, rouge_scores, validity, bleu_scores, chrf_scores = (
@@ -1289,6 +1300,7 @@ def evaluate_checkpoint(
             token_to_idx=token_to_idx,
             bigram=bigram,
             reward_weights=reward_weight_map,
+            reward_config=reward_config,
         )
     )
     sampling_metrics["pass_at_k_standard_estimator"] = compute_pass_at_k(
@@ -1322,6 +1334,7 @@ def evaluate_checkpoint(
     # _load_cached_baseline) refuses to reuse results computed with a
     # different version (e.g. pre corpus-BLEU-fix numbers).
     results["metrics_version"] = METRICS_VERSION
+    results["optimized_reward"] = {"config": reward_config, "function": reward_name}
     results["ordered_sample_ids"] = all_sample_ids
     results["ordered_sample_id_hash"] = ordered_id_hash
     # Stamp the prompting context (model/dataset/system prompt/EFFECTIVE
@@ -1435,6 +1448,7 @@ def evaluate_checkpoint(
             token_to_idx=token_to_idx,
             bigram=bigram,
             reward_weights=reward_weight_map,
+            reward_config=reward_config,
         )
         oracle_metrics["num_samples_evaluated"] = len(all_references)
         oracle_metrics["num_completions_per_prompt"] = num_samples
@@ -2077,8 +2091,36 @@ def main() -> None:
     if gen_stem.startswith("eval_"):
         gen_stem = gen_stem[len("eval_") :]
     gen_path = out_path.parent / f"generations_{gen_stem}.json"
+    grammar_cfg = config.get("grammar", {})
+    artifact_metadata = {
+        "source_checkpoint": args.checkpoint,
+        "prompt_mode": results.get("prompt_mode"),
+        "retrieval_enabled": results.get("prompt_mode") == "retrieval",
+        "retrieval": results.get("compatibility", {}).get("retrieval"),
+        "temperature": results.get("decoding", {})
+        .get("sampling", {})
+        .get("temperature"),
+        "trie_enabled": bool(grammar_cfg.get("enabled", True))
+        and not bool(grammar_cfg.get("use_grammarllm_pda", False)),
+        "grammar": grammar_cfg,
+        "max_completion_length": results.get("decoding", {}).get("max_new_tokens"),
+        "sampling_group_size": results.get("num_completions_per_prompt"),
+        "qualification_identity": {
+            "prompt_mode": results.get("prompt_mode"),
+            "retrieval_enabled": results.get("prompt_mode") == "retrieval",
+            "temperature": results.get("decoding", {})
+            .get("sampling", {})
+            .get("temperature"),
+            "trie_enabled": bool(grammar_cfg.get("enabled", True))
+            and not bool(grammar_cfg.get("use_grammarllm_pda", False)),
+            "max_completion_length": results.get("decoding", {}).get("max_new_tokens"),
+        },
+    }
+    if generations:
+        generations[0]["artifact_metadata"] = artifact_metadata
     gen_path.write_text(
-        json.dumps(generations, indent=2, ensure_ascii=False), encoding="utf-8"
+        json.dumps(generations, indent=2, ensure_ascii=False),
+        encoding="utf-8",
     )
     logger.info(f"Generations saved to {gen_path}")
     print(f"  Generations saved to: {gen_path}")
@@ -2188,7 +2230,13 @@ def main() -> None:
         )
 
         # 8. Reward breakdown bar chart
-        weights = {"edit_validity_reward": 1.0}
+        weights = {
+            str(
+                results.get("optimized_reward", {}).get(
+                    "function", "edit_validity_reward"
+                )
+            ): 1.0
+        }
         plot_reward_breakdown(
             [{"label": model_tag, "scores": results["reward_breakdown"]}],
             reward_weights=weights,

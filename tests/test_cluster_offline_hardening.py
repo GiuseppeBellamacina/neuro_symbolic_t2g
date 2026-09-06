@@ -7,14 +7,13 @@ cluster shell scripts as TEXT (no execution, no network) and assert:
 
   1. export_offline_env defines every required offline variable and defaults
      HF_HOME to the shared project cache while preserving an explicit value;
-  2. offline exports precede the first python/apptainer invocation in
-     train.sh / eval.sh / setup.sh (for setup.sh: after the login relaunch);
+  2. online setup is separated from offline train/eval/preflight/probe;
   3. prepare_data is gone — no compute-side download/regeneration path;
   4. require_cluster_artifacts targets the real loader artifacts
      (dataset cache dir, gloss_vocab.txt, bigram_transition.npy, sidecars);
   5. W&B offline vars are exported and forwarded to apptainer (train/eval
      parity);
-  6. setup.sh is verify-only (no pip install / no download of any kind);
+  6. setup.sh is an online, login-node Apptainer bootstrap;
   7. preflight.sh validates offline env/artifacts/dataset/model/W&B without
      training, with the optional T2G_PDA_FULL_VOCAB=1 gate under PDA=1;
   8. probe.sh follows the same relaunch/offline/artifact conventions;
@@ -23,6 +22,7 @@ cluster shell scripts as TEXT (no execution, no network) and assert:
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -168,28 +168,14 @@ def test_offline_exports_precede_first_python_in_eval():
     _assert_offline_exports_first("eval.sh", code_lines("eval.sh"))
 
 
-def test_offline_exports_precede_first_python_in_setup_after_relaunch():
-    """setup.sh: scan starts AFTER the login-node srun relaunch (`set -e`)."""
-    code = code_lines("setup.sh")
-    relaunch = [ln for ln in code if "APPTAINER_CONTAINER" in ln]
-    assert relaunch, "setup.sh must keep the login→srun+Apptainer relaunch"
-    set_e_idx = first_index(code, re.compile(r"^set -e$"))
-    assert set_e_idx is not None, "setup.sh must `set -e` after the relaunch"
-    _assert_offline_exports_first("setup.sh", code[set_e_idx:])
-
-
 def test_setup_relaunches_before_any_python_on_login_node():
-    """The srun relaunch block must appear before any python usage: the login
-    node has no python, so the only python/apptainer use is the relaunch."""
+    """The login node enters Apptainer before any Python or pip usage."""
     code = code_lines("setup.sh")
-    relaunch_idx = first_index(code, re.compile(r"APPTAINER_CONTAINER"))
+    relaunch_idx = first_index(code, re.compile(r"exec apptainer exec"))
     assert relaunch_idx is not None, "setup.sh must keep the relaunch block"
-    assert (
-        first_index(code[: relaunch_idx + 1], PYTHON_OR_APPTAINER_RE) is None
-    ), "no python/apptainer may run before the login-node relaunch"
-    assert (
-        first_index(code[relaunch_idx + 1 :], PYTHON_OR_APPTAINER_RE) is not None
-    ), "setup.sh verify step must reach python/apptainer after the relaunch"
+    before = "\n".join(code[:relaunch_idx])
+    assert not re.search(r"\b(python3?|pip3?)\b", before)
+    assert re.search(r"\bpython3?|\bpip\b", "\n".join(code[relaunch_idx + 1 :]))
 
 
 # ---------------------------------------------------------------------------
@@ -217,9 +203,9 @@ def test_lib_defines_require_cluster_artifacts():
     ), "_lib.sh must define require_cluster_artifacts"
 
 
-def test_no_download_or_install_commands_in_cluster_scripts():
+def test_no_download_or_install_commands_in_compute_scripts():
     """No pip install / wget / curl / git clone / hf_hub_download anywhere."""
-    for name in ("_lib.sh", "train.sh", "eval.sh", "setup.sh", "preflight.sh"):
+    for name in ("_lib.sh", "train.sh", "eval.sh", "preflight.sh", "probe.sh"):
         assert not DOWNLOAD_FORBIDDEN_RE.search(
             code_text_unquoted(name)
         ), f"{name}: compute scripts must never install or download"
@@ -235,7 +221,7 @@ def test_no_dataset_regeneration_calls_in_cluster_scripts():
         "compute_bigram_transitions",
         "save_transition_matrix",
     )
-    for name in ("_lib.sh", "train.sh", "eval.sh", "setup.sh", "preflight.sh"):
+    for name in ("_lib.sh", "train.sh", "eval.sh", "preflight.sh", "probe.sh"):
         code = code_text(name)
         for token in forbidden:
             assert token not in code, f"{name}: must not call {token}()"
@@ -247,9 +233,6 @@ def test_train_and_eval_call_require_cluster_artifacts_with_config():
         assert (
             'require_cluster_artifacts "$CONFIG"' in code
         ), f"{name}: must fail fast on missing offline artifacts"
-        assert "require_cluster_artifacts" in code_text(
-            "setup.sh"
-        ), "setup.sh verify step must call require_cluster_artifacts"
 
 
 def test_no_fallback_download_claims_in_comments():
@@ -364,32 +347,144 @@ def test_run_py_forwards_offline_env_to_apptainer():
 
 
 # ---------------------------------------------------------------------------
-# 6. setup.sh is verify-only
+# 6. setup.sh is online acquisition
 # ---------------------------------------------------------------------------
 
 
-def test_setup_is_verify_only():
-    code = code_text_unquoted("setup.sh")
-    assert "pip" not in code, "setup.sh must not touch pip"
-    assert not re.search(
-        r"\bprepare\b", code, re.I
-    ), "setup.sh must not regenerate artifacts"
-    # Local import/version verification is still there (multi-line quoted
-    # python survives line-wise stripping → still visible).
-    for module in ("torch", "transformers", "trl", "peft", "datasets", "sklearn"):
-        assert module in code_text(
-            "setup.sh"
-        ), f"setup.sh must verify import of {module}"
-
-
-def test_setup_prints_network_enabled_acquisition_instructions():
+def test_setup_is_online_login_container_bootstrap():
     src = read_script("setup.sh")
-    assert "ambiente separato con rete" in src.lower() or (
-        "ambiente con rete" in src.lower()
-    ), "setup.sh must explain where acquisition happens instead"
-    assert (
-        "T2G_HF_HOME_DEFAULT" in src
-    ), "setup.sh must point at the shared HF cache for uploads"
+    code = code_text("setup.sh")
+    assert "srun" not in code
+    assert "export_offline_env" not in code
+    assert "HF_HUB_OFFLINE" not in code
+    assert "TRANSFORMERS_OFFLINE" not in code
+    assert "HF_DATASETS_OFFLINE" not in code
+    assert "apptainer exec" in code
+    assert "--cleanenv" in code
+    assert '--home "$HOME:$HOME"' in code and '--bind "$HOME:$HOME"' in code
+    assert "HF_HOME=$HOME/.cache/huggingface" in code
+    assert "-m pip install --user" in code
+    assert '".[retrieval]"' in code
+    assert "snapshot_download" in src
+    assert "src.utils.setup_artifacts" in code
+    assert "load_dataset" in src
+    assert "preflight.sh" in src
+
+
+def test_setup_protects_and_verifies_complete_critical_stack():
+    src = read_script("setup.sh")
+    assert "importlib.metadata" in src
+    for package in (
+        "torch",
+        "torchao",
+        "triton",
+        "xformers",
+        "bitsandbytes",
+        "nvidia-",
+        "transformers",
+        "accelerate",
+        "trl",
+        "peft",
+        "unsloth",
+        "unsloth-zoo",
+        "sentence-transformers",
+    ):
+        assert package in src
+    assert 're.sub(r"[-_.]+", "-", name).lower()' in src
+    assert '--constraint "$CONSTRAINTS"' in src
+    assert '"packages": before' in src
+    assert "pip changed protected packages" in src
+    assert "tested package versions not active" in src
+    assert 'Version("0.16")' in src and 'Version("0.18")' in src
+    assert "pip uninstall" not in src
+
+
+def test_pyproject_pins_tested_transformers_without_changing_stack_pins():
+    project = (CLUSTER_DIR.parent / "pyproject.toml").read_text(encoding="utf-8")
+    for requirement in (
+        '"transformers==5.3.0"',
+        '"trl==0.24.0"',
+        '"peft==0.19.1"',
+        '"unsloth==2026.7.1"',
+        '"unsloth_zoo==2026.7.1"',
+        '"torchao>=0.16.0,<0.18"',
+    ):
+        assert requirement in project
+
+
+def _load_setup_version_validator():
+    """Compile only setup's pure version-comparison function."""
+    tree = ast.parse(read_script("setup.sh").split("<<'PY'", 2)[2].split("\nPY", 1)[0])
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "validate_versions"
+    )
+    module = ast.Module(body=[function], type_ignores=[])
+    namespace = {
+        "Version": __import__("packaging.version", fromlist=["Version"]).Version
+    }
+    exec(
+        compile(ast.fix_missing_locations(module), "setup-validator", "exec"), namespace
+    )
+    return namespace["validate_versions"]
+
+
+def test_setup_version_validator_accepts_tested_stack():
+    validate = _load_setup_version_validator()
+    packages = {
+        "torch": "2.7.1",
+        "transformers": "5.3.0",
+        "trl": "0.24.0",
+        "peft": "0.19.1",
+        "unsloth": "2026.7.1",
+        "unsloth-zoo": "2026.7.1",
+        "torchao": "0.17.0",
+        "sacrebleu": "2.6.0",
+    }
+    identity = {"torch": "2.7.1+cu118", "cuda": "11.8"}
+    validate(packages, packages.copy(), identity, identity.copy())
+
+
+def test_setup_version_validator_rejects_changes_and_untested_versions():
+    validate = _load_setup_version_validator()
+    packages = {
+        "transformers": "5.3.0",
+        "trl": "0.24.0",
+        "peft": "0.19.1",
+        "unsloth": "2026.7.1",
+        "unsloth-zoo": "2026.7.1",
+        "torchao": "0.17.0",
+    }
+    identity = {"torch": "2.7.1+cu118", "cuda": "11.8"}
+    changed = packages | {"trl": "0.25.0"}
+    try:
+        validate(packages, changed, identity, identity)
+    except RuntimeError as error:
+        assert "changed protected packages" in str(error)
+    else:
+        raise AssertionError("a protected-package change must fail")
+
+    absent_before = {
+        name: version for name, version in packages.items() if name != "torchao"
+    }
+    try:
+        validate(absent_before, packages | {"torchao": "0.18.0"}, identity, identity)
+    except RuntimeError as error:
+        assert "tested package versions" in str(error)
+    else:
+        raise AssertionError("an unsupported torchao version must fail")
+
+
+def test_artifact_cli_is_lightweight_and_explicitly_online():
+    cli = (CLUSTER_DIR.parent / "src" / "utils" / "setup_artifacts.py").read_text(
+        encoding="utf-8"
+    )
+    assert "snapshot_download" in cli
+    assert "download_aslg_dataset" in cli and "online=True" in cli
+    assert "extract_gloss_vocabulary" in cli and "write_cache_meta" in cli
+    assert "BUILD_BIGRAM=1" in cli
+    assert "import torch" not in cli and "unsloth" not in cli.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -480,7 +575,7 @@ def test_probe_checks_input_and_mode_artifacts_before_analysis():
 
 def test_probe_runs_only_analysis_for_both_supported_modes():
     code = code_text("probe.sh")
-    assert "rollouts|markov" in code
+    assert "rollouts|rewards|markov" in code
     assert 'ARGS=("$COMMAND" --config "$CONFIG" --input "$INPUT")' in code
     assert 'ARGS+=(--output "$OUTPUT")' in code
     assert code.count("run_py -m src.analysis") == 1

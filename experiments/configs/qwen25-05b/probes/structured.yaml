@@ -1,0 +1,28 @@
+experiment:
+  model_tag: qwen25-05b
+  method: base
+  train_prompt_mode: none
+  variant: none
+  kind: probe
+
+probe:
+  name: structured
+  model_name: Qwen/Qwen2.5-0.5B-Instruct
+  dataset_cache: data/aslg_pc12
+  feature_artifact: experiments/analysis/qwen25-05b/structured/features.npz
+  output_root: experiments/analysis/qwen25-05b/structured
+  top_k: 512
+  max_gloss_length: 64
+  alpha: 0.1
+  transition_scale: 0.25
+  head_lr: 0.001
+  weight_decay: 0.01
+  steps: 500
+  seed: 42
+  train_samples: 4096
+  dev_samples: 512
+  dev_fraction: 0.1
+  feature_batch_size: 16
+  seeds: [42, 43, 44]
+  max_peak_memory_bytes: 22000000000
+  max_arm_runtime_seconds: 3600.0

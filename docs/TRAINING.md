@@ -26,7 +26,9 @@ bash cluster/setup.sh
 CONFIG=experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml sbatch cluster/preflight.sh
 ```
 
-Preflight verifies the offline environment, dataset/vocabulary/bigram artifacts, model snapshot, imports, offline dataset loading, and W&B mode. It performs no training. A failure is a preparation error; do not let a compute job fall back to network access.
+`setup.sh` is online and runs on the login node. It launches `/shared/sifs/latest.sif` directly, never requests SLURM/GPU resources, and never executes host Python. It installs core + retrieval into shared `~/.local`, constrains all preinstalled critical ML/CUDA packages, and hard-fails if pip changes any captured version or the torch/CUDA identity. It also enforces the tested Transformers/TRL/PEFT/Unsloth/torchao versions before caching Qwen and ASLG-PC12 and writing the deterministic train vocabulary plus sidecar. Set `BUILD_BIGRAM=1` to opt into the potentially large Markov matrix.
+
+Preflight is offline compute-only. It verifies the offline environment, dataset/vocabulary/bigram artifacts when needed, model snapshot, imports, offline dataset loading, and W&B mode. It performs no training. A failure is a preparation error; do not let a compute job fall back to network access.
 
 For the PDA ablation, the full-vocabulary gate is mandatory:
 
@@ -57,6 +59,8 @@ Manual ablations:
 ```bash
 bash cluster/run_all.sh sft-grpo-zero-pda
 bash cluster/run_all.sh sft-grpo-zero-hot
+# Only after the reward qualification report passes:
+bash cluster/run_all.sh grpo-few-reward-token-f1
 ```
 
 Frozen-generation probes are submitted separately and never train:
@@ -66,6 +70,8 @@ INPUT=experiments/results/.../generations_name.json \
   sbatch cluster/probe.sh rollouts experiments/configs/qwen25-05b/probes/rollouts.yaml
 INPUT=experiments/results/.../generations_name.json \
   sbatch cluster/probe.sh markov experiments/configs/qwen25-05b/probes/markov.yaml
+INPUT=experiments/results/.../generations_name.json \
+  sbatch cluster/probe.sh rewards experiments/configs/qwen25-05b/probes/rewards.yaml
 ```
 
 Resume a training run with the same config identity:
@@ -92,7 +98,7 @@ Training writes timestamped runs under `experiments/checkpoints/` and `experimen
 
 1. Config resolves and has the intended method/train-prompt identity.
 2. Model, dataset, vocabulary, bigram matrix, and retriever cache when needed are local.
-3. The relevant preflight passes; PDA also passes its full-vocabulary gate.
+3. The relevant preflight passes; PDA also passes its full-vocabulary gate. Reward ablations additionally require the frozen-artifact qualification in `REWARD_ABLATIONS.md`.
 4. W&B and HF are offline before Python starts.
 5. No conflicting active queue exists.
 6. Evaluation prompt modes and sample budget are recorded before launch.

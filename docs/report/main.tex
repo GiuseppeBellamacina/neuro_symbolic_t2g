@@ -1,0 +1,55 @@
+\documentclass[11pt,a4paper,oneside]{book}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[italian]{babel}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{geometry}
+\geometry{margin=2.7cm}
+\usepackage{amsmath,amssymb,booktabs,longtable,array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage[nameinlink,noabbrev]{cleveref}
+\usepackage{enumitem}
+\usepackage{fancyvrb}
+\hypersetup{colorlinks=true,linkcolor=blue!45!black,citecolor=green!35!black,urlcolor=blue!55!black,pdftitle={Manuale Neuro-Symbolic Text-to-Gloss}}
+\lstdefinestyle{t2g}{basicstyle=\ttfamily\small,breaklines=true,breakatwhitespace=false,columns=fullflexible,frame=single,showstringspaces=false,upquote=true}
+\lstset{style=t2g}
+\newcommand{\pathcode}[1]{\nolinkurl{#1}}
+\newcommand{\method}[1]{\textsf{#1}}
+\newcommand{\warningbox}[1]{\par\medskip\noindent\fcolorbox{red!60!black}{red!5}{\parbox{0.92\textwidth}{\textbf{Attenzione.} #1}}\par\medskip}
+\title{Neuro-Symbolic Text-to-Gloss\\Manuale tecnico e operativo}
+\author{Documentazione del progetto \texttt{neuro\_symbolic\_t2g}}
+\date{Protocollo corrente Qwen2.5-0.5B}
+\begin{document}
+\frontmatter
+\hypersetup{pageanchor=false}
+\maketitle
+\cleardoublepage
+\hypersetup{pageanchor=true}
+\chapter*{Come usare questo manuale}
+Questo testo insegna a comprendere, eseguire, analizzare ed estendere il progetto English-to-ASL-gloss. Le descrizioni operative derivano dalla configurazione corrente sotto \pathcode{experiments/configs/qwen25-05b/}; non sostituiscono il controllo del file YAML risolto conservato con ogni run. Il manuale non dichiara risultati numerici della campagna corrente.
+\tableofcontents
+\mainmatter
+\include{chapters/01_overview}
+\include{chapters/02_background}
+\include{chapters/03_data}
+\include{chapters/04_model_sft}
+\include{chapters/05_grpo}
+\include{chapters/06_rewards}
+\include{chapters/07_constrained_decoding}
+\include{chapters/08_structured_loss}
+\include{chapters/09_evaluation}
+\include{chapters/10_experiments}
+\include{chapters/11_diagnostics}
+\include{chapters/12_codebase_guide}
+\include{chapters/13_troubleshooting_next_steps}
+\include{chapters/14_cluster_operations}
+\include{chapters/15_remote_monitoring}
+\appendix
+\include{appendix/A_commands_glossary}
+\backmatter
+\bibliographystyle{plain}
+\bibliography{references}
+\end{document}

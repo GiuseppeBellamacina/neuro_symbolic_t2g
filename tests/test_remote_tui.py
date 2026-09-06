@@ -594,6 +594,66 @@ def test_start_job_screen_without_eval_uses_start_endpoint():
     asyncio.run(_run())
 
 
+@pytest.mark.parametrize("config", sorted(tui.REWARD_CONFIG_NAMES))
+def test_reward_start_screen_sends_report_only_on_train(config):
+    async def _run() -> None:
+        client, recorder = _client()
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("s")
+            await pilot.pause()
+            screen = app.screen
+            screen.query_one("#config", tui.Select).value = config
+            await pilot.pause()
+            report = screen.query_one("#qualification-report", tui.Input)
+            assert report.display is True and report.disabled is False
+            report.value = "experiments/analysis/rewards/report.json"
+            screen.query_one("#submit", tui.Button).press()
+            for _ in range(20):
+                if any(r.url.path == "/jobs/batch" for r in recorder.requests):
+                    break
+                await pilot.pause()
+            payload = json.loads(
+                next(r for r in recorder.requests if r.url.path == "/jobs/batch").read()
+            )
+            assert payload["jobs"][0]["mode"].startswith(
+                "--reward-qualification-report "
+            )
+            assert "mode" not in payload["jobs"][1]
+
+    asyncio.run(_run())
+
+
+def test_report_field_hides_and_clears_for_normal_or_eval():
+    async def _run() -> None:
+        app = _make_app()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("s")
+            await pilot.pause()
+            screen = app.screen
+            config = screen.query_one("#config", tui.Select)
+            report = screen.query_one("#qualification-report", tui.Input)
+            config.value = "grpo-few-reward-edit"
+            await pilot.pause()
+            report.value = "experiments/analysis/rewards/report.json"
+            config.value = "sft"
+            await pilot.pause()
+            assert report.display is False and report.disabled is True
+            assert report.value == ""
+            config.value = "grpo-few-reward-edit"
+            await pilot.pause()
+            screen.query_one("#type", tui.Select).value = "eval"
+            await pilot.pause()
+            assert report.display is False and report.value == ""
+
+    asyncio.run(_run())
+
+
 def test_batch_start_screen_submits_selected_configs():
     """`S` → BatchStartScreen: 2 checkbox → train+eval → POST /jobs/batch (4 job)."""
 
@@ -643,6 +703,50 @@ def test_batch_start_screen_submits_selected_configs():
                 "sft-grpo-zero",
                 "sft-grpo-zero",
             ]
+
+    asyncio.run(_run())
+
+
+def test_batch_reward_report_applies_only_to_reward_train():
+    async def _run() -> None:
+        client, recorder = _client()
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("S")
+            await pilot.pause()
+            screen = app.screen
+            screen.query_one("#cfg-sft", tui.Checkbox).value = True
+            screen.query_one("#cfg-grpo-few-reward-edit", tui.Checkbox).value = True
+            await pilot.pause()
+            report = screen.query_one("#qualification-report", tui.Input)
+            assert report.display is True
+            report.value = "experiments/analysis/rewards/report.json"
+            screen.query_one("#submit", tui.Button).press()
+            await pilot.pause()
+            app.screen.query_one("#confirm", tui.Button).press()
+            for _ in range(20):
+                if any(r.url.path == "/jobs/batch" for r in recorder.requests):
+                    break
+                await pilot.pause()
+            payload = json.loads(
+                next(r for r in recorder.requests if r.url.path == "/jobs/batch").read()
+            )
+            jobs = payload["jobs"]
+            reward_train = next(
+                job
+                for job in jobs
+                if job["config"] == "grpo-few-reward-edit" and job["type"] == "train"
+            )
+            assert reward_train["mode"].endswith("rewards/report.json")
+            assert all(
+                "mode" not in job
+                for job in jobs
+                if job["type"] == "eval" or job["config"] == "sft"
+            )
 
     asyncio.run(_run())
 

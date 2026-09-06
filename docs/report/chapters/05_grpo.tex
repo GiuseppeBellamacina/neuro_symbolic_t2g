@@ -1,0 +1,24 @@
+\chapter{GRPO e Dr-GRPO}\label{chap:grpo}
+Per ogni prompt vengono generate $G=8$ completion. Concettualmente il confronto
+di gruppo centra i reward, $A_i=r_i-\bar r$. La formula spesso mostrata,
+$A_i=(r_i-\bar r)/(s_r+\epsilon)$, \emph{non} descrive questa config: in TRL
+0.24.0 \pathcode{scale_rewards: none} disattiva la divisione per deviazione
+standard, non il confronto nel gruppo \cite{trlgrpo,shao2024deepseekmath}.
+Gruppi a reward costante non danno discriminazione.
+
+Con rapporto token $\rho_{it}=\pi_\theta/\pi_{\rm old}$ e $\epsilon=0.2$, il
+surrogate usa
+\begin{equation}\min(\rho_{it}A_i,\operatorname{clip}(\rho_{it},1-\epsilon,1+\epsilon)A_i).
+\end{equation}
+Il KL verso la reference ha coefficiente $\beta=0.04$; clipping rispetto alla
+policy dei rollout e ancoraggio alla reference hanno ruoli distinti.
+
+\section{Dr-GRPO e parametri correnti}
+\pathcode{loss_type: dr_grpo} usa un denominatore globale costante invece della
+media per lunghezza della singola completion, schematicamente
+\begin{equation}\mathcal L=-\frac{1}{G L_{\max}}\sum_i\sum_{t\le |y_i|}\mathcal S_{it}.
+\end{equation}
+Questo riduce un bias, non garantisce lunghezze corrette \cite{liu2025drgrpo}.
+Config: batch/device 1, accumulo 8, AdamW paged 8-bit, weight decay 0.1, grad norm
+0.1, cosine, max prompt 256, $L_{\max}=128$, temperatura 0.7, importance sampling
+token-level e completion troncate mascherate. \method{hot} cambia solo $T$ a 1.3.

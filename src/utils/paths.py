@@ -11,13 +11,33 @@ from typing import Any, Iterator, Literal, Mapping
 Method = Literal["base", "sft", "grpo", "sft-grpo"]
 TrainPromptMode = Literal["none", "zero-shot", "few-shot"]
 PromptMode = Literal["zero-shot", "retrieval", "few-shot"]
-Variant = Literal["none", "pda", "hot"]
+Variant = Literal[
+    "none",
+    "pda",
+    "hot",
+    "reward-edit",
+    "reward-token-f1",
+    "reward-chrfpp",
+    "reward-rouge-l",
+    "reward-sbleu2",
+]
 ExperimentKind = Literal["baseline", "train", "ablation", "probe"]
 ArtifactKind = Literal["logs", "checkpoints", "results", "figures"]
 
 METHODS = frozenset({"base", "sft", "grpo", "sft-grpo"})
 TRAIN_PROMPT_MODES = frozenset({"none", "zero-shot", "few-shot"})
-VARIANTS = frozenset({"none", "pda", "hot"})
+VARIANTS = frozenset(
+    {
+        "none",
+        "pda",
+        "hot",
+        "reward-edit",
+        "reward-token-f1",
+        "reward-chrfpp",
+        "reward-rouge-l",
+        "reward-sbleu2",
+    }
+)
 EXPERIMENT_KINDS = frozenset({"baseline", "train", "ablation", "probe"})
 PROMPT_LABELS: Mapping[str, str] = {
     "zero-shot": "zero-shot",

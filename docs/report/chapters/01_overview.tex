@@ -1,0 +1,32 @@
+\chapter{Panoramica e contratto scientifico}\label{chap:overview}
+Il progetto traduce testo inglese in sequenze di glosse ASL. Una glossa è
+un'etichetta discreta associata a un segno, non una rappresentazione completa di
+spazio, simultaneità o componenti non manuali. Il verso è English-to-gloss sul
+corpus ASLG-PC12 \cite{othman2012aslg,hf_aslg}; risultati gloss-to-English non
+sono confrontabili.
+
+\section{Cosa viene studiato}
+Il backbone è \pathcode{Qwen/Qwen2.5-0.5B-Instruct} \cite{qwen25}. Si confrontano
+base, SFT, GRPO e SFT seguito da GRPO, con LoRA/QLoRA, retrieval TF--IDF e
+decodifica lessicalmente vincolata. ``Neuro-simbolico'' indica qui l'interazione
+fra distribuzione neurale e strutture discrete; non implica una grammatica ASL
+completa.
+
+\section{Tassonomia da non violare}
+\begin{center}\begin{tabular}{p{.20\textwidth}p{.68\textwidth}}\toprule
+Asse & Significato\\\midrule
+Metodo & \method{base}, \method{sft}, \method{grpo}, \method{sft-grpo}: sistema appreso e inizializzazione.\\
+Prompt & \method{zero-shot} o \method{few-shot}/retrieval: solo condizionamento in ingresso.\\
+Variante & \method{pda}, \method{hot}, \method{reward-*}: ablazione controllata.\\
+Lifecycle & \method{train}, \method{baseline}, \method{ablation}, \method{probe}: tipo di job/artifact.\\\bottomrule
+\end{tabular}\end{center}
+Una modalità di prompt non è un metodo. Una baseline zero-shot è il metodo base
+non addestrato con quel prompt. Trie è il percorso primario; PDA è un'ablazione
+manuale. I probe congelati non sono obiettivi addestrabili.
+
+\section{Come leggere e riprodurre}
+I capitoli 3--8 spiegano dati e metodi, 9--11 protocollo e diagnostica, 12--15
+codice e operazioni. Prima di una conclusione verificare config risolta, hash,
+split, checkpoint, modalità prompt, decoding e versione metrica. Questo manuale
+non inventa risultati correnti. \pathcode{docs/SOURCES.md} è il registro completo
+delle fonti; la bibliografia finale contiene quelle citate nel testo.

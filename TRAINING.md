@@ -26,11 +26,14 @@ Markov, hard-Viterbi, and soft-path scores are diagnostic only and do not update
 
 ## Launch
 
-Run preflight before training:
+First run the online bootstrap on the login node, then run preflight on offline compute before training:
 
 ```bash
+bash cluster/setup.sh
 CONFIG=experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml sbatch cluster/preflight.sh
 ```
+
+Setup runs Python/pip only inside Apptainer without SLURM or GPU, preserves the container torch/CUDA stack, and prepares the Qwen, ASLG-PC12, and vocabulary caches. The bigram is optional during setup (`BUILD_BIGRAM=1 bash cluster/setup.sh`) and required only for workflows such as the Markov probe that consume it.
 
 Launch one cell:
 

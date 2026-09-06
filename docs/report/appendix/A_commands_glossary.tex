@@ -1,0 +1,51 @@
+\chapter{Comandi canonici e glossario}\label{app:commands}
+\section{Comandi}
+Usare i path completi nei file di job; i segnaposto vanno sostituiti senza
+cambiare l'identità sperimentale.
+\begin{lstlisting}[language=bash]
+# login node online, dentro Apptainer gestito dallo script
+bash cluster/setup.sh
+
+# compute offline
+CONFIG=experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml sbatch cluster/preflight.sh
+bash cluster/run_all.sh
+CONFIG=experiments/configs/qwen25-05b/sft/zero-shot.yaml sbatch cluster/train.sh
+CONFIG=experiments/configs/qwen25-05b/baseline/few-shot.yaml sbatch cluster/eval.sh
+
+# manuali
+PDA=1 CONFIG=experiments/configs/qwen25-05b/ablations/sft-grpo-zero-pda.yaml sbatch cluster/preflight.sh
+bash cluster/run_all.sh sft-grpo-zero-pda
+bash cluster/run_all.sh sft-grpo-zero-hot
+
+# validazione locale
+uv run python -m pytest tests/ -v
+python tests/validate_configs.py
+
+# documento
+latexmk -pdf main.tex
+\end{lstlisting}
+
+\section{Glossario}
+\begin{description}[style=nextline]
+\item[Artifact identity] Config, modello/checkpoint, dati, tokenizer, prompt,
+constraint, seed, budget, hash e versioni che rendono interpretabile un output.
+\item[ASL gloss] Etichetta testuale semplificata di un segno, non lingua completa.
+\item[ASLG-PC12] Corpus parallelo del progetto.
+\item[Deployment] Una completion greedy per prompt; sorgente delle headline.
+\item[Diagnostico congelato] Analisi senza gradiente su generazioni esistenti.
+\item[Dr-GRPO] Loss con denominatore globale per ridurre length bias.
+\item[Few-shot/retrieval] Modalità di prompt con esempi TF--IDF, non metodo.
+\item[GRPO] Policy optimization relativa a gruppi di completion.
+\item[LoRA/QLoRA] Adapter low-rank su backbone congelato/quantizzato.
+\item[Metodo] Base, SFT, GRPO o SFT-GRPO.
+\item[PDA] Automa a pila GrammarLLM, ablazione manuale.
+\item[Prompt-clustered bootstrap] Resampling dei prompt mantenendo uniti i draw.
+\item[Reward] Singolo segnale scalare usato per aggiornare la policy.
+\item[Sampling] Cinque draw eval a $T=0.7$; la qualificazione reward ne richiede otto.
+\item[SFT] Fine-tuning supervisionato sui target gold.
+\item[Structured NLL] NLL con partizione a lunghezza gold fissa; qui $(\log Z-S)/L$.
+\item[Trie] Albero di prefissi compilato dal vocabolario mascherato; percorso primario.
+\item[Validità] Appartenenza lessicale/formale, distinta dalla qualità traduttiva.
+\item[Viterbi] DP hard/soft qui diagnostica a piccoli stati, non DVL addestrabile.
+\item[Zero-shot] Modalità di prompt senza esempi, non metodo.
+\end{description}

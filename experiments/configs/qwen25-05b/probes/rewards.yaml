@@ -1,0 +1,24 @@
+experiment:
+  model_tag: qwen25-05b
+  method: base
+  train_prompt_mode: none
+  variant: none
+  kind: probe
+
+probe:
+  name: rewards
+  input_path: null  # Pass one frozen generations_*.json via --input or INPUT.
+  output_path: experiments/analysis/qwen25-05b/rewards/report.json
+  vocab_path: data/gloss_vocab.txt
+  group_size: 8
+  decoding_population: sampling
+  required_temperature: 0.7
+  required_max_completion_length: 128
+  perturbations: true
+  thresholds:
+    max_zero_variance_fraction: 0.5
+    max_all_min_fraction: 0.5
+    min_unique_scores_mean: 1.5
+    min_best_minus_mean: 0.05
+    min_rankable_group_fraction: 0.5
+    min_bucket_count: 1

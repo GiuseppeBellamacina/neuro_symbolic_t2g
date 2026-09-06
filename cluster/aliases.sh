@@ -153,7 +153,13 @@ run-all() {
     cd "$PROJ_DIR" && bash cluster/run_all.sh "$@"
 }
 
-# Esegue una verifica offline (uso: probe [rollouts|markov] [CONFIG]).
+# Sottomette la verifica compute offline (uso: preflight [CONFIG]).
+preflight() {
+    local config="${1:-experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml}"
+    cd "$PROJ_DIR" && CONFIG="$config" sbatch cluster/preflight.sh
+}
+
+# Esegue una probe offline (uso: probe [rollouts|markov] [CONFIG]).
 probe() {
     cd "$PROJ_DIR" && bash cluster/probe.sh "$@"
 }
@@ -435,7 +441,7 @@ alias t2g-chain-resume='chain-resume'
 alias t2g-clean='clean'
 alias t2g-gpu='gpu'
 alias t2g-trainlog='trainlog'
-alias t2g-help='diego'
+alias t2g-help='claudio'
 
 # Genera tabella + grafico cross-config dopo l'ablation (uso: ablation-summary)
 ablation-summary() {
@@ -444,7 +450,7 @@ ablation-summary() {
 
 # ── Pip / Environment ────────────────────────────────────────────────────────
 
-# Pulisci tutti i pacchetti --user
+# Pulisci i pacchetti --user; non avvia Python sul login node.
 pip-clean() {
     echo "🗑️  Rimozione pacchetti pip --user..."
     rm -rf ~/.local/lib/python3.*/site-packages/*
@@ -452,14 +458,13 @@ pip-clean() {
     echo "✅ ~/.local ripulito"
 }
 
-# (Re)installa dipendenze: tutto da pyproject.toml (core + extra "retrieval";
-# l'extra "dev" — formattazione/test — è escluso di proposito dal cluster).
+# Bootstrap online sul login node dentro Apptainer (core + retrieval e cache).
 pip-setup() {
     echo "📦 Installazione dipendenze (core + retrieval, niente dev)..."
     cd "$PROJ_DIR" && bash cluster/setup.sh
 }
 
-# Pulisci e reinstalla da zero
+# Pulisci prima ~/.local, poi esegui il bootstrap online completo.
 pip-reset() {
     pip-clean
     pip-setup
@@ -467,10 +472,10 @@ pip-reset() {
 
 # ── Meta ─────────────────────────────────────────────────────────────────────
 
-_DIEGO_ALIASES="myjobs jobinfo killjob killalljobs trainlog evallog lastlog tree gpu quota proj ckpts train run-eval run-all probe chain-status clean clean-model chain-add chain-remove chain-stop chain-start chain-resume chain-show chain-hook-install chain-hook-uninstall monitor ablation-summary pip-clean pip-setup pip-reset unload-aliases install-aliases uninstall-aliases t2g-train t2g-eval t2g-run-all t2g-monitor t2g-chain-show t2g-chain-stop t2g-chain-start t2g-chain-resume t2g-clean t2g-gpu t2g-trainlog t2g-help"
+_CLAUDIO_ALIASES="myjobs jobinfo killjob killalljobs trainlog evallog lastlog tree gpu quota proj ckpts train run-eval run-all preflight probe chain-status clean clean-model chain-add chain-remove chain-stop chain-start chain-resume chain-show chain-hook-install chain-hook-uninstall monitor ablation-summary pip-clean pip-setup pip-reset unload-aliases install-aliases uninstall-aliases t2g-train t2g-eval t2g-run-all t2g-monitor t2g-chain-show t2g-chain-stop t2g-chain-start t2g-chain-resume t2g-clean t2g-gpu t2g-trainlog t2g-help"
 
 # Mostra i comandi disponibili
-diego() {
+claudio() {
     echo "Comandi disponibili:"
     echo ""
     echo "── Job management ──"
@@ -496,8 +501,9 @@ diego() {
     echo "     baseline-zero baseline-few sft grpo-zero grpo-few"
     echo "     sft-grpo-zero sft-grpo-few"
     echo "     sft-grpo-zero-pda sft-grpo-zero-hot  (manuali)"
+    echo "   preflight [CONFIG] — verifica offline su compute (SLURM)"
     echo "   probe [rollouts|markov] [CONFIG]"
-    echo "                     — esegue una verifica offline tramite cluster/probe.sh"
+    echo "                     — analisi offline su compute tramite cluster/probe.sh"
     echo ""
     echo "── Pipeline (tick-based) ──"
     echo "   chain-show   — mostra stato pipeline + job in coda"
@@ -525,16 +531,16 @@ diego() {
     echo "                    — pulisci checkpoints/logs/results/figures/slurm di un modello"
     echo ""
     echo "── Pip / Environment ──"
-    echo "   pip-clean    — rimuovi pacchetti pip --user"
-    echo "   pip-setup    — (re)installa dipendenze (core + retrieval da pyproject.toml)"
-    echo "   pip-reset    — pip-clean + pip-setup"
+    echo "   pip-clean    — rimuovi pacchetti pip --user (solo shell login)"
+    echo "   pip-setup    — bootstrap ONLINE login dentro Apptainer; installa e scarica cache"
+    echo "   pip-reset    — prima pip-clean, poi pip-setup ONLINE"
     echo ""
     echo "── Alias t2g-* ──"
     echo "   t2g-train / t2g-eval / t2g-run-all / t2g-monitor"
     echo "   t2g-chain-show / t2g-chain-stop / t2g-chain-start / t2g-chain-resume"
     echo ""
     echo "── Meta ──"
-    echo "   diego          — mostra questo messaggio"
+    echo "   claudio          — mostra questo messaggio"
     echo "   unload-aliases — rimuovi alias (sessione corrente)"
     echo "   install-aliases  — aggiungi alias al .bashrc (permanente)"
     echo "   uninstall-aliases — rimuovi alias dal .bashrc"
@@ -542,11 +548,11 @@ diego() {
 
 # Rimuovi tutti gli alias e funzioni custom (solo sessione corrente)
 unload-aliases() {
-    for cmd in $_DIEGO_ALIASES; do
+    for cmd in $_CLAUDIO_ALIASES; do
         unalias "$cmd" 2>/dev/null
         unset -f "$cmd" 2>/dev/null
     done
-    unset _DIEGO_ALIASES PROJ_DIR
+    unset _CLAUDIO_ALIASES PROJ_DIR
     echo "✅ Alias rimossi (sessione corrente)."
 }
 
@@ -584,4 +590,4 @@ uninstall-aliases() {
     unload-aliases
 }
 
-echo "✅ Alias caricati. Digita 'diego' per la lista comandi."
+echo "✅ Alias caricati. Digita 'claudio' per la lista comandi."

@@ -23,7 +23,7 @@ dependencies = [
     # - peft 0.19.1: versione verificata con transformers 5.3.0 (stesso stack
     #   del run di luglio 2026 e del reference grpo-strict-generation)
     "torch",
-    "transformers",
+    "transformers==5.3.0",
     "trl==0.24.0",
     "peft==0.19.1",
     "datasets",
@@ -35,7 +35,7 @@ dependencies = [
 
     # Data & Eval
     "rouge-score>=0.1.2",
-    "sacrebleu>=2.0.0",
+    "sacrebleu==2.6.0",
     "numpy",
     "pandas",
     "matplotlib",

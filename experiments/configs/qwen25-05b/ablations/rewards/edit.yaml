@@ -1,0 +1,11 @@
+extends: ../../grpo/few-shot.yaml
+
+experiment:
+  kind: ablation
+  variant: reward-edit
+
+reward:
+  name: edit-validity
+
+wandb:
+  run_name: grpo-few-reward-edit
