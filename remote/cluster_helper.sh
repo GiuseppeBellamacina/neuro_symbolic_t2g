@@ -52,12 +52,19 @@ source "$SCRIPT_DIR/_lib.sh"
 dump_status() {
     local active="" last="" queue="" qcount=0 stopped=0
     local errors_count=0 errors_tail="[]"
-    local aid aname astate sep="" e out="" first=1
+    local aid aname astate slurm sep="" e out="" first=1
 
     # Job SLURM attivo (la QoS consente max 1): id|name|state
-    aid=$(active_job_id)
-    aname=$(active_job_name)
-    astate=$(squeue --me -h -o '%T' 2>/dev/null | head -1 | tr -d '[:space:]')
+    # Una sola query squeue invece di tre: evita snapshot incoerenti (il job
+    # puo' cambiare stato tra le chiamate) e riduce il carico sullo scheduler.
+    # Un blip di squeue lascia semplicemente ACTIVE_JOB vuoto senza abbattere
+    # l'helper sotto set -e.
+    slurm=$(squeue --me -h -o '%A|%j|%T' 2>/dev/null | head -1) || true
+    if [ -n "$slurm" ]; then
+        aid=$(printf '%s' "$slurm" | cut -d'|' -f1)
+        aname=$(printf '%s' "$slurm" | cut -d'|' -f2)
+        astate=$(printf '%s' "$slurm" | cut -d'|' -f3 | tr -d '[:space:]')
+    fi
     [ -n "$aid" ] && active="${aid}|${aname}|${astate}"
 
     # Coda: separatore \x1f (mai usato nelle entry) → una sola riga.
