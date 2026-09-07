@@ -51,7 +51,9 @@ def test_campaign_screen_shows_summary_and_confirm():
             ]
             all_text = "\n".join(str(s) for s in statics)
             assert "ablations-decoding-no-grammar" in all_text, "no-grammar nella lista"
-            assert "ablations-decoding-hot-rollout" in all_text, "hot-rollout nella lista"
+            assert (
+                "ablations-decoding-hot-rollout" in all_text
+            ), "hot-rollout nella lista"
             assert "15 celle" in all_text, "conteggio celle aggiornato"
             assert "baseline-zero-shot" in all_text, "baseline zero-shot nella lista"
             assert "sft-zero-shot" in all_text, "sft nella lista"
@@ -99,7 +101,9 @@ def test_zero_shot_no_grammar_config_exists():
     """baseline/zero-shot-no-grammar.yaml: lower bound non vincolato (grammar OFF)."""
     from src.utils.config import resolve_config
 
-    cfg = resolve_config("experiments/configs/qwen25-05b/baseline/zero-shot-no-grammar.yaml")
+    cfg = resolve_config(
+        "experiments/configs/qwen25-05b/baseline/zero-shot-no-grammar.yaml"
+    )
     assert cfg["grammar"]["enabled"] is False
     assert cfg["wandb"]["run_name"] == "qwen25-05b-baseline-zero-shot-no-grammar"
     # eval-only: nessun output_dir (eredita una sezione training parziale da base)
@@ -116,7 +120,9 @@ def test_hotrollout_config_exists():
     from src.utils.config import resolve_config
 
     base = resolve_config("experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml")
-    cfg = resolve_config("experiments/configs/qwen25-05b/ablations/decoding/hot-rollout.yaml")
+    cfg = resolve_config(
+        "experiments/configs/qwen25-05b/ablations/decoding/hot-rollout.yaml"
+    )
     assert cfg["grpo"]["temperature"] == 1.3
     assert cfg["grpo"]["num_generations"] == base["grpo"]["num_generations"]
     assert cfg["sft_pretrain"] == base["sft_pretrain"], "fingerprint SFT invariata"

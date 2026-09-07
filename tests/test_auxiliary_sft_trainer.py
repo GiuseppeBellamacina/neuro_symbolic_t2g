@@ -421,9 +421,7 @@ def test_structured_term_contributes_and_reaches_the_head():
 
     rows = [{"gloss": g} for g in ["IX MAN", "IX WALK", "MAN WALK", "IX MAN WALK"]]
     graph = build_structured_transition_graph(rows, top_k=3)
-    head = StructuredGlossHead(
-        hidden_size=8, num_states=graph.num_states, max_length=8
-    )
+    head = StructuredGlossHead(hidden_size=8, num_states=graph.num_states, max_length=8)
 
     class _Stub(AuxiliarySFTTrainer):
         def __init__(self) -> None:

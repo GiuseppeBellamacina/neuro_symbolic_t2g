@@ -147,24 +147,68 @@ CONFIG_PATHS: set[str] = set(CONFIG_MAP.values())
 ABLATION_MODELS: list[tuple[str, str, str]] = [
     # 1-3. Baseline eval-only (~zero costo; baseline/zero-shot CACHEA la
     # baseline --compare per tutte le celle successive)
-    ("baseline-zero-shot", "experiments/configs/qwen25-05b/baseline/zero-shot.yaml", "e"),
-    ("baseline-zero-shot-no-grammar", "experiments/configs/qwen25-05b/baseline/zero-shot-no-grammar.yaml", "e"),
+    (
+        "baseline-zero-shot",
+        "experiments/configs/qwen25-05b/baseline/zero-shot.yaml",
+        "e",
+    ),
+    (
+        "baseline-zero-shot-no-grammar",
+        "experiments/configs/qwen25-05b/baseline/zero-shot-no-grammar.yaml",
+        "e",
+    ),
     ("baseline-few-shot", "experiments/configs/qwen25-05b/baseline/few-shot.yaml", "e"),
     # 4. SFT-only: addestra L'adapter SFT (le celle sft-grpo lo riusano via fingerprint)
     ("sft-zero-shot", "experiments/configs/qwen25-05b/sft/zero-shot.yaml", "te"),
     # 5-8. Celle GRPO / SFT→GRPO (riusano l'adapter SFT + la baseline cached)
     ("grpo-zero-shot", "experiments/configs/qwen25-05b/grpo/zero-shot.yaml", "te"),
     ("grpo-few-shot", "experiments/configs/qwen25-05b/grpo/few-shot.yaml", "te"),
-    ("sft-grpo-zero-shot", "experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml", "te"),
-    ("sft-grpo-few-shot", "experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml", "te"),
+    (
+        "sft-grpo-zero-shot",
+        "experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml",
+        "te",
+    ),
+    (
+        "sft-grpo-few-shot",
+        "experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml",
+        "te",
+    ),
     # 9-15. Ablazioni (un fattore alla volta, riusano SFT + baseline)
-    ("ablations-decoding-no-grammar", "experiments/configs/qwen25-05b/ablations/decoding/no-grammar.yaml", "te"),
-    ("ablations-decoding-hot-rollout", "experiments/configs/qwen25-05b/ablations/decoding/hot-rollout.yaml", "te"),
-    ("ablations-rewards-edit-validity", "experiments/configs/qwen25-05b/ablations/rewards/edit-validity.yaml", "te"),
-    ("ablations-rewards-historical-stack", "experiments/configs/qwen25-05b/ablations/rewards/historical-stack.yaml", "te"),
-    ("ablations-loss-dr-grpo", "experiments/configs/qwen25-05b/ablations/loss/dr-grpo.yaml", "te"),
-    ("ablations-objectives-sft-allowed-mass", "experiments/configs/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml", "te"),
-    ("ablations-objectives-sft-structured", "experiments/configs/qwen25-05b/ablations/objectives/sft-structured.yaml", "te"),
+    (
+        "ablations-decoding-no-grammar",
+        "experiments/configs/qwen25-05b/ablations/decoding/no-grammar.yaml",
+        "te",
+    ),
+    (
+        "ablations-decoding-hot-rollout",
+        "experiments/configs/qwen25-05b/ablations/decoding/hot-rollout.yaml",
+        "te",
+    ),
+    (
+        "ablations-rewards-edit-validity",
+        "experiments/configs/qwen25-05b/ablations/rewards/edit-validity.yaml",
+        "te",
+    ),
+    (
+        "ablations-rewards-historical-stack",
+        "experiments/configs/qwen25-05b/ablations/rewards/historical-stack.yaml",
+        "te",
+    ),
+    (
+        "ablations-loss-dr-grpo",
+        "experiments/configs/qwen25-05b/ablations/loss/dr-grpo.yaml",
+        "te",
+    ),
+    (
+        "ablations-objectives-sft-allowed-mass",
+        "experiments/configs/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml",
+        "te",
+    ),
+    (
+        "ablations-objectives-sft-structured",
+        "experiments/configs/qwen25-05b/ablations/objectives/sft-structured.yaml",
+        "te",
+    ),
 ]
 
 HELPER_NAME = "cluster_helper.sh"  # file locale in remote/ (per auto-install scp)

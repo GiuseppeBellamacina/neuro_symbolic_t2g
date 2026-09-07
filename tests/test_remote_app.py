@@ -28,21 +28,65 @@ AUTH = {"X-Auth-Token": "test-token"}
 # Ordine ESATTO di remote/app.py:ABLATION_MODELS (= cluster/run_all.sh) -
 # se cambia, aggiornare sia app.ABLATION_MODELS sia questa lista.
 EXPECTED_ABLATION_MODELS: list[tuple[str, str, str]] = [
-    ("baseline-zero-shot", "experiments/configs/qwen25-05b/baseline/zero-shot.yaml", "e"),
-    ("baseline-zero-shot-no-grammar", "experiments/configs/qwen25-05b/baseline/zero-shot-no-grammar.yaml", "e"),
+    (
+        "baseline-zero-shot",
+        "experiments/configs/qwen25-05b/baseline/zero-shot.yaml",
+        "e",
+    ),
+    (
+        "baseline-zero-shot-no-grammar",
+        "experiments/configs/qwen25-05b/baseline/zero-shot-no-grammar.yaml",
+        "e",
+    ),
     ("baseline-few-shot", "experiments/configs/qwen25-05b/baseline/few-shot.yaml", "e"),
     ("sft-zero-shot", "experiments/configs/qwen25-05b/sft/zero-shot.yaml", "te"),
     ("grpo-zero-shot", "experiments/configs/qwen25-05b/grpo/zero-shot.yaml", "te"),
     ("grpo-few-shot", "experiments/configs/qwen25-05b/grpo/few-shot.yaml", "te"),
-    ("sft-grpo-zero-shot", "experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml", "te"),
-    ("sft-grpo-few-shot", "experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml", "te"),
-    ("ablations-decoding-no-grammar", "experiments/configs/qwen25-05b/ablations/decoding/no-grammar.yaml", "te"),
-    ("ablations-decoding-hot-rollout", "experiments/configs/qwen25-05b/ablations/decoding/hot-rollout.yaml", "te"),
-    ("ablations-rewards-edit-validity", "experiments/configs/qwen25-05b/ablations/rewards/edit-validity.yaml", "te"),
-    ("ablations-rewards-historical-stack", "experiments/configs/qwen25-05b/ablations/rewards/historical-stack.yaml", "te"),
-    ("ablations-loss-dr-grpo", "experiments/configs/qwen25-05b/ablations/loss/dr-grpo.yaml", "te"),
-    ("ablations-objectives-sft-allowed-mass", "experiments/configs/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml", "te"),
-    ("ablations-objectives-sft-structured", "experiments/configs/qwen25-05b/ablations/objectives/sft-structured.yaml", "te"),
+    (
+        "sft-grpo-zero-shot",
+        "experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml",
+        "te",
+    ),
+    (
+        "sft-grpo-few-shot",
+        "experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml",
+        "te",
+    ),
+    (
+        "ablations-decoding-no-grammar",
+        "experiments/configs/qwen25-05b/ablations/decoding/no-grammar.yaml",
+        "te",
+    ),
+    (
+        "ablations-decoding-hot-rollout",
+        "experiments/configs/qwen25-05b/ablations/decoding/hot-rollout.yaml",
+        "te",
+    ),
+    (
+        "ablations-rewards-edit-validity",
+        "experiments/configs/qwen25-05b/ablations/rewards/edit-validity.yaml",
+        "te",
+    ),
+    (
+        "ablations-rewards-historical-stack",
+        "experiments/configs/qwen25-05b/ablations/rewards/historical-stack.yaml",
+        "te",
+    ),
+    (
+        "ablations-loss-dr-grpo",
+        "experiments/configs/qwen25-05b/ablations/loss/dr-grpo.yaml",
+        "te",
+    ),
+    (
+        "ablations-objectives-sft-allowed-mass",
+        "experiments/configs/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml",
+        "te",
+    ),
+    (
+        "ablations-objectives-sft-structured",
+        "experiments/configs/qwen25-05b/ablations/objectives/sft-structured.yaml",
+        "te",
+    ),
 ]
 
 
@@ -283,7 +327,9 @@ def test_status_format_after_tick(client):
     test_client, fake = client
     fake.active_job = "12345|train-foo|RUNNING"
     fake.queue = ["train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"]
-    fake.last_job = "12345:train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1:0"
+    fake.last_job = (
+        "12345:train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1:0"
+    )
 
     resp = test_client.post("/tick", headers=AUTH)
     assert resp.status_code == 200
@@ -304,13 +350,17 @@ def test_status_format_after_tick(client):
         "name": "train-foo",
         "state": "RUNNING",
     }
-    assert body["queue"] == ["train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"]
+    assert body["queue"] == [
+        "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"
+    ]
     assert body["stopped"] is False
     assert body["cluster_reachable"] is True
     assert any(e["type"] == "tick" for e in body["events"])
 
     st = test_client.get("/status", headers=AUTH).json()
-    assert st["queue"] == ["train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"]
+    assert st["queue"] == [
+        "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"
+    ]
     assert st["cluster_reachable"] is True
     assert st["last_tick_at"]
 
@@ -368,8 +418,13 @@ def test_jobs_add_and_list(client):
         json={"type": "train", "config": "sft-grpo-few-shot", "tag": "run1"},
     )
     assert resp.status_code == 201
-    assert resp.json()["added"] == "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"
-    assert fake.queue == ["train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"]
+    assert (
+        resp.json()["added"]
+        == "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"
+    )
+    assert fake.queue == [
+        "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"
+    ]
     assert " enqueue " in fake.commands[-1]
 
     jobs = test_client.get("/jobs", headers=AUTH).json()
@@ -390,12 +445,20 @@ def test_jobs_tag_derived_and_mode(client):
         "/jobs", headers=AUTH, json={"type": "eval", "config": "sft-zero-shot"}
     )
     assert resp.status_code == 201
-    assert resp.json()["added"] == "eval:experiments/configs/qwen25-05b/sft/zero-shot.yaml:zero-shot"
+    assert (
+        resp.json()["added"]
+        == "eval:experiments/configs/qwen25-05b/sft/zero-shot.yaml:zero-shot"
+    )
 
     resp = test_client.post(
         "/jobs",
         headers=AUTH,
-        json={"type": "train", "config": "grpo-few-shot", "tag": "x", "mode": "--resume"},
+        json={
+            "type": "train",
+            "config": "grpo-few-shot",
+            "tag": "x",
+            "mode": "--resume",
+        },
     )
     assert resp.status_code == 201
     assert (
@@ -714,7 +777,9 @@ def test_jobs_batch_enqueues_in_order_and_ticks(client):
     assert body["started_now"] is True
     assert body["active_job"]["name"] == "train-few-shot"
     # train consumato dal tick, eval in coda
-    assert fake.queue == ["eval:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:few-shot"]
+    assert fake.queue == [
+        "eval:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:few-shot"
+    ]
     assert len(body["queued"]) == 2
     joined = " ".join(fake.commands)
     assert joined.count("enqueue") >= 2
@@ -752,7 +817,10 @@ def test_jobs_batch_without_start_now_only_enqueues(client):
     resp = test_client.post(
         "/jobs/batch",
         headers=AUTH,
-        json={"jobs": [{"type": "eval", "config": "sft-zero-shot"}], "start_now": False},
+        json={
+            "jobs": [{"type": "eval", "config": "sft-zero-shot"}],
+            "start_now": False,
+        },
     )
     assert resp.status_code == 201
     assert resp.json()["started_now"] is False
@@ -843,7 +911,9 @@ def test_start_job_enqueues_and_ticks(client):
     fake.run = _tick_side_effect  # type: ignore[method-assign]
 
     resp = test_client.post(
-        "/jobs/start", headers=AUTH, json={"type": "train", "config": "sft-grpo-few-shot"}
+        "/jobs/start",
+        headers=AUTH,
+        json={"type": "train", "config": "sft-grpo-few-shot"},
     )
     assert resp.status_code == 201
     body = resp.json()
@@ -860,11 +930,15 @@ def test_start_job_enqueued_when_busy(client):
     fake.active_job = "111|train-altro|RUNNING"
 
     resp = test_client.post(
-        "/jobs/start", headers=AUTH, json={"type": "train", "config": "sft-grpo-few-shot"}
+        "/jobs/start",
+        headers=AUTH,
+        json={"type": "train", "config": "sft-grpo-few-shot"},
     )
     assert resp.status_code == 201
     assert resp.json()["started_now"] is False
-    assert fake.queue == ["train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:few-shot"]
+    assert fake.queue == [
+        "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:few-shot"
+    ]
 
 
 def test_kill_cancels_active_job(client):

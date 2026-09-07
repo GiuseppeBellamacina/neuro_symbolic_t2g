@@ -167,7 +167,9 @@ def test_get_status_parses_fields():
         "name": "train-grpo",
         "state": "RUNNING",
     }
-    assert status["queue"] == ["train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"]
+    assert status["queue"] == [
+        "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"
+    ]
     assert status["stopped"] is False
     assert status["events"][0]["type"] == "tick"
 

@@ -186,9 +186,7 @@ def require_single_process(auxiliary: dict[str, Any]) -> None:
     except ValueError as exc:
         raise ValueError("WORLD_SIZE must be an integer") from exc
     if world_size != 1:
-        raise ValueError(
-            f"auxiliary objectives require WORLD_SIZE=1, got {world_size}"
-        )
+        raise ValueError(f"auxiliary objectives require WORLD_SIZE=1, got {world_size}")
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +235,9 @@ class CompletionSpanCollator(DataCollatorForLanguageModeling):
             first = int(positions[0].item())
             last = int(positions[-1].item())
             contiguous = positions.numel() == (last - first + 1)
-            ends_with_eos = int(batch["input_ids"][row, last].item()) == self.eos_token_id
+            ends_with_eos = (
+                int(batch["input_ids"][row, last].item()) == self.eos_token_id
+            )
             starts.append(first)
             # Only score rows whose completion is a contiguous span terminated by
             # EOS: a truncated completion has no valid final state.
@@ -456,9 +456,11 @@ class AuxiliarySFTTrainer(SFTTrainer):
         width = max((len(row) for row in mapped), default=0)
         padded = [row + [0] * (width - len(row)) for row in mapped]
         return (
-            torch.tensor(padded, dtype=torch.long, device=device)
-            if width
-            else torch.zeros((len(mapped), 0), dtype=torch.long, device=device),
+            (
+                torch.tensor(padded, dtype=torch.long, device=device)
+                if width
+                else torch.zeros((len(mapped), 0), dtype=torch.long, device=device)
+            ),
             torch.tensor(lengths, dtype=torch.long, device=device),
         )
 
