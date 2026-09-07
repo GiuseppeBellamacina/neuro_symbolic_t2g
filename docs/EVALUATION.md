@@ -4,7 +4,10 @@ Versione: 1.1 (2026-09-02). Questo documento definisce il protocollo con cui
 vengono prodotti e confrontati i numeri del progetto. **Dichiarare e mantenere
 questo protocollo è prerequisito per ogni claim sul target BLEU 0.80** — i numeri
 sono comparabili solo dentro lo stesso protocollo. La gerarchia delle metriche
-(§2) segue la letteratura T2G: vedi §2b per le fonti.
+(§2) mette al vertice le primarie di progetto `exact_match` e
+`non_copy_token_accuracy`: le metriche di overlap della letteratura sono sature
+su questo corpus (evidenza in `docs/RECOVERY_REPORT.md` §9) e restano riportate
+solo per confrontabilità (vedi §2b per le fonti).
 
 ## 1. Split del dataset
 
@@ -23,19 +26,29 @@ sono comparabili solo dentro lo stesso protocollo. La gerarchia delle metriche
 
 Tutte le metriche primarie sono calcolate su **tutte le completions** generate
 per ogni prompt (no selezione oracolo). Implementazioni: `src/utils/metrics.py`
-(sacrebleu per BLEU/chrF). L'ordine della tabella è la **gerarchia di
+(sacrebleu per BLEU/chrF) e `src/analysis/rule_baseline.py`
+(`non_copy_token_accuracy`). L'ordine della tabella è la **gerarchia di
 rilevanza** usata nel log dell'eval, nel metrics_dashboard e nelle tabelle
 della tesi.
 
 | # | Metrica | Definizione | Scala | Ruolo |
 |---|---|---|---|---|
-| 1 | **BLEU-4 (corpus)** | sacreBLEU corpus, refs flat allineate (v2 `metrics_version`); sentence mean riportato accanto | [0,1] | **Headline** — lo standard della letteratura T2G (confrontabile coi paper) |
-| 2 | **chrF2 (corpus)** | sacrebleu CHRF2 (char F-score, β=2) | [0,100] | **Headline secondaria** — indipendente dalla tokenizzazione, àncora contro inflazione BLEU |
-| 3 | **ROUGE-L** | F1 LCS (rouge_score, stemmer off), sentence mean | [0,1] | Secondaria — lineage SLT + la reward di training |
-| 4 | **Gloss F1 (micro)** | F1 token-level case-insensitive | [0,1] | Diagnostica — errore a livello token |
-| 5 | **Exact match** | uguaglianza stringa normalizzata | [0,1] | Diagnostica |
-| 6 | **Pass@1 / Pass@k** | frazione di prompt con ≥1 completion sopra ROUGE-L 0.3 (k=1: single honest draw) | [0,1] | **Deployability** — metrica di progetto, NON letteratura (v. §2a) |
-| 7 | **Validity** | frazione di completions con soli token in vocabolario gloss | [0,1] | Sistema — quantifica il contributo del constrained decoding |
+| 1 | **Exact match** | uguaglianza stringa normalizzata | [0,1] | **Headline** — separa la transduzione dalla copia dell'inglese |
+| 2 | **Non-copy token accuracy** | accuratezza sui token del reference non ottenibili uppercaseando il source (case-sensitive, `src/analysis/rule_baseline.py`) | [0,1] | **Headline** — separa la transduzione dalla copia dell'inglese |
+| 3 | **BLEU-4 (corpus)** | sacreBLEU corpus, refs flat allineate (v2 `metrics_version`); sentence mean riportato accanto | [0,1] | Comparabilità — standard della letteratura T2G, saturo su questo corpus |
+| 4 | **chrF2 (corpus)** | sacrebleu CHRF2 (char F-score, β=2) | [0,100] | Comparabilità — indipendente dalla tokenizzazione |
+| 5 | **ROUGE-L** | F1 LCS (rouge_score, stemmer off), sentence mean | [0,1] | Comparabilità — satura e difettosa (v. nota sotto); sempre accanto alla baseline a regole |
+| 6 | **Gloss F1 (micro)** | F1 token-level case-insensitive | [0,1] | Diagnostica — errore a livello token |
+| 7 | **Pass@1 / Pass@k** | frazione di prompt con ≥1 completion sopra ROUGE-L 0.3 (k=1: single honest draw) | [0,1] | **Deployability** — metrica di progetto, NON letteratura (v. §2a) |
+| 8 | **Validity** | frazione di completions con soli token in vocabolario gloss | [0,1] | Sistema — quantifica il contributo del constrained decoding |
+
+Le due headline sono scelte **di progetto**, non di letteratura: su ASLG-PC12 le
+metriche di overlap sono sature — una regola lessicale costruita solo dal train
+raggiunge ROUGE-L 0.9697 sul test completo — e ROUGE-L è anche difettosa
+(case-insensitive e splitta sui non-alfanumerici, quindi `DESC-GOOD` vs
+`DESC-BAD` prende 0.5). ROUGE-L va quindi riportata **solo** per confrontabilità
+con la letteratura e **sempre accanto alla baseline a regole** (`rule_baseline`).
+Evidenza: `docs/RECOVERY_REPORT.md` §9.
 
 ### 2a. Pass@k e la soglia 0.3 — provenienza dichiarata
 
@@ -76,8 +89,8 @@ fa fatica" (monitor per-difficulty).
 
 ## 3. Decodifica in evaluation
 
-- Generazione con lo **stesso constrained decoding** del training (Trie dual-root
-  di default; PDA nei config ablation).
+- Generazione con lo **stesso constrained decoding** del training (Trie dual-root,
+  l'unico path di decoding vincolato).
 - **Sampling**: `num_samples` completions per prompt a temperatura 0.7
   (greedy se `num_samples=1`). Baseline e checkpoint usano **la stessa
   decodifica** in `--compare` (niente più greedy-vs-best-of-5).
@@ -131,7 +144,7 @@ Per ogni eval (in `experiments/results/<model>/<run_id>/`):
 Figure (in `experiments/figures/<model>/<run_id>/`), in ordine di
 rilevanza:
 1. `metrics_dashboard.png` — **il grafico di confronto**: headline metrics
-   (BLEU-4 corpus, chrF, ROUGE-L, Pass@1, Gloss F1, validity), baseline vs
+   (exact match, non-copy token accuracy, BLEU-4 corpus, chrF, ROUGE-L, Pass@1, Gloss F1, validity), baseline vs
    checkpoint, delta assoluto e % per pannello. La "one figure" della tesi.
 2. `difficulty_breakdown.png` — metriche per livello di difficoltà del gold.
 3. `bleu_distribution.png` / `chrf_distribution.png` / `rouge_distribution.png`

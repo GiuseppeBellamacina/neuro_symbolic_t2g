@@ -47,7 +47,6 @@ export_offline_env() {
 # ── .chain_state paths (single source of truth) ──────────────────────────────
 STATE_DIR="$PROJ_DIR/.chain_state"
 CHAIN_FILE="$STATE_DIR/job_chain"        # queue: one "type:cfg:tag[:extra]" per line
-FAILED_FILE="$STATE_DIR/chain_failed"    # legacy: last non-resumable failure
 ERRORS_FILE="$STATE_DIR/chain_errors"    # JSONL failure log (read by the monitor)
 LAST_JOB_FILE="$STATE_DIR/last_job"      # "id:type:cfg:tag:retries" of last submission
 STOPPED_FILE="$STATE_DIR/chain_stopped"  # present ⇒ pipeline paused by chain-stop

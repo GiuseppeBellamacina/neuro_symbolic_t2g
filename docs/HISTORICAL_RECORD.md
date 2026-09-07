@@ -1,21 +1,40 @@
 # Historical record — provenance index
 
-Purpose: several documents in `docs/` describe systems that no longer match the
-active code, and were **deleted wholesale** on the `edit-rewards` branch. They
-are retained here deliberately. They are the only surviving record of decisions,
-mathematics and failure diagnoses that the code itself no longer contains.
+Purpose: some documents in `docs/` describe systems that no longer match the
+active code. They are retained deliberately, because they are the only surviving
+record of decisions, mathematics and failure diagnoses the code itself no longer
+contains — and every number in `FINDINGS.md` was produced by that code.
 
-Do not delete these. Do not "modernize" them into agreement with current code —
-that destroys the record. Read them as dated artifacts.
+Do not "modernize" them into agreement with current code: that destroys the
+record. Read them as dated artifacts.
 
-Verified: every file listed below exists on `improvement` (`a8bb684`) and is
-absent from `edit-rewards` (`68bc12a`), with no surviving copy of its content on
-that branch (checked against the new `docs/` tree and `docs/report/chapters/*.tex`).
+## Documents removed in the legacy cleanup
+
+Six documents were **deleted** because the code they documented no longer exists
+in the repository at all, so they described nothing and could only mislead:
+
+| Removed document | What it documented |
+|---|---|
+| `DOCUMENTAZIONE.md` | Full API docs of the vendored `grammarllm` package |
+| `GRAMMARLLM_MIGRAZIONE.md` | `grammarllm` v0.4.x -> v0.5.0 migration record |
+| `GRAMMARLLM_CONFRONTO.md` | Vendored-vs-upstream `grammarllm` comparison |
+| `ERRORI_E_MIGLIORIE.md` | Upstream `grammarllm` bug catalogue |
+| `CONFIGS.md` | Index of the deleted `configs/t2g/*.yaml` cells |
+| `CONFIGS_GUIDE.md` | `extends` chain of the deleted `configs/t2g/` tree |
+
+The vendored `grammarllm/` package and the `configs/t2g/` tree were removed
+because the PDA decoding path never ran (no `*pda*` result directory exists), it
+failed with an LL(1) conflict on digit-initial glosses, and a PDA is oversized
+for a flat `gloss*` language. The Trie is the only constrained-decoding path and
+its coverage is effectively complete (4 gloss types out of 15472 blocked).
+
+Git history retains all six at commit `741cfc6^`, so nothing is lost — the
+rationale for the removals lives in `docs/RECOVERY_REPORT.md` §9b.
 
 ## Status legend
 
-- **HISTORICAL — code deleted**: describes code that no longer exists on
-  `edit-rewards`. Irreplaceable: the doc *is* the specification.
+- **HISTORICAL — code deleted**: describes code that no longer exists.
+  Irreplaceable: the doc *is* the specification.
 - **HISTORICAL — superseded**: the subject still exists but the doc's numbers or
   API descriptions are stale.
 - **CURRENT**: still accurate for `improvement`.
@@ -25,12 +44,6 @@ that branch (checked against the new `docs/` tree and `docs/report/chapters/*.te
 | `REWARDS.md` | HISTORICAL — code deleted | The only record of the 10 historical reward functions: formulas, ranges, OOV/length guards, and the v2 gold-anchored recalibration rationale. `edit-rewards` deleted both this doc **and** the implementing code, so nothing else describes them. |
 | `T2G_PIPELINE_REVIEW.md` | HISTORICAL — superseded | Root-cause forensics for three real training bugs: the unsloth `position_ids` RoPE broadcast crash, the `grpo_accumulated_loss` Half/Float dtype bug, and the `prompt_len`-not-reset bug that produced garbage output. Survives elsewhere only as a one-line code comment. |
 | `METRICS.md` | HISTORICAL — code deleted | The only definition of the masked-mass / masked-entropy grammar diagnostics. `grammar.track_diagnostics` still emits these, so removing this doc leaves an undocumented live metric. |
-| `CONFIGS_GUIDE.md` | HISTORICAL — code deleted | The historical config matrix and `extends` chain (base -> sft-grpo -> 9 children), plus the reward-dilution design and the record of pre-v2 configs. Needed to interpret the stored run directories. |
-| `CONFIGS.md` | HISTORICAL — code deleted | Index of the 13 `configs/t2g/*.yaml` cells that produced every stored result. |
-| `GRAMMARLLM_MIGRAZIONE.md` | HISTORICAL — superseded | Per-file API migration record v0.4.x -> v0.5.0. The code encodes the outcome; only this doc records what changed where, and why. |
-| `GRAMMARLLM_CONFRONTO.md` | HISTORICAL — superseded | Vendored-vs-upstream comparison and the decision to keep the vendored copy. Directly supports `grammarllm/VENDORED_STATUS.md`. |
-| `ERRORI_E_MIGLIORIE.md` | HISTORICAL — superseded | Upstream grammarllm bug catalogue with file:line and fixes. Explains why the vendored copy is ahead of upstream. |
-| `DOCUMENTAZIONE.md` | HISTORICAL — superseded | Full docs of the pre-migration vendored grammarllm. Least-critical (upstream library docs) but not recoverable from this repo. |
 | `RESEARCH_REPORT.md` | HISTORICAL — superseded | Project overview and the symbolic-reward design rationale. Partially survives via `docs/report/chapters/*.tex`. |
 | `FINDINGS.md` | **CURRENT on `improvement`** | Holds the historical results table with run IDs. On `edit-rewards` this was **rewritten** down to an 8-line disclaimer, so the numeric record survives only here. |
 

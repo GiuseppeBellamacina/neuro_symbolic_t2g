@@ -5,7 +5,7 @@ e chiavi obbligatorie.
 Uso:
     python -m tests.validate_configs
     python -m tests.validate_configs --verbose
-    python -m tests.validate_configs --config experiments/configs/t2g/sft-grpo.yaml
+    python -m tests.validate_configs --config experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml
 
 I config vengono caricati via ``src.utils.config.resolve_config``, quindi le
 catene ``extends`` vengono risolte prima della validazione.
@@ -15,7 +15,8 @@ Regole di validazione:
     - Sezioni obbligatorie per tipo
     - Chiavi nidificate obbligatorie
     - Vincoli di tipo (bool, int, float, list)
-    - Coerenza cross-sezione (es. grammar.use_grammarllm_pda → pda_temperature)
+    - Coerenza cross-sezione (knob RL validi, peso OOV nel regime sicuro,
+      max_prompt_length adeguato col few-shot attivo)
     - Somma dei reward weights = 1.0 (±1e-9)
     - Assenza di chiavi morte (PDA/grammarllm/Viterbi rimossi dal codice)
     - Assenza di ``extends`` residuo nel dict fuso
@@ -42,8 +43,6 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _CONFIG_GLOB = "experiments/configs/**/*.yaml"
 _CLUSTER_RUN_ALL = _PROJECT_ROOT / "cluster" / "run_all.sh"
 
-# Chiavi morte: rimosse dal codice (src/rewards/t2g_rewards.py non le legge
-# più — solo i 4 parametri viterbi_diversity reali vengono caricati).
 # Chiavi morte: rimosse dal codice. Un config che le imposta e'
 # silenziosamente inefficace, quindi il validator lo blocca.
 DEAD_KEYS = {
@@ -160,7 +159,7 @@ def _detect_kind(cfg: dict[str, Any]) -> str:
 
 
 def _get_nested(cfg: dict[str, Any], dotted_key: str) -> Any:
-    """Get a nested value by dotted key, e.g. 'grammar.viterbi_diversity.self_loop_penalty'.
+    """Get a nested value by dotted key, e.g. 'grammar.track_diagnostics'.
 
     Returns a sentinel object if any intermediate key is missing.
     """
@@ -269,9 +268,9 @@ def _validate_cross_section(cfg: dict[str, Any], errors: list[str], path: str) -
     # Il few-shot allunga il prompt: con retrieval attivo servono piu' token,
     # altrimenti gli esempi vengono troncati e la cella misura altro.
     if cfg.get("retrieval", {}).get("enabled"):
-        max_prompt = grpo_cfg.get("max_prompt_length") or cfg.get(
-            "generation", {}
-        ).get("max_prompt_length")
+        max_prompt = grpo_cfg.get("max_prompt_length") or cfg.get("generation", {}).get(
+            "max_prompt_length"
+        )
         if max_prompt is not None and int(max_prompt) < 512:
             errors.append(
                 f"{path}: retrieval.enabled=true ma max_prompt_length="

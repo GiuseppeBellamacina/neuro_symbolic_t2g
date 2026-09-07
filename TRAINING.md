@@ -17,7 +17,7 @@ Il progetto addestra **Qwen2.5-0.5B-Instruct** a tradurre frasi inglesi in **glo
                                              ↓
 ┌─────────────┐    ┌──────────────┐    ┌──────────────────────┐
 │ 6. GRPO      │ ←  │ 5. Reward     │ ←  │ 4. T2G Dataset       │
-│ Training     │    │ Functions (4) │    │ prompt→completion    │
+│ Training     │    │ Functions (8) │    │ prompt→completion    │
 │ (trl.GRPOTrainer)│                │    │ (chat template)      │
 └─────────────┘    └──────────────┘    └──────────────────────┘
 ```
@@ -28,25 +28,31 @@ Il progetto addestra **Qwen2.5-0.5B-Instruct** a tradurre frasi inglesi in **glo
    appartenere al vocabolario gloss ASL (15K token). Il modello NON può generare
    parole inglesi.
 4. **T2G Dataset**: ogni sample ha `prompt` (frase inglese) e `completion` (glosse gold)
-5. **9 Reward Functions**: guidano l'apprendimento senza supervisione umana
+5. **8 Reward Functions**: guidano l'apprendimento senza supervisione umana
 6. **GRPO Training**: il modello genera G=8 completions per prompt, riceve reward,
    e aggiorna i pesi LoRA per massimizzare la reward attesa
-7. **Salvataggio**: checkpoint ogni 100 step, modello finale in `experiments/checkpoints/grpo/t2g/qwen05/final/`
+7. **Salvataggio**: checkpoint ogni 100 step, modello finale in `experiments/checkpoints/qwen25-05b/sft-grpo/few-shot/run_<timestamp>/final/`
 
 ### Le reward function
 
-| Reward                                | Peso (optimal v2.1) | Cosa misura                                       |
-| ------------------------------------- | ------------------- | ------------------------------------------------- |
-| **Translation quality** (ROUGE-L)    | 0.20                | Similarità con le glosse gold                     |
-| **BLEU-4** (RVLF 2025) ⭐          | 0.20                | N-gram precision con effective_order + smoothing   |
-| **Gold-structure** (Gold Baseline) ⭐ | 0.20                | Confronto bigram vs gold reference                |
-| **Gloss-order** (Edit-distance)       | 0.10                | Levenshtein normalizzato vs gold                  |
-| **Verifier-scaled** (RECIPE)          | 0.10                | ROUGE × structural — confidence multiplier        |
-| **Format**                            | 0.10                | Assicura output di sole glosse (no free text)     |
-| **Repetition**                        | 0.10                | Penalizza sequenze ripetitive                     |
+| Reward                                          | Peso (stack base) | Cosa misura                                      |
+| ----------------------------------------------- | ----------------- | ------------------------------------------------ |
+| **Translation quality** (ROUGE-L)               | 0.20              | Similarità con le glosse gold                    |
+| **BLEU-4**                                      | 0.20              | N-gram precision con effective_order + smoothing  |
+| **Gold-structure**                              | 0.20              | Confronto bigram vs gold reference               |
+| **Gloss-order** (edit-distance)                 | 0.10              | Levenshtein normalizzato vs gold                 |
+| **Verifier-scaled**                             | 0.10              | ROUGE × structural — confidence multiplier       |
+| **Gloss-format**                                | 0.10              | Assicura output di sole glosse (no free text)    |
+| **Gloss-repetition**                            | 0.10              | Penalizza sequenze ripetitive                    |
+| **Edit-validity**                               | 0 (ablation)      | Similarità di edit word-level; fuori dallo stack storico |
 
-Tutte le reward sono mappate su range simmetrico [-1, 1]. Somma pesi = 1.0.
-Vedi `docs/REWARDS.md` per dettagli completi.
+Lo stack storico di default somma 1.0 sulle prime 7 componenti (chiavi
+`weight_translation`, `weight_bleu`, `weight_gold_structure`,
+`weight_gloss_order`, `weight_verifier_scaled`, `weight_format`,
+`weight_repetition`). `edit_validity` (`weight_edit_validity`,
+`edit_validity_oov_weight` default 0.5) è opt-in: vive solo in
+`ablations/rewards/edit-validity.yaml`. Tutte le reward sono mappate su range
+simmetrico [-1, 1]. Vedi `docs/REWARDS.md` per dettagli completi.
 
 ### Cosa aspettarsi
 
@@ -81,8 +87,8 @@ Vedi `docs/REWARDS.md` per dettagli completi.
 - **gradient_checkpointing**: attivo in tutti i config — ricomputa le attivazioni
   del forward nel backward pass, riducendo peak VRAM del ~30% a costo di ~20% più lento.
   Essenziale per G=8 su GPU 22GB (cluster).
-- **Curriculum learning**: 3-stage (simple→medium→hard) abilitato in `sft-grpo`
-  e in tutte le sue celle di ablation. Calibrato sulla distribuzione reale di ASLG-PC12.
+- **Curriculum learning**: 3-stage (simple→medium→hard) abilitato nelle celle
+  few-shot (`grpo/few-shot` e `sft-grpo/few-shot`). Calibrato sulla distribuzione reale di ASLG-PC12.
 
 ### Monitorare il training
 
@@ -104,7 +110,7 @@ t2g-gpu
 ### Output attesi
 
 ```
-experiments/checkpoints/grpo/t2g/qwen05/
+experiments/checkpoints/qwen25-05b/sft-grpo/few-shot/run_<timestamp>/
 ├── checkpoint-100/      # Dopo 100 step
 ├── checkpoint-200/      # Dopo 200 step
 ├── ...                  # Ogni 100 step
@@ -123,29 +129,35 @@ logs/
 run-all --resume
 
 # Oppure manualmente
-CONFIG=experiments/configs/t2g/sft-grpo.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 ```
 
-# Ablation study completa (12 config)
+# Ablation study completa (15 celle / 27 entry)
 
 ```bash
 source cluster/aliases.sh
-run-all --ablation         # 12 config train+eval (~24h)
+run-all --ablation         # 15 celle: 3 baseline eval-only + 12 train+eval
 monitor --all               # live dashboard
 ablation-summary            # tabella + grafico cross-config post-pipeline
 ```
 
 ### Configurazione
 
-Modifica `experiments/configs/t2g/sft-grpo.yaml` per:
+Modifica `experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml` per:
 
 - **Durata**: `training.max_steps` (default 2000)
 - **Velocità**: `grpo.num_generations` (default 8, riduci a 4 per GPU piccole)
 - **GPU piccole (K80)**: `model.quantization: null`, `model.use_unsloth: false`
 - **Quality/speed tradeoff**: `grpo.temperature` (default 0.7 nella base, più alto = più esplorazione)
 - **OOM**: `training.gradient_checkpointing: true` (già attivo di default)
-- **Reward struttura**: `grammar.viterbi_diversity.*` per iperparametri Viterbi
 - **Ablation**: `grammar.enabled: false` per GRPO senza constrained decoding
-- **PDA**: `grammar.use_grammarllm_pda: true` per LL(1) completo
-- **Token lookahead**: `grammar.token_lookahead: true` (solo con PDA, grammarllm v0.5.0)
 - **Curriculum**: `curriculum.enabled: true/false`
+- **Obiettivo RL** (`grpo:`): `loss_type` (`grpo`|`bnpo`|`dr_grpo`|`dapo`),
+  `scale_rewards` (`group`|`batch`|`none`), `mask_truncated_completions`,
+  `epsilon`, `epsilon_high`. Se assenti valgono i default di TRL 0.24.0
+  (`dapo` / `group` / `False`), gli stessi sotto cui sono stati prodotti tutti
+  i risultati storici; vedi `ablations/loss/dr-grpo.yaml`.
+- **Obiettivi ausiliari SFT** (`auxiliary_objective:`): `allowed_mass` (peso +
+  `warmup_steps`) e `structured` (peso, `warmup_steps`, `top_k`, `alpha`,
+  `shuffled_control`). Con peso 0 o sezione assente l'SFT è bit-identico a
+  quello standard; vedi `ablations/objectives/{sft-allowed-mass,sft-structured}.yaml`.

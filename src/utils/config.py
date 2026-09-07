@@ -165,7 +165,7 @@ def resolve_run_dir(base_dir: str, prefix: str = "run") -> tuple[Path, str]:
             latest -> train_20260403_120000
 
     Args:
-        base_dir: Parent directory (e.g. ``experiments/checkpoints/grpo/t2g/qwen05``).
+        base_dir: Parent directory (e.g. ``experiments/checkpoints/qwen25-05b/sft/zero-shot``).
         prefix: Name prefix for the subdirectory (``train``, ``eval``, …).
 
     Returns:

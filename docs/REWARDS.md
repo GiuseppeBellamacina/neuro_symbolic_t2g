@@ -1,5 +1,28 @@
 # T2G GRPO Reward Functions — Documentazione Dettagliata
 
+
+> **DOCUMENTO STORICO — non descrive il codice attuale.**
+>
+> Tre reward qui documentate sono state **RIMOSSE** dal codice:
+> `structural_dense_reward`, `viterbi_distance_reward`,
+> `soft_viterbi_distance_reward`. Motivo: per completamenti di lunghezza uguale
+> il termine di bound si cancella algebricamente, quindi le tre collassavano
+> sullo stesso segnale (la cella `all-rewards` contava tre volte la stessa
+> cosa); empiricamente tutte restavano entro ±0.006 dal controllo 0.5114, cioè
+> dentro l'incertezza della metrica.
+>
+> Questo documento è conservato perché è **l'unico record** della loro
+> matematica, dei loro range e delle loro guardie OOV/lunghezza: il codice che
+> le implementava non esiste più. Leggilo come artefatto datato, non come
+> riferimento per l'implementazione.
+>
+> **Reward attive oggi**: `translation_quality`, `bleu`, `gold_structure`,
+> `gloss_order`, `verifier_scaled`, `gloss_format`, `gloss_repetition` (stack
+> storico, somma 1.0) più `edit_validity` opt-in (`weight_edit_validity`).
+> Per lo stato corrente vedi `docs/RECOVERY_REPORT.md` §5 e §9b.
+
+---
+
 Questo documento descrive tutte le funzioni di reward utilizzate nel training GRPO per Text-to-Gloss (T2G). Ogni reward è spiegata con la sua formulazione matematica, lo scopo, e le considerazioni pratiche.
 
 **File di riferimento**: `src/rewards/t2g_rewards.py`

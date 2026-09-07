@@ -1759,7 +1759,7 @@ def main() -> None:
         )
 
         # Determine wandb tags based on eval mode
-        wandb_tags = wandb_cfg.get("tags", ["t2g", "eval"])
+        wandb_tags = wandb_cfg.get("tags", ["T2G", "eval"])
         if "eval" not in wandb_tags:
             wandb_tags = list(wandb_tags) + ["eval"]
         if args.eval_baseline_only:

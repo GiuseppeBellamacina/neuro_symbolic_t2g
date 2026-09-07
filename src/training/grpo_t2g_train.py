@@ -526,6 +526,15 @@ class CurriculumFilteredDataset:
     samplers never go out of bounds on stage transitions.
 
     The underlying data is NOT copied — only the index list is rebuilt.
+
+    Reproducibility: the index list is drawn from a DEDICATED RNG seeded by
+    ``(seed, stage)``, not from the global ``random`` module. Using the global
+    module made the sampled curriculum depend on how much of the global RNG
+    stream other code had already consumed, so two runs with the same seed
+    could train on different data — and the same wrapper built twice in one
+    process produced different distributions. Deriving the seed from the stage
+    keeps each stage's draw distinct while remaining a pure function of the
+    configured seed.
     """
 
     def __init__(
@@ -533,13 +542,23 @@ class CurriculumFilteredDataset:
         dataset: Dataset,
         schedule: CurriculumSchedule,
         stage: int,
+        seed: int = 42,
     ) -> None:
         self._full_dataset = dataset
         self._schedule = schedule
         self._stage = stage
+        self._seed = int(seed)
         self._indices: list[int] = []
         self.column_names = dataset.column_names
         self._rebuild()
+
+    def _rng(self) -> random.Random:
+        """Deterministic per-stage RNG, independent of global random state.
+
+        The seed is combined arithmetically (not via ``hash``) so it does not
+        depend on interpreter hash behaviour.
+        """
+        return random.Random(self._seed * 1000 + self._stage)
 
     def _rebuild(self) -> None:
         """Rebuild index list to match the current stage's difficulty distribution."""
@@ -554,23 +573,24 @@ class CurriculumFilteredDataset:
             by_diff[diff].append(i)
 
         total = len(self._full_dataset)
+        rng = self._rng()
         indices: list[int] = []
         for diff, target_pct in distribution.items():
             count = min(int(total * target_pct), len(by_diff[diff]))
             if count > 0 and by_diff[diff]:
-                indices.extend(random.sample(by_diff[diff], count))
+                indices.extend(rng.sample(by_diff[diff], count))
 
         if not indices:
             indices = list(range(total))
 
         # Shuffle so items are mixed, not grouped by difficulty
-        random.shuffle(indices)
+        rng.shuffle(indices)
 
         # Pad/truncate to maintain constant length
         # (prevents DataLoader sampler from generating out-of-bounds indices)
         target_len = len(self._full_dataset)
         if len(indices) < target_len:
-            indices.extend(random.choices(indices, k=target_len - len(indices)))
+            indices.extend(rng.choices(indices, k=target_len - len(indices)))
         elif len(indices) > target_len:
             indices = indices[:target_len]
 
@@ -1033,9 +1053,15 @@ def main() -> None:
         max_steps = config["training"].get("max_steps", 1500)
         curriculum_schedule = CurriculumSchedule(max_steps)
 
-        # Wrap the training dataset with curriculum filtering (Stage 1)
+        # Wrap the training dataset with curriculum filtering (Stage 1).
+        # Il seed viene passato esplicitamente: il campionamento del curriculum
+        # usa un RNG dedicato, non quello globale, altrimenti i dati di training
+        # dipenderebbero da quanto del flusso RNG globale è già stato consumato.
         t2g_dataset = CurriculumFilteredDataset(
-            t2g_dataset, curriculum_schedule, stage=0
+            t2g_dataset,
+            curriculum_schedule,
+            stage=0,
+            seed=config["dataset"].get("seed", 42),
         )
 
         dist = curriculum_schedule.get_distribution(0)
@@ -1124,7 +1150,7 @@ def main() -> None:
     os.environ["WANDB_PROJECT"] = wandb_cfg.get("project", "neuro-symbolic-t2g")
     os.environ["WANDB_DIR"] = log_dir
     os.environ["WANDB_TAGS"] = ",".join(
-        wandb_cfg.get("tags", ["grpo", "t2g", "constrained-decoding"])
+        wandb_cfg.get("tags", ["T2G", "grpo", "constrained-decoding"])
     )
 
     if not wandb.run:
@@ -1132,7 +1158,7 @@ def main() -> None:
             project=wandb_cfg.get("project", "neuro-symbolic-t2g"),
             name=grpo_config.run_name,
             config=config,
-            tags=wandb_cfg.get("tags", ["grpo", "t2g"]),
+            tags=wandb_cfg.get("tags", ["T2G", "grpo"]),
             dir=log_dir,
             mode="offline",
             # ── Fix: output.log missing on Files tab ──────────────────

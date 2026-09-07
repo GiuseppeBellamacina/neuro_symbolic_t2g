@@ -5,7 +5,7 @@
 [![TRL](https://img.shields.io/badge/TRL-GRPO-red.svg)](https://huggingface.co/docs/trl/)
 [![Tests](https://img.shields.io/badge/Tests-96%2F96%20pytest-green.svg)](tests/)
 [![Docs](https://img.shields.io/badge/Docs-REWARDS%20%7C%20METRICS-purple.svg)](docs/)
-[![Ablation](https://img.shields.io/badge/Ablation-8%2B%20variants-orange.svg)](experiments/configs/t2g/)
+[![Ablation](https://img.shields.io/badge/Ablation-8%2B%20variants-orange.svg)](experiments/configs/qwen25-05b/)
 
 ## Overview
 
@@ -19,7 +19,7 @@ optimizes the model through reinforcement learning with **7 rule-based reward fu
 active in the optimal config (plus 3 ablation-only modules) and **10 in total**.
 
 > **No neural reward model needed** — the reward is purely deterministic, computed from
-> ROUGE-L similarity, bigram transition probabilities (softmax-normalized), Viterbi alignment,
+> ROUGE-L similarity, bigram transition probabilities (softmax-normalized),
 > RECIPE-inspired verifier scaling, edit-distance ordering, format checks, and repetition penalties.
 
 ```text
@@ -38,15 +38,14 @@ active in the optimal config (plus 3 ablation-only modules) and **10 in total**.
 ### Key Features
 
 - **Constrained Decoding**: `LogitsProcessor` masks all non-gloss tokens at each generation
-  step — the model can only produce valid ASL glosses. Supports both a lightweight
-  vocabulary mask and a full grammarllm LL(1) PDA pipeline (_experimental_).
-  W&B-tracked diagnostics (`MaskedMassTracker` mixin) monitor masked probability mass,
-  full-distribution entropy, and allowed-token entropy.
-- **7 Active Rewards (v2.1)**: Translation quality (ROUGE-L), BLEU-4,
-  gold-structure (⭐ recommended), gloss-order (edit-distance),
-  verifier-scaled (RECIPE-inspired), format, and repetition penalty — plus 3
-  ablation-only modules (structural dense, soft-Viterbi, hard Viterbi) in
-  `sft-grpo-all-rewards.yaml`. No neural reward model overhead.
+  step — the model can only produce valid ASL glosses. A **dual-root token Trie** is the
+  only constrained-decoding path; its coverage is effectively complete (4 gloss types out
+  of 15472 blocked). Optional diagnostics (`MaskedMassTracker`, off by default) monitor
+  masked probability mass, full-distribution entropy, and allowed-token entropy.
+- **7 Active Rewards**: Translation quality (ROUGE-L), BLEU-4, gold-structure,
+  gloss-order (edit-distance), verifier-scaled (RECIPE-inspired), format, and
+  repetition penalty — plus the optional `edit_validity` reward (edit similarity
+  with a graded in-vocabulary term). No neural reward model overhead.
 - **Best-of-N Selection**: Evaluation supports `best_of_n` mode — generates N samples
   per prompt and selects the best by reward, with `--compare` flag for automatic
   baseline-vs-GRPO comparison plots and JSON reports.
@@ -62,11 +61,13 @@ active in the optimal config (plus 3 ablation-only modules) and **10 in total**.
   quantization — fits in ~11 GB VRAM.
 - **Full Cluster Pipeline**: SLURM scripts, tick-based chain, live monitoring dashboard
   (`t2g-monitor`), wandb logging, checkpoint management, and evaluation suite.
-- **Ablation Study Ready**: 12 config variants (zero-shot, grammar-only, GRPO
-  variants, SFT, PDA, reward-module ablations) launchable via `--ablation` flag
-  in `cluster/run_all.sh` — tutte ereditate da `base.yaml`.
-- **All params configurable via YAML**: Viterbi diversity penalties, PDA temperature,
-  reward weights, grammar toggle — no hardcoded values.
+- **Ablation Study Ready**: 15 config cells / 27 queue entries (baselines,
+  SFT, GRPO and SFT→GRPO in both prompt modes, plus reward / loss / decoding /
+  objective ablations) launchable via the `--ablation` flag in
+  `cluster/run_all.sh` — all inheriting from `qwen25-05b/base.yaml`.
+- **All params configurable via YAML**: reward weights, grammar toggle, RL
+  objective knobs (`loss_type`, `scale_rewards`, `mask_truncated_completions`),
+  and opt-in auxiliary SFT objectives — no hardcoded values.
 - **Efficient**: ~2-3 hours for 1500 steps on a single NVIDIA L40S.
 - **Comprehensive Test Suite**: 96/96 pytest tests passing (data, grammar,
   rewards, metrics, monitor, config-inheritance, integration) with shared
@@ -80,18 +81,20 @@ active in the optimal config (plus 3 ablation-only modules) and **10 in total**.
 
 ```text
 neuro_symbolic_t2g/
-├── ├── experiments/configs/t2g/
-├── │   ├── base.yaml                   # Template ereditato (extends) — parti comuni
-├── │   ├── sft-grpo.yaml               # Pipeline principale SFT+GRPO (extends base)
-├── │   ├── sft-only.yaml               # SFT da solo (cella decomposizione)
-├── │   ├── grpo-only.yaml              # GRPO senza SFT (cella decomposizione)
-├── │   ├── sft-grpo-structure.yaml      # + structural_dense (ablation moduli)
-├── │   ├── sft-grpo-viterbi.yaml        # + viterbi_distance (ablation moduli)
-├── │   ├── sft-grpo-soft-viterbi.yaml   # + soft_viterbi (ablation moduli)
-├── │   ├── sft-grpo-all-rewards.yaml    # + tutti i 3 moduli sperimentali
-├── │   └── sft-grpo-no-grammar.yaml     # constrained decoding OFF (ablation)
-│   ├── zero-shot.yaml                # Base model senza grammar (solo eval)
-│   └── zero-shot-grammar.yaml         # Base model con grammar (solo eval)
+├── experiments/configs/qwen25-05b/     # 15 celle / 27 entry di campagna
+│   ├── base.yaml                       # Template ereditato via `extends`
+│   ├── baseline/                       # Solo eval, nessun training
+│   │   ├── zero-shot.yaml              #   base + Trie
+│   │   ├── zero-shot-no-grammar.yaml   #   base senza vincolo (lower bound)
+│   │   └── few-shot.yaml               #   base + retrieval k=3 + Trie
+│   ├── sft/zero-shot.yaml              # Controllo supervisionato
+│   ├── grpo/{zero-shot,few-shot}.yaml  # RL dal base model
+│   ├── sft-grpo/{zero-shot,few-shot}.yaml  # Pipeline completa SFT→GRPO
+│   └── ablations/
+│       ├── rewards/{edit-validity,historical-stack}.yaml
+│       ├── loss/dr-grpo.yaml           # Dr-GRPO vs default DAPO
+│       ├── decoding/{no-grammar,hot-rollout}.yaml
+│       └── objectives/{sft-allowed-mass,sft-structured}.yaml
 ├── src/
 │   ├── cluster/                       # SLURM scripts and cluster orchestration
 │   │   ├── setup.sh                   # One-shot environment setup
@@ -103,10 +106,10 @@ neuro_symbolic_t2g/
 │   │   ├── aslg_dataset.py            # ASLG-PC12 loader, vocab extraction, T2G dataset builder
 │   │   └── transition_matrix.py       # Bigram transition matrix computation
 │   ├── grammar/
-│   │   ├── gloss_grammar.py           # GlossVocabularyMask + grammarllm pipeline factory
-│   │   └── grammar_logits_processor.py # HF LogitsProcessor (vocab mask + PDA variants)
+│   │   ├── gloss_grammar.py           # GlossVocabularyMask (vocabolario glossa)
+│   │   └── grammar_logits_processor.py # HF LogitsProcessor: Trie dual-root
 │   ├── rewards/
-│   │   └── t2g_rewards.py             # 10 reward functions (7 attive + 3 ablation)
+│   │   └── t2g_rewards.py             # 8 reward functions (7 attive + edit-validity)
 │   ├── training/
 │   │   ├── grpo_t2g_train.py          # Main GRPO training loop (7-step pipeline)
 │   │   ├── eval_t2g.py                # Checkpoint eval (ROUGE-L, BLEU, best-of-N, --compare)
@@ -128,21 +131,22 @@ neuro_symbolic_t2g/
 │   ├── test_monitor.py                # Chain monitor + live table
 │   ├── test_integration.py            # End-to-end pipeline
 │   └── run_all_tests.sh               # Batch runner (pytest)
-├── grammarllm/                        # Vendored grammarllm library (PDA-based constrained decoding)
 ├── main.py                            # Component testing (data, grammar, rewards, generation)
 ├── pyproject.toml                     # Core deps + optional GPU extras (unsloth, vllm)
 ├── sync_cluster.ps1                   # Upload/download to cluster (PowerShell)
 ├── TRAINING.md                        # Detailed training guide (what to expect, monitor, resume)
 ├── CLUSTER.md                         # Complete cluster setup and operations guide
 ├── docs/
-│   ├── REWARDS.md                     # Detailed reward function documentation (9 rewards)
-│   ├── METRICS.md                     # W&B grammar metric documentation (masked mass, entropy)
+│   ├── RECOVERY_REPORT.md             # What changed vs main/edit-rewards, and the evidence
+│   ├── NEW_OBJECTIVES_SPEC.md         # Allowed-mass and structured loss: design + promotion gates
+│   ├── HISTORICAL_RECORD.md           # Provenance index for the retained historical docs
+│   ├── EVALUATION.md                  # Evaluation protocol (metrics, splits, honest reporting)
 │   ├── SOURCES.md                     # Verified bibliography: how each source is used
-│   └── EVALUATION.md                  # Evaluation protocol (metrics, splits, honest reporting)
-│   ├── CONFIGS.md                     # Config matrix and ablation study documentation
-│   ├── CONFIGS_GUIDE.md               # Detailed config field reference
-│   ├── DOCUMENTAZIONE.md              # grammarllm library documentation (Italian)
-│   └── ERRORI_E_MIGLIORIE.md          # Known issues and improvements (Italian)
+│   ├── FINDINGS.md                    # Historical results table with run IDs
+│   ├── REWARDS.md                     # HISTORICAL: the 10 removed reward functions
+│   ├── METRICS.md                     # HISTORICAL: masked-mass / entropy diagnostics
+│   ├── RESEARCH_REPORT.md             # HISTORICAL: original project overview
+│   └── T2G_PIPELINE_REVIEW.md         # HISTORICAL: root-cause forensics of 3 training bugs
 └── README.md                          # This file
 ```
 
@@ -154,11 +158,11 @@ neuro_symbolic_t2g/
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
 | 1    | **Data**: Download ASLG-PC12 (87K English→Gloss pairs) from Hugging Face                                                                                                                                               | `src/data/aslg_dataset.py`       |
 | 2    | **Model**: Load Qwen2.5-0.5B-Instruct with LoRA (r=16) + 4-bit QLoRA via Unsloth                                                                                                                                       | `src/training/grpo_t2g_train.py` |
-| 3    | **Constrained Decoding**: Build `GlossVocabularyMask` (or full grammarllm PDA) — model can only output ASL gloss tokens                                                                                                | `src/grammar/gloss_grammar.py`   |
+| 3    | **Constrained Decoding**: Build `GlossVocabularyMask` + dual-root token Trie — model can only output ASL gloss tokens                                                                                                | `src/grammar/gloss_grammar.py`   |
 | 4    | **Dataset**: Format prompt-completion pairs with chat template                                                                                                                                                         | `src/data/aslg_dataset.py`       |
-| 5    | **Reward Functions**: 10 deterministic rewards — translation quality, BLEU-4, gold-structure (⭐), structural dense (softmax), gloss-order (edit-distance), verifier-scaled (RECIPE), soft-Viterbi, Viterbi, format, repetition (7 attive nel config optimal) | `src/rewards/t2g_rewards.py`     |
+| 5    | **Reward Functions**: 8 deterministic rewards — translation quality (ROUGE-L), BLEU-4, gold-structure, gloss-order (edit-distance), verifier-scaled (RECIPE), format, repetition (7 attive di default) più edit-validity (opt-in) | `src/rewards/t2g_rewards.py`     |
 | 6    | **GRPO Training**: `trl.GRPOTrainer` generates G=4 completions per prompt, computes rewards, updates LoRA weights                                                                                                      | `src/training/grpo_t2g_train.py` |
-| 7    | **Save**: Checkpoint every 100 steps + final model in `experiments/checkpoints/grpo/t2g/qwen05/final/`                                                                                                                 | Auto                             |
+| 7    | **Save**: Checkpoint every 100 steps + final model in `experiments/checkpoints/qwen25-05b/<method>/<prompt-mode>/final/`                                                                                                                 | Auto                             |
 
 ---
 
@@ -173,7 +177,7 @@ neuro_symbolic_t2g/
 | **Verifier-Scaled** (RECIPE)          | 0.10                  | log1p(structural) used as confidence multiplier for translation quality      |
 | **Format**                            | 0.10                  | Ensures output is only gloss tokens (penalizes free text, punctuation, JSON) |
 | **Repetition**                        | 0.05                  | Penalizes degenerate loops (token/trigram repetition > 50%)                  |
-| — *ablation-only:* Structural Dense / Soft-Viterbi / Viterbi | 0 (off) | Attivati solo da `sft-grpo-all-rewards.yaml` e dai config di ablation |
+| — *opt-in:* Edit-Validity | 0 (off) | Similarità di edit con termine di validità graduato; attivata da `ablations/rewards/edit-validity.yaml` |
 
 All rewards are **deterministic and rule-based** — no neural reward model, no
 human feedback required. The `sft-grpo-all-rewards.yaml` config activates all
@@ -254,10 +258,10 @@ t2g-monitor
 
 ```bash
 # Single-model training
-CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/train.sh
+CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh
 
 # Resume from checkpoint
-CONFIG=experiments/configs/t2g/sft-grpo.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 ```
 
 ### Pipeline (train → eval, automatic)
@@ -291,19 +295,19 @@ t2g-monitor --all    # Full: table + metrics + completion samples
 ```bash
 # Evaluate a specific checkpoint
 uv run python -m src.training.eval_t2g \
-    --config experiments/configs/t2g/sft-grpo.yaml \
+    --config experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml \
     --checkpoint experiments/checkpoints/grpo/t2g/qwen05/final \
     --max_samples 500
 
 # Best-of-N evaluation (generate N samples, select best by reward)
 uv run python -m src.training.eval_t2g \
-    --config experiments/configs/t2g/sft-grpo.yaml \
+    --config experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml \
     --checkpoint experiments/checkpoints/grpo/t2g/qwen05/final \
     --best-of-n --num-samples 5
 
 # Compare baseline vs GRPO (auto-eval both, generate comparison plots + JSON)
 uv run python -m src.training.eval_t2g \
-    --config experiments/configs/t2g/sft-grpo.yaml \
+    --config experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml \
     --checkpoint experiments/checkpoints/grpo/t2g/qwen05/final \
     --compare
 ```
@@ -364,7 +368,7 @@ For K80 or CPU-only, set `use_unsloth: false` and `quantization: null` in the co
 
 ## Configuration
 
-I config YAML in `experiments/configs/t2g/` usano **ereditarietà**: le parti
+I config YAML in `experiments/configs/qwen25-05b/` usano **ereditarietà**: le parti
 comuni (modello, LoRA, dataset, training, GRPO, reward, grammar, evaluation,
 wandb) vivono in `base.yaml` e ogni config specifico la estende con `extends`
 sovrascrivendo **solo le proprie differenze**. La resolution (deep merge
@@ -373,7 +377,7 @@ ricorsivo: dict fusi, liste/scalari sostituiti) avviene in
 per i trainer, che non vedono mai la chiave `extends`.
 
 ```yaml
-# experiments/configs/t2g/sft-grpo.yaml
+# experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml
 extends: base.yaml                 # eredita modello/LoRA/dataset/reward/grammar…
 
 training:
@@ -419,13 +423,8 @@ evaluation:
   best_of_n: false # Enable best-of-N selection
 
 grammar:
-  enabled: true
-  use_grammarllm_pda: false # Set true for LL(1) PDA path
-  viterbi_diversity: # Configurable Viterbi penalties
-    self_loop_penalty: 0.5
-    max_occurrences: 2
-    diversity_threshold: 0.3
-    max_iters: 3
+  enabled: true # Trie dual-root sul vocabolario glossa
+  track_diagnostics: false # Telemetria massa mascherata (off di default)
 ```
 
 > **Riallineamento iperparametri (base.yaml)**: i valori di riferimento GRPO
@@ -466,5 +465,5 @@ logs/
 - **TRL — Transformer Reinforcement Learning**: [GRPOTrainer](https://huggingface.co/docs/trl/grpo_trainer)
 - **Unsloth** _(optional GPU extra)_: [FastLanguageModel](https://docs.unsloth.ai/)
 - **vLLM** _(optional GPU extra)_: [Inference engine](https://docs.vllm.ai/)
-- **grammarllm**: Vendored constrained decoding library (PDA + LogitsProcessor)
-- **Test Suite**: 96/96 pytest tests — see [tests/REPORT.md](tests/REPORT.md) for full test inventory
+- **Constrained decoding**: dual-root token Trie su vocabolario glossa chiuso
+- **Test Suite**: 400 pytest tests - `python -m pytest tests -q` per l'inventario completo

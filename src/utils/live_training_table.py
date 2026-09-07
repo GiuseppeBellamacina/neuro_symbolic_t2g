@@ -2,7 +2,7 @@
 """Parse T2G trainer log lines from stdin and display as a live table.
 
 Supports BOTH metric line formats:
-  * TRL dict-style: ``{'step': 5, 'loss': ..., 'reward': ...}`` (legacy)
+  * TRL dict-style: ``{'step': 5, 'loss': ..., 'reward': ...}``
   * KV-style: ``  step=5  loss=1.23456789  reward=0.50258335  ...``
     (printed by ``HighPrecisionLogCallback`` in ``src.training.callbacks``,
     used by both GRPO and SFT training)
@@ -169,7 +169,7 @@ def main() -> None:
                 continue
             pending_separator = False
 
-            # Parse metric lines — dict-style (legacy TRL) or KV-style
+            # Parse metric lines — TRL dict-style or KV-style
             # (HighPrecisionLogCallback used by GRPO + SFT trainers).
             entry = None
             m = _DICT_PATTERN.search(stripped)

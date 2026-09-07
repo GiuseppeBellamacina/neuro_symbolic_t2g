@@ -75,7 +75,7 @@ for arg in "$@"; do
             echo "  --ablation          Campagna completa (15 celle: 3 baseline eval-only + 12 train+eval)"
             echo "  --eval-only         Solo evaluation (skip training)"
             echo "  --train-only        Solo training (skip eval)"
-            echo "  --resume            Riprendi dalla coda esistente (non richiede chain_failed)"
+            echo "  --resume            Riprendi dalla coda esistente"
             echo "  --append            Aggiungi job alla coda attiva"
             echo "  --remove            Svuota la coda"
             echo "  --force             Azzera lo stato anche se ci sono job pendenti"
@@ -190,9 +190,8 @@ _launch_pipeline() {
     echo "   tail -f logs/chain.log          # log della catena"
     echo "   chain-hook-install              # resilienza: hook bashrc (consigliato)"
 }
-# Riprendi dalla coda ESISTENTE: non richiede più .chain_failed, basta che
-# job_chain sia non vuota (il caso reale: daemon ucciso dal reaper). Legacy:
-# ricostruisce da .chain_failed se la coda è vuota.
+# Riprendi dalla coda ESISTENTE: basta che job_chain sia non vuota
+# (il caso reale: daemon ucciso dal reaper).
 _cmd_resume() {
     echo "============================================"
     echo "  RESUME Pipeline"
@@ -202,28 +201,8 @@ _cmd_resume() {
     if [ -s "$CHAIN_FILE" ]; then
         echo "Coda esistente ($(wc -l < "$CHAIN_FILE") job):"
         cat -n "$CHAIN_FILE"
-    elif [ -f "$FAILED_FILE" ]; then
-        local fjob ftype fcfg ftag fext
-        fjob=$(cat "$FAILED_FILE")
-        ftype=$(echo "$fjob" | cut -d: -f1)
-        fcfg=$(echo "$fjob" | cut -d: -f2)
-        ftag=$(echo "$fjob" | cut -d: -f3)
-        fext=$(echo "$fjob" | cut -d: -f4-)
-        if [ "$ftype" != "train" ] && [ "$ftype" != "eval" ]; then
-            echo "❌ chain_failed malformato: $fjob"
-            exit 1
-        fi
-        if [ "$ftype" = "train" ]; then
-            [ -n "$fext" ] || fext="--resume"
-            printf 'train:%s:%s:%s\neval:%s:%s\n' "$fcfg" "$ftag" "$fext" "$fcfg" "$ftag" > "$CHAIN_FILE"
-            echo "→ Ricostruita da .chain_failed: train $ftag ($fext) + eval"
-        else
-            printf 'eval:%s:%s\n' "$fcfg" "$ftag" > "$CHAIN_FILE"
-            echo "→ Ricostruita da .chain_failed: eval $ftag"
-        fi
-        rm -f "$FAILED_FILE"
     else
-        echo "❌ Nessuna coda da riprendere (job_chain vuoto, nessun chain_failed)."
+        echo "❌ Nessuna coda da riprendere (job_chain vuoto)."
         echo "   Usa: bash cluster/run_all.sh (senza --resume) per una nuova pipeline."
         exit 1
     fi

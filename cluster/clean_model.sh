@@ -90,7 +90,7 @@ emit_targets() {
     local cand d
     for cand in $(model_candidates); do
         [ -n "$cand" ] || continue
-        for d in experiments/checkpoints/*"${cand}"*/ experiments/checkpoints/grpo/t2g/*"${cand}"*/; do
+        for d in experiments/checkpoints/*"${cand}"*/; do
             [ -d "$d" ] && echo "$d"
         done
         for d in experiments/logs/*"${cand}"*/; do
@@ -114,10 +114,15 @@ if [ -z "$MODEL" ]; then
         [ -d "$d" ] || continue
         echo "  $(basename "$d") ($(du -sh "$d" 2>/dev/null | cut -f1))"
     done
-    for d in experiments/checkpoints/grpo/t2g/*/; do
+    # Layout reale: experiments/checkpoints/qwen25-05b/<method>/<prompt-mode>/.
+    # Ricerca ricorsiva (stile `find` già usato in model_candidates): salta la
+    # radice modello (gia' mostrata sopra) e i subdir run_*/checkpoint-*/final.
+    while IFS= read -r d; do
         [ -d "$d" ] || continue
-        echo "  grpo/t2g/$(basename "$d") ($(du -sh "$d" 2>/dev/null | cut -f1))"
-    done
+        echo "  ${d#experiments/checkpoints/} ($(du -sh "$d" 2>/dev/null | cut -f1))"
+    done < <(find experiments/checkpoints -mindepth 3 -maxdepth 5 -type d \
+        ! -name 'run_*' ! -name 'checkpoint-*' ! -name 'final' ! -name 'best_checkpoint' \
+        ! -name 'latest' ! -name 'sft_pretrain' 2>/dev/null | sort)
     if [ -d "experiments/results" ]; then
         for d in experiments/results/*/; do
             [ -d "$d" ] || continue

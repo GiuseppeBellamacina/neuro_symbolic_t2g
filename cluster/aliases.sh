@@ -171,13 +171,6 @@ run-all() {
 
 # Controlla lo stato della pipeline (job attivo / coda)
 chain-status() {
-    if [ -f "$STATE_DIR/chain_failed" ]; then
-        local failed
-        failed=$(cat "$STATE_DIR/chain_failed")
-        echo "❌ Pipeline FALLITA - job: $failed"
-        echo "   Per riprendere: chain-resume"
-        return 1
-    fi
     if [ -f "$STATE_DIR/chain_stopped" ]; then
         local info st_type st_tag
         info=$(cat "$STATE_DIR/chain_stopped")
@@ -274,7 +267,6 @@ chain-stop() {
     fi
     [ -n "$st_type" ] || st_type="none"
     echo "${st_type}:${st_cfg}:${st_tag}:0:${active_id}" > "$STATE_DIR/chain_stopped"
-    rm -f "$STATE_DIR/chain_failed"
     echo "Pipeline fermata (config letto dallo stato: ${st_type}/${st_tag})."
     echo "Per riprendere: chain-start"
 }
@@ -359,7 +351,7 @@ chain-start() {
 
 # Riprendi una catena interrotta (uso: chain-resume)
 # Es. daemon ucciso dal reaper: job_chain non vuota, nessun job attivo.
-# Non richiede .chain_failed: la coda stessa è lo stato.
+# La coda stessa è lo stato: riprende direttamente da job_chain.
 chain-resume() {
     _chain_resume_impl
 }
@@ -452,7 +444,7 @@ alias t2g-chain-resume='chain-resume'
 alias t2g-clean='clean'
 alias t2g-gpu='gpu'
 alias t2g-trainlog='trainlog'
-alias t2g-help='diego'
+alias t2g-help='claudio'
 
 # Genera tabella + grafico cross-config dopo l'ablation (uso: ablation-summary)
 ablation-summary() {
@@ -484,10 +476,10 @@ pip-reset() {
 
 # ── Meta ─────────────────────────────────────────────────────────────────────
 
-_DIEGO_ALIASES="myjobs jobinfo killjob killalljobs trainlog evallog lastlog tree gpu quota proj ckpts train run-eval run-all chain-status clean clean-model chain-add chain-remove chain-stop chain-start chain-resume chain-show chain-hook-install chain-hook-uninstall monitor ablation-summary pip-clean pip-setup pip-reset unload-aliases install-aliases uninstall-aliases t2g-train t2g-eval t2g-run-all t2g-monitor t2g-chain-show t2g-chain-stop t2g-chain-start t2g-chain-resume t2g-clean t2g-gpu t2g-trainlog t2g-help"
+_CLAUDIO_ALIASES="myjobs jobinfo killjob killalljobs trainlog evallog lastlog tree gpu quota proj ckpts train run-eval run-all chain-status clean clean-model chain-add chain-remove chain-stop chain-start chain-resume chain-show chain-hook-install chain-hook-uninstall monitor ablation-summary pip-clean pip-setup pip-reset unload-aliases install-aliases uninstall-aliases t2g-train t2g-eval t2g-run-all t2g-monitor t2g-chain-show t2g-chain-stop t2g-chain-start t2g-chain-resume t2g-clean t2g-gpu t2g-trainlog t2g-help"
 
 # Mostra i comandi disponibili
-diego() {
+claudio() {
     echo "Comandi disponibili:"
     echo ""
     echo "── Job management ──"
@@ -559,7 +551,7 @@ diego() {
     echo "   t2g-chain-show / t2g-chain-stop / t2g-chain-start / t2g-chain-resume"
     echo ""
     echo "── Meta ──"
-    echo "   diego          — mostra questo messaggio"
+    echo "   claudio          — mostra questo messaggio"
     echo "   unload-aliases — rimuovi alias (sessione corrente)"
     echo "   install-aliases  — aggiungi alias al .bashrc (permanente)"
     echo "   uninstall-aliases — rimuovi alias dal .bashrc"
@@ -567,11 +559,11 @@ diego() {
 
 # Rimuovi tutti gli alias e funzioni custom (solo sessione corrente)
 unload-aliases() {
-    for cmd in $_DIEGO_ALIASES; do
+    for cmd in $_CLAUDIO_ALIASES; do
         unalias "$cmd" 2>/dev/null
         unset -f "$cmd" 2>/dev/null
     done
-    unset _DIEGO_ALIASES PROJ_DIR
+    unset _CLAUDIO_ALIASES PROJ_DIR
     echo "✅ Alias rimossi (sessione corrente)."
 }
 
@@ -609,4 +601,4 @@ uninstall-aliases() {
     unload-aliases
 }
 
-echo "✅ Alias caricati. Digita 'diego' per la lista comandi."
+echo "✅ Alias caricati. Digita 'claudio' per la lista comandi."

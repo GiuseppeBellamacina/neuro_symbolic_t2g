@@ -1,10 +1,10 @@
 """Display training log from trainer_state.json as a formatted table or plot.
 
 Usage:
-    python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/checkpoint-500
-    python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/ --last
-    python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/ --plot
-    python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/ --plot --deg 5
+    python -m src.utils.show_training_log experiments/checkpoints/qwen25-05b/sft/zero-shot/checkpoint-500
+    python -m src.utils.show_training_log experiments/checkpoints/qwen25-05b/sft/zero-shot/ --last
+    python -m src.utils.show_training_log experiments/checkpoints/qwen25-05b/sft/zero-shot/ --plot
+    python -m src.utils.show_training_log experiments/checkpoints/qwen25-05b/sft/zero-shot/ --plot --deg 5
 """
 
 from __future__ import annotations

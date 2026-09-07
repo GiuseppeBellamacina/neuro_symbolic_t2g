@@ -781,7 +781,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     os.environ["WANDB_PROJECT"] = wandb_cfg.get("project", "neuro-symbolic-t2g")
     os.environ["WANDB_DIR"] = log_dir
     os.environ["WANDB_TAGS"] = ",".join(
-        wandb_cfg.get("tags", ["sft", "t2g", "supervised"])
+        wandb_cfg.get("tags", ["T2G", "sft", "supervised"])
     )
 
     if not wandb.run:
@@ -789,7 +789,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
             project=wandb_cfg.get("project", "neuro-symbolic-t2g"),
             name=run_name,
             config=config,
-            tags=wandb_cfg.get("tags", ["sft", "t2g"]),
+            tags=wandb_cfg.get("tags", ["T2G", "sft"]),
             dir=log_dir,
             mode="offline",
             # ── Fix: output.log missing on Files tab ──────────────────
