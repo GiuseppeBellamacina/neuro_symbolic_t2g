@@ -10,6 +10,7 @@ from src.datasets.structured_transitions import (
     shuffled_transition_control,
 )
 from src.models.structured_gloss_head import (
+    StructuredGraphLoss,
     dense_log_partition,
     gold_path_score,
     sparse_log_partition,
@@ -72,6 +73,43 @@ def test_gold_nll_and_disconnected_path():
     torch.testing.assert_close(dense, sparse)
     assert torch.isneginf(gold_path_score(emissions, invalid, lengths, graph)).all()
     assert torch.isposinf(structured_nll(emissions, invalid, lengths, graph)).all()
+
+
+def test_cached_sparse_loss_matches_dense_nll_and_gold_scores():
+    graph = tiny_graph()
+    module = StructuredGraphLoss(graph, transition_scale=0.4)
+    emissions = torch.randn(2, 3, graph.num_states)
+    gold = torch.tensor([[0, 1, 0], [1, 1, 0]])
+    lengths = torch.tensor([3, 2])
+    torch.testing.assert_close(
+        module.log_partition(emissions, lengths),
+        dense_log_partition(emissions, lengths, graph, 0.4),
+        atol=2e-6,
+        rtol=2e-6,
+    )
+    torch.testing.assert_close(
+        module(emissions, gold, lengths),
+        structured_nll(emissions, gold, lengths, graph, 0.4, dense=True),
+    )
+    torch.testing.assert_close(
+        module.gold_score(emissions, gold, lengths),
+        gold_path_score(emissions, gold, lengths, graph, 0.4),
+    )
+
+
+def test_cached_loss_buffers_device_and_state_dict_roundtrip():
+    graph = tiny_graph()
+    first = StructuredGraphLoss(graph)
+    second = StructuredGraphLoss(graph)
+    second.load_state_dict(first.state_dict())
+    assert "edge_keys" in first.state_dict()
+    assert all(buffer.device.type == "cpu" for buffer in first.buffers())
+    emissions = torch.randn(1, 2, graph.num_states)
+    gold = torch.tensor([[0, 1]])
+    lengths = torch.tensor([2])
+    torch.testing.assert_close(
+        first(emissions, gold, lengths), second(emissions, gold, lengths)
+    )
 
 
 def test_gradcheck_and_finite_gradients():

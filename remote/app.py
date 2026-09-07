@@ -117,7 +117,6 @@ CONFIG_MAP: dict[str, str] = {
     "sft-grpo-few": "experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml",
     "sft-grpo-zero-pda": "experiments/configs/qwen25-05b/ablations/sft-grpo-zero-pda.yaml",
     "sft-grpo-zero-hot": "experiments/configs/qwen25-05b/ablations/sft-grpo-zero-hot.yaml",
-    "grpo-few-reward-edit": "experiments/configs/qwen25-05b/ablations/rewards/edit.yaml",
     "grpo-few-reward-token-f1": "experiments/configs/qwen25-05b/ablations/rewards/token-f1.yaml",
     "grpo-few-reward-chrfpp": "experiments/configs/qwen25-05b/ablations/rewards/chrfpp.yaml",
     "grpo-few-reward-rouge-l": "experiments/configs/qwen25-05b/ablations/rewards/rouge-l.yaml",

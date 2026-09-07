@@ -91,7 +91,7 @@ for arg in "$@"; do
             echo "Config disponibili (passa il nome senza .yaml):"
             echo "  baseline-zero baseline-few sft grpo-zero grpo-few"
             echo "  sft-grpo-zero sft-grpo-few sft-grpo-zero-pda sft-grpo-zero-hot"
-            echo "  grpo-few-reward-edit grpo-few-reward-token-f1 grpo-few-reward-chrfpp"
+            echo "  grpo-few-reward-token-f1 grpo-few-reward-chrfpp"
             echo "  grpo-few-reward-rouge-l grpo-few-reward-sbleu2"
             exit 0
             ;;
@@ -118,7 +118,6 @@ config_path() {
         sft-grpo-few) echo "experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml" ;;
         sft-grpo-zero-pda) echo "experiments/configs/qwen25-05b/ablations/sft-grpo-zero-pda.yaml" ;;
         sft-grpo-zero-hot) echo "experiments/configs/qwen25-05b/ablations/sft-grpo-zero-hot.yaml" ;;
-        grpo-few-reward-edit) echo "experiments/configs/qwen25-05b/ablations/rewards/edit.yaml" ;;
         grpo-few-reward-token-f1) echo "experiments/configs/qwen25-05b/ablations/rewards/token-f1.yaml" ;;
         grpo-few-reward-chrfpp) echo "experiments/configs/qwen25-05b/ablations/rewards/chrfpp.yaml" ;;
         grpo-few-reward-rouge-l) echo "experiments/configs/qwen25-05b/ablations/rewards/rouge-l.yaml" ;;

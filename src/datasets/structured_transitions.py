@@ -17,6 +17,7 @@ import numpy as np
 OTHER = "<OTHER>"
 BOS = "<BOS>"
 EOS = "<EOS>"
+STRUCTURED_GRAPH_PROTOCOL = "structured-transition-graph-v2"
 
 
 def _canonical_hash(value: Any) -> str:
@@ -38,6 +39,8 @@ class StructuredTransitionGraph:
     alpha: float
     train_sample_ids: tuple[str, ...]
     train_hash: str
+    top_k: int = 512
+    protocol_version: str = STRUCTURED_GRAPH_PROTOCOL
 
     @property
     def num_states(self) -> int:
@@ -65,26 +68,40 @@ class StructuredTransitionGraph:
         return bool(np.any((self.edge_src == source) & (self.edge_dst == destination)))
 
     def manifest(self) -> dict[str, Any]:
-        graph_hash = _canonical_hash(
-            {
-                "states": self.states,
-                "src": self.edge_src.tolist(),
-                "dst": self.edge_dst.tolist(),
-                "count": self.edge_count.tolist(),
-                "log_prob": [float(x).hex() for x in self.edge_log_prob],
-                "alpha": self.alpha,
-                "train_hash": self.train_hash,
-            }
-        )
+        payload = {
+            "protocol_version": self.protocol_version,
+            "states": self.states,
+            "src": self.edge_src.tolist(),
+            "dst": self.edge_dst.tolist(),
+            "count": self.edge_count.tolist(),
+            "log_prob": [float(x).hex() for x in self.edge_log_prob],
+            "alpha": float(self.alpha).hex(),
+            "top_k": self.top_k,
+            "other": OTHER,
+            "train_hash": self.train_hash,
+        }
+        graph_hash = _canonical_hash(payload)
         return {
-            "format": 1,
+            "format": 2,
+            "protocol_version": self.protocol_version,
             "states": list(self.states),
+            "top_k": self.top_k,
+            "other_token": OTHER,
             "other_index": self.token_to_index[OTHER],
             "bos_index": self.bos_index,
             "eos_index": self.eos_index,
             "alpha": self.alpha,
             "train_sample_ids": list(self.train_sample_ids),
             "train_hash": self.train_hash,
+            "state_digest": _canonical_hash(list(self.states)),
+            "edge_digest": _canonical_hash(
+                {
+                    "src": self.edge_src.tolist(),
+                    "dst": self.edge_dst.tolist(),
+                    "count": self.edge_count.tolist(),
+                    "log_prob": [float(x).hex() for x in self.edge_log_prob],
+                }
+            ),
             "graph_hash": graph_hash,
         }
 
@@ -101,7 +118,11 @@ def build_structured_transition_graph(
     alpha: float = 0.1,
     gloss_key: str = "gloss",
 ) -> StructuredTransitionGraph:
-    """Build solely from explicitly supplied post-holdout training rows."""
+    """Build solely from explicitly supplied finalized post-holdout train rows.
+
+    Smoothing adds ``alpha`` only to transitions observed in these rows. It does
+    not create unseen edges, so every supported path has explicit provenance.
+    """
     if top_k < 0:
         raise ValueError("top_k must be nonnegative")
     if alpha < 0:
@@ -141,9 +162,24 @@ def build_structured_transition_graph(
     train_hash = _canonical_hash(
         [{"id": sample_id, "gloss": path} for sample_id, path in zip(sample_ids, paths)]
     )
-    return StructuredTransitionGraph(
-        states, src, dst, count, log_prob, alpha, sample_ids, train_hash
+    graph = StructuredTransitionGraph(
+        states, src, dst, count, log_prob, alpha, sample_ids, train_hash, top_k
     )
+    assert_gloss_paths_supported(paths, graph)
+    return graph
+
+
+def assert_gloss_paths_supported(
+    glosses: Sequence[str | Sequence[str]], graph: StructuredTransitionGraph
+) -> None:
+    """Raise if any complete mapped gloss path is absent from ``graph``."""
+    edge_keys = set(zip(graph.edge_src.tolist(), graph.edge_dst.tolist()))
+    for index, gloss in enumerate(glosses):
+        mapped = graph.map_glosses(gloss)
+        nodes = [graph.bos_index, *mapped, graph.eos_index]
+        missing = [edge for edge in zip(nodes, nodes[1:]) if edge not in edge_keys]
+        if missing:
+            raise ValueError(f"gloss path {index} has unsupported edges: {missing}")
 
 
 def shuffled_transition_control(
@@ -167,6 +203,8 @@ def shuffled_transition_control(
         graph.alpha,
         graph.train_sample_ids,
         graph.train_hash,
+        graph.top_k,
+        graph.protocol_version,
     )
 
 
@@ -202,6 +240,8 @@ def load_structured_transition_graph(
     npz_path: str | Path, manifest_path: str | Path
 ) -> StructuredTransitionGraph:
     manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    if manifest.get("protocol_version") != STRUCTURED_GRAPH_PROTOCOL:
+        raise ValueError("unsupported structured transition protocol")
     with np.load(npz_path, allow_pickle=False) as arrays:
         graph = StructuredTransitionGraph(
             tuple(manifest["states"]),
@@ -212,7 +252,9 @@ def load_structured_transition_graph(
             float(manifest["alpha"]),
             tuple(manifest["train_sample_ids"]),
             str(manifest["train_hash"]),
+            int(manifest["top_k"]),
+            str(manifest["protocol_version"]),
         )
-    if graph.manifest()["graph_hash"] != manifest["graph_hash"]:
+    if graph.manifest() != manifest:
         raise ValueError("structured transition artifact hash mismatch")
     return graph

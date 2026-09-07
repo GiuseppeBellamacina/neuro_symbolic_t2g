@@ -54,7 +54,12 @@ from src.datasets.aslg_dataset import (
     extract_gloss_vocabulary,
     save_vocabulary,
 )
+from src.datasets.structured_transitions import (
+    StructuredTransitionGraph,
+    build_structured_transition_graph,
+)
 from src.models.model_loader import load_model_and_tokenizer
+from src.models.structured_gloss_head import StructuredGraphLoss
 from src.utils.cache_meta import (
     cache_is_current,
     validate_dataset_name,
@@ -207,6 +212,83 @@ def _prepare_sft_dataset(
     return train_ds, eval_ds
 
 
+def prepare_structured_sft_datasets(
+    train_ds: Dataset,
+    eval_ds: Dataset,
+    tokenizer: Any,
+    structured_cfg: dict[str, Any],
+    *,
+    max_sequence_length: int,
+) -> tuple[Dataset, Dataset, StructuredTransitionGraph, dict[str, Any]]:
+    """Build a train-only graph and attach precomputed row metadata.
+
+    The LM row sets are returned intact and in their original order. Eligibility
+    affects only graph construction and the structured objective.
+    """
+    max_gloss_length = int(structured_cfg["max_gloss_length"])
+
+    def eligible(row: Any) -> bool:
+        tokens = str(row["gold_gloss"]).split()
+        if not (0 < len(tokens) <= max_gloss_length):
+            return False
+        encoded = tokenizer.apply_chat_template(
+            [*row["prompt"], *row["completion"]],
+            tokenize=True,
+            add_generation_prompt=False,
+        )
+        if isinstance(encoded, torch.Tensor):
+            encoded = encoded.reshape(-1).tolist()
+        return (
+            len(encoded) <= max_sequence_length
+            and bool(encoded)
+            and int(encoded[-1]) == int(tokenizer.eos_token_id)
+        )
+
+    train_rows = [dict(row) for row in train_ds]
+    eval_rows = [dict(row) for row in eval_ds]
+    train_ids = [str(row["sample_id"]) for row in train_rows]
+    eval_ids = [str(row["sample_id"]) for row in eval_rows]
+    if len(set(train_ids)) != len(train_ids) or len(set(eval_ids)) != len(eval_ids):
+        raise ValueError("structured SFT requires unique sample IDs within each split")
+    if not set(train_ids).isdisjoint(eval_ids):
+        raise ValueError("structured train/eval sample IDs overlap")
+    eligible_rows = [
+        {"sample_id": row["sample_id"], "gloss": row["gold_gloss"]}
+        for row in train_rows
+        if eligible(row)
+    ]
+    excluded_ids = [str(row["sample_id"]) for row in train_rows if not eligible(row)]
+    if not eligible_rows:
+        raise ValueError("structured SFT has no eligible finalized train rows")
+    graph = build_structured_transition_graph(
+        eligible_rows,
+        top_k=int(structured_cfg["top_k"]),
+        alpha=float(structured_cfg["alpha"]),
+    )
+    manifest = {
+        **graph.manifest(),
+        "train_split_sample_ids": train_ids,
+        "eval_split_sample_ids": eval_ids,
+        "eligibility_policy": "complete-nonempty-whitespace-gloss-within-max-length-and-full-chat-fits-through-eos-v1",
+        "max_gloss_length": max_gloss_length,
+        "excluded_train_sample_ids": excluded_ids,
+        "excluded_train_rate": len(excluded_ids) / max(len(train_ids), 1),
+        "transition_scale": float(structured_cfg["transition_scale"]),
+    }
+
+    def add_metadata(row: dict[str, Any]) -> dict[str, Any]:
+        tokens = str(row["gold_gloss"]).split()
+        row_eligible = eligible(row)
+        states = graph.map_glosses(tokens) if row_eligible else []
+        return {
+            "structured_gold_states": states + [0] * (max_gloss_length - len(states)),
+            "structured_length": len(states),
+            "structured_eligible": row_eligible,
+        }
+
+    return train_ds.map(add_metadata), eval_ds.map(add_metadata), graph, manifest
+
+
 # ---------------------------------------------------------------------------
 # SFT adapter fingerprint & reuse
 # ---------------------------------------------------------------------------
@@ -215,7 +297,7 @@ def _prepare_sft_dataset(
 #: change (e.g. a new field starts affecting the adapter) — the version is
 #: part of the hash, so a bump invalidates every previously stored
 #: fingerprint automatically.
-_SFT_FINGERPRINT_VERSION = 1
+_SFT_FINGERPRINT_VERSION = 4
 
 #: Training keys that never affect the SFT adapter weights (paths/timestamps).
 _NON_DETERMINISTIC_TRAINING_KEYS = ("output_dir", "log_dir", "run_timestamp", "trainer")
@@ -242,7 +324,9 @@ def _sft_training_fingerprint_source(config: dict[str, Any]) -> dict[str, Any]:
     return training
 
 
-def _sft_fingerprint_payload(config: dict[str, Any]) -> dict[str, Any]:
+def _sft_fingerprint_payload(
+    config: dict[str, Any], auxiliary_manifest: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """The exact dict hashed to produce the SFT fingerprint.
 
     Contains every field that determines the SFT adapter (model + loading,
@@ -253,6 +337,34 @@ def _sft_fingerprint_payload(config: dict[str, Any]) -> dict[str, Any]:
     model = config.get("model", {})
     lora = config.get("lora", {})
     dataset = config.get("dataset", {})
+    mass_enabled = bool(
+        config.get("auxiliary_loss", {}).get("mass", {}).get("enabled", False)
+    )
+    structured_cfg = config.get("auxiliary_loss", {}).get("structured", {})
+    structured_enabled = bool(structured_cfg.get("enabled", False))
+    if mass_enabled and auxiliary_manifest is None:
+        raise ValueError(
+            "enabled auxiliary mass fingerprint requires a runtime Trie manifest"
+        )
+    if structured_enabled and auxiliary_manifest is None:
+        raise ValueError(
+            "enabled auxiliary structured fingerprint requires a graph manifest"
+        )
+    trie_manifest = None
+    graph_manifest = None
+    if auxiliary_manifest:
+        # Accept the original mass-only bare manifest while using a combined
+        # envelope for mass+structured runs.
+        trie_manifest = (
+            auxiliary_manifest.get("trie", auxiliary_manifest) if mass_enabled else None
+        )
+        graph_manifest = (
+            auxiliary_manifest.get("structured") if structured_enabled else None
+        )
+    if structured_enabled and graph_manifest is None:
+        raise ValueError(
+            "enabled auxiliary structured fingerprint requires graph manifest"
+        )
     return {
         "version": _SFT_FINGERPRINT_VERSION,
         "model": {
@@ -277,11 +389,54 @@ def _sft_fingerprint_payload(config: dict[str, Any]) -> dict[str, Any]:
             if key in dataset
         },
         "sft_training": _sft_training_fingerprint_source(config),
+        "auxiliary_objective": {
+            "protocol": "allowed-mass-v1",
+            "mass": {
+                "enabled": mass_enabled,
+                "lambda": float(
+                    config.get("auxiliary_loss", {}).get("mass", {}).get("lambda", 0.0)
+                ),
+                "warmup_steps": int(
+                    config.get("auxiliary_loss", {})
+                    .get("mass", {})
+                    .get("warmup_steps", 0)
+                ),
+            },
+            "structured": {
+                "enabled": structured_enabled,
+                **{
+                    key: structured_cfg.get(key)
+                    for key in (
+                        "lambda",
+                        "warmup_steps",
+                        "top_k",
+                        "max_gloss_length",
+                        "alpha",
+                        "transition_scale",
+                    )
+                    if key in structured_cfg
+                },
+                "head_architecture": (
+                    "boundary-position-layernorm-linear-v1"
+                    if structured_enabled
+                    else None
+                ),
+                "eligibility_policy": (
+                    "lm-all_structured-complete-whitespace-max64-eos-retained-v1"
+                    if structured_enabled
+                    else None
+                ),
+            },
+            "trie_manifest": trie_manifest,
+            "graph_manifest": graph_manifest,
+        },
         "system_prompt": SYSTEM_PROMPT,
     }
 
 
-def compute_sft_fingerprint(sft_config: dict[str, Any]) -> str:
+def compute_sft_fingerprint(
+    sft_config: dict[str, Any], auxiliary_manifest: dict[str, Any] | None = None
+) -> str:
     """SHA-256 fingerprint of everything that determines an SFT adapter.
 
     Two runs with the same fingerprint are expected to produce equivalent
@@ -298,12 +453,18 @@ def compute_sft_fingerprint(sft_config: dict[str, Any]) -> str:
         fields.
     """
     canonical = json.dumps(
-        _sft_fingerprint_payload(sft_config), sort_keys=True, separators=(",", ":")
+        _sft_fingerprint_payload(sft_config, auxiliary_manifest),
+        sort_keys=True,
+        separators=(",", ":"),
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def write_sft_fingerprint(final_path: str | Path, sft_config: dict[str, Any]) -> Path:
+def write_sft_fingerprint(
+    final_path: str | Path,
+    sft_config: dict[str, Any],
+    auxiliary_manifest: dict[str, Any] | None = None,
+) -> Path:
     """Write ``sft_fingerprint.json`` next to a freshly-trained SFT adapter.
 
     The file records the fingerprint plus the fingerprinted config so a
@@ -319,9 +480,9 @@ def write_sft_fingerprint(final_path: str | Path, sft_config: dict[str, Any]) ->
         Path of the written ``sft_fingerprint.json`` file.
     """
     document = {
-        "fingerprint": compute_sft_fingerprint(sft_config),
+        "fingerprint": compute_sft_fingerprint(sft_config, auxiliary_manifest),
         "created_at": datetime.now().isoformat(timespec="seconds"),
-        "config": _sft_fingerprint_payload(sft_config),
+        "config": _sft_fingerprint_payload(sft_config, auxiliary_manifest),
     }
     final_dir = Path(final_path)
     final_dir.mkdir(parents=True, exist_ok=True)
@@ -375,6 +536,23 @@ def _adapter_if_matching(candidate: Path, fingerprint: str) -> Path | None:
             "[sft-reuse] Unreadable sft_fingerprint.json, skipping: %s", candidate
         )
         return None
+    stored_mass = (
+        meta.get("config", {})
+        .get("auxiliary_objective", {})
+        .get("mass", {})
+        .get("enabled", False)
+    )
+    stored_structured = (
+        meta.get("config", {})
+        .get("auxiliary_objective", {})
+        .get("structured", {})
+        .get("enabled", False)
+    )
+    if stored_mass or stored_structured:
+        logger.info(
+            "[sft-reuse] Skipping non-reusable auxiliary adapter: %s", candidate
+        )
+        return None
     if meta.get("fingerprint") != fingerprint:
         return None
     adapter_dir = candidate.parent
@@ -391,6 +569,8 @@ def find_reusable_sft_adapter_cross_method(
     checkpoints_root: str | Path,
     exclude_parent: str | Path,
     fingerprint: str,
+    *,
+    sft_config: dict[str, Any] | None = None,
 ) -> tuple[Path, str] | None:
     """Find a matching adapter in the canonical SFT layouts for one model.
 
@@ -412,6 +592,12 @@ def find_reusable_sft_adapter_cross_method(
     Returns:
         ``(adapter_dir, cell_name)`` of the newest match, or ``None``.
     """
+    auxiliary = (sft_config or {}).get("auxiliary_loss", {})
+    if any(
+        auxiliary.get(name, {}).get("enabled", False) for name in ("mass", "structured")
+    ):
+        logger.info("[sft-reuse] Auxiliary pilot always trains; reuse disabled")
+        return None
     root = Path(checkpoints_root)
     excluded = Path(exclude_parent).resolve()
     if not root.is_dir():
@@ -460,6 +646,14 @@ def resolve_sft_run_paths(
     subphase when both are present and the output path is inside a ``run_*``.
     """
     training_cfg = config["training"]
+    auxiliary = config.get("auxiliary_loss", {})
+    auxiliary_enabled = any(
+        auxiliary.get(name, {}).get("enabled", False) for name in ("mass", "structured")
+    )
+    if auxiliary_enabled and (
+        training_cfg.get("packing", False) or training_cfg.get("padding_free", False)
+    ):
+        raise ValueError("auxiliary loss does not support packing or padding_free")
     explicit_output = training_cfg.get("output_dir")
     explicit_log = training_cfg.get("log_dir")
     if explicit_output is not None and explicit_log is not None:
@@ -490,6 +684,16 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     Returns:
         Path to the saved SFT LoRA adapter directory.
     """
+
+    from src.training.auxiliary_sft_trainer import (
+        require_single_process_for_auxiliary,
+        validate_mass_config,
+        validate_structured_config,
+    )
+
+    mass_cfg = validate_mass_config(config)
+    structured_cfg = validate_structured_config(config)
+    require_single_process_for_auxiliary(config)
 
     # ── Setup logging ────────────────────────────────────────────────────
     logging.basicConfig(
@@ -573,6 +777,8 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     logger.info("=" * 60)
 
     training_cfg = config["training"]
+    mass_enabled = bool(mass_cfg.get("enabled", False))
+    structured_enabled = bool(structured_cfg.get("enabled", False))
     output_dir, log_dir, run_timestamp, cell = resolve_sft_run_paths(
         config, resume=resume
     )
@@ -756,12 +962,83 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         TqdmOnlyProgressCallback,
     )
 
-    trainer = SFTTrainer(
-        model=model,
-        args=sft_config,
-        train_dataset=sft_train_ds,
-        eval_dataset=sft_eval_ds if eval_enabled else None,
-        processing_class=tokenizer,
+    trainer_kwargs = {
+        "model": model,
+        "args": sft_config,
+        "train_dataset": sft_train_ds,
+        "eval_dataset": sft_eval_ds if eval_enabled else None,
+        "processing_class": tokenizer,
+    }
+    trie_manifest = None
+    graph_manifest = None
+    graph = None
+    if structured_enabled:
+        max_gloss_length = int(structured_cfg["max_gloss_length"])
+        max_sequence_length = int(training_cfg.get("max_seq_length", 768))
+        sft_train_ds, sft_eval_ds, graph, graph_manifest = (
+            prepare_structured_sft_datasets(
+                sft_train_ds,
+                sft_eval_ds,
+                tokenizer,
+                structured_cfg,
+                max_sequence_length=max_sequence_length,
+            )
+        )
+
+        from src.models.auxiliary_sft_model import AuxiliarySFTModel
+        from src.models.structured_gloss_head import StructuredGlossHead
+
+        hidden_size = int(getattr(model.config, "hidden_size"))
+        head = StructuredGlossHead(hidden_size, graph.num_states, max_gloss_length)
+        head.to(model.device)
+        model = AuxiliarySFTModel(model, head)
+        trainer_kwargs["model"] = model
+
+    if mass_enabled or structured_enabled:
+        from src.grammar.grammar_logits_processor import DualRootGlossTrie
+        from src.training.auxiliary_sft_trainer import (
+            AuxiliaryMassSFTTrainer,
+            CompletionMetadataCollator,
+            build_auxiliary_trie_manifest,
+            canonical_vocabulary,
+        )
+
+        trie = None
+        if mass_enabled:
+            canonical_vocab = list(canonical_vocabulary(vocab))
+            trie_manifest = build_auxiliary_trie_manifest(vocab, vocab_path, tokenizer)
+            trie = DualRootGlossTrie.from_vocabulary(canonical_vocab, tokenizer)
+        collator = CompletionMetadataCollator(
+            pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+            completion_only_loss=True,
+        )
+        trainer = AuxiliaryMassSFTTrainer(
+            **trainer_kwargs,
+            data_collator=collator,
+            mass_state_machine=trie,
+            mass_lambda=float(mass_cfg.get("lambda", 0.1)),
+            mass_warmup_steps=int(mass_cfg.get("warmup_steps", 200)),
+            structured_loss=(
+                StructuredGraphLoss(graph, float(structured_cfg["transition_scale"]))
+                if structured_enabled and graph is not None
+                else None
+            ),
+            structured_lambda=float(structured_cfg.get("lambda", 0.0)),
+            structured_warmup_steps=int(structured_cfg.get("warmup_steps", 0)),
+            graph_manifest=graph_manifest,
+        )
+        logger.info(
+            "[sft] auxiliary objectives: mass=%s structured=%s (training only; single-GPU)",
+            mass_enabled,
+            structured_enabled,
+        )
+    else:
+        trainer = SFTTrainer(**trainer_kwargs)
+    auxiliary_manifest = (
+        {"trie": trie_manifest, "structured": graph_manifest}
+        if mass_enabled or structured_enabled
+        else None
     )
 
     # Replace default ProgressCallback with TqdmOnlyProgressCallback
@@ -837,7 +1114,9 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         # Written ONLY after a completed training: a ``final/`` without
         # sft_fingerprint.json is never reused by grpo_t2g_train.
         try:
-            fingerprint_path = write_sft_fingerprint(final_path, config)
+            fingerprint_path = write_sft_fingerprint(
+                final_path, config, auxiliary_manifest
+            )
             logger.info("SFT fingerprint written to %s", fingerprint_path)
         except Exception as exc:  # metadata only — never fail a completed training
             logger.warning("[sft] Failed to write sft_fingerprint.json: %s", exc)
@@ -845,7 +1124,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         # ── Clean up duplicate final step checkpoint ──────────────────────
         global_step = trainer.state.global_step
         last_ckpt = Path(output_dir) / f"checkpoint-{global_step}"
-        if last_ckpt.exists():
+        if last_ckpt.exists() and not structured_enabled:
             import shutil
 
             logger.info(

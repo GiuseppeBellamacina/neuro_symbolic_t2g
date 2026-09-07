@@ -7,7 +7,9 @@ This is the authoritative campaign definition. It describes intended comparisons
 - **Method** is the learned system: `base`, `sft`, `grpo`, or `sft-grpo`.
 - **Prompt mode** is input conditioning: `zero-shot` or retrieval-backed `few-shot`. Zero-shot is prompting, **not a training method**.
 - **Baseline** means the untrained `base` method evaluated with the named prompt mode. It is not synonymous with zero-shot.
-- **Variant** is a controlled ablation. Current variants are `pda`, `hot`, and the five `reward-*` single-reward variants.
+- **Variant** is a controlled ablation. Current variants include `pda`, `hot`, `sft-mass`, the manual `sft-structured` and `sft-mass-structured` pilots, and four alternative `reward-*` single-reward variants; primary GRPO few-shot is the edit-validity control.
+
+Structured SFT arms are one-factor extensions of standalone zero-shot SFT. Their fairness policy keeps the standard LM row set unchanged and applies the same recorded auxiliary eligibility rule—complete nonempty whitespace gloss, at most 64 states, retained through semantic EOS—only to structured NLL. They are manual-only and not campaign/TUI entries.
 
 ## Primary 2x2
 
@@ -38,7 +40,8 @@ Run only after the primary campaign passes preflight and produces interpretable 
 
 1. `ablations/sft-grpo-zero-pda.yaml` — decoding formalism only: PDA versus the primary Trie path. Manual; see `PDA.md`.
 2. `ablations/sft-grpo-zero-hot.yaml` — rollout temperature only: 1.3 versus the inherited 0.7. Manual stability probe.
-3. `ablations/rewards/*.yaml` — five manual single-reward comparisons over GRPO few-shot. Qualification on one frozen rollout artifact is mandatory before launch; see `REWARD_ABLATIONS.md`.
+3. `ablations/rewards/*.yaml` — four manual alternative-reward comparisons against the primary GRPO few-shot edit-validity control. Qualification evaluates all five rewards on one frozen rollout artifact and is mandatory before launch; see `REWARD_ABLATIONS.md`.
+4. `ablations/sft-mass.yaml` — standalone SFT with a training-only allowed-token probability-mass objective. It changes no decoding behavior and is never part of the default campaign. The fixed pilot uses `lambda: 0.1` with a 200-step linear warmup; evaluation remains pure completion-only LM loss.
 
 Markov probes are analyses over frozen generations. They never train a policy and are not campaign cells; see `MARKOV_DIAGNOSTICS.md`.
 
@@ -65,6 +68,7 @@ sft-grpo/
   zero-shot.yaml
   few-shot.yaml
 ablations/
+  sft-mass.yaml
   sft-grpo-zero-pda.yaml
   sft-grpo-zero-hot.yaml
 probes/
@@ -73,7 +77,7 @@ probes/
   structured.yaml
 ```
 
-`base.yaml` is the shared recipe, not an additional campaign cell. Runnable files declare `experiment.model_tag`, `method`, `train_prompt_mode`, `variant`, and `kind`; those fields determine artifact paths. `kind` is lifecycle: `train` produces a checkpoint, while `baseline`, `ablation`, and `probe` identify their respective job classes. Prompt conditioning remains in `train_prompt_mode`.
+`base.yaml` is the shared recipe, not an additional campaign cell. Runnable files inherit and override only the identity fields that differ from their resolved parent; the resolved `experiment.model_tag`, `method`, `train_prompt_mode`, `variant`, and `kind` determine artifact paths. `kind` is lifecycle: `train` produces a checkpoint, while `baseline`, `ablation`, and `probe` identify their respective job classes. Prompt conditioning remains in `train_prompt_mode`.
 
 ## Canonical artifact hierarchy
 
@@ -83,6 +87,7 @@ experiments/{checkpoints,logs}/qwen25-05b/
   grpo/{zero-shot,few-shot}/run_<timestamp>/
   sft-grpo/{zero-shot,few-shot}/run_<timestamp>/
   sft-grpo/zero-shot/ablations/{pda,hot}/run_<timestamp>/
+  sft/zero-shot/ablations/sft-mass/run_<timestamp>/
 
 experiments/results/qwen25-05b/
   baseline/{zero-shot,few-shot}/run_<timestamp>/
@@ -90,6 +95,7 @@ experiments/results/qwen25-05b/
   grpo/{zero-shot,few-shot}/eval-{zero-shot,few-shot}/run_<timestamp>/
   sft-grpo/{zero-shot,few-shot}/eval-{zero-shot,few-shot}/run_<timestamp>/
   sft-grpo/zero-shot/ablations/{pda,hot}/eval-{zero-shot,few-shot}/run_<timestamp>/
+  sft/zero-shot/ablations/sft-mass/eval-{zero-shot,few-shot}/run_<timestamp>/
 ```
 
 Do not report outcomes until artifacts from these paths have been checked under the protocol in `EVALUATION.md`.

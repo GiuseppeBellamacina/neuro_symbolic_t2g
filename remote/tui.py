@@ -62,7 +62,6 @@ CONFIG_NAMES: tuple[str, ...] = (
     "baseline-few",
     "sft-grpo-zero-pda",
     "sft-grpo-zero-hot",
-    "grpo-few-reward-edit",
     "grpo-few-reward-token-f1",
     "grpo-few-reward-chrfpp",
     "grpo-few-reward-rouge-l",
@@ -1452,7 +1451,7 @@ class ReplaceQueueScreen(T2GScreen):
         )
         yield Static(
             "Formato [b]tipo:config[:tag[:mode]][/b]. Reward train: "
-            "[b]train:grpo-few-reward-edit:tag:--reward-qualification-report="
+            "[b]train:grpo-few-reward-token-f1:tag:--reward-qualification-report="
             "experiments/analysis/.../report.json[/b]",
             classes="hint",
         )

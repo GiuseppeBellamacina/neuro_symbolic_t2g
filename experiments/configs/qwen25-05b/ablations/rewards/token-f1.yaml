@@ -6,6 +6,3 @@ experiment:
 
 reward:
   name: token-f1-validity
-
-wandb:
-  run_name: grpo-few-reward-token-f1

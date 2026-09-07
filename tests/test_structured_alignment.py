@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 import torch
 
 from src.datasets.structured_transitions import build_structured_transition_graph
@@ -9,6 +10,7 @@ from src.models.structured_gloss_head import (
 )
 from src.training.structured_sft import (
     assistant_boundary_indices,
+    map_complete_gloss_sequences,
     map_whitespace_glosses,
     render_source_prompt,
 )
@@ -44,3 +46,18 @@ def test_source_only_head_shapes_and_gradients():
     emissions.sum().backward()
     assert boundary.grad is not None and torch.isfinite(boundary.grad).all()
     assert head.position.weight.grad is not None
+
+
+def test_complete_mapping_overlength_fail_or_exclude_without_truncation():
+    graph = build_structured_transition_graph(
+        [{"gloss": "A B C"}, {"gloss": "A"}], top_k=2
+    )
+    with pytest.raises(ValueError, match="exceeds max_length"):
+        map_complete_gloss_sequences(["A B C"], graph, max_length=2)
+    batch = map_complete_gloss_sequences(
+        ["A B C", "A UNKNOWN"], graph, max_length=2, overlength="exclude"
+    )
+    assert batch.kept_indices == (1,)
+    assert batch.excluded_indices == (0,)
+    assert batch.lengths.tolist() == [2]
+    assert batch.states.tolist() == [[0, graph.token_to_index["<OTHER>"]]]

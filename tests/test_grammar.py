@@ -19,6 +19,35 @@ import pytest
 import torch
 
 
+class _TrieTokenizer:
+    """Small deterministic tokenizer exposing prefix and multi-BPE cases."""
+
+    eos_token_id = 9
+    pad_token_id = 9
+    vocab_size = 12
+
+    _encodings = {
+        "A": [1],
+        "AB": [1, 2],
+        "LONG": [3, 4],
+        "B": [7],
+        " A": [5],
+        " AB": [5, 2],
+        " LONG": [6, 4],
+        " B": [8],
+    }
+
+    def encode(self, text, add_special_tokens=False):
+        assert not add_special_tokens
+        return list(self._encodings[text])
+
+
+class _TrieMask:
+    tokenizer = _TrieTokenizer()
+    vocab = ["<BOS>", "<EOS>", "<UNK>", "A", "AB", "LONG", "B"]
+    token_ids = {1, 2, 3, 4, 5, 6, 7, 8, 9}
+
+
 def test_gloss_vocabulary_mask(tokenizer):
     """GlossVocabularyMask maps gloss tokens to tokenizer IDs."""
     from src.grammar.gloss_grammar import GlossVocabularyMask
@@ -74,6 +103,89 @@ def test_logits_processor(tokenizer):
     assert disallowed.sum() > 0, "Some tokens are masked (-inf)"
     allowed = result[0] > -1e10
     assert allowed.sum() > 0, "Some tokens are allowed (not -inf)"
+
+
+def test_dual_root_trie_state_transitions_and_token_roles():
+    """Pure API covers starts, continuation, boundaries, EOS, and invalid IDs."""
+    from src.grammar.grammar_logits_processor import (
+        DualRootGlossTrie,
+        GlossTrieStatus,
+        GlossTrieTokenRole,
+    )
+
+    trie = DualRootGlossTrie.from_vocabulary(_TrieMask.vocab, _TrieMask.tokenizer)
+    state = trie.initial_state()
+    assert hash(state)
+    assert not trie.is_invalid(state)
+    assert trie.allowed_token_ids(state) == (1, 3, 7, 9)
+
+    # A is terminal and a prefix of AB: both continuation and boundaries survive.
+    state = trie.advance(state, 1)
+    assert trie.allowed_token_ids(state) == (2, 5, 6, 8, 9)
+    assert trie.advance(state, 2).node.is_terminal
+
+    # A second, space-prefixed, multi-BPE gloss follows a terminal first gloss.
+    state = trie.advance(state, 6)
+    assert trie.allowed_token_ids(state) == (4,)
+    state = trie.advance(state, 4)
+    assert state.node.is_terminal
+
+    complete = trie.advance(state, 9, GlossTrieTokenRole.EOS)
+    assert complete.status is GlossTrieStatus.COMPLETE
+    assert trie.allowed_token_ids(complete) == ()
+
+    # EOS and PAD remain semantically distinct even though their IDs are equal.
+    padded = trie.advance(state, 9, GlossTrieTokenRole.PAD)
+    assert padded.status is GlossTrieStatus.INVALID
+    invalid = trie.advance(trie.initial_state(), 11)
+    assert invalid.status is GlossTrieStatus.INVALID
+    assert trie.is_invalid(invalid)
+    assert trie.allowed_token_ids(invalid) == (1, 3, 7)
+
+
+@pytest.mark.parametrize(
+    "history",
+    [
+        [],  # first token
+        [3],  # multi-BPE continuation
+        [3, 4, 6],  # second space-prefixed gloss
+        [1],  # terminal-prefix ambiguity
+        [1, 9],  # historical post-EOS replay behavior
+        [11],  # invalid prefix/root recovery
+    ],
+)
+def test_processor_mask_matches_dual_root_api_state_by_state(history):
+    """The production processor delegates every row mask to the pure API."""
+    from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
+
+    processor = GlossVocabularyLogitsProcessor(_TrieMask(), device="cpu")
+    prompt = [10]
+    processor(torch.tensor([prompt]), torch.zeros(1, 12))
+    input_ids = torch.tensor([prompt + history])
+    output = processor(input_ids, torch.zeros(1, 12))
+    actual = tuple(output[0].isfinite().nonzero(as_tuple=True)[0].tolist())
+    state = processor.trie.state_for_tokens(history)
+    assert actual == processor.trie.allowed_token_ids(state)
+
+
+def test_processor_api_equivalence_for_row_specific_histories():
+    """Batched rows are replayed independently from their generated histories."""
+    from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
+
+    processor = GlossVocabularyLogitsProcessor(_TrieMask(), device="cpu")
+    prompt = torch.tensor([[10], [10]])
+    processor(prompt, torch.zeros(2, 12))
+    histories = [[3], [1]]
+    output = processor(
+        torch.tensor([[10, *history] for history in histories]),
+        torch.zeros(2, 12),
+    )
+    for row, history in enumerate(histories):
+        actual = tuple(output[row].isfinite().nonzero(as_tuple=True)[0].tolist())
+        expected = processor.trie.allowed_token_ids(
+            processor.trie.state_for_tokens(history)
+        )
+        assert actual == expected
 
 
 def test_decode_to_glosses(tokenizer):

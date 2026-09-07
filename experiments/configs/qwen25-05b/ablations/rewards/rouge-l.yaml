@@ -6,6 +6,3 @@ experiment:
 
 reward:
   name: rouge-l-validity
-
-wandb:
-  run_name: grpo-few-reward-rouge-l

@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 
 import numpy as np
+import pytest
 
 from src.datasets.structured_transitions import (
     OTHER,
+    assert_gloss_paths_supported,
     build_structured_transition_graph,
     load_structured_transition_graph,
     save_structured_transition_graph,
@@ -49,6 +51,49 @@ def test_build_and_serialization_are_deterministic(tmp_path):
     loaded = load_structured_transition_graph(*paths[0])
     assert loaded.manifest() == first.manifest()
     assert json.loads(paths[0][1].read_text())["train_sample_ids"] == ["b", "a", "c"]
+    saved_manifest = first.manifest()
+    assert saved_manifest["protocol_version"] == "structured-transition-graph-v2"
+    assert saved_manifest["top_k"] == 2
+    assert saved_manifest["other_token"] == OTHER
+    assert saved_manifest["state_digest"] and saved_manifest["edge_digest"]
+
+
+def test_digest_sensitive_to_edges_counts_and_settings():
+    baseline = build_structured_transition_graph(ROWS, top_k=2, alpha=0.1)
+    more_count = build_structured_transition_graph([*ROWS, ROWS[0]], top_k=2, alpha=0.1)
+    other_alpha = build_structured_transition_graph(ROWS, top_k=2, alpha=0.2)
+    other_k = build_structured_transition_graph(ROWS, top_k=1, alpha=0.1)
+    digests = {
+        graph.manifest()["graph_hash"]
+        for graph in (baseline, more_count, other_alpha, other_k)
+    }
+    assert len(digests) == 4
+
+
+def test_manifest_mismatch_is_rejected(tmp_path):
+    graph = build_structured_transition_graph(ROWS, top_k=2)
+    npz, manifest = tmp_path / "graph.npz", tmp_path / "graph.json"
+    save_structured_transition_graph(graph, npz, manifest)
+    payload = json.loads(manifest.read_text())
+    payload["alpha"] = 7.0
+    manifest.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="mismatch"):
+        load_structured_transition_graph(npz, manifest)
+
+
+def test_other_repetition_and_no_holdout_leakage():
+    train = [{"id": "train", "gloss": "A RARE RARER"}]
+    holdout = [{"id": "eval", "gloss": "EVAL_ONLY A"}]
+    graph = build_structured_transition_graph(train, top_k=1)
+    assert "EVAL_ONLY" not in graph.states
+    assert "eval" not in graph.train_sample_ids
+    assert graph.map_glosses(holdout[0]["gloss"])[0] == graph.token_to_index[OTHER]
+    mapped = graph.map_glosses(train[0]["gloss"])
+    assert mapped == [0, 1, 1]
+    assert graph.has_edge(1, 1)
+    assert_gloss_paths_supported([row["gloss"] for row in train], graph)
+    with pytest.raises(ValueError, match="unsupported"):
+        assert_gloss_paths_supported([holdout[0]["gloss"]], graph)
 
 
 def test_shuffled_control_is_deterministic_and_preserves_edge_payloads():

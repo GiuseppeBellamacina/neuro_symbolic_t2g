@@ -541,6 +541,8 @@ def resolve_reusable_sft_adapter(
     Discovery is deliberately delegated to the single canonical cross-method
     search, which covers both standalone SFT finals and SFT-GRPO subphases.
     """
+    if bool(sft_config.get("auxiliary_loss", {}).get("mass", {}).get("enabled", False)):
+        return None
     from src.training.sft_train import (
         compute_sft_fingerprint,
         find_reusable_sft_adapter_cross_method,
@@ -551,6 +553,7 @@ def resolve_reusable_sft_adapter(
         model_checkpoint_root,
         current_run,
         compute_sft_fingerprint(sft_config),
+        sft_config=sft_config,
     )
     return found
 
@@ -683,6 +686,14 @@ def main() -> None:
         explicit_adapter = sft_pretrain_cfg.get("adapter_path")
         reuse_adapter = sft_pretrain_cfg.get("reuse_adapter", True)
         reused_adapter: str | None = None
+
+        mass_pretrain = bool(
+            sft_config.get("auxiliary_loss", {}).get("mass", {}).get("enabled", False)
+        )
+        if mass_pretrain:
+            reuse_adapter = False
+            explicit_adapter = None
+            print("[sft-reuse] Auxiliary mass pilot always trains; reuse disabled")
 
         if explicit_adapter is not None:
             if is_complete_adapter_dir(explicit_adapter):

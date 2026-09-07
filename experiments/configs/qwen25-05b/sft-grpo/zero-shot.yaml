@@ -1,11 +1,7 @@
 extends: ../grpo/zero-shot.yaml
 
 experiment:
-  model_tag: qwen25-05b
   method: sft-grpo
-  train_prompt_mode: zero-shot
-  variant: none
-  kind: train
 
 sft_pretrain:
   enabled: true
@@ -30,6 +26,3 @@ sft_pretrain:
     eval_fraction: 0.02
     eval_steps: 200
     early_stopping_patience: 3
-
-wandb:
-  run_name: sft-grpo-zero

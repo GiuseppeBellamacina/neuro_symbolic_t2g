@@ -6,6 +6,3 @@ experiment:
 
 reward:
   name: sbleu2-exp-validity
-
-wandb:
-  run_name: grpo-few-reward-sbleu2

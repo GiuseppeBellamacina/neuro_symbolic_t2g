@@ -33,7 +33,6 @@ def test_registry_and_manual_selection_are_exact() -> None:
         "sft-grpo-few",
         "sft-grpo-zero-pda",
         "sft-grpo-zero-hot",
-        "grpo-few-reward-edit",
         "grpo-few-reward-token-f1",
         "grpo-few-reward-chrfpp",
         "grpo-few-reward-rouge-l",
@@ -65,6 +64,11 @@ def test_default_campaign_order_count_and_modes() -> None:
     run_all_models = _run_all_default_models()
     assert run_all_models == expected
     assert app.DEFAULT_CAMPAIGN == expected
+    assert all("sft-mass" not in entry for row in app.DEFAULT_CAMPAIGN for entry in row)
+    assert all(
+        "structured" not in entry for row in app.DEFAULT_CAMPAIGN for entry in row
+    )
+    assert all("structured" not in name for name in app.CONFIG_MAP)
     assert len(run_all_models) == 7
     assert [mode for _, _, mode in run_all_models] == [
         "e",
@@ -109,7 +113,10 @@ else
     run_evaluation retrieval
 fi"""
     assert dispatch in script
-    assert "--prompt-mode ${prompt_mode}" in script
+    assert (
+        'local mode_args=("${COMMON_EVAL_ARGS[@]}" --prompt-mode "$prompt_mode")'
+        in script
+    )
 
 
 def test_yaml_top_level_sections_have_one_blank_line() -> None:

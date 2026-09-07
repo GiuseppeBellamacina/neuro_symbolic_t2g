@@ -20,6 +20,9 @@ Variant = Literal[
     "reward-chrfpp",
     "reward-rouge-l",
     "reward-sbleu2",
+    "sft-mass",
+    "sft-structured",
+    "sft-mass-structured",
 ]
 ExperimentKind = Literal["baseline", "train", "ablation", "probe"]
 ArtifactKind = Literal["logs", "checkpoints", "results", "figures"]
@@ -36,6 +39,9 @@ VARIANTS = frozenset(
         "reward-chrfpp",
         "reward-rouge-l",
         "reward-sbleu2",
+        "sft-mass",
+        "sft-structured",
+        "sft-mass-structured",
     }
 )
 EXPERIMENT_KINDS = frozenset({"baseline", "train", "ablation", "probe"})

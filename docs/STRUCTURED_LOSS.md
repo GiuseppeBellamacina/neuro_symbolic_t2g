@@ -1,6 +1,14 @@
 # Reduced-State Structured Gloss Benchmark
 
-This is an isolated research benchmark, not an SFT/GRPO trainer feature. It freezes the production Qwen backbone, extracts one final-layer hidden vector at the assistant generation boundary for each source prompt, and trains only a small position-conditioned emission head.
+The original benchmark freezes the production Qwen backbone, extracts one final-layer hidden vector at the assistant generation boundary for each source prompt, and trains only a small position-conditioned emission head. Phase B3 additionally integrates the accepted objective into manual standalone SFT pilots; it is not integrated into GRPO.
+
+## Standalone SFT integration (Phase B3)
+
+The manual `sft-structured` and `sft-mass-structured` pilots add structured NLL only during training. Evaluation and best-checkpoint selection use pure completion LM loss. The head consumes the LM-head input at `completion_start - 1`, before the first gold completion token.
+
+The deterministic SFT split is finalized before graph construction. Only complete, nonempty train glosses of at most `max_gloss_length` whitespace states affect graph states, support, and counts. The LM retains every row; excluded or tokenization-truncated rows skip only structured NLL. Ordered train/eval IDs, exclusion IDs/rate, settings, and graph digests are recorded in the manifest. This is the fixed comparison policy for pilot arms.
+
+Each checkpoint and final directory contains the ordinary loadable adapter plus `structured_head.pt`, `auxiliary_sft_config.json`, and `graph_manifest.json`. Resume and best-model restore require an exact artifact/config/manifest match. Structured modes require one process and reject packing and padding-free collation.
 
 ## Arms
 

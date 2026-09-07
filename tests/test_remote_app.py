@@ -454,18 +454,22 @@ def test_reward_train_accepts_safe_report_and_eval_has_no_mode(client):
     response = test_client.post(
         "/jobs",
         headers=AUTH,
-        json={"type": "train", "config": "grpo-few-reward-edit", "mode": mode},
+        json={
+            "type": "train",
+            "config": "grpo-few-reward-token-f1",
+            "mode": mode,
+        },
     )
     assert response.status_code == 201
-    assert response.json()["added"].endswith(f":grpo-few-reward-edit:{mode}")
+    assert response.json()["added"].endswith(f":grpo-few-reward-token-f1:{mode}")
 
     response = test_client.post(
         "/jobs",
         headers=AUTH,
-        json={"type": "eval", "config": "grpo-few-reward-edit"},
+        json={"type": "eval", "config": "grpo-few-reward-token-f1"},
     )
     assert response.status_code == 201
-    assert fake.queue[-1].endswith(":grpo-few-reward-edit")
+    assert fake.queue[-1].endswith(":grpo-few-reward-token-f1")
 
 
 def test_reward_batch_mode_only_on_train(client):

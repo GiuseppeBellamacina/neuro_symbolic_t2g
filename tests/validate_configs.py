@@ -25,6 +25,8 @@ Regole di validazione:
 from __future__ import annotations
 
 import argparse
+import copy
+import math
 import re
 import sys
 from pathlib import Path
@@ -45,6 +47,7 @@ _CLUSTER_RUN_ALL = _PROJECT_ROOT / "cluster" / "run_all.sh"
 # Chiavi morte: rimosse dal codice (src/rewards/t2g_rewards.py non le legge
 # più — solo i 4 parametri viterbi_diversity reali vengono caricati).
 DEAD_KEYS = {"verifier_gamma", "verifier_temperature"}
+_MINIMAL_CONFIG_ROOT = _PROJECT_ROOT / "experiments" / "configs" / "qwen25-05b"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -113,6 +116,16 @@ TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
     "lora.lora_alpha": int,
     "lora.lora_dropout": (int, float),
     "lora.random_state": int,
+    "auxiliary_loss.mass.enabled": bool,
+    "auxiliary_loss.mass.lambda": (int, float),
+    "auxiliary_loss.mass.warmup_steps": int,
+    "auxiliary_loss.structured.enabled": bool,
+    "auxiliary_loss.structured.lambda": (int, float),
+    "auxiliary_loss.structured.warmup_steps": int,
+    "auxiliary_loss.structured.top_k": int,
+    "auxiliary_loss.structured.max_gloss_length": int,
+    "auxiliary_loss.structured.alpha": (int, float),
+    "auxiliary_loss.structured.transition_scale": (int, float),
 }
 
 _TOKEN_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -198,6 +211,60 @@ def _iter_dead_keys(
     return found
 
 
+def _merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Merge mappings with the same recursive semantics as config resolution."""
+    result = copy.deepcopy(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _merge_dicts(result[key], value)
+        else:
+            result[key] = copy.deepcopy(value)
+    return result
+
+
+def _resolved_parent(config_path: Path, extends: str | list[str]) -> dict[str, Any]:
+    """Resolve and merge only the direct parents declared by a child."""
+    parents = [extends] if isinstance(extends, str) else extends
+    result: dict[str, Any] = {}
+    for parent in parents:
+        result = _merge_dicts(result, resolve_config(config_path.parent / parent))
+    return result
+
+
+def _equal_parent_leaves(child: Any, parent: Any, prefix: str = "") -> list[str]:
+    """Return raw child leaf paths whose values equal resolved parent leaves."""
+    equal: list[str] = []
+    if not isinstance(child, dict) or not isinstance(parent, dict):
+        return equal
+    for key, value in child.items():
+        dotted = f"{prefix}.{key}" if prefix else key
+        if key not in parent:
+            continue
+        parent_value = parent[key]
+        if isinstance(value, dict):
+            equal.extend(_equal_parent_leaves(value, parent_value, dotted))
+        elif value == parent_value:
+            equal.append(dotted)
+    return equal
+
+
+def _validate_minimal_child(
+    config_path: Path, raw: dict[str, Any], errors: list[str], path: str
+) -> None:
+    """Reject redundant raw overrides in inherited Qwen campaign configs."""
+    extends = raw.get("extends")
+    if extends is None or _MINIMAL_CONFIG_ROOT not in config_path.parents:
+        return
+    if not isinstance(extends, (str, list)):
+        return  # malformed extends is reported by resolve_config
+    parent = _resolved_parent(config_path, extends)
+    child = {key: value for key, value in raw.items() if key != "extends"}
+    for dotted in _equal_parent_leaves(child, parent):
+        errors.append(f"{path}: override ridondante uguale al parent: {dotted}")
+    if isinstance(raw.get("wandb"), dict) and "run_name" in raw["wandb"]:
+        errors.append(f"{path}: wandb.run_name child è sovrascritto a runtime")
+
+
 def _validate_reward_weights(cfg: dict[str, Any], errors: list[str], path: str) -> None:
     """Reward weights must sum to 1.0 (±1e-9)."""
     reward = cfg.get("reward", {})
@@ -219,6 +286,65 @@ def _validate_reward_weights(cfg: dict[str, Any], errors: list[str], path: str) 
 def _validate_cross_section(cfg: dict[str, Any], errors: list[str], path: str) -> None:
     """Cross-section consistency checks."""
     grammar = cfg.get("grammar", {})
+    mass = cfg.get("auxiliary_loss", {}).get("mass", {})
+    structured = cfg.get("auxiliary_loss", {}).get("structured", {})
+    if mass.get("enabled", False):
+        coefficient = mass.get("lambda")
+        warmup = mass.get("warmup_steps")
+        if (
+            isinstance(coefficient, bool)
+            or not isinstance(coefficient, (int, float))
+            or not math.isfinite(coefficient)
+            or coefficient <= 0
+        ):
+            errors.append(
+                f"{path}: enabled auxiliary mass lambda deve essere finito e > 0"
+            )
+        if isinstance(warmup, bool) or not isinstance(warmup, int) or warmup < 0:
+            errors.append(
+                f"{path}: auxiliary mass warmup_steps deve essere intero non negativo"
+            )
+        training = cfg.get("training", {})
+        if training.get("packing", False) or training.get("padding_free", False):
+            errors.append(f"{path}: auxiliary mass non supporta packing o padding_free")
+    if structured.get("enabled", False):
+        coefficient = structured.get("lambda")
+        warmup = structured.get("warmup_steps")
+        if (
+            isinstance(coefficient, bool)
+            or not isinstance(coefficient, (int, float))
+            or not math.isfinite(coefficient)
+            or coefficient <= 0
+        ):
+            errors.append(
+                f"{path}: enabled auxiliary structured lambda deve essere finito e > 0"
+            )
+        if isinstance(warmup, bool) or not isinstance(warmup, int) or warmup < 0:
+            errors.append(
+                f"{path}: auxiliary structured warmup_steps deve essere intero non negativo"
+            )
+        for key in ("top_k", "max_gloss_length"):
+            value = structured.get(key)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                errors.append(
+                    f"{path}: auxiliary structured {key} deve essere intero positivo"
+                )
+        for key in ("alpha", "transition_scale"):
+            value = structured.get(key)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value <= 0
+            ):
+                errors.append(
+                    f"{path}: auxiliary structured {key} deve essere finito e > 0"
+                )
+        training = cfg.get("training", {})
+        if training.get("packing", False) or training.get("padding_free", False):
+            errors.append(
+                f"{path}: auxiliary structured non supporta packing o padding_free"
+            )
 
     # If use_grammarllm_pda is true, pda_temperature should exist
     if grammar.get("use_grammarllm_pda"):
@@ -279,6 +405,9 @@ def _validate_cross_section(cfg: dict[str, Any], errors: list[str], path: str) -
                 "reward-chrfpp",
                 "reward-rouge-l",
                 "reward-sbleu2",
+                "sft-mass",
+                "sft-structured",
+                "sft-mass-structured",
             }:
                 errors.append(f"{path}: experiment.variant enum invalido")
             if experiment.get("kind") not in {"baseline", "train", "ablation", "probe"}:
@@ -329,6 +458,8 @@ def validate_config(config_path: Path, verbose: bool = False) -> list[str]:
 
     if "extends" in cfg:
         errors.append(f"{path}: chiave 'extends' residua nel dict fuso")
+
+    _validate_minimal_child(config_path, raw, errors, path)
 
     kind = _detect_kind(cfg)
     if verbose:

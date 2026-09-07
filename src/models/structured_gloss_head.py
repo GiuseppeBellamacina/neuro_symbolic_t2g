@@ -138,6 +138,113 @@ def sparse_log_partition(
     return _length_conditioned_logz(endings, lengths)
 
 
+class StructuredGraphLoss(nn.Module):
+    """Cache-safe sparse exact-length CRF loss for one immutable graph.
+
+    Graph tensors and edge lookup keys are registered buffers, so repeated
+    calls allocate no graph representation and normal ``to``/state-dict
+    semantics apply. Transition smoothing in the artifact covers observed
+    support only; it never introduces dense or unseen transitions.
+    """
+
+    def __init__(
+        self, graph: StructuredTransitionGraph, transition_scale: float = 0.25
+    ) -> None:
+        super().__init__()
+        self.num_states = graph.num_states
+        self.bos_index = graph.bos_index
+        self.eos_index = graph.eos_index
+        self.transition_scale = float(transition_scale)
+        src = torch.as_tensor(graph.edge_src, dtype=torch.long)
+        dst = torch.as_tensor(graph.edge_dst, dtype=torch.long)
+        weight = torch.as_tensor(graph.edge_log_prob, dtype=torch.float32)
+        internal = (src < self.num_states) & (dst < self.num_states)
+        start = torch.full((self.num_states,), -torch.inf)
+        start[dst[src == self.bos_index]] = weight[src == self.bos_index]
+        end = torch.full((self.num_states,), -torch.inf)
+        end[src[dst == self.eos_index]] = weight[dst == self.eos_index]
+        keys = src * (self.num_states + 2) + dst
+        order = torch.argsort(keys)
+        self.register_buffer("internal_src", src[internal])
+        self.register_buffer("internal_dst", dst[internal])
+        self.register_buffer("internal_weight", weight[internal])
+        self.register_buffer("start_weight", start)
+        self.register_buffer("end_weight", end)
+        self.register_buffer("edge_keys", keys[order])
+        self.register_buffer("edge_weights", weight[order])
+
+    def log_partition(self, emissions: Tensor, lengths: Tensor) -> Tensor:
+        """FP32 sparse partition, conditioned on each exact gold length."""
+        scores = emissions.float()
+        batch, _, states = scores.shape
+        if states != self.num_states:
+            raise ValueError("emissions state dimension does not match graph")
+        scale = self.transition_scale
+        alpha = scores[:, 0] + self.start_weight * scale
+        endings = [torch.logsumexp(alpha + self.end_weight * scale, dim=1)]
+        for step in range(1, scores.shape[1]):
+            candidates = alpha[:, self.internal_src] + self.internal_weight * scale
+            incoming = torch.full((batch, states), -torch.inf, device=scores.device)
+            destinations = self.internal_dst.expand(batch, -1)
+            incoming.scatter_reduce_(
+                1, destinations, candidates, reduce="amax", include_self=True
+            )
+            maxima = incoming[:, self.internal_dst]
+            stable = torch.where(
+                torch.isfinite(maxima), torch.exp(candidates - maxima), 0.0
+            )
+            totals = torch.zeros_like(incoming).scatter_add(1, destinations, stable)
+            incoming = incoming + torch.log(totals)
+            alpha = scores[:, step] + incoming
+            endings.append(torch.logsumexp(alpha + self.end_weight * scale, dim=1))
+        return _length_conditioned_logz(endings, lengths)
+
+    def gold_score(
+        self, emissions: Tensor, gold_states: Tensor, lengths: Tensor
+    ) -> Tensor:
+        """Vectorized sparse gold score; unsupported active edges yield ``-inf``."""
+        scores = emissions.float()
+        batch, steps, _ = scores.shape
+        positions = torch.arange(steps, device=scores.device)[None, :]
+        active_states = positions < lengths[:, None]
+        selected = scores.gather(2, gold_states.to(scores.device)[:, :, None]).squeeze(
+            2
+        )
+        emission_score = torch.where(active_states, selected, 0.0).sum(dim=1)
+
+        nodes = torch.full(
+            (batch, steps + 2), self.eos_index, dtype=torch.long, device=scores.device
+        )
+        nodes[:, 0] = self.bos_index
+        nodes[:, 1 : steps + 1] = gold_states.to(scores.device)
+        edge_positions = torch.arange(steps + 1, device=scores.device)[None, :]
+        active_edges = edge_positions <= lengths[:, None]
+        destinations = torch.where(
+            edge_positions == lengths[:, None], self.eos_index, nodes[:, 1:]
+        )
+        keys = nodes[:, :-1] * (self.num_states + 2) + destinations
+        indices = torch.searchsorted(self.edge_keys, keys)
+        safe_indices = indices.clamp_max(max(self.edge_keys.numel() - 1, 0))
+        found = (indices < self.edge_keys.numel()) & (
+            self.edge_keys[safe_indices] == keys
+        )
+        weights = self.edge_weights[safe_indices]
+        edge_scores = torch.where(
+            active_edges & found, weights * self.transition_scale, 0.0
+        )
+        supported = (~active_edges | found).all(dim=1)
+        transition_score = edge_scores.sum(dim=1)
+        return torch.where(supported, emission_score + transition_score, -torch.inf)
+
+    def forward(
+        self, emissions: Tensor, gold_states: Tensor, lengths: Tensor
+    ) -> Tensor:
+        _validate_inputs(emissions, gold_states, lengths, self.num_states)
+        log_z = self.log_partition(emissions, lengths)
+        gold = self.gold_score(emissions, gold_states, lengths)
+        return (log_z - gold) / lengths.to(device=log_z.device, dtype=log_z.dtype)
+
+
 def gold_path_score(
     emissions: Tensor,
     gold_states: Tensor,
@@ -146,22 +253,24 @@ def gold_path_score(
     transition_scale: float = 0.25,
 ) -> Tensor:
     """Exact score of padded mapped gold paths; absent edges score ``-inf``."""
-    scores = emissions.float()
-    transition = dense_transition_scores(graph, scores.device) * transition_scale
-    result = []
-    for batch_index in range(scores.shape[0]):
-        length = int(lengths[batch_index].item())
-        path = gold_states[batch_index, :length].to(scores.device)
-        emission_score = scores[batch_index, :length].gather(1, path[:, None]).sum()
-        nodes = torch.cat(
-            (
-                torch.tensor([graph.bos_index], device=scores.device),
-                path,
-                torch.tensor([graph.eos_index], device=scores.device),
-            )
-        )
-        result.append(emission_score + transition[nodes[:-1], nodes[1:]].sum())
-    return torch.stack(result)
+    return (
+        StructuredGraphLoss(graph, transition_scale)
+        .to(emissions.device)
+        .gold_score(emissions, gold_states, lengths)
+    )
+
+
+def _validate_inputs(
+    emissions: Tensor, gold_states: Tensor, lengths: Tensor, num_states: int
+) -> None:
+    if emissions.ndim != 3 or emissions.shape[2] != num_states:
+        raise ValueError("emissions must have shape [B,T,G]")
+    if gold_states.shape != emissions.shape[:2] or lengths.shape != emissions.shape[:1]:
+        raise ValueError("gold_states must be [B,T] and lengths must be [B]")
+    if torch.any(lengths < 1) or torch.any(lengths > emissions.shape[1]):
+        raise ValueError("lengths must lie in [1,T]")
+    if torch.any(gold_states < 0) or torch.any(gold_states >= num_states):
+        raise ValueError("gold state index out of range")
 
 
 def structured_nll(
@@ -174,10 +283,11 @@ def structured_nll(
     dense: bool = False,
 ) -> Tensor:
     """Per-example, per-gloss length-conditioned negative log likelihood."""
-    if emissions.ndim != 3 or emissions.shape[2] != graph.num_states:
-        raise ValueError("emissions must have shape [B,T,G]")
-    if torch.any(lengths < 1) or torch.any(lengths > emissions.shape[1]):
-        raise ValueError("lengths must lie in [1,T]")
+    _validate_inputs(emissions, gold_states, lengths, graph.num_states)
+    if not dense:
+        return StructuredGraphLoss(graph, transition_scale).to(emissions.device)(
+            emissions, gold_states, lengths
+        )
     partition_fn = dense_log_partition if dense else sparse_log_partition
     log_z = partition_fn(emissions, lengths, graph, transition_scale)
     gold = gold_path_score(emissions, gold_states, lengths, graph, transition_scale)

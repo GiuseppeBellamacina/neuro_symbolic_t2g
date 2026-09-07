@@ -31,6 +31,15 @@ EXPECTED = {
     "ablations/sft-grpo-zero-hot.yaml": Cell(
         "qwen25-05b", "sft-grpo", "zero-shot", "hot", "ablation"
     ),
+    "ablations/sft-mass.yaml": Cell(
+        "qwen25-05b", "sft", "zero-shot", "sft-mass", "ablation"
+    ),
+    "ablations/sft-structured.yaml": Cell(
+        "qwen25-05b", "sft", "zero-shot", "sft-structured", "ablation"
+    ),
+    "ablations/sft-mass-structured.yaml": Cell(
+        "qwen25-05b", "sft", "zero-shot", "sft-mass-structured", "ablation"
+    ),
 }
 
 
@@ -44,15 +53,26 @@ def test_exact_tree_identities_and_validator() -> None:
         "probes/markov.yaml",
         "probes/structured.yaml",
         *EXPECTED,
-        "ablations/rewards/edit.yaml",
         "ablations/rewards/token-f1.yaml",
         "ablations/rewards/chrfpp.yaml",
         "ablations/rewards/rouge-l.yaml",
         "ablations/rewards/sbleu2.yaml",
     }
+    assert len(list(CONFIG_DIR.rglob("*.yaml"))) == 21
     for name, cell in EXPECTED.items():
         path = CONFIG_DIR / name
         assert cell_from_config(resolve_config(path)) == cell
+        assert validate_config(path) == []
+
+
+def test_all_inherited_qwen_configs_are_minimal() -> None:
+    inherited = [
+        path
+        for path in CONFIG_DIR.rglob("*.yaml")
+        if "extends:" in path.read_text(encoding="utf-8")
+    ]
+    assert inherited
+    for path in inherited:
         assert validate_config(path) == []
 
 
@@ -96,3 +116,36 @@ def test_ablations_change_only_requested_factor() -> None:
     assert hot["experiment"]["variant"] == "hot"
     assert hot["grpo"]["temperature"] == 1.3
     assert hot["sft_pretrain"] == base["sft_pretrain"]
+
+    sft = resolve_config(CONFIG_DIR / "sft/zero-shot.yaml")
+    mass = resolve_config(CONFIG_DIR / "ablations/sft-mass.yaml")
+    assert mass["experiment"] == {
+        **sft["experiment"],
+        "kind": "ablation",
+        "variant": "sft-mass",
+    }
+    assert mass["auxiliary_loss"] == {
+        "mass": {"enabled": True, "lambda": 0.1, "warmup_steps": 200}
+    }
+    comparable = dict(mass)
+    comparable.pop("auxiliary_loss")
+    comparable["experiment"] = sft["experiment"]
+    assert comparable == sft
+
+    structured = resolve_config(CONFIG_DIR / "ablations/sft-structured.yaml")
+    both = resolve_config(CONFIG_DIR / "ablations/sft-mass-structured.yaml")
+    assert structured["auxiliary_loss"]["structured"] == {
+        "enabled": True,
+        "lambda": 0.1,
+        "warmup_steps": 200,
+        "top_k": 512,
+        "max_gloss_length": 64,
+        "alpha": 0.1,
+        "transition_scale": 0.25,
+    }
+    assert "mass" not in structured["auxiliary_loss"]
+    assert both["auxiliary_loss"]["mass"] == mass["auxiliary_loss"]["mass"]
+    assert (
+        both["auxiliary_loss"]["structured"]
+        == structured["auxiliary_loss"]["structured"]
+    )

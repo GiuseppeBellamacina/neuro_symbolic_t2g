@@ -1,0 +1,11 @@
+extends: ../sft/zero-shot.yaml
+
+experiment:
+  kind: ablation
+  variant: sft-mass
+
+auxiliary_loss:
+  mass:
+    enabled: true
+    lambda: 0.1
+    warmup_steps: 200

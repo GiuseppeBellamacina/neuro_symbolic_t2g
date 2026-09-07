@@ -12,7 +12,7 @@ All candidates use the same case-folded gloss tokens, vocabulary/empty/reference
 - `rouge-l-validity`: token LCS F1 without stemming.
 - `sbleu2-exp-validity`: sentence BLEU-2 with effective order, exponential smoothing, and no tokenizer.
 
-The five configs under `ablations/rewards/` extend `grpo/few-shot.yaml` and alter only ablation identity, reward name, and W&B run name. Artifacts are stored under `grpo/few-shot/ablations/reward-*`. They are selectable manually through the remote driver/TUI or `cluster/run_all.sh grpo-few-reward-...`; they are never part of `DEFAULT_CAMPAIGN`.
+The primary `grpo/few-shot.yaml` recipe is the `edit-validity` control. The four alternative configs under `ablations/rewards/` extend it and alter only ablation identity and reward name. Artifacts are stored under `grpo/few-shot/ablations/reward-*`. The alternatives are selectable manually through the remote driver/TUI or `cluster/run_all.sh grpo-few-reward-...`; they are never part of `DEFAULT_CAMPAIGN`.
 
 ## Mandatory qualification
 

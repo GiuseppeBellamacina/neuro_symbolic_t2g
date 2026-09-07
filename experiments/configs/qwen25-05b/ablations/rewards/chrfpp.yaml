@@ -6,6 +6,3 @@ experiment:
 
 reward:
   name: chrfpp-validity
-
-wandb:
-  run_name: grpo-few-reward-chrfpp

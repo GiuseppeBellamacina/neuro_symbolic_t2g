@@ -638,14 +638,14 @@ def test_report_field_hides_and_clears_for_normal_or_eval():
             screen = app.screen
             config = screen.query_one("#config", tui.Select)
             report = screen.query_one("#qualification-report", tui.Input)
-            config.value = "grpo-few-reward-edit"
+            config.value = "grpo-few-reward-token-f1"
             await pilot.pause()
             report.value = "experiments/analysis/rewards/report.json"
             config.value = "sft"
             await pilot.pause()
             assert report.display is False and report.disabled is True
             assert report.value == ""
-            config.value = "grpo-few-reward-edit"
+            config.value = "grpo-few-reward-token-f1"
             await pilot.pause()
             screen.query_one("#type", tui.Select).value = "eval"
             await pilot.pause()
@@ -720,7 +720,7 @@ def test_batch_reward_report_applies_only_to_reward_train():
             await pilot.pause()
             screen = app.screen
             screen.query_one("#cfg-sft", tui.Checkbox).value = True
-            screen.query_one("#cfg-grpo-few-reward-edit", tui.Checkbox).value = True
+            screen.query_one("#cfg-grpo-few-reward-token-f1", tui.Checkbox).value = True
             await pilot.pause()
             report = screen.query_one("#qualification-report", tui.Input)
             assert report.display is True
@@ -739,7 +739,8 @@ def test_batch_reward_report_applies_only_to_reward_train():
             reward_train = next(
                 job
                 for job in jobs
-                if job["config"] == "grpo-few-reward-edit" and job["type"] == "train"
+                if job["config"] == "grpo-few-reward-token-f1"
+                and job["type"] == "train"
             )
             assert reward_train["mode"].endswith("rewards/report.json")
             assert all(

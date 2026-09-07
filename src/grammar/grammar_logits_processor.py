@@ -19,7 +19,10 @@ Both are compatible with Hugging Face ``model.generate()``.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from dataclasses import dataclass
+from enum import Enum
+from types import MappingProxyType
+from typing import Any, Mapping, Sequence
 
 import torch
 from transformers import LogitsProcessor
@@ -41,12 +44,182 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True, eq=False)
 class TrieNode:
-    """A node in the token-level Prefix Tree (Trie)."""
+    """Immutable, identity-hashable node in a compiled token-level prefix tree."""
+
+    children: Mapping[int, TrieNode]
+    is_terminal: bool = False
+
+
+class GlossTrieStatus(Enum):
+    """Status of a :class:`GlossTrieState`."""
+
+    ACTIVE = "active"
+    COMPLETE = "complete"
+    INVALID = "invalid"
+
+
+class GlossTrieTokenRole(Enum):
+    """Semantic role of an input ID when EOS and PAD may share an ID."""
+
+    TOKEN = "token"
+    EOS = "eos"
+    PAD = "pad"
+
+
+@dataclass(frozen=True, slots=True)
+class GlossTrieState:
+    """Opaque immutable state for one dual-root Trie sequence.
+
+    ``status`` explicitly reports invalid input and EOS completion.  ``node``
+    is intentionally an implementation detail; callers should use
+    :meth:`DualRootGlossTrie.allowed_token_ids` and
+    :meth:`DualRootGlossTrie.advance`.
+    """
+
+    node: TrieNode
+    status: GlossTrieStatus = GlossTrieStatus.ACTIVE
+    at_start: bool = True
+
+
+class _MutableTrieNode:
+    """Construction-only counterpart of :class:`TrieNode`."""
 
     def __init__(self) -> None:
-        self.children: dict[int, TrieNode] = {}
-        self.is_terminal: bool = False
+        self.children: dict[int, _MutableTrieNode] = {}
+        self.is_terminal = False
+
+
+class DualRootGlossTrie:
+    """Pure state-transition API for separator-aware gloss token sequences.
+
+    The bare root starts the first gloss.  At a terminal node, both ordinary
+    continuation children (for terminal-prefix ambiguity) and children of the
+    space-prefixed root are valid, as is EOS.  Methods return tuples/states and
+    never allocate device tensors or full-vocabulary masks.
+    """
+
+    def __init__(
+        self,
+        root: TrieNode,
+        space_root: TrieNode,
+        eos_token_id: int,
+    ) -> None:
+        self.root = root
+        self.space_root = space_root
+        self.eos_token_id = eos_token_id
+
+    @classmethod
+    def from_vocabulary(
+        cls,
+        vocab: Sequence[str],
+        tokenizer: Any,
+    ) -> DualRootGlossTrie:
+        """Compile bare and space-prefixed tokenizations of ``vocab``."""
+        root = _MutableTrieNode()
+        space_root = _MutableTrieNode()
+        for token in vocab:
+            stripped = token.strip()
+            if not stripped or stripped in {"<BOS>", "<EOS>", "<UNK>"}:
+                continue
+            cls._insert(root, tokenizer.encode(token, add_special_tokens=False))
+            cls._insert(
+                space_root,
+                tokenizer.encode(" " + token, add_special_tokens=False),
+            )
+        return cls(
+            cls._freeze(root),
+            cls._freeze(space_root),
+            tokenizer.eos_token_id,
+        )
+
+    @staticmethod
+    def _insert(root: _MutableTrieNode, token_ids: Sequence[int]) -> None:
+        if not token_ids:
+            return
+        node = root
+        for token_id in token_ids:
+            node = node.children.setdefault(token_id, _MutableTrieNode())
+        node.is_terminal = True
+
+    @classmethod
+    def _freeze(cls, node: _MutableTrieNode) -> TrieNode:
+        children = {
+            token_id: cls._freeze(child)
+            for token_id, child in sorted(node.children.items())
+        }
+        return TrieNode(MappingProxyType(children), node.is_terminal)
+
+    def initial_state(self) -> GlossTrieState:
+        """Return the canonical state before the first generated token."""
+        return GlossTrieState(self.root)
+
+    def allowed_token_ids(self, state: GlossTrieState) -> tuple[int, ...]:
+        """Return deterministic, unique token IDs allowed from ``state``."""
+        if state.status is GlossTrieStatus.COMPLETE:
+            return ()
+
+        allowed = set(state.node.children)
+        if state.node.is_terminal:
+            allowed.update(self.space_root.children)
+            allowed.add(self.eos_token_id)
+        if state.node is self.root and state.at_start:
+            allowed.update(self.root.children)
+            allowed.add(self.eos_token_id)
+        return tuple(sorted(allowed))
+
+    def is_invalid(self, state: GlossTrieState) -> bool:
+        """Return whether ``state`` records an invalid transition."""
+        return state.status is GlossTrieStatus.INVALID
+
+    def advance(
+        self,
+        state: GlossTrieState,
+        token_id: int,
+        role: GlossTrieTokenRole = GlossTrieTokenRole.TOKEN,
+    ) -> GlossTrieState:
+        """Advance by one ID, returning an explicit COMPLETE/INVALID state.
+
+        ``role`` disambiguates EOS from PAD for tokenizers where both IDs are
+        equal.  Callers consuming a semantic sequence end must pass ``EOS``;
+        ordinary replay (including the processor's historical post-stop
+        behavior) uses ``TOKEN``, while label padding may pass ``PAD``.
+
+        Invalid input retains production's historical root-recovery behavior:
+        the returned state is marked ``INVALID`` but exposes bare-root
+        continuations on the next query.
+        """
+        if state.status is GlossTrieStatus.COMPLETE:
+            return GlossTrieState(self.root, GlossTrieStatus.INVALID, False)
+
+        is_eos = role is GlossTrieTokenRole.EOS
+        if is_eos:
+            if token_id == self.eos_token_id and token_id in self.allowed_token_ids(
+                state
+            ):
+                return GlossTrieState(state.node, GlossTrieStatus.COMPLETE, False)
+            return GlossTrieState(self.root, GlossTrieStatus.INVALID, False)
+
+        node = state.node
+        if token_id in node.children:
+            return GlossTrieState(node.children[token_id], at_start=False)
+        if node.is_terminal and token_id in self.space_root.children:
+            return GlossTrieState(
+                self.space_root.children[token_id],
+                at_start=False,
+            )
+        return GlossTrieState(self.root, GlossTrieStatus.INVALID, False)
+
+    def state_for_tokens(self, token_ids: Sequence[int]) -> GlossTrieState:
+        """Replay a token history from :meth:`initial_state`."""
+        state = self.initial_state()
+        for token_id in token_ids:
+            # Replaying after invalid input historically resumes from root.
+            if state.status is GlossTrieStatus.INVALID:
+                state = GlossTrieState(state.node, at_start=state.at_start)
+            state = self.advance(state, token_id)
+        return state
 
 
 class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
@@ -80,9 +253,14 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
         self.eos_token_id = self.tokenizer.eos_token_id
         self.track_diagnostics = track_diagnostics
 
-        # Build Token-level Trie from vocabulary
-        self.root = TrieNode()
-        self._build_trie(gloss_vocab_mask.vocab)
+        # Build the pure dual-root transition model used by generation and
+        # teacher-forced consumers.
+        self.trie = DualRootGlossTrie.from_vocabulary(
+            gloss_vocab_mask.vocab,
+            self.tokenizer,
+        )
+        self.root = self.trie.root
+        self.space_root = self.trie.space_root
 
         self.vocab_size = (
             self.tokenizer.vocab_size
@@ -100,48 +278,6 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
             device,
             track_diagnostics,
         )
-
-    def _build_trie(self, vocab: list[str]) -> None:
-        """Insert all normal and space-prefixed glosses into the Trie.
-
-        The Trie has two root-level entry points:
-        - ``self.root`` (no-space root): children are the first BPE token of
-          each gloss WITHOUT a leading space. Used only at the very start of
-          generation (first token after the prompt).
-        - ``self.space_root`` (space root): children are the first BPE token
-          of each gloss WITH a leading space (``" " + gloss``). Used to
-          start a new gloss after a terminal node — this enforces whitespace
-          boundaries between glosses and prevents arbitrary concatenation
-          of single-BPE-token glosses (the DEBUTRECHT bug).
-
-        See docs/T2G_PIPELINE_REVIEW.md §9.2 for the root cause analysis.
-        """
-        self.space_root = TrieNode()
-
-        for token in vocab:
-            stripped = token.strip()
-            if not stripped or stripped in {"<BOS>", "<EOS>", "<UNK>"}:
-                continue
-
-            # Non-space variant → root
-            token_ids = self.tokenizer.encode(token, add_special_tokens=False)
-            if token_ids:
-                node = self.root
-                for tid in token_ids:
-                    if tid not in node.children:
-                        node.children[tid] = TrieNode()
-                    node = node.children[tid]
-                node.is_terminal = True
-
-            # Space-prefixed variant → space_root
-            space_ids = self.tokenizer.encode(" " + token, add_special_tokens=False)
-            if space_ids:
-                node = self.space_root
-                for tid in space_ids:
-                    if tid not in node.children:
-                        node.children[tid] = TrieNode()
-                    node = node.children[tid]
-                node.is_terminal = True
 
     def reset_generation_state(self) -> None:
         """Reset prompt-dependent state without clearing diagnostics."""
@@ -174,56 +310,8 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
             # Extract newly generated tokens (slice from the end of the prompt)
             gen_tokens = input_ids[i, self.prompt_len :].tolist()
 
-            # Trace history through the dual-root Trie.
-            #
-            # The Trie has two roots:
-            # - ``self.root``: non-space-prefixed gloss starts (first token
-            #   of generation only).
-            # - ``self.space_root``: space-prefixed gloss starts (used to
-            #   begin a new gloss after a terminal node).
-            #
-            # This enforces whitespace boundaries: after a terminal gloss,
-            # the next token MUST come from ``space_root`` (i.e. it must be
-            # a space-prefixed BPE token), preventing arbitrary
-            # concatenation of single-BPE-token glosses like DE+B+RE+CH+T
-            # → "DEBUTRECHT". See docs/T2G_PIPELINE_REVIEW.md §9.2, §10.
-            node = self.root
-            at_start = True  # True only for the very first generated token
-
-            for tok in gen_tokens:
-                if tok in node.children:
-                    node = node.children[tok]
-                    at_start = False
-                elif node.is_terminal and tok in self.space_root.children:
-                    # Whitespace boundary: previous gloss is complete (node
-                    # is terminal), and `tok` starts a new space-prefixed
-                    # gloss. Jump to the space_root's child.
-                    node = self.space_root.children[tok]
-                    at_start = False
-                elif at_start and tok in self.root.children:
-                    # First token of generation — must come from root
-                    node = self.root.children[tok]
-                    at_start = False
-                else:
-                    # No valid transition. Reset to root as best-effort
-                    # recovery — the mask will be very restrictive here.
-                    node = self.root
-                    at_start = False
-
-            # Allowed tokens from the current state in the Trie
-            allowed = set(node.children.keys())
-
-            # If node is terminal, we can start a new gloss (via space_root)
-            # or generate EOS.
-            if node.is_terminal:
-                allowed.update(self.space_root.children.keys())
-                allowed.add(self.eos_token_id)
-
-            # At the very start (root, no tokens generated yet), also allow
-            # root children (non-space starts).
-            if node == self.root and not gen_tokens:
-                allowed.update(self.root.children.keys())
-                allowed.add(self.eos_token_id)
+            state = self.trie.state_for_tokens(gen_tokens)
+            allowed = self.trie.allowed_token_ids(state)
 
             # Apply allowed tokens to the mask
             for tid in allowed:

@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path
 
+import pytest
 import yaml
 
 from datasets import Dataset
@@ -24,10 +25,12 @@ from src.training.sft_train import (
     compute_sft_fingerprint,
     find_reusable_sft_adapter_cross_method,
     is_complete_adapter_dir,
+    prepare_structured_sft_datasets,
     resolve_sft_run_paths,
     split_eval_holdout,
     write_sft_fingerprint,
 )
+from src.utils.config import resolve_config
 from src.utils.prompting import SYSTEM_PROMPT
 
 SFT_CONFIG_PATH = (
@@ -225,6 +228,49 @@ def test_eval_holdout_zero_fraction() -> None:
     assert len(ev) == 0
 
 
+def test_structured_preparation_is_split_first_and_preserves_lm_rows() -> None:
+    class Tokenizer:
+        eos_token_id = 9
+
+        def apply_chat_template(
+            self, messages, tokenize=True, add_generation_prompt=False
+        ):
+            assert tokenize and not add_generation_prompt
+            gloss = messages[-1]["content"]
+            return ([1] * 20 if gloss == "TOO LONG" else [1, 2]) + [9]
+
+    train = Dataset.from_list(
+        [
+            _build_prompt_completion_example(
+                {"prompt": "train", "completion": "A B", "sample_id": "tr"}
+            ),
+            _build_prompt_completion_example(
+                {"prompt": "excluded", "completion": "TOO LONG", "sample_id": "x"}
+            ),
+        ]
+    )
+    holdout = Dataset.from_list(
+        [
+            _build_prompt_completion_example(
+                {"prompt": "eval", "completion": "EVAL_ONLY A", "sample_id": "ev"}
+            ),
+        ]
+    )
+    cfg = {"top_k": 2, "max_gloss_length": 4, "alpha": 0.1, "transition_scale": 0.25}
+    mapped_train, mapped_eval, graph, manifest = prepare_structured_sft_datasets(
+        train, holdout, Tokenizer(), cfg, max_sequence_length=10
+    )
+    assert len(mapped_train) == len(train) == 2
+    assert len(mapped_eval) == len(holdout) == 1
+    assert graph.train_sample_ids == ("tr",)
+    assert "EVAL_ONLY" not in graph.states
+    assert manifest["train_split_sample_ids"] == ["tr", "x"]
+    assert manifest["eval_split_sample_ids"] == ["ev"]
+    assert manifest["excluded_train_sample_ids"] == ["x"]
+    assert mapped_train[0]["structured_eligible"] is True
+    assert mapped_train[1]["structured_eligible"] is False
+
+
 # ---------------------------------------------------------------------------
 # 3. SFT YAML config fields
 # ---------------------------------------------------------------------------
@@ -306,6 +352,94 @@ def test_compute_sft_fingerprint_deterministic() -> None:
     """Same config → same fingerprint (canonical JSON, sort_keys)."""
     cfg = _sft_fingerprint_config()
     assert compute_sft_fingerprint(cfg) == compute_sft_fingerprint(cfg)
+
+
+def test_mass_manifest_fingerprint_identity_and_vocab_set_contract() -> None:
+    from src.training.auxiliary_sft_trainer import build_auxiliary_trie_manifest
+
+    class Tokenizer:
+        name_or_path = "model-a"
+        init_kwargs = {"revision": "rev-1"}
+        eos_token_id = 9
+        pad_token_id = 0
+
+        def __init__(self, suffix: int = 0) -> None:
+            self.suffix = suffix
+
+        def encode(self, text, add_special_tokens=False):
+            assert not add_special_tokens
+            return [ord(char) + self.suffix for char in text]
+
+    cfg = _sft_fingerprint_config()
+    cfg["auxiliary_loss"] = {
+        "mass": {"enabled": True, "lambda": 0.1, "warmup_steps": 200}
+    }
+    tokenizer = Tokenizer()
+    manifest = build_auxiliary_trie_manifest([" B ", "A", "A"], "vocab.txt", tokenizer)
+    reordered = build_auxiliary_trie_manifest(["A", "B"], "vocab.txt", tokenizer)
+    assert manifest == reordered
+    base_fp = compute_sft_fingerprint(cfg, manifest)
+    for changed in (
+        build_auxiliary_trie_manifest(["A", "C"], "vocab.txt", tokenizer),
+        build_auxiliary_trie_manifest(
+            ["A", "B"],
+            "vocab.txt",
+            type(
+                "OtherTokenizer",
+                (Tokenizer,),
+                {"name_or_path": "model-b", "init_kwargs": {}},
+            )(),
+        ),
+        build_auxiliary_trie_manifest(["A", "B"], "vocab.txt", Tokenizer(1)),
+        {**manifest, "eos_token_id": 8},
+        {**manifest, "pad_token_id": 9},
+        {**manifest, "trie_protocol_version": 999},
+    ):
+        assert compute_sft_fingerprint(cfg, changed) != base_fp
+    assert manifest["compiled_entry_count"] == 2
+    assert len(manifest["compiled_entries_sha256"]) == 64
+
+
+def test_enabled_mass_fingerprint_requires_runtime_manifest() -> None:
+    cfg = _sft_fingerprint_config()
+    cfg["auxiliary_loss"] = {
+        "mass": {"enabled": True, "lambda": 0.1, "warmup_steps": 200}
+    }
+    with pytest.raises(ValueError, match="runtime Trie manifest"):
+        compute_sft_fingerprint(cfg)
+
+
+def test_mass_distributed_guard_and_config_validation(monkeypatch) -> None:
+    from src.training.auxiliary_sft_trainer import (
+        require_single_process_for_mass,
+        validate_mass_config,
+    )
+
+    cfg = _sft_fingerprint_config()
+    cfg["auxiliary_loss"] = {
+        "mass": {"enabled": True, "lambda": 0.1, "warmup_steps": 0}
+    }
+    monkeypatch.delenv("WORLD_SIZE", raising=False)
+    require_single_process_for_mass(cfg)
+    monkeypatch.setenv("WORLD_SIZE", "1")
+    require_single_process_for_mass(cfg)
+    monkeypatch.setenv("WORLD_SIZE", "2")
+    with pytest.raises(ValueError, match="WORLD_SIZE=1"):
+        require_single_process_for_mass(cfg)
+
+    for coefficient in (True, 0, -1, float("nan"), float("inf")):
+        cfg["auxiliary_loss"]["mass"]["lambda"] = coefficient
+        with pytest.raises(ValueError, match="lambda"):
+            validate_mass_config(cfg)
+    cfg["auxiliary_loss"]["mass"]["lambda"] = 0.1
+    for warmup in (True, -1, 1.5):
+        cfg["auxiliary_loss"]["mass"]["warmup_steps"] = warmup
+        with pytest.raises(ValueError, match="warmup_steps"):
+            validate_mass_config(cfg)
+    cfg["auxiliary_loss"]["mass"]["warmup_steps"] = 0
+    cfg["training"]["packing"] = True
+    with pytest.raises(ValueError, match="packing"):
+        validate_mass_config(cfg)
 
 
 def test_compute_sft_fingerprint_ignores_paths_and_timestamps() -> None:
@@ -408,13 +542,88 @@ def test_write_sft_fingerprint(tmp_path) -> None:
     assert out.is_file()
     doc = json.loads(out.read_text(encoding="utf-8"))
     assert doc["fingerprint"] == compute_sft_fingerprint(cfg)
-    assert doc["config"]["version"] == 1
+    assert doc["config"]["version"] == 4
     assert doc["config"]["model"]["name"] == cfg["model"]["name"]
     assert (
         doc["config"]["sft_training"]["learning_rate"]
         == cfg["sft_pretrain"]["training"]["learning_rate"]
     )
     assert "output_dir" not in doc["config"]["sft_training"]
+
+
+def test_auxiliary_mass_changes_fingerprint_and_blocks_standard_reuse(tmp_path) -> None:
+    from src.training.auxiliary_sft_trainer import build_auxiliary_trie_manifest
+
+    class Tokenizer:
+        name_or_path = "model-a"
+        init_kwargs = {}
+        eos_token_id = 9
+        pad_token_id = 0
+
+        def encode(self, text, add_special_tokens=False):
+            return [ord(char) for char in text]
+
+    standard = _sft_fingerprint_config()
+    mass = _sft_fingerprint_config()
+    mass["auxiliary_loss"] = {
+        "mass": {"enabled": True, "lambda": 0.1, "warmup_steps": 200}
+    }
+    standard_fp = compute_sft_fingerprint(standard)
+    manifest = build_auxiliary_trie_manifest(["A"], "vocab.txt", Tokenizer())
+    mass_fp = compute_sft_fingerprint(mass, manifest)
+    assert mass_fp != standard_fp
+
+    model_root = tmp_path / "checkpoints" / "qwen25-05b"
+    _make_standalone_adapter_run(model_root, "run_1", standard_fp)
+    current = model_root / "sft" / "zero-shot" / "ablations" / "sft-mass"
+    assert (
+        find_reusable_sft_adapter_cross_method(
+            model_root, current, mass_fp, sft_config=mass
+        )
+        is None
+    )
+
+
+def test_saved_mass_fingerprint_contains_compiled_manifest(tmp_path) -> None:
+    cfg = _sft_fingerprint_config()
+    cfg["auxiliary_loss"] = {
+        "mass": {"enabled": True, "lambda": 0.1, "warmup_steps": 200}
+    }
+    manifest = {
+        "trie_protocol_version": 1,
+        "compiled_entry_count": 2,
+        "compiled_entries_sha256": "a" * 64,
+    }
+    out = write_sft_fingerprint(tmp_path / "final", cfg, manifest)
+    stored = json.loads(out.read_text(encoding="utf-8"))
+    assert stored["config"]["auxiliary_objective"]["trie_manifest"] == manifest
+    assert stored["fingerprint"] == compute_sft_fingerprint(cfg, manifest)
+
+
+def test_grpo_reuse_resolver_bypasses_mass_and_preserves_standard(monkeypatch) -> None:
+    from src.training import sft_train
+    from src.training.grpo_t2g_train import resolve_reusable_sft_adapter
+
+    calls = []
+
+    def search(*args, **kwargs):
+        calls.append((args, kwargs))
+        return Path("adapter"), "sft/zero-shot"
+
+    monkeypatch.setattr(sft_train, "find_reusable_sft_adapter_cross_method", search)
+    standard = _sft_fingerprint_config()
+    assert resolve_reusable_sft_adapter(standard, "run", "root") == (
+        Path("adapter"),
+        "sft/zero-shot",
+    )
+    assert len(calls) == 1
+
+    mass = _sft_fingerprint_config()
+    mass["auxiliary_loss"] = {
+        "mass": {"enabled": True, "lambda": 0.1, "warmup_steps": 200}
+    }
+    assert resolve_reusable_sft_adapter(mass, "run", "root") is None
+    assert len(calls) == 1
 
 
 def test_is_complete_adapter_dir(tmp_path) -> None:
@@ -587,8 +796,14 @@ def test_cross_method_search_ignores_noncanonical_flat_paths(tmp_path) -> None:
 
 def test_resolve_sft_run_paths_standalone_canonical(monkeypatch) -> None:
     """Standalone config without path keys resolves through canonical paths."""
-    cfg = yaml.safe_load(SFT_CONFIG_PATH.read_text(encoding="utf-8"))
-    cfg["model"] = {"name": "Qwen/Qwen2.5-0.5B-Instruct"}
+    child = yaml.safe_load(SFT_CONFIG_PATH.read_text(encoding="utf-8"))
+    assert child["extends"] == "../base.yaml"
+    assert "model_tag" not in child["experiment"]
+    assert "variant" not in child["experiment"]
+    assert "model" not in child
+
+    cfg = resolve_config(SFT_CONFIG_PATH)
+    assert cfg["model"]["name"] == "Qwen/Qwen2.5-0.5B-Instruct"
     expected_output = Path("experiments/checkpoints/qwen25-05b/sft/zero-shot/run_fixed")
     expected_log = Path("experiments/logs/qwen25-05b/sft/zero-shot/run_fixed")
 

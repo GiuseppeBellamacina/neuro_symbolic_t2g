@@ -41,6 +41,55 @@ def map_whitespace_glosses(
     return graph.map_glosses(glosses)
 
 
+@dataclass(frozen=True)
+class MappedGlossBatch:
+    """Complete, untruncated mapped paths and their source-row alignment."""
+
+    states: Tensor
+    lengths: Tensor
+    kept_indices: tuple[int, ...]
+    excluded_indices: tuple[int, ...]
+
+
+def map_complete_gloss_sequences(
+    glosses: Sequence[str | Sequence[str]],
+    graph: StructuredTransitionGraph,
+    *,
+    max_length: int,
+    overlength: str = "error",
+) -> MappedGlossBatch:
+    """Map whole glosses, either failing or excluding overlength examples.
+
+    Truncation is deliberately unsupported because it changes the gold path and
+    its EOS transition. Empty glosses are rejected by the structured objective.
+    """
+    if max_length < 1:
+        raise ValueError("max_length must be positive")
+    if overlength not in {"error", "exclude"}:
+        raise ValueError("overlength must be 'error' or 'exclude'")
+    mapped: list[list[int]] = []
+    kept: list[int] = []
+    excluded: list[int] = []
+    for index, gloss in enumerate(glosses):
+        path = graph.map_glosses(gloss)
+        if not path:
+            raise ValueError(f"gloss {index} is empty")
+        if len(path) > max_length:
+            if overlength == "error":
+                raise ValueError(
+                    f"gloss {index} length {len(path)} exceeds max_length {max_length}"
+                )
+            excluded.append(index)
+            continue
+        mapped.append(path)
+        kept.append(index)
+    states = torch.zeros((len(mapped), max_length), dtype=torch.long)
+    lengths = torch.tensor([len(path) for path in mapped], dtype=torch.long)
+    for row, path in enumerate(mapped):
+        states[row, : len(path)] = torch.tensor(path, dtype=torch.long)
+    return MappedGlossBatch(states, lengths, tuple(kept), tuple(excluded))
+
+
 def independent_position_ce(
     emissions: Tensor, gold_states: Tensor, lengths: Tensor
 ) -> Tensor:

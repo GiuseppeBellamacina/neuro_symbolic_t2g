@@ -2,6 +2,10 @@
 
 This is the current runtime guide. Config identity and campaign composition are defined in `EXPERIMENT_DESIGN.md`.
 
+## Manual structured SFT pilots
+
+`ablations/sft-structured.yaml` enables structured NLL and `ablations/sft-mass-structured.yaml` enables mass plus structured loss. Both are intentionally absent from the default campaign and TUI. The structured head uses the normal optimizer learning rate and scheduler; there is no separate head LR. These pilots require `WORLD_SIZE=1`, preserve all LM rows, and disable automatic adapter reuse.
+
 ## Offline contract
 
 Compute jobs must not download packages, datasets, models, or telemetry. Prepare and synchronize artifacts in an environment with network access first. Runtime exports must include:
@@ -63,6 +67,8 @@ Manual ablations:
 ```bash
 bash cluster/run_all.sh sft-grpo-zero-pda
 bash cluster/run_all.sh sft-grpo-zero-hot
+# Standalone manual selection (not registered in run_all/TUI):
+CONFIG=experiments/configs/qwen25-05b/ablations/sft-mass.yaml sbatch cluster/train.sh
 # Only after the reward qualification report passes:
 bash cluster/run_all.sh grpo-few-reward-token-f1
 ```
@@ -91,6 +97,7 @@ The chain is sequential because the cluster permits one submitted job per user. 
 - `sft/zero-shot.yaml`: SFT only; `kind: train` describes the checkpoint-producing lifecycle, while `train_prompt_mode: zero-shot` describes conditioning.
 - `grpo/{zero-shot,few-shot}.yaml`: GRPO initialized from the untrained base method, with the named train prompt mode.
 - `sft-grpo/{zero-shot,few-shot}.yaml`: SFT initialization followed by GRPO, with the named GRPO train prompt mode. Adapter reuse is enabled.
+- `ablations/sft-mass.yaml`: standalone-only, single-process SFT pilot with training-only allowed-mass loss (`lambda=0.1`, linear warmup over 200 optimizer steps). It is not selectable as an SFT-GRPO pretraining recipe. Packing and padding-free mode are unsupported. The objective is a scored-token mean within each microbatch; logged loss/log-mass/allowed-mass sums and scored-token counts support exact token-weighted offline aggregation across unequal microbatches. Evaluation and best-checkpoint selection use the unchanged LM loss. Its fingerprint includes the sorted unique stripped vocabulary-set digest, vocabulary path, tokenizer identity/revision, EOS/PAD IDs, Trie protocol version, and a digest of every compiled bare/space-prefixed token sequence. Mass-pilot adapters are never automatically reused; every mass run trains from the configured base model. Standard SFT and SFT-GRPO adapter reuse remain unchanged.
 
 Do not copy config files into alternate runtime trees. Extend the shared `base.yaml` and preserve semantic identity fields so checkpoints, logs, results, figures, W&B names, and resume lookup agree.
 

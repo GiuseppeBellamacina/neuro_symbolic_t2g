@@ -1,0 +1,14 @@
+extends: sft-mass.yaml
+
+experiment:
+  variant: sft-mass-structured
+
+auxiliary_loss:
+  structured:
+    enabled: true
+    lambda: 0.1
+    warmup_steps: 200
+    top_k: 512
+    max_gloss_length: 64
+    alpha: 0.1
+    transition_scale: 0.25
