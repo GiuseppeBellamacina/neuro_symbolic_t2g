@@ -17,7 +17,7 @@ Regole di validazione:
     - Vincoli di tipo (bool, int, float, list)
     - Coerenza cross-sezione (es. grammar.use_grammarllm_pda → pda_temperature)
     - Somma dei reward weights = 1.0 (±1e-9)
-    - Assenza di chiavi morte (verifier_gamma / verifier_temperature)
+    - Assenza di chiavi morte (PDA/grammarllm/Viterbi rimossi dal codice)
     - Assenza di ``extends`` residuo nel dict fuso
     - Ogni config YAML referenziato da cluster/run_all.sh esiste
 """
@@ -44,7 +44,21 @@ _CLUSTER_RUN_ALL = _PROJECT_ROOT / "cluster" / "run_all.sh"
 
 # Chiavi morte: rimosse dal codice (src/rewards/t2g_rewards.py non le legge
 # più — solo i 4 parametri viterbi_diversity reali vengono caricati).
-DEAD_KEYS = {"verifier_gamma", "verifier_temperature"}
+# Chiavi morte: rimosse dal codice. Un config che le imposta e'
+# silenziosamente inefficace, quindi il validator lo blocca.
+DEAD_KEYS = {
+    "verifier_gamma",
+    "verifier_temperature",
+    "use_grammarllm",
+    "use_grammarllm_pda",
+    "pda_temperature",
+    "token_lookahead",
+    "track_score_history",
+    "viterbi_diversity",
+    "weight_structure",
+    "weight_viterbi",
+    "weight_soft_viterbi",
+}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -101,12 +115,6 @@ TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
     "generation.max_prompt_length": int,
     "generation.temperature": (int, float),
     "grammar.enabled": bool,
-    "grammar.use_grammarllm_pda": bool,
-    "grammar.pda_temperature": (int, float),
-    "grammar.viterbi_diversity.self_loop_penalty": float,
-    "grammar.viterbi_diversity.max_occurrences": int,
-    "grammar.viterbi_diversity.diversity_threshold": float,
-    "grammar.viterbi_diversity.max_iters": int,
     "curriculum.enabled": bool,
     "evaluation.batch_size": int,
     "lora.r": int,
@@ -115,14 +123,17 @@ TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
     "lora.random_state": int,
     "reward.weight_translation": (int, float),
     "reward.weight_gold_structure": (int, float),
-    "reward.weight_structure": (int, float),
-    "reward.weight_viterbi": (int, float),
-    "reward.weight_soft_viterbi": (int, float),
     "reward.weight_verifier_scaled": (int, float),
     "reward.weight_gloss_order": (int, float),
     "reward.weight_format": (int, float),
     "reward.weight_repetition": (int, float),
     "reward.weight_bleu": (int, float),
+    "reward.weight_edit_validity": (int, float),
+    "reward.edit_validity_oov_weight": (int, float),
+    "grammar.track_diagnostics": bool,
+    "grpo.epsilon": (int, float),
+    "grpo.epsilon_high": (int, float),
+    "grpo.mask_truncated_completions": bool,
 }
 
 
@@ -224,22 +235,47 @@ def _validate_reward_weights(cfg: dict[str, Any], errors: list[str], path: str) 
 
 def _validate_cross_section(cfg: dict[str, Any], errors: list[str], path: str) -> None:
     """Cross-section consistency checks."""
-    grammar = cfg.get("grammar", {})
+    # I knob dell'obiettivo RL devono avere valori che TRL accetta: un typo qui
+    # addestrerebbe un obiettivo diverso per ore senza alcun errore.
+    grpo_cfg = cfg.get("grpo", {})
+    loss_type = grpo_cfg.get("loss_type")
+    if loss_type is not None and loss_type not in {"grpo", "bnpo", "dr_grpo", "dapo"}:
+        errors.append(
+            f"{path}: grpo.loss_type={loss_type!r} non valido "
+            f"(attesi: grpo, bnpo, dr_grpo, dapo)"
+        )
+    scale_rewards = grpo_cfg.get("scale_rewards")
+    if (
+        scale_rewards is not None
+        and not isinstance(scale_rewards, bool)
+        and scale_rewards not in {"group", "batch", "none"}
+    ):
+        errors.append(
+            f"{path}: grpo.scale_rewards={scale_rewards!r} non valido "
+            f"(attesi: group, batch, none)"
+        )
 
-    # If use_grammarllm_pda is true, pda_temperature should exist
-    if grammar.get("use_grammarllm_pda"):
-        if "pda_temperature" not in grammar:
-            errors.append(
-                f"{path}: grammar.use_grammarllm_pda=true "
-                f"ma grammar.pda_temperature mancante"
-            )
+    # Il peso del termine di validita' deve stare nel regime sicuro: a 0.75 la
+    # validita' domina il contenuto e la spazzatura in vocabolario supera un
+    # quasi-corretto con un OOV (tests/test_edit_validity_reward.py).
+    reward = cfg.get("reward", {})
+    oov_weight = reward.get("edit_validity_oov_weight")
+    if oov_weight is not None and not 0.0 <= float(oov_weight) <= 0.6:
+        errors.append(
+            f"{path}: reward.edit_validity_oov_weight={oov_weight} fuori dal "
+            f"regime sicuro [0.0, 0.6]"
+        )
 
-    # If grammar.enabled is true, viterbi_diversity should exist
-    if grammar.get("enabled", True):
-        if "viterbi_diversity" not in grammar:
+    # Il few-shot allunga il prompt: con retrieval attivo servono piu' token,
+    # altrimenti gli esempi vengono troncati e la cella misura altro.
+    if cfg.get("retrieval", {}).get("enabled"):
+        max_prompt = grpo_cfg.get("max_prompt_length") or cfg.get(
+            "generation", {}
+        ).get("max_prompt_length")
+        if max_prompt is not None and int(max_prompt) < 512:
             errors.append(
-                f"{path}: grammar.enabled=true "
-                f"ma grammar.viterbi_diversity mancante"
+                f"{path}: retrieval.enabled=true ma max_prompt_length="
+                f"{max_prompt} (<512): gli esempi few-shot verrebbero troncati"
             )
 
     # Training configs should have either max_steps or num_train_epochs

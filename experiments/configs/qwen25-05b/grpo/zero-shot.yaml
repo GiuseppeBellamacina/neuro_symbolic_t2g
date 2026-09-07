@@ -1,0 +1,39 @@
+# ============================================================================
+# GRPO — RL dal base model, zero-shot. NESSUN SFT, nessun few-shot.
+#
+# È la cella con il supporto dei rollout PIÙ POVERO di tutta la matrice, e va
+# letta sapendolo. Misurato su rollout zero-shot+Trie:
+#   53.9% dei rollout al floor della reward
+#   21.5% gruppi a varianza zero  → zero gradiente (advantage group-relative)
+#   19.9% gruppi completamente morti
+# Confronto con few-shot+Trie: 9.8% / 7.8% / 0.85%.
+#
+# Dr-GRPO §2.1 (arXiv:2503.20783) enuncia la precondizione: se la policy non
+# campiona mai una traiettoria corretta, l'RL non può migliorare perché non
+# esiste segnale. Questa cella è vicina a quel limite: circa 1 gruppo su 5 non
+# contribuisce nulla.
+#
+# Serve comunque, ed è scientificamente la più interessante della matrice:
+# quantifica QUANDO GRPO non riesce a fare bootstrap. Il riferimento è
+# baseline/zero-shot.yaml (0.1373), non la cella few-shot.
+#
+# Nota: TRL 0.24.0 NON implementa il dynamic sampling di DAPO (logga solo
+# frac_reward_zero_std), quindi i gruppi morti restano compute sprecato.
+# Tienilo presente leggendo le curve.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/grpo/zero-shot.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../base.yaml
+
+training:
+  max_steps: 2000
+  learning_rate: 3.0e-6
+  warmup_steps: 200
+  output_dir: "experiments/checkpoints/qwen25-05b/grpo/zero-shot"
+  log_dir: "experiments/logs/qwen25-05b/grpo/zero-shot"
+
+wandb:
+  run_name: "qwen25-05b-grpo-zero-shot"
+  tags: ["T2G", "grpo", "zero-shot", "trie"]

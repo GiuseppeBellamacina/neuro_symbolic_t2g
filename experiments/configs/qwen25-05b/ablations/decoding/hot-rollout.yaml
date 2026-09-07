@@ -1,0 +1,34 @@
+# ============================================================================
+# ABLATION SAMPLER — temperatura dei rollout alzata a 1.3
+#
+# Fattore unico rispetto a sft-grpo/few-shot.yaml: `grpo.temperature`.
+#
+# Ipotesi che testa: se SFT→GRPO degrada perché l'84.8% dei gruppi ha varianza
+# zero, alzare la temperatura dei rollout dovrebbe ripristinare diversità e
+# quindi segnale di gradiente.
+#
+# Risultato storico: PARZIALMENTE REFUTATA. I gruppi a varianza zero calano da
+# 0.655 a 0.256 e il bias di lunghezza si dimezza (-1.40 → -0.80 parole), ma la
+# qualità resta a ROUGE-L 0.5213 contro 0.5114 del controllo, cioè dentro
+# l'incertezza. Conclusione: ripristinare la varianza NON basta se la direzione
+# della reward è sbagliata.
+#
+# Vale la pena rifarla nella nuova matrice perché ora si può separare l'effetto
+# "diversità" da quello "reward", cosa che prima era confusa.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/ablations/decoding/hot-rollout.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../../sft-grpo/few-shot.yaml
+
+grpo:
+  temperature: 1.3
+
+training:
+  output_dir: "experiments/checkpoints/qwen25-05b/ablations/decoding/hot-rollout"
+  log_dir: "experiments/logs/qwen25-05b/ablations/decoding/hot-rollout"
+
+wandb:
+  run_name: "qwen25-05b-abl-sampler-hot-rollout"
+  tags: ["T2G", "ablation", "sampler", "hot-rollout", "few-shot"]

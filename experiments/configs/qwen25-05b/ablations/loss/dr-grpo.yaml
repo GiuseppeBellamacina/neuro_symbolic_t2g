@@ -1,0 +1,53 @@
+# ============================================================================
+# ABLATION LOSS — obiettivo Dr-GRPO invece del default DAPO
+#
+# Fattore unico rispetto a grpo/few-shot.yaml: cambia SOLO la normalizzazione
+# dell'obiettivo RL. Modello, dati, split, prompting, curriculum, reward e
+# budget di ottimizzazione sono identici.
+#
+# Perché serve: nessun config storico impostava questi knob, quindi a ogni run
+# passato si applicavano i default di TRL 0.24.0 (loss_type='dapo',
+# scale_rewards='group', mask_truncated_completions=False). Non era una scelta,
+# era un'omissione — e significa che il progetto non ha MAI misurato Dr-GRPO,
+# nonostante il branch `edit-rewards` fosse passato a Dr-GRPO silenziosamente
+# insieme a un cambio di reward, di prompting e di curriculum (quindi non
+# interpretabile). Questa cella isola l'obiettivo.
+#
+# Cosa cambia, verificato sul sorgente TRL 0.24.0 installato:
+#   'dapo'    → denominatore = token di completamento totali del batch globale
+#               (grpo_trainer.py:1739-1741)
+#   'dr_grpo' → denominatore = B * max_completion_length, COSTANTE
+#               (grpo_trainer.py:1736-1737). È il fix di Dr-GRPO
+#               (arXiv:2503.20783 §3.1-3.2), che rimuove il bias di lunghezza
+#               DIFFERENZIALE di GRPO: dividere per |o_i| premia le risposte
+#               corte corrette e penalizza meno quelle lunghe sbagliate.
+#   scale_rewards 'none' → A = R - mean(R), l'advantage non distorto prescritto
+#               da Dr-GRPO. NON significa "reward grezze": TRL sottrae SEMPRE
+#               la media di gruppo (:1493), salta solo la divisione (:1508-1509).
+#   mask_truncated_completions true → i token dei completamenti troncati sono
+#               esclusi dalla loss (la metà "filtering" dell'overlong di DAPO;
+#               la metà "soft punishment" non esiste in TRL 0.24.0).
+#
+# Limite noto da tenere presente leggendo i risultati: TRL 0.24.0 NON implementa
+# il dynamic sampling di DAPO, logga solo frac_reward_zero_std. I gruppi a
+# varianza zero restano compute sprecato in entrambi i bracci, e cambiare il
+# denominatore non li ripara.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/ablations/loss/dr-grpo.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../../grpo/few-shot.yaml
+
+grpo:
+  loss_type: dr_grpo
+  scale_rewards: none
+  mask_truncated_completions: true
+
+training:
+  output_dir: "experiments/checkpoints/qwen25-05b/ablations/loss/dr-grpo"
+  log_dir: "experiments/logs/qwen25-05b/ablations/loss/dr-grpo"
+
+wandb:
+  run_name: "qwen25-05b-abl-loss-dr-grpo"
+  tags: ["T2G", "ablation", "loss", "dr-grpo", "few-shot"]

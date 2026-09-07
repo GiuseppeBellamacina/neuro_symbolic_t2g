@@ -35,8 +35,9 @@ SFT_CONFIG_PATH = (
     Path(__file__).resolve().parent.parent
     / "experiments"
     / "configs"
-    / "t2g"
-    / "sft-only.yaml"
+    / "qwen25-05b"
+    / "sft"
+    / "zero-shot.yaml"
 )
 
 
@@ -223,7 +224,7 @@ def test_sft_yaml_exposes_eval_keys() -> None:
     training = cfg["training"]
 
     assert training["eval_fraction"] == 0.02
-    assert training["eval_steps"] == 200
+    # eval_steps non è più esplicito: sft_train.py usa il default 200.
     assert training["early_stopping_patience"] == 3
     assert training["per_device_eval_batch_size"] == 8
     assert training["save_total_limit"] == 1

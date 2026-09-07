@@ -1,0 +1,29 @@
+# ============================================================================
+# BASELINE — base model, zero-shot, SENZA vincolo simbolico. NESSUN training.
+#
+# Lower bound NON vincolato: cosa produce Qwen2.5-0.5B senza il componente
+# neuro-simbolico. È il riferimento corretto per ablations/decoding/no-grammar
+# (il gemello con RL) e il complemento non vincolato di baseline/zero-shot.
+#
+# ATTENZIONE — TRAPPOLA METRICA. ROUGE-L su questa cella è INGANNEVOLE:
+# essendo case-insensitive e split sui non-alfanumerici, premia il modello che
+# copia l'inglese in minuscolo (il 62% dei token glossa è il token inglese
+# maiuscolizzato). Misurato sul base model: senza Trie ROUGE-L 0.3648 ma
+# non_copy_token_accuracy 0.0006. Come spiega il commento in base.yaml, leggere
+# questa cella SOLO su exact_match / non_copy_token_accuracy, mai su ROUGE-L.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/baseline/zero-shot-no-grammar.yaml sbatch cluster/eval.sh
+# ============================================================================
+
+extends: zero-shot.yaml
+
+grammar:
+  enabled: false
+
+evaluation:
+  best_of_n: true
+
+wandb:
+  run_name: "qwen25-05b-baseline-zero-shot-no-grammar"
+  tags: ["T2G", "baseline", "zero-shot", "no-grammar", "unconstrained", "eval-only"]

@@ -139,7 +139,7 @@ ckpts() {
 
 # Lancia training (uso: train [--config PATH] [extra args...])
 train() {
-    local config="experiments/configs/t2g/sft-grpo.yaml"
+    local config="experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml"
     local extra_args=""
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -152,7 +152,7 @@ train() {
 
 # Lancia eval (uso: run-eval [--config PATH] [--checkpoint PATH])
 run-eval() {
-    local config="experiments/configs/t2g/sft-grpo.yaml"
+    local config="experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml"
     local checkpoint=""
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -503,24 +503,26 @@ diego() {
     echo ""
     echo "── Training & eval ──"
     echo "   train [--config PATH] [extra args...]"
-    echo "                     — lancia training (default: experiments/configs/t2g/sft-grpo.yaml)"
+    echo "                     — lancia training (default: experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml)"
     echo "   run-eval [--config PATH] [--checkpoint PATH]"
     echo "                     — lancia evaluation"
     echo "   run-all [config_name] [--ablation|--train-only|--eval-only|--resume|--append|--force]"
     echo "                     — lancia pipeline train+eval (tick + avanza via hook/server)"
     echo ""
-    echo "   Config disponibili (passa il nome senza .yaml):"
-    echo "     sft-grpo               pipeline principale SFT+GRPO (default)"
-    echo "     sft-only               SFT supervised da solo (decomposizione)"
-    echo "     grpo-only              GRPO senza SFT (decomposizione)"
-    echo "     sft-grpo-structure     SFT+GRPO + structural_dense (ablation)"
-    echo "     sft-grpo-viterbi       SFT+GRPO + viterbi_distance (ablation)"
-    echo "     sft-grpo-soft-viterbi  SFT+GRPO + soft_viterbi (ablation)"
-    echo "     sft-grpo-all-rewards   SFT+GRPO + tutti i moduli sperimentali"
-    echo "     sft-grpo-no-grammar    SFT+GRPO senza constrained decoding"
-    echo "     sft-grpo-pda           SFT+GRPO con PDA grammarllm (confronto Trie)"
-    echo "     zero-shot              Base model senza grammar (solo eval)"
-    echo "     zero-shot-grammar      Base model con grammar (solo eval)"
+    echo "   Config disponibili (path relativo a experiments/configs/qwen25-05b, senza .yaml):"
+    echo "     sft-grpo/few-shot           pipeline SFT→GRPO few-shot (default)"
+    echo "     sft-grpo/zero-shot          pipeline SFT→GRPO zero-shot"
+    echo "     sft/zero-shot               SFT supervised da solo"
+    echo "     grpo/few-shot               GRPO dal base, few-shot"
+    echo "     grpo/zero-shot              GRPO dal base, zero-shot"
+    echo "     baseline/zero-shot          Base model + Trie (solo eval)"
+    echo "     baseline/zero-shot-no-grammar  Base model senza vincolo (solo eval)"
+    echo "     baseline/few-shot           Base model few-shot (solo eval)"
+    echo "     ablations/decoding/no-grammar   GRPO senza vincolo simbolico"
+    echo "     ablations/decoding/hot-rollout  rollout T=1.3"
+    echo "     ablations/rewards/{edit-validity,historical-stack}"
+    echo "     ablations/loss/dr-grpo          obiettivo Dr-GRPO"
+    echo "     ablations/objectives/{sft-allowed-mass,sft-structured}"
     echo ""
     echo "── Pipeline (tick-based) ──"
     echo "   chain-show   — mostra stato pipeline + job in coda"

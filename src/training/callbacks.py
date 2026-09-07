@@ -282,11 +282,8 @@ class CompletionSampleLogger:
             gloss_order_reward,
             gloss_repetition_reward,
             gold_structure_reward,
-            soft_viterbi_distance_reward,
-            structural_dense_reward,
             translation_quality_reward,
             verifier_scaled_reward,
-            viterbi_distance_reward,
         )
 
         self._component_fns: list[tuple[str, Callable[..., float], dict[str, Any]]] = [
@@ -303,26 +300,6 @@ class CompletionSampleLogger:
             (
                 "gold_structure_reward",
                 gold_structure_reward,
-                {"gold_gloss": "", "normalize": True},
-            ),
-            # v2 gold-anchored components: "gold_gloss" MUST be in kwargs so
-            # that _capture substitutes the per-sample gold — without it the
-            # v2 functions receive no gold and return neutral 0.0 (bug: the
-            # sample display showed +0.00 for perfect completions while the
-            # trainer metrics were correctly ~0.87).
-            (
-                "structural_dense_reward",
-                structural_dense_reward,
-                {"gold_gloss": "", "normalize": True},
-            ),
-            (
-                "viterbi_distance_reward",
-                viterbi_distance_reward,
-                {"gold_gloss": "", "normalize": True},
-            ),
-            (
-                "soft_viterbi_distance_reward",
-                soft_viterbi_distance_reward,
                 {"gold_gloss": "", "normalize": True},
             ),
             (
@@ -527,9 +504,6 @@ class CompletionSampleCallback(TrainerCallback):
         "translation_quality_reward",
         "bleu_reward",
         "gold_structure_reward",
-        "structural_dense_reward",
-        "viterbi_distance_reward",
-        "soft_viterbi_distance_reward",
         "verifier_scaled_reward",
         "gloss_order_reward",
         "gloss_format_reward",

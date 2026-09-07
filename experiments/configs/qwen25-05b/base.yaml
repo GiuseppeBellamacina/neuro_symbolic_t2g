@@ -1,0 +1,167 @@
+# ============================================================================
+# BASE — parti comuni a ogni cella dell'esperimento (ereditata via `extends`)
+#
+# Gerarchia: model / method / prompt-mode
+#   baseline/{zero-shot,few-shot}   → nessun training, solo eval del base model
+#   sft/zero-shot                   → SFT supervisionato
+#   grpo/{zero-shot,few-shot}       → GRPO dal base model
+#   sft-grpo/{zero-shot,few-shot}   → SFT poi GRPO
+#   ablations/{rewards,loss,decoding,objectives}/…
+#
+# Ogni cella sovrascrive SOLO le proprie differenze. Il merge è ricorsivo
+# (src/utils/config.py::resolve_config): i dict annidati vengono fusi, liste e
+# scalari sostituiti. `extends` non arriva mai ai trainer.
+#
+# LEGGERE PRIMA DI CONFRONTARE I RISULTATI
+# ----------------------------------------
+# Su ASLG-PC12 le metriche di overlap sono SATURE: una regola lessicale
+# costruita solo dal train raggiunge ROUGE-L 0.9697 / EM 0.5912 sul test
+# completo (src/analysis/rule_baseline.py). Inoltre ROUGE-L è case-insensitive
+# e splitta sui non-alfanumerici, quindi premia la copia dell'inglese e dà 0.5
+# a `DESC-GOOD` vs `DESC-BAD`.
+#
+# Conseguenza operativa: le metriche primarie sono `exact_match` e
+# `non_copy_token_accuracy`; ROUGE-L va riportata solo per confrontabilità con
+# la letteratura, mai come headline, e sempre accanto alla baseline a regole.
+# Dettagli e misure: docs/RECOVERY_REPORT.md §9.
+# ============================================================================
+
+# --- Modello ---
+model:
+  name: "Qwen/Qwen2.5-0.5B-Instruct"
+  num_gpus: 1
+  quantization: "4bit"
+  dtype: "bfloat16"
+  use_unsloth: true
+  max_seq_length: 1024
+
+# --- LoRA ---
+lora:
+  r: 32
+  lora_alpha: 64
+  lora_dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  task_type: "CAUSAL_LM"
+  random_state: 3407
+
+# --- Dataset ---
+# Lo split è 90/10 deterministico con seed 42 (src/datasets/aslg_dataset.py).
+# NOTA sul corpus: la glossa è generata da regole (Moryossef et al.,
+# arXiv:2105.07476) e ha ~98% di overlap token con l'inglese (Peng et al.,
+# arXiv:2304.10844). Il 10.5% delle righe di train contiene artefatti da
+# stripping di sottostringhe (`therefore→DESC-REFORE`, `these→SE`). Il dato
+# resta COSÌ COM'È di proposito: pulirlo sarebbe un nuovo protocollo dataset.
+dataset:
+  dataset_name: "achrafothman/aslg_pc12"
+  dataset_cache: "data/aslg_pc12"
+  vocab_path: "data/gloss_vocab.txt"
+  bigram_matrix_path: "data/bigram_transition.npy"
+  split: "train"
+  max_samples: null
+  seed: 42
+  thinking: false
+
+# --- Training (comune) ---
+# max_steps, learning_rate, warmup_steps, output_dir e log_dir sono per-cella.
+training:
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  lr_scheduler_type: "cosine"
+  optim: "paged_adamw_8bit"
+  weight_decay: 0.1
+  max_grad_norm: 0.1
+  bf16: true
+  gradient_checkpointing: true
+  logging_steps: 5
+  save_steps: 100
+  save_total_limit: 3
+
+# --- GRPO ---
+# I knob dell'obiettivo RL (loss_type, scale_rewards,
+# mask_truncated_completions, epsilon, epsilon_high) sono deliberatamente NON
+# impostati qui: se assenti valgono i default di TRL 0.24.0
+# (loss_type='dapo', scale_rewards='group', mask_truncated_completions=False),
+# che sono quelli sotto cui è stato prodotto ogni risultato storico. Le celle
+# in ablations/loss/ li sovrascrivono per isolare un fattore alla volta.
+grpo:
+  num_generations: 8
+  max_completion_length: 128
+  max_prompt_length: 256
+  beta: 0.04
+  temperature: 0.7
+
+# --- Reward (stack storico a 7 componenti, somma 1.0) ---
+# È lo stack sotto cui sono stati prodotti tutti i risultati storici, quindi
+# resta il default per non cambiare il significato di nessuna cella esistente.
+# Le alternative stanno in ablations/rewards/.
+#
+# Nota misurata sulle componenti: nei run storici `format` era saturata a 0.998
+# e `repetition` a 0.966, cioè già inerti come segnale di gradiente; mentre
+# `gloss_order` stava a 0.085. Vedi docs/RECOVERY_REPORT.md §5.
+reward:
+  weight_translation: 0.20      # ROUGE-L vs gold
+  weight_bleu: 0.20             # BLEU-4 vs gold
+  weight_gold_structure: 0.20   # bigram score ancorato al gold
+  weight_gloss_order: 0.10      # edit-distance word-level vs gold
+  weight_verifier_scaled: 0.10  # ROUGE-L × confidenza strutturale
+  weight_format: 0.10           # solo token glossa
+  weight_repetition: 0.10       # penalizza loop degeneri
+
+# --- Constrained decoding ---
+# Trie dual-root sul vocabolario glossa: è l'unico path di decoding vincolato.
+# Copertura verificata col tokenizer Qwen reale: solo 4 tipi glossa su 15472
+# hanno il primo token bloccato, e la massa di token di corpus irraggiungibile
+# è 12/897971.
+#
+# Effetto misurato del vincolo (non ovvio): sul base model NON vincolato la
+# non-copy-token accuracy è 0.0006, col Trie sale a 0.0432 — cioè 70x meglio.
+# Sotto ROUGE-L il Trie sembrava dannoso (0.365→0.137), ma quello era un
+# artefatto della metrica case-insensitive che premia la copia dell'inglese.
+grammar:
+  enabled: true
+  # Telemetria della massa mascherata (allowed/removed mass, entropia).
+  # Default false: nei run storici era SEMPRE disattivata, quindi nessuno di
+  # essi ha registrato queste quantità. Attivarla è il prerequisito del GATE 1a
+  # in docs/NEW_OBJECTIVES_SPEC.md.
+  track_diagnostics: false
+
+# --- Curriculum learning ---
+curriculum:
+  enabled: false
+
+# --- Evaluation ---
+evaluation:
+  batch_size: 8
+  max_samples: 2000
+  num_samples: 5
+  best_of_n: true
+
+# --- Few-shot retrieval ---
+# Recupera k esempi text→gloss dal TRAIN e li inietta nel prompt.
+# ANTI-LEAKAGE: la query stessa e i near-duplicati (similarità >
+# max_self_similarity) sono sempre esclusi; gli esempi vengono sempre dal train.
+#
+# Il prompting è il fattore con l'effetto misurato più grande di tutti: base
+# few-shot+Trie sta a ROUGE-L 0.466 contro 0.137 dello zero-shot+Trie, cioè
+# 0.33 dei 0.42 del divario headline è PRE-RL. Con few-shot attivo alzare
+# grpo.max_prompt_length a 768 (3 esempi + query superano i 256 di default).
+retrieval:
+  enabled: false
+  backend: "tfidf"
+  model_name: null
+  top_k: 3
+  max_self_similarity: 0.98
+  cache_path: "data/retriever_index"
+
+# --- Weights & Biases ---
+wandb:
+  project: "neuro-symbolic-t2g"
+  run_name: "qwen25-05b"
+  tags: ["T2G", "constrained-decoding", "Qwen2.5-0.5B", "ASL"]

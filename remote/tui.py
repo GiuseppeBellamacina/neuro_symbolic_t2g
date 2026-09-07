@@ -54,18 +54,21 @@ from textual.widgets import (
 # ── Config noti al driver (stessi nomi di remote/app.py:CONFIG_MAP) ──────────
 
 CONFIG_NAMES: tuple[str, ...] = (
-    "sft-grpo",
-    "sft-only",
-    "grpo-only",
-    "sft-grpo-structure",
-    "sft-grpo-viterbi",
-    "sft-grpo-soft-viterbi",
-    "sft-grpo-all-rewards",
-    "sft-grpo-no-grammar",
-    "sft-grpo-pda",
-    "sft-grpo-hotrollout",
-    "zero-shot",
-    "zero-shot-grammar",
+    "sft-grpo-few-shot",
+    "sft-grpo-zero-shot",
+    "sft-zero-shot",
+    "grpo-few-shot",
+    "grpo-zero-shot",
+    "baseline-zero-shot",
+    "baseline-zero-shot-no-grammar",
+    "baseline-few-shot",
+    "ablations-decoding-no-grammar",
+    "ablations-decoding-hot-rollout",
+    "ablations-rewards-edit-validity",
+    "ablations-rewards-historical-stack",
+    "ablations-loss-dr-grpo",
+    "ablations-objectives-sft-allowed-mass",
+    "ablations-objectives-sft-structured",
 )
 CONFIG_NAME_SET: frozenset[str] = frozenset(CONFIG_NAMES)
 
@@ -1227,18 +1230,21 @@ class LogScreen(T2GScreen):
 # the confirmation) — order = app.py ABLATION_MODELS (ordine di riuso). ───
 
 _CAMPAIGN_LINES: list[str] = [
-    "1. zero-shot              (eval-only) — baseline, ~zero costo",
-    "2. zero-shot-grammar      (eval-only) — CACHEA la baseline --compare",
-    "3. sft-only               (train+eval) — addestra L'adapter SFT",
-    "4. grpo-only              (train+eval) — GRPO da base",
-    "5. sft-grpo               (train+eval) — RIUSA SFT di sft-only",
-    "6. sft-grpo-structure      (train+eval) — RIUSA SFT + baseline cached",
-    "7. sft-grpo-viterbi       (train+eval) — RIUSA SFT + baseline cached",
-    "8. sft-grpo-soft-viterbi  (train+eval) — RIUSA SFT + baseline cached",
-    "9. sft-grpo-all-rewards   (train+eval) — RIUSA SFT + baseline cached",
-    "10. sft-grpo-no-grammar   (train+eval) — RIUSA SFT (grammar OFF)",
-    "11. sft-grpo-pda          (train+eval) — RIUSA SFT (PDA vs Trie)",
-    "12. sft-grpo-hotrollout   (train+eval) — controllo Finding 1 (T=1.3, RIUSA SFT)",
+    "1. baseline-zero-shot               (eval-only) — base + Trie, CACHEA la baseline --compare",
+    "2. baseline-zero-shot-no-grammar    (eval-only) — lower bound senza vincolo",
+    "3. baseline-few-shot                (eval-only) — base + few-shot retrieval",
+    "4. sft-zero-shot                    (train+eval) — addestra l'adapter SFT",
+    "5. grpo-zero-shot                   (train+eval) — GRPO dal base, zero-shot",
+    "6. grpo-few-shot                    (train+eval) — GRPO dal base, few-shot",
+    "7. sft-grpo-zero-shot               (train+eval) — SFT→GRPO zero-shot",
+    "8. sft-grpo-few-shot                (train+eval) — SFT→GRPO few-shot",
+    "9. ablations-decoding-no-grammar    (train+eval) — GRPO senza vincolo simbolico",
+    "10. ablations-decoding-hot-rollout  (train+eval) — rollout sampler T=1.3",
+    "11. ablations-rewards-edit-validity (train+eval) — reward edit-validity singola",
+    "12. ablations-rewards-historical-stack (train+eval) — stack storico su init zero-shot",
+    "13. ablations-loss-dr-grpo          (train+eval) — obiettivo Dr-GRPO",
+    "14. ablations-objectives-sft-allowed-mass (train+eval) — SFT + massa ammessa",
+    "15. ablations-objectives-sft-structured   (train+eval) — SFT + loss strutturata",
 ]
 
 
@@ -1256,7 +1262,7 @@ class CampaignScreen(T2GScreen):
         yield Header()
         yield Static("Campagna completa — ordine di riuso", classes="title")
         yield Static(
-            "12 celle, 22 entry (2 eval-only + 20 train/eval).\n"
+            "15 celle, 27 entry (3 eval-only + 24 train/eval).\n"
             "L'ordine massimizza il riuso: la coda esistente viene SOSTITUITA.",
             classes="hint",
         )
@@ -1279,7 +1285,7 @@ class CampaignScreen(T2GScreen):
             self.t2g_app.push_screen(
                 ConfirmScreen(
                     "Avviare la CAMPAGNA COMPLETA?\n"
-                    "12 celle in ordine di riuso (22 entry).\n"
+                    "15 celle in ordine di riuso (27 entry).\n"
                     "La coda esistente viene SOSTITUITA.\n"
                     "Il primo job parte subito (tick immediato)."
                 ),
@@ -1295,7 +1301,7 @@ class ReplaceQueueScreen(T2GScreen):
     """Rimpiazza l'intera coda: ablation completa o lista custom.
 
     Due modalità (entrambe con conferma, avvisano che la coda esistente viene
-    SOSTITUITA): ``Ablation completa`` (12 config → 22 entry, stesso ordine di
+    SOSTITUITA): ``Ablation completa`` (15 config → 27 entry, stesso ordine di
     ``run_all.sh``) oppure coda custom, una ``tipo:config[:tag]`` per riga.
     """
 
@@ -1309,18 +1315,18 @@ class ReplaceQueueScreen(T2GScreen):
             classes="hint",
         )
         yield Button(
-            "Ablation completa (12 config → 22 job)", variant="primary", id="ablation"
+            "Ablation completa (15 config → 27 job)", variant="primary", id="ablation"
         )
         yield Static(
             "…oppure definisci una coda custom (una entry per riga):", classes="hint"
         )
         yield Static(
-            "Formato [b]tipo:config[:tag][/b] — es. [b]train:sft-grpo[/b] "
-            "o [b]train:sft-grpo:my-run[/b]",
+            "Formato [b]tipo:config[:tag][/b] — es. [b]train:sft-grpo-few-shot[/b] "
+            "o [b]train:sft-grpo-few-shot:my-run[/b]",
             classes="hint",
         )
         yield TextArea(
-            "train:sft-grpo\n# le righe che iniziano con # sono ignorate\neval:grpo-only",
+            "train:sft-grpo-few-shot\n# le righe che iniziano con # sono ignorate\neval:grpo-few-shot",
             id="custom",
         )
         yield Button("Invia coda custom", variant="error", id="submit")
@@ -1337,7 +1343,7 @@ class ReplaceQueueScreen(T2GScreen):
         if event.button.id == "ablation":
             self.t2g_app.push_screen(
                 ConfirmScreen(
-                    "Avviare l'ABLATION COMPLETA?\n12 config → 22 entry. "
+                    "Avviare l'ABLATION COMPLETA?\n15 config → 27 entry. "
                     "La coda esistente viene SOSTITUITA."
                 ),
                 self._confirmed_ablation,

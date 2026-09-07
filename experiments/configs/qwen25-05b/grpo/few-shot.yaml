@@ -1,0 +1,44 @@
+# ============================================================================
+# GRPO — RL dal base model, few-shot (retrieval k=3). NESSUN SFT.
+#
+# È la cella che ha prodotto il miglior risultato RL storico:
+# ROUGE-L 0.6076, Pass@1 92.9%, EM 0.0528, validity 0.9915.
+#
+# ATTENZIONE ALLA LETTURA: 0.6076 sembra buono ma sta SOTTO la baseline a
+# regole (0.9685). Non è un successo in assoluto; è la prova che GRPO può
+# migliorare una policy debole quando i rollout hanno supporto.
+#
+# Supporto dei rollout misurato su questa init (few-shot + Trie):
+#   9.8% dei rollout al floor, 7.8% gruppi a varianza zero, 0.85% gruppi morti.
+# Confronto con lo zero-shot: 53.9% / 21.5% / 19.9%. È questa la ragione per
+# cui la cella few-shot funziona e la zero-shot fatica — non la reward.
+#
+# Riferimento corretto per il confronto: baseline/few-shot.yaml (0.4664).
+# Il delta reale attribuibile a GRPO è quindi ~+0.14, non +0.6.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/grpo/few-shot.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../base.yaml
+
+training:
+  max_steps: 2000
+  learning_rate: 3.0e-6
+  warmup_steps: 200
+  output_dir: "experiments/checkpoints/qwen25-05b/grpo/few-shot"
+  log_dir: "experiments/logs/qwen25-05b/grpo/few-shot"
+
+retrieval:
+  enabled: true
+  top_k: 3
+
+grpo:
+  max_prompt_length: 768
+
+curriculum:
+  enabled: true
+
+wandb:
+  run_name: "qwen25-05b-grpo-few-shot"
+  tags: ["T2G", "grpo", "few-shot", "retrieval", "trie"]

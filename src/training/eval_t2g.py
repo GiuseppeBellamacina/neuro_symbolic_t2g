@@ -33,16 +33,16 @@ Optionally generates plots via ``visualization.py`` (plotnine):
 
 Usage:
     # Single checkpoint eval
-    python -m src.training.eval_t2g --config experiments/configs/t2g/sft-grpo.yaml --checkpoint path/to/ckpt --plot
+    python -m src.training.eval_t2g --config experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml --checkpoint path/to/ckpt --plot
 
     # Compare baseline (zero-shot) vs checkpoint — SAME decoding for both
-    python -m src.training.eval_t2g --config experiments/configs/t2g/sft-grpo.yaml --checkpoint path/to/ckpt --compare
+    python -m src.training.eval_t2g --config experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml --checkpoint path/to/ckpt --compare
 
     # Best-of-N selection (DIAGNOSTIC ONLY — oracle; reported separately)
-    python -m src.training.eval_t2g --config experiments/configs/t2g/sft-grpo.yaml --checkpoint path/to/ckpt --best-of-n
+    python -m src.training.eval_t2g --config experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml --checkpoint path/to/ckpt --best-of-n
 
     # Baseline-only eval (generates baseline JSON for later comparison)
-    python -m src.training.eval_t2g --config experiments/configs/t2g/sft-grpo.yaml --eval-baseline-only --plot
+    python -m src.training.eval_t2g --config experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml --eval-baseline-only --plot
 """
 
 from __future__ import annotations
@@ -89,10 +89,7 @@ from src.datasets.transition_matrix import (
     sequence_score_bigram,
 )
 from src.grammar.gloss_grammar import GlossVocabularyMask
-from src.grammar.grammar_logits_processor import (
-    GlossVocabularyLogitsProcessor,
-    GrammarPDALogitsProcessor,
-)
+from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
 from src.models.model_loader import resolve_model_source
 from src.rewards.t2g_rewards import initialize_rewards
 from src.training.retrieval_setup import (
@@ -255,7 +252,6 @@ def _prompt_context_fingerprint(config: dict[str, Any], num_samples: int) -> str
         "retrieval": config.get("retrieval", {}),
         "grammar": {
             "enabled": grammar_cfg.get("enabled", True),
-            "use_grammarllm_pda": grammar_cfg.get("use_grammarllm_pda", False),
         },
         "num_samples": num_samples,
     }
@@ -661,7 +657,6 @@ def evaluate_checkpoint(
     initialize_rewards(
         bigram,
         vocab,
-        viterbi_diversity=config.get("grammar", {}).get("viterbi_diversity"),
     )
     token_to_idx = {t: i for i, t in enumerate(vocab)}
 
@@ -701,42 +696,11 @@ def evaluate_checkpoint(
     # ── Constrained decoding ─────────────────────────────────────────────
     grammar_enabled = config.get("grammar", {}).get("enabled", True)
     if grammar_enabled:
-        use_pda = config.get("grammar", {}).get("use_grammarllm_pda", False)
-        if use_pda:
-            # Lazy import to avoid hard dependency on grammarllm at module level
-            from src.grammar.gloss_grammar import create_grammarllm_pipeline
-
-            logger.info("Using GrammarLLM PDA for constrained decoding (eval)")
-            # grammarllm v0.5.0: create_grammarllm_pipeline returns
-            # (pdas: list[PushdownAutomaton], streamer, pda) — first element
-            # is now a list of base PDA templates, not a logit_processor.
-            # Pass num_return_sequences=batch_size so each prompt in the
-            # batch gets its own PDA template (GrammarPDALogitsProcessor also
-            # auto-expands if fewer are provided).
-            grammar_cfg = config.get("grammar", {})
-            eval_cfg = config.get("evaluation", {})
-            eval_batch_size = eval_cfg.get("batch_size", 8)
-            pdas, streamer, pda = create_grammarllm_pipeline(
-                vocab,
-                tokenizer,
-                temperature=gen_cfg.get("temperature", 0.7),
-                num_return_sequences=eval_batch_size,
-                token_lookahead=grammar_cfg.get("token_lookahead", True),
-            )
-            logits_processor = GrammarPDALogitsProcessor(
-                tokenizer,
-                pdas,
-                temperature=float(
-                    config.get("grammar", {}).get("pda_temperature", 1.0)
-                ),
-                track_score_history=grammar_cfg.get("track_score_history", False),
-            )
-        else:
-            gloss_mask = GlossVocabularyMask(vocab, tokenizer)
-            logits_processor = GlossVocabularyLogitsProcessor(
-                gloss_mask,
-                device=str(model.device),
-            )
+        gloss_mask = GlossVocabularyMask(vocab, tokenizer)
+        logits_processor = GlossVocabularyLogitsProcessor(
+            gloss_mask,
+            device=str(model.device),
+        )
     else:
         logger.info("⚠️  grammar.enabled=false — unconstrained generation (ablation)")
         logits_processor = None
@@ -880,10 +844,7 @@ def evaluate_checkpoint(
     reward_weight_map = {
         "translation_quality_reward": rewards_cfg.get("weight_translation", 0.0),
         "bleu_reward": rewards_cfg.get("weight_bleu", 0.0),
-        "structural_dense_reward": rewards_cfg.get("weight_structure", 0.0),
         "gold_structure_reward": rewards_cfg.get("weight_gold_structure", 0.0),
-        "viterbi_distance_reward": rewards_cfg.get("weight_viterbi", 0.0),
-        "soft_viterbi_distance_reward": rewards_cfg.get("weight_soft_viterbi", 0.0),
         "verifier_scaled_reward": rewards_cfg.get("weight_verifier_scaled", 0.0),
         "gloss_order_reward": rewards_cfg.get("weight_gloss_order", 0.0),
         "gloss_format_reward": rewards_cfg.get("weight_format", 0.0),
@@ -1147,9 +1108,6 @@ def main() -> None:
     )
     logger.info(f"Completions per prompt: {num_samples}")
     logger.info(f"Grammar enabled: {config.get('grammar', {}).get('enabled', True)}")
-    logger.info(
-        f"Use PDA: {config.get('grammar', {}).get('use_grammarllm_pda', False)}"
-    )
     logger.info(f"Plot: {args.plot}")
     logger.info(f"Compare: {args.compare}")
     logger.info(f"Best-of-N: {args.best_of_n}")
@@ -1646,17 +1604,11 @@ def main() -> None:
 
         # 8. Reward breakdown bar chart
         rewards_cfg = config.get("reward", {})
-        structure_weight = rewards_cfg.get(
-            "weight_gold_structure",
-            rewards_cfg.get("weight_structure", 0.4),
-        )
+        structure_weight = rewards_cfg.get("weight_gold_structure", 0.4)
         weights = {
             "translation_quality_reward": rewards_cfg.get("weight_translation", 0.4),
             "bleu_reward": rewards_cfg.get("weight_bleu", 0.0),
-            "structural_dense_reward": structure_weight,
             "gold_structure_reward": structure_weight,
-            "viterbi_distance_reward": rewards_cfg.get("weight_viterbi", 0.0),
-            "soft_viterbi_distance_reward": rewards_cfg.get("weight_soft_viterbi", 0.0),
             "verifier_scaled_reward": rewards_cfg.get("weight_verifier_scaled", 0.0),
             "gloss_order_reward": rewards_cfg.get("weight_gloss_order", 0.0),
             "gloss_format_reward": rewards_cfg.get("weight_format", 0.1),

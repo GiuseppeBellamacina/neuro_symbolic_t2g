@@ -5,9 +5,9 @@
 # Rileva automaticamente il tipo di training dal YAML (training.trainer: sft|grpo).
 #
 # Uso:
-#   CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/train.sh
-#   CONFIG=experiments/configs/t2g/sft-only.yaml sbatch cluster/train.sh
-#   CONFIG=experiments/configs/t2g/sft-grpo.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh
+#   CONFIG=experiments/configs/qwen25-05b/sft/zero-shot.yaml sbatch cluster/train.sh
+#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 #
 # Per il primo avvio eseguire prima:  bash cluster/setup.sh
 # ============================================================================
@@ -31,7 +31,7 @@ EXTRA_ARGS="${EXTRA_ARGS:-}"
 
 if [ -z "$CONFIG" ]; then
     echo "❌ CONFIG non impostato. Uso:"
-    echo "  CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/train.sh"
+    echo "  CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh"
     exit 1
 fi
 

@@ -14,8 +14,8 @@ overfitting.  Prompt formatting is identical to the GRPO rollout prompts
 (see ``src/utils/prompting.py``).
 
 Usage:
-    python -m src.training --config experiments/configs/t2g/sft-only.yaml
-    CONFIG=experiments/configs/t2g/sft-only.yaml sbatch cluster/train.sh
+    python -m src.training --config experiments/configs/qwen25-05b/sft/zero-shot.yaml
+    CONFIG=experiments/configs/qwen25-05b/sft/zero-shot.yaml sbatch cluster/train.sh
 """
 
 from __future__ import annotations
@@ -60,6 +60,13 @@ from src.datasets.transition_matrix import (
     save_transition_matrix,
 )
 from src.models.model_loader import load_model_and_tokenizer
+from src.training.auxiliary_sft_trainer import (
+    AuxiliarySFTTrainer,
+    CompletionSpanCollator,
+    build_structured_graph,
+    require_single_process,
+    resolve_auxiliary_config,
+)
 from src.utils.config import load_config
 from src.utils.live_status import live_status_reset, live_status_set
 from src.utils.prompting import SYSTEM_PROMPT
@@ -831,13 +838,91 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         TqdmOnlyProgressCallback,
     )
 
-    trainer = SFTTrainer(
-        model=model,
-        args=sft_config,
-        train_dataset=sft_train_ds,
-        eval_dataset=sft_eval_ds if eval_enabled else None,
-        processing_class=tokenizer,
-    )
+    # ── Auxiliary objectives (opt-in) ──────────────────────────────────────
+    # Se nessun `auxiliary_objective` è attivo (default) si costruisce lo
+    # SFTTrainer STOCK, byte per byte come prima: è ciò che mantiene
+    # riproducibili tutti i risultati SFT storici. Il branch `edit-rewards`
+    # aveva invece cambiato il path di default, ed è il motivo per cui il suo
+    # trainer non è stato recuperato. Vedi docs/NEW_OBJECTIVES_SPEC.md.
+    auxiliary = resolve_auxiliary_config(config)
+    require_single_process(auxiliary)
+
+    if auxiliary:
+        mass_cfg = auxiliary.get("allowed_mass", {})
+        allowed_mask_fn = None
+        if mass_cfg:
+            # Un solo cammino nel Trie condiviso col decoder: la loss e la
+            # generazione non possono divergere.
+            from src.grammar.gloss_grammar import GlossVocabularyMask
+            from src.grammar.grammar_logits_processor import (
+                GlossVocabularyLogitsProcessor,
+            )
+
+            _trie = GlossVocabularyLogitsProcessor(
+                GlossVocabularyMask(vocab, tokenizer),
+                device="cuda" if torch.cuda.is_available() else "cpu",
+            )
+            allowed_mask_fn = _trie.allowed_mask_for_prefixes
+
+        # Ramo structured: il grafo si costruisce SOLO dalle righe di train
+        # post-split (`sft_train_ds` è l'output di split_eval_holdout), quindi
+        # l'holdout di valutazione non entra mai nelle transizioni.
+        structured_cfg = auxiliary.get("structured", {})
+        structured_head = None
+        structured_loss = None
+        structured_graph = None
+        if structured_cfg:
+            from src.models.structured_gloss_head import (
+                StructuredGlossHead,
+                StructuredGraphLoss,
+            )
+
+            _graph = build_structured_graph(sft_train_ds, structured_cfg)
+            structured_loss = StructuredGraphLoss(_graph)
+            structured_head = StructuredGlossHead(
+                hidden_size=int(model.config.hidden_size),
+                num_states=_graph.num_states,
+            )
+            logger.info(
+                "Structured graph: %d stati (top_k=%s, alpha=%s, shuffled=%s)",
+                _graph.num_states,
+                structured_cfg.get("top_k", 512),
+                structured_cfg.get("alpha", 0.1),
+                structured_cfg.get("shuffled_control", False),
+            )
+
+        logger.info(
+            "Auxiliary objectives attivi: %s",
+            ", ".join(f"{k}(w={v['weight']})" for k, v in auxiliary.items()),
+        )
+        trainer = AuxiliarySFTTrainer(
+            model=model,
+            args=sft_config,
+            train_dataset=sft_train_ds,
+            eval_dataset=sft_eval_ds if eval_enabled else None,
+            processing_class=tokenizer,
+            data_collator=CompletionSpanCollator(
+                tokenizer=tokenizer,
+                mlm=False,
+                eos_token_id=tokenizer.eos_token_id,
+            ),
+            allowed_mask_fn=allowed_mask_fn,
+            mass_weight=float(mass_cfg.get("weight", 0.0)),
+            mass_warmup_steps=int(mass_cfg.get("warmup_steps", 0)),
+            structured_head=structured_head,
+            structured_loss=structured_loss,
+            structured_graph=structured_graph,
+            structured_weight=float(structured_cfg.get("weight", 0.0)),
+            structured_warmup_steps=int(structured_cfg.get("warmup_steps", 0)),
+        )
+    else:
+        trainer = SFTTrainer(
+            model=model,
+            args=sft_config,
+            train_dataset=sft_train_ds,
+            eval_dataset=sft_eval_ds if eval_enabled else None,
+            processing_class=tokenizer,
+        )
 
     # Replace default ProgressCallback with TqdmOnlyProgressCallback
     # (keeps tqdm bar, suppresses duplicate log lines — same as grpo-strict-generation)

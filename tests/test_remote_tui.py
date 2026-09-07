@@ -22,8 +22,8 @@ from remote import tui
 
 STATUS_BODY = {
     "active_job": {"id": "12345", "name": "train-grpo", "state": "RUNNING"},
-    "queue": ["train:experiments/configs/t2g/sft-grpo.yaml:run1"],
-    "last_job": "12345:train:experiments/configs/t2g/sft-grpo.yaml:run1:0",
+    "queue": ["train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"],
+    "last_job": "12345:train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1:0",
     "stopped": False,
     "errors_recent": [],
     "last_tick_at": "2026-08-26T10:00:00",
@@ -68,9 +68,9 @@ LOGS_BODY = {
 
 JOBS_BODY = [
     {
-        "entry": "train:experiments/configs/t2g/sft-grpo.yaml:run1",
+        "entry": "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1",
         "type": "train",
-        "config": "experiments/configs/t2g/sft-grpo.yaml",
+        "config": "experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml",
         "tag": "run1",
         "extra": None,
     }
@@ -103,7 +103,7 @@ def _default_handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             201,
             json={
-                "added": "train:experiments/configs/t2g/sft.yaml:run1",
+                "added": "train:experiments/configs/qwen25-05b/sft/zero-shot.yaml:run1",
                 "status": STATUS_BODY,
             },
         )
@@ -116,8 +116,8 @@ def _default_handler(request: httpx.Request) -> httpx.Response:
                 **MONITOR_BODY,
                 "started_now": True,
                 "queued": [
-                    "train:experiments/configs/t2g/sft-grpo.yaml:sft-grpo",
-                    "eval:experiments/configs/t2g/sft-grpo.yaml:sft-grpo",
+                    "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:sft-grpo-few-shot",
+                    "eval:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:sft-grpo-few-shot",
                 ],
             },
         )
@@ -127,7 +127,7 @@ def _default_handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
             json={
-                "queue": ["train:experiments/configs/t2g/sft.yaml:x"],
+                "queue": ["train:experiments/configs/qwen25-05b/sft/zero-shot.yaml:x"],
                 "count": 1,
                 "status": STATUS_BODY,
             },
@@ -167,7 +167,7 @@ def test_get_status_parses_fields():
         "name": "train-grpo",
         "state": "RUNNING",
     }
-    assert status["queue"] == ["train:experiments/configs/t2g/sft-grpo.yaml:run1"]
+    assert status["queue"] == ["train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"]
     assert status["stopped"] is False
     assert status["events"][0]["type"] == "tick"
 
@@ -548,7 +548,7 @@ def test_start_job_screen_submits_to_start_endpoint():
             payload = json.loads(batch_calls[0].read())
             assert payload["start_now"] is True
             assert [j["type"] for j in payload["jobs"]] == ["train", "eval"]
-            assert payload["jobs"][0]["config"] == "sft-grpo"
+            assert payload["jobs"][0]["config"] == "sft-grpo-few-shot"
 
     asyncio.run(_run())
 
@@ -580,7 +580,7 @@ def test_start_job_screen_without_eval_uses_start_endpoint():
             assert start_calls, "POST /jobs/start non chiamato"
             payload = json.loads(start_calls[0].read())
             assert payload["type"] == "train"
-            assert payload["config"] == "sft-grpo"
+            assert payload["config"] == "sft-grpo-few-shot"
             # nessun batch in questo flusso
             assert not any(r.url.path == "/jobs/batch" for r in recorder.requests)
 
@@ -602,8 +602,8 @@ def test_batch_start_screen_submits_selected_configs():
             await pilot.pause()
             assert isinstance(app.screen, tui.BatchStartScreen)
             # Seleziona due config
-            app.screen.query_one("#cfg-sft-grpo", tui.Checkbox).value = True
-            app.screen.query_one("#cfg-grpo-only", tui.Checkbox).value = True
+            app.screen.query_one("#cfg-sft-grpo-few-shot", tui.Checkbox).value = True
+            app.screen.query_one("#cfg-grpo-few-shot", tui.Checkbox).value = True
             await pilot.pause()
             submit = app.screen.query_one("#submit", tui.Button)
             submit.press()
@@ -631,10 +631,10 @@ def test_batch_start_screen_submits_selected_configs():
                 "eval",
             ]
             assert [j["config"] for j in payload["jobs"]] == [
-                "sft-grpo",
-                "sft-grpo",
-                "grpo-only",
-                "grpo-only",
+                "sft-grpo-few-shot",
+                "sft-grpo-few-shot",
+                "grpo-few-shot",
+                "grpo-few-shot",
             ]
 
     asyncio.run(_run())

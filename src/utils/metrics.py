@@ -251,15 +251,6 @@ _FREE_REWARD_COMPONENTS: tuple[str, ...] = (
     "gloss_repetition_reward",
 )
 
-#: Optional structural components that may be removed by refactors of
-#: ``src.rewards`` — looked up defensively so a missing function is
-#: skipped instead of crashing the eval.
-_OPTIONAL_FREE_REWARD_COMPONENTS: tuple[str, ...] = (
-    "structural_dense_reward",
-    "viterbi_distance_reward",
-    "soft_viterbi_distance_reward",
-)
-
 
 def compute_reward_breakdown(
     completions: list[str],
@@ -275,9 +266,7 @@ def compute_reward_breakdown(
 
     Gold-dependent components (translation quality, BLEU, gold
     structure, gloss order, verifier-scaled) are only computed when
-    ``references`` is provided; otherwise they are skipped.  Structural
-    components that no longer exist in the rewards module (e.g. the
-    dense Viterbi proxies) are skipped gracefully via attribute lookup.
+    ``references`` is provided; otherwise they are skipped.
 
     Args:
         completions: Generated gloss sequences.
@@ -298,10 +287,6 @@ def compute_reward_breakdown(
     free_components: dict[str, Any] = {
         name: getattr(rewards_mod, name) for name in _FREE_REWARD_COMPONENTS
     }
-    for name in _OPTIONAL_FREE_REWARD_COMPONENTS:
-        fn = getattr(rewards_mod, name, None)
-        if fn is not None:
-            free_components[name] = fn
 
     has_refs = bool(references) and len(references) == len(completions)
 

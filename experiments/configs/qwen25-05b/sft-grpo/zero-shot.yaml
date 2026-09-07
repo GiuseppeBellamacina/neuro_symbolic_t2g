@@ -1,0 +1,44 @@
+# ============================================================================
+# SFT→GRPO — pipeline completa, zero-shot. Phase 0 = SFT, poi GRPO.
+#
+# Completa la griglia causale 2x2: inizializzazione (base | SFT) x prompting
+# dei rollout (zero-shot | few-shot). È l'unica delle quattro che non ha un
+# corrispondente storico, quindi è la cella che aggiunge informazione nuova.
+#
+# Predizione da testare (dalle misure di supporto già raccolte): l'init SFT
+# porta l'84.8% di gruppi a varianza zero, il regime zero-shot ne porta il
+# 21.5%. Se il fattore dominante è la SATURAZIONE, questa cella somiglierà a
+# sft-grpo/few-shot (degrado); se è il SUPPORTO dei rollout, somiglierà a
+# grpo/zero-shot. Il risultato discrimina fra le due spiegazioni.
+#
+# Riuso dell'adapter SFT attivo: stessa fingerprint di sft/zero-shot.yaml.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../base.yaml
+
+sft_pretrain:
+  enabled: true
+  reuse_adapter: true
+  training:
+    num_train_epochs: 3
+    per_device_train_batch_size: 4
+    gradient_accumulation_steps: 4
+    learning_rate: 2.0e-5
+    warmup_steps: 50
+    max_seq_length: 768
+    eval_fraction: 0.02
+    early_stopping_patience: 3
+
+training:
+  max_steps: 2000
+  learning_rate: 3.0e-6
+  warmup_steps: 200
+  output_dir: "experiments/checkpoints/qwen25-05b/sft-grpo/zero-shot"
+  log_dir: "experiments/logs/qwen25-05b/sft-grpo/zero-shot"
+
+wandb:
+  run_name: "qwen25-05b-sft-grpo-zero-shot"
+  tags: ["T2G", "sft-grpo", "zero-shot", "trie"]

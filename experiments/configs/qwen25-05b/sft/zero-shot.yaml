@@ -1,0 +1,64 @@
+# ============================================================================
+# SFT — supervised fine-tuning puro, zero-shot. Nessun RL.
+#
+# Controllo supervisionato della matrice. Sono gli iperparametri IDENTICI alla
+# Phase 0 di sft-grpo, così l'adapter è riusabile per fingerprint e la cella
+# SFT-only è confrontabile con l'init dei run SFT→GRPO.
+#
+# LEGGERE: SFT raggiunge ROUGE-L 0.9752 / EM 0.8130, ma una regola lessicale
+# arriva a 0.9685 / 0.5865 sugli stessi prompt. Il vantaggio di SFT è
+# +0.0067 ROUGE-L (CI 95% [+0.0038, +0.0098]) e +0.2265 EM
+# (CI 95% [+0.2025, +0.2510]): entrambi significativi, ma su ROUGE-L
+# praticamente nullo. Su exact match SFT dimezza l'errore residuo della regola
+# (41.4% → 18.8%), e il 65% di quel guadagno è un solo fenomeno: la
+# cancellazione CONTESTUALE della copula `BE`, che una regola context-free non
+# può esprimere (provato: aggiungere contesto bigram PEGGIORA, EM 0.5865→0.5235).
+#
+# Quindi SFT impara qualcosa di reale, ma piccolo e localizzato. Riporta sempre
+# la baseline a regole accanto a questa cella.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/sft/zero-shot.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../base.yaml
+
+training:
+  trainer: sft
+  num_train_epochs: 3
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 8
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-5
+  warmup_steps: 50
+  weight_decay: 0.1
+  save_steps: 200
+  save_total_limit: 1
+  max_seq_length: 768
+  eval_fraction: 0.02        # holdout interno al train per l'early stopping
+  early_stopping_patience: 3
+  output_dir: "experiments/checkpoints/qwen25-05b/sft/zero-shot"
+  log_dir: "experiments/logs/qwen25-05b/sft/zero-shot"
+
+# SFT non fa rollout: la generazione serve solo alla valutazione periodica.
+generation:
+  max_completion_length: 256
+  max_prompt_length: 256
+  temperature: 0.7
+
+# Le reward NON addestrano l'SFT: qui pesano solo come metriche riportate.
+reward:
+  weight_translation: 0.30
+  weight_bleu: 0.0
+  weight_gold_structure: 0.35
+  weight_gloss_order: 0.15
+  weight_verifier_scaled: 0.0
+  weight_format: 0.10
+  weight_repetition: 0.10
+
+evaluation:
+  best_of_n: false           # niente selezione oracle sulla cella supervisionata
+
+wandb:
+  run_name: "qwen25-05b-sft-zero-shot"
+  tags: ["T2G", "sft", "zero-shot", "trie"]

@@ -1,0 +1,55 @@
+# ============================================================================
+# ABLATION OBJECTIVE — SFT + loss ausiliaria di massa ammessa (MML/PLL)
+#
+# Fattore unico rispetto a sft/zero-shot.yaml: aggiunge il termine
+# `-log P(insieme ammesso)` alla NLL supervisionata, teacher-forced.
+#
+# COS'È, con il nome corretto: NON è un obiettivo nuovo. È il log-marginale su
+# un insieme di candidati, noto come partial-label learning (Cour et al.,
+# JMLR 2011; Seo & Huh arXiv:2010.11600) e come maximum marginal likelihood nel
+# semantic parsing debolmente supervisionato (Guu et al., arXiv:1704.07926). La
+# variante che spinge giù i token vietati è l'unlikelihood training (Welleck et
+# al., arXiv:1908.04319). Va presentato come applicazione, non come invenzione.
+#
+# PERCHÉ potrebbe aiutare: il masking duro distorce la distribuzione —
+# Grammar-Aligned Decoding (Park et al., arXiv:2405.21047, NeurIPS 2024) prova
+# che l'output vincolato è grammaticale ma con verosimiglianze NON proporzionali
+# a quelle del modello. Internalizzare la massa riduce quel "renormalization
+# gap". Coerente con la nostra misura: senza Trie la non-copy accuracy crolla
+# da 0.0432 a 0.0006, quindi la maschera è portante.
+#
+# PERCHÉ NON ASPETTARSI MIRACOLI: il termine massimizza la massa DELL'INSIEME,
+# non del token CORRETTO. È piatto sull'insieme ammesso, quindi non può
+# riordinare i candidati al suo interno (c'è un test che lo asserisce come
+# limite documentato). Aspettarsi effetti di calibrazione, NON di exact match.
+#
+# GATE PRIMA DI USARLO SERIAMENTE (docs/NEW_OBJECTIVES_SPEC.md, GATE 1a):
+# serve UNA probe di sola inferenza che misuri media e varianza di
+# `removed_mass` sotto la policy SFT congelata. Se la massa fuori dall'insieme
+# è già minima, non c'è nulla da ottimizzare e la cella va abbandonata.
+# `grammar.track_diagnostics: true` qui sotto è ciò che abilita quella
+# telemetria: nei run storici era SEMPRE disattivata, quindi il dato non esiste.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../../sft/zero-shot.yaml
+
+# Obiettivo ausiliario opt-in. weight=0.0 è esattamente inerte (garantito da
+# test), quindi il valore qui sotto è l'unica differenza rispetto all'SFT puro.
+auxiliary_objective:
+  allowed_mass:
+    weight: 0.1          # lambda << 1, come da prassi per termini ausiliari
+    warmup_steps: 200    # rampa lineare: evita di combattere la CE all'inizio
+
+grammar:
+  track_diagnostics: true   # prerequisito del GATE 1a
+
+training:
+  output_dir: "experiments/checkpoints/qwen25-05b/ablations/objectives/sft-allowed-mass"
+  log_dir: "experiments/logs/qwen25-05b/ablations/objectives/sft-allowed-mass"
+
+wandb:
+  run_name: "qwen25-05b-abl-obj-allowed-mass"
+  tags: ["T2G", "ablation", "objective", "allowed-mass", "mml", "sft"]

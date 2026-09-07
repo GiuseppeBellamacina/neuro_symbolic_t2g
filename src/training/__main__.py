@@ -2,7 +2,7 @@
 Bootstrap entry point for T2G training scripts.
 
 Usage:
-    python -m src.training --config experiments/configs/t2g/sft-grpo.yaml [--resume] [--prepare-data]
+    python -m src.training --config experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml [--resume] [--prepare-data]
 
 Loads the config YAML and routes to the correct trainer (GRPO or SFT).
 """

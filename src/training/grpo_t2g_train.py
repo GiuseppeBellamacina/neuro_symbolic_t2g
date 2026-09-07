@@ -14,8 +14,8 @@ Architecture:
        to ASL gloss tokens only.
 
 Usage:
-    python -m src.training --config experiments/configs/t2g/sft-grpo.yaml
-    CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/train.sh
+    python -m src.training --config experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml
+    CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh
 """
 
 from __future__ import annotations
@@ -91,11 +91,8 @@ from src.datasets.transition_matrix import (
     load_transition_matrix,
     save_transition_matrix,
 )
-from src.grammar.gloss_grammar import GlossVocabularyMask, create_grammarllm_pipeline
-from src.grammar.grammar_logits_processor import (
-    GlossVocabularyLogitsProcessor,
-    GrammarPDALogitsProcessor,
-)
+from src.grammar.gloss_grammar import GlossVocabularyMask
+from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
 from src.models.model_loader import load_model_and_tokenizer
 from src.retrieval import ExampleRetriever
 from src.rewards.t2g_rewards import (
@@ -939,45 +936,12 @@ def main() -> None:
         )
         logits_processor_for_gen = None
     else:
-        # Determine which constrained decoding strategy to use.
-        # Set ``use_grammarllm_pda: true`` in the config to enable the full
-        # grammarllm PDA pipeline (LL(1) parsing).  Default is lightweight
-        # vocabulary mask (faster, sufficient for most gloss constraints).
-        use_pda = config.get("grammar", {}).get("use_grammarllm_pda", False)
-
-        if use_pda:
-            print("  Using FULL grammarllm PDA pipeline for constrained decoding")
-            # grammarllm v0.5.0: create_grammarllm_pipeline returns
-            # (pdas: list[PushdownAutomaton], streamer, pda) — the first
-            # element is now a list of base PDA templates, not a logit_processor.
-            # token_lookahead=True (default) enables native BPE token emission
-            # across grammar boundaries — a key v0.5.0 improvement.
-            grammar_cfg = config.get("grammar", {})
-            pdas, streamer, pda = create_grammarllm_pipeline(
-                vocab,
-                tokenizer,
-                temperature=grpo_cfg.get("temperature", 0.7),
-                num_return_sequences=1,  # GRPO: 1 sequence per prompt during rollouts
-                token_lookahead=grammar_cfg.get("token_lookahead", True),
-            )
-            # Pass the full pdas list (not just pda=pdas[0]) and
-            # track_score_history from config so the StatelessLogitsProcessor
-            # can optionally accumulate logit history for debugging.
-            grammar_lp = GrammarPDALogitsProcessor(
-                tokenizer,
-                pdas,
-                temperature=grpo_cfg.get("temperature", 0.7),
-                track_score_history=grammar_cfg.get("track_score_history", False),
-            )
-            logits_processor_for_gen = grammar_lp
-            print("  GrammarLLM PDA pipeline ready")
-        else:
-            print("  Using lightweight GlossVocabularyMask for constrained decoding")
-            gloss_mask = GlossVocabularyMask(vocab, tokenizer)
-            logits_processor_for_gen = GlossVocabularyLogitsProcessor(
-                gloss_mask, device="cuda" if torch.cuda.is_available() else "cpu"
-            )
-            print("  Vocabulary mask ready")
+        print("  Using lightweight GlossVocabularyMask for constrained decoding")
+        gloss_mask = GlossVocabularyMask(vocab, tokenizer)
+        logits_processor_for_gen = GlossVocabularyLogitsProcessor(
+            gloss_mask, device="cuda" if torch.cuda.is_available() else "cpu"
+        )
+        print("  Vocabulary mask ready")
 
     # ── Step 4: Dataset preparation ──────────────────────────────────────
     print(f"\n{'=' * 60}")
@@ -1037,7 +1001,6 @@ def main() -> None:
     initialize_rewards(
         bigram_matrix,
         vocab,
-        viterbi_diversity=config.get("grammar", {}).get("viterbi_diversity"),
     )
     reward_fns, reward_weights = build_t2g_reward_functions(config.get("reward"))
 
@@ -1296,8 +1259,6 @@ def main() -> None:
                 allowed_count = 0
                 if hasattr(logits_processor_for_gen, "allowed_ids"):
                     allowed_count = len(logits_processor_for_gen.allowed_ids)
-                elif hasattr(logits_processor_for_gen, "get_valid_tokens"):
-                    allowed_count = len(logits_processor_for_gen.get_valid_tokens())
                 elif hasattr(logits_processor_for_gen, "mask") and hasattr(
                     logits_processor_for_gen.mask, "token_ids"
                 ):

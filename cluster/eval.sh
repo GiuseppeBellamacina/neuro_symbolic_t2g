@@ -3,9 +3,9 @@
 # SLURM batch script — T2G Evaluation sul cluster
 #
 # Uso:
-#   CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/eval.sh
-#   CONFIG=experiments/configs/t2g/sft-grpo.yaml CHECKPOINT="path/to/ckpt" sbatch cluster/eval.sh
-#   CONFIG=experiments/configs/t2g/sft-grpo.yaml CHECKPOINT="path/to/ckpt" BEST_OF_N=1 sbatch cluster/eval.sh
+#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/eval.sh
+#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml CHECKPOINT="path/to/ckpt" sbatch cluster/eval.sh
+#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml CHECKPOINT="path/to/ckpt" BEST_OF_N=1 sbatch cluster/eval.sh
 #
 # --compare è sempre attivo: valuta baseline (zero-shot) + GRPO e genera
 #   grafici di confronto + comparison.json + wandb con tag dedicati.
@@ -34,7 +34,7 @@ CHECKPOINT="${CHECKPOINT:-}"
 
 if [ -z "$CONFIG" ]; then
     echo "❌ CONFIG non impostato. Uso:"
-    echo "  CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/eval.sh"
+    echo "  CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/eval.sh"
     exit 1
 fi
 

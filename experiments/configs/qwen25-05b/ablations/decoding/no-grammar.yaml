@@ -1,0 +1,41 @@
+# ============================================================================
+# ABLATION DECODING — GRPO SENZA vincolo simbolico (Trie disattivato)
+#
+# Fattore unico rispetto a grpo/few-shot.yaml: `grammar.enabled: false`.
+# È la cella che misura il contributo del componente NEURO-SIMBOLICO, quindi
+# la più rilevante per la tesi.
+#
+# ATTENZIONE — questa cella è una trappola metrica, leggerla con la metrica
+# giusta o non leggerla affatto. Misurato sul base model:
+#   senza Trie: ROUGE-L 0.3648, non-copy-token accuracy 0.0006
+#   con Trie:   ROUGE-L 0.1373, non-copy-token accuracy 0.0432
+# Sotto ROUGE-L il vincolo sembra COSTARE 0.23; sotto la metrica insensibile
+# alla copia il vincolo GUADAGNA 70x. La spiegazione è che ROUGE-L (come
+# configurata: case-insensitive, splitta sui non-alfanumerici) premia il
+# modello che copia l'inglese in minuscolo, e il 62% dei token glossa è il
+# token inglese maiuscolizzato. Il Trie rimuove quella scorciatoia.
+#
+# Quindi: confrontare questa cella con grpo/few-shot SOLO su exact_match e
+# non_copy_token_accuracy. Un confronto su ROUGE-L produce la conclusione
+# opposta a quella vera.
+#
+# Corrispondenze in letteratura per i fenomeni attesi qui: "projection tax"
+# (Reddy et al., arXiv:2603.03305) e "structure snowballing"
+# (Zhou, arXiv:2604.06066).
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/ablations/decoding/no-grammar.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../../grpo/few-shot.yaml
+
+grammar:
+  enabled: false
+
+training:
+  output_dir: "experiments/checkpoints/qwen25-05b/ablations/decoding/no-grammar"
+  log_dir: "experiments/logs/qwen25-05b/ablations/decoding/no-grammar"
+
+wandb:
+  run_name: "qwen25-05b-abl-decoding-no-grammar"
+  tags: ["T2G", "ablation", "decoding", "no-grammar", "few-shot"]
