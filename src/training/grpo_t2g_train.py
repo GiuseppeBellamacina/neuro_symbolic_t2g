@@ -52,11 +52,20 @@ warnings.filterwarnings(
     category=FutureWarning,
 )
 
+# transformers 5.3.0 changed ``_is_package_available`` to always return a
+# ``(bool, version)`` tuple, but TRL 0.24.0 assigns that result directly to its
+# ``_<pkg>_available`` module flags. A non-empty tuple is truthy, so
+# ``is_weave_available()`` reports True even when weave is absent and
+# ``trl/trainer/callbacks.py`` then executes ``import weave``, making
+# ``trl.trainer.grpo_trainer`` unimportable. Normalise the flags back to bool.
 _trl_iu = importlib.import_module("trl.import_utils")  # noqa: E402
-if isinstance(_trl_iu._mergekit_available, tuple):
-    _trl_iu._mergekit_available = False
-if isinstance(_trl_iu._llm_blender_available, tuple):
-    _trl_iu._llm_blender_available = False
+for _optional_flag in (
+    "_mergekit_available",
+    "_llm_blender_available",
+    "_weave_available",
+):
+    if isinstance(getattr(_trl_iu, _optional_flag, False), tuple):
+        setattr(_trl_iu, _optional_flag, False)
 
 import wandb
 from dotenv import load_dotenv
@@ -178,7 +187,89 @@ def _build_grpo_config(
         temperature=grpo_cfg.get("temperature", 0.7),
         reward_weights=reward_weights,
         report_to="wandb",
+        # ── RL objective knobs (config pass-through) ────────────────────────
+        # Historically these were never passed, so TRL 0.24.0 defaults applied:
+        # loss_type='dapo', scale_rewards='group', mask_truncated_completions=False.
+        # Every stored result was produced under those defaults, so they remain
+        # the defaults here and no historical run changes meaning.
+        #
+        # Exposing them is what makes a one-factor Dr-GRPO arm runnable:
+        #   loss_type: 'dapo'    -> denominator = total completion tokens in the
+        #                           global batch (TRL default).
+        #   loss_type: 'dr_grpo' -> denominator = B * max_completion_length, the
+        #                           constant used by Dr-GRPO (arXiv:2503.20783)
+        #                           to remove GRPO's differential length bias.
+        #   scale_rewards: 'group' divides the advantage by its group std;
+        #                  'none'  keeps A = R - mean(R), the unbiased advantage
+        #                          Dr-GRPO prescribes. NOTE: 'none' preserves
+        #                          reward scale, so a reward that is an affine
+        #                          contraction of another changes the effective
+        #                          step size (see edit_validity_reward).
+        # Caveat that matters for experiment design: TRL 0.24.0 does NOT
+        # implement DAPO's dynamic sampling (it only logs frac_reward_zero_std),
+        # and clip-higher requires setting epsilon_high explicitly.
+        **_grpo_objective_kwargs(grpo_cfg),
     )
+
+
+def _grpo_objective_kwargs(grpo_cfg: dict[str, Any]) -> dict[str, Any]:
+    """Validated pass-through for the RL objective knobs.
+
+    Only keys explicitly present in the config are forwarded, so omitting them
+    preserves TRL's defaults exactly and keeps historical runs reproducible.
+
+    Raises:
+        ValueError: On an unsupported value, so a typo fails before the job
+            starts rather than silently training a different objective.
+    """
+    kwargs: dict[str, Any] = {}
+
+    if "loss_type" in grpo_cfg:
+        loss_type = str(grpo_cfg["loss_type"])
+        allowed = {"grpo", "bnpo", "dr_grpo", "dapo"}
+        if loss_type not in allowed:
+            raise ValueError(
+                f"grpo.loss_type must be one of {sorted(allowed)}, got {loss_type!r}"
+            )
+        kwargs["loss_type"] = loss_type
+
+    if "scale_rewards" in grpo_cfg:
+        scale = grpo_cfg["scale_rewards"]
+        allowed_scale = {"group", "batch", "none"}
+        if isinstance(scale, bool):
+            scale = "group" if scale else "none"
+        scale = str(scale)
+        if scale not in allowed_scale:
+            raise ValueError(
+                f"grpo.scale_rewards must be one of {sorted(allowed_scale)}, "
+                f"got {scale!r}"
+            )
+        kwargs["scale_rewards"] = scale
+
+    if "mask_truncated_completions" in grpo_cfg:
+        value = grpo_cfg["mask_truncated_completions"]
+        if not isinstance(value, bool):
+            raise ValueError(
+                f"grpo.mask_truncated_completions must be a boolean, got {value!r}"
+            )
+        kwargs["mask_truncated_completions"] = value
+
+    if "epsilon" in grpo_cfg:
+        epsilon = float(grpo_cfg["epsilon"])
+        if epsilon <= 0:
+            raise ValueError(f"grpo.epsilon must be positive, got {epsilon!r}")
+        kwargs["epsilon"] = epsilon
+
+    if "epsilon_high" in grpo_cfg:
+        epsilon_high = float(grpo_cfg["epsilon_high"])
+        low = float(grpo_cfg.get("epsilon", 0.2))
+        if epsilon_high < low:
+            raise ValueError(
+                f"grpo.epsilon_high ({epsilon_high}) must be >= grpo.epsilon ({low})"
+            )
+        kwargs["epsilon_high"] = epsilon_high
+
+    return kwargs
 
 
 # ---------------------------------------------------------------------------

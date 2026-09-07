@@ -63,8 +63,9 @@ echo "============================================"
 
 mkdir -p logs
 
-export WANDB_MODE=offline
-export PYTHONUNBUFFERED=1
+# Ambiente offline centralizzato (_lib.sh): va esportato PRIMA di qualunque
+# python/apptainer, perche i client HF leggono queste variabili all import.
+export_offline_env
 
 # Prepara dataset/vocab/bigram se mancanti (funzione shared da _lib.sh,
 # idempotente — era triplicata tra setup.sh/train.sh/eval.sh).
@@ -79,7 +80,7 @@ prepare_data
 # → model_info → ConnectError, vedi slurm-eval-7077). Con HF_HUB_OFFLINE=1
 # transformers tratta ogni modello come locale e salta i check di rete.
 # DOPO prepare_data: il fallback download al primo avvio conserva la rete.
-export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1
+# (export offline gia effettuato sopra da export_offline_env)
 
 echo ""
 echo "Avvio training..."

@@ -24,6 +24,46 @@ from src.utils.text_utils import extract_gloss_text
 # recomputed instead of silently compared against new ones.
 METRICS_VERSION = 2
 
+# ---------------------------------------------------------------------------
+# WARNING — ROUGE-L IS NOT A VALID HEADLINE METRIC ON THIS CORPUS
+# ---------------------------------------------------------------------------
+# Two independent defects were measured on ASLG-PC12 and both inflate scores
+# for outputs that are not gloss at all:
+#
+# 1. ``rouge_score`` lowercases AND splits on non-alphanumerics, so
+#    ``rouge("cat sat", "CAT SAT") == 1.00`` and ``DESC-GOOD`` vs ``DESC-BAD``
+#    scores 0.5 (the shared ``desc`` prefix earns credit). Since ~62% of gloss
+#    tokens are the uppercased source token, a model that merely echoes the
+#    English input collects a large score.
+# 2. The corpus gloss side is rule-derivable from English, so overlap metrics
+#    are saturated: a word-level lexicon rule reaches ROUGE-L 0.9697 on the full
+#    official test while SFT reaches 0.9752 (delta +0.0067).
+#
+# Consequence, measured on stored generations: under ROUGE-L, constrained
+# decoding appears to HURT (0.365 -> 0.137), but under a copy-insensitive metric
+# it in fact HELPS by ~70x (non-copy-token accuracy 0.0006 -> 0.0432).
+#
+# Primary metrics must therefore be ``normalized_exact_match`` and
+# ``src.analysis.rule_baseline.non_copy_token_accuracy``. Keep reporting ROUGE-L
+# for comparability with published ASLG-PC12 numbers, but never as the headline,
+# and always alongside the rule baseline. See docs/RECOVERY_REPORT.md §9.
+#: Metrics that must not be used to rank systems on ASLG-PC12.
+SATURATED_OVERLAP_METRICS = (
+    "rouge_l_mean",
+    "rouge_l_median",
+    "valid_rouge_l_mean",
+    "gloss_f1_micro",
+    "gloss_f1_sentence_mean",
+    "chrf_corpus",
+    "chrf_sentence_mean",
+)
+
+#: Metrics that discriminate between "copied English" and "produced gloss".
+PRIMARY_METRICS = (
+    "exact_match",
+    "non_copy_token_accuracy",
+)
+
 
 def check_gloss_validity(completion: str) -> tuple[bool, str]:
     """Check if a completion is a valid gloss sequence.

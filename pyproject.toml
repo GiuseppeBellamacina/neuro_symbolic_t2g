@@ -23,7 +23,11 @@ dependencies = [
     # - peft 0.19.1: versione verificata con transformers 5.3.0 (stesso stack
     #   del run di luglio 2026 e del reference grpo-strict-generation)
     "torch",
-    "transformers",
+    # transformers 5.3.0 è pinnato: è la versione del container del cluster.
+    # Lasciarlo libero permetteva a pip di risolvere uno stack DIVERSO da quello
+    # con cui sono stati prodotti i risultati storici, rendendoli non
+    # riproducibili. Vedi docs/RECOVERY_REPORT.md §7.
+    "transformers==5.3.0",
     "trl==0.24.0",
     "peft==0.19.1",
     "datasets",
@@ -35,7 +39,9 @@ dependencies = [
 
     # Data & Eval
     "rouge-score>=0.1.2",
-    "sacrebleu>=2.0.0",
+    # sacrebleu 2.6.0 è la versione del container: le firme BLEU/chrF entrano
+    # nelle metriche, quindi una versione diversa cambia i numeri riportati.
+    "sacrebleu==2.6.0",
     "numpy",
     "pandas",
     "matplotlib",
@@ -63,8 +69,11 @@ dev = [
 ]
 # Heavy extras for the optional "minilm" retrieval backend only.
 # The default "tfidf" backend (scikit-learn) is a core dependency.
+# sentence-transformers è allineato esattamente alla 5.2.3 distribuita in
+# /shared/sifs/latest.sif: `>=5.7.0` avrebbe forzato pip a sostituire pacchetti
+# del container (e a trascinare un transformers incompatibile con il pin 5.3.0).
 retrieval = [
-    "sentence-transformers>=5.7.0",
+    "sentence-transformers==5.2.3",
 ]
 # Local TUI client for the remote cluster driver (remote/tui.py). Self-contained:
 # textual + httpx are declared here so the extra works without pulling "dev".
@@ -99,3 +108,6 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
 ignore = ["E402", "E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

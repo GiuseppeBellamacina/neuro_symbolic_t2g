@@ -149,6 +149,74 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
         self.prompt_len = -1
         self._reset_masked_stats()
 
+    def allowed_mask_for_prefixes(
+        self,
+        prefixes: list[list[int]],
+        vocab_size: int,
+        device: str | torch.device = "cpu",
+    ) -> torch.Tensor:
+        """Return the ``[N, vocab_size]`` bool mask allowed after each prefix.
+
+        This exposes the Trie transition logic used by ``__call__`` as a pure
+        function of explicit token prefixes, independent of generation state.
+        It exists so a teacher-forced auxiliary objective can obtain the same
+        allowed set the decoder would enforce — see
+        :func:`src.training.allowed_mass_loss.allowed_mass_loss`, which needs
+        exactly this mask and has no other way to build it.
+
+        Args:
+            prefixes: One list of already-generated token ids per row. An empty
+                list means "start of generation", which uses the bare root.
+            vocab_size: Width of the returned mask (the model's logit width).
+            device: Device for the returned tensor.
+
+        Returns:
+            Bool tensor of shape ``[len(prefixes), vocab_size]``.
+
+        Raises:
+            ValueError: If ``vocab_size`` is not positive.
+        """
+        if vocab_size <= 0:
+            raise ValueError(f"vocab_size must be positive, got {vocab_size!r}")
+
+        mask = torch.zeros((len(prefixes), vocab_size), dtype=torch.bool, device=device)
+        for row, prefix in enumerate(prefixes):
+            for token_id in self._allowed_after_prefix(list(prefix)):
+                if 0 <= token_id < vocab_size:
+                    mask[row, token_id] = True
+        return mask
+
+    def _allowed_after_prefix(self, gen_tokens: list[int]) -> set[int]:
+        """Allowed token ids after ``gen_tokens``, mirroring ``__call__``.
+
+        Kept as a single source of truth for the dual-root walk so the loss and
+        the decoder cannot drift apart.
+        """
+        node = self.root
+        at_start = True
+        for tok in gen_tokens:
+            if tok in node.children:
+                node = node.children[tok]
+                at_start = False
+            elif node.is_terminal and tok in self.space_root.children:
+                node = self.space_root.children[tok]
+                at_start = False
+            elif at_start and tok in self.root.children:
+                node = self.root.children[tok]
+                at_start = False
+            else:
+                node = self.root
+                at_start = False
+
+        allowed = set(node.children.keys())
+        if node.is_terminal:
+            allowed.update(self.space_root.children.keys())
+            allowed.add(self.eos_token_id)
+        if node is self.root and not gen_tokens:
+            allowed.update(self.root.children.keys())
+            allowed.add(self.eos_token_id)
+        return allowed
+
     def __call__(
         self,
         input_ids: torch.LongTensor,

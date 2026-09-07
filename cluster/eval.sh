@@ -53,6 +53,12 @@ fi
 SCRIPT_DIR=$(cd "${_lib_dir}" && pwd)
 # shellcheck source=cluster/_lib.sh
 source "$SCRIPT_DIR/_lib.sh"
+
+# Ambiente offline PRIMA di qualunque python/apptainer: la prima
+# invocazione e resolve_output_dir(), molto piu in alto di prepare_data,
+# e i client HF leggono queste variabili all'import. Esportarle dopo non
+# avrebbe alcun effetto.
+export_offline_env
 cd "$PROJ_DIR"
 
 echo "============================================"
@@ -174,7 +180,7 @@ prepare_data
 # e salta il check di rete; datasets usa la cache locale direttamente.
 # Dopo prepare_data (non prima!) così il fallback download al primo avvio
 # conserva la rete.
-export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 PYTHONUNBUFFERED=1
+# (ambiente offline gia esportato subito dopo il source di _lib.sh)
 
 # ── Modalità eval ─────────────────────────────────────────────────────────────
 # - Config di TRAINING (ha output_dir + checkpoint auto/explicito): --compare

@@ -989,7 +989,11 @@ def _job_detail_from_live(
     """
     if not active_job or not active_job.get("id"):
         return None
-    if not live or not live.get("phase"):
+    # `live` arriva da json.loads() su una riga LIVE_STATUS remota: un JSON
+    # valido ma non-oggetto (lista, numero, stringa) supererebbe il parsing e
+    # farebbe fallire `.get()` con AttributeError, cioe' un HTTP 500 su
+    # /monitor. Il fallback corretto e' il parsing del log.
+    if not isinstance(live, dict) or not live.get("phase"):
         return None
     name = active_job.get("name") or ""
     phase = str(live.get("phase"))
@@ -1050,7 +1054,7 @@ def _monitor_snapshot(ssh: ClusterSSH) -> dict:
         }
     )
     # Samples: prima dal live status (già formattati), poi dal log tail.
-    if live and live.get("samples"):
+    if isinstance(live, dict) and isinstance(live.get("samples"), (list, tuple)):
         snapshot["samples"] = list(live["samples"])[-8:]
     elif tail_lines:
         try:

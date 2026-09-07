@@ -34,6 +34,7 @@ expected by TRL's ``GRPOTrainer``:
 from __future__ import annotations
 
 import logging
+import math
 import re
 from typing import Any, Callable
 
@@ -710,6 +711,123 @@ def gloss_order_reward(
     return _to_symmetric(float(max(0.0, 1.0 - distance / max_len)))
 
 
+def edit_validity_reward(
+    completion: str,
+    gold_gloss: str,
+    oov_weight: float = 0.5,
+) -> float:
+    """Edit similarity with a **graded** out-of-vocabulary penalty.
+
+    Successor of the ``edit-validity`` reward introduced on the ``edit-rewards``
+    branch, which applied a hard gate: any single out-of-vocabulary token, or an
+    empty output, returned ``-1.0`` and discarded all partial credit.
+
+    What the measurements actually show (zero-shot + Trie rollouts, 10000
+    completions, `experiments/results/t2g-zero-shot-grammar/`):
+
+    - 53.88% of rollouts sit at ``-1.0``, but of those only **2.43%** are caused
+      by the gate (131 OOV, 0 empty). The remaining **97.57%** are completions
+      with zero word-level edit similarity to the reference — a legitimate floor,
+      not a gate artefact. This is expected: the Trie forces in-vocabulary output
+      (in-vocab token fraction 0.9996), so an OOV gate *cannot* fire often.
+    - Consequently the graded term barely moves group statistics: fully-dead
+      groups 19.90% -> 19.00%, zero-variance groups 21.45% -> 20.55%. Dead groups
+      are dead because all rollouts share no token with the reference, and no
+      reward reshaping repairs that — only rollout support (few-shot or SFT
+      initialization) does.
+
+    So the honest claim is narrow: this removes a hard cliff that affected ~1.3%
+    of rollouts and restores ranking among the few OOV-containing completions. It
+    is **not** a fix for the zero-gradient problem. DAPO (arXiv:2503.14476, §3.2)
+    answers degenerate rewards by *filtering* such groups; TRL 0.24.0 does not
+    implement that filtering and only logs ``frac_reward_zero_std``.
+
+    Here validity is a **continuous** term: the reward interpolates between the
+    edit similarity and the in-vocabulary token fraction, so a completion that is
+    90% valid ranks above one that is 10% valid. Empty output is the only
+    remaining hard failure.
+
+    .. warning::
+       **Affine-transform side effect.** Where validity is ~1 (i.e. under the
+       Trie, which is the production path) this reward reduces exactly to
+       ``0.5 * gloss_order_reward + 0.5`` — verified for every in-vocabulary
+       candidate. Since GRPO advantages subtract the group mean, the offset
+       cancels but the 0.5 factor does not:
+
+       - with ``scale_rewards='group'`` (TRL default) the advantage is divided by
+         its standard deviation, so the factor cancels and this reward is
+         **inert** relative to the ungated one;
+       - with ``scale_rewards='none'`` (the Dr-GRPO setting) the advantage
+         magnitude is **halved**, which is equivalent to halving the effective
+         learning rate.
+
+       Do not compare a run using this reward against a run using the gated one
+       under ``scale_rewards='none'`` without accounting for that factor; it is
+       an unintended second changed variable. Use ``oov_weight=0.0`` to recover
+       the exact historical scale.
+
+    .. math::
+
+        s = (1 - w)\\cdot\\text{edit\\_sim} + w\\cdot\\text{in\\_vocab\\_frac}
+
+    with ``w = oov_weight`` and both components in ``[0, 1]``; the result is
+    mapped to ``[-1, 1]``.
+
+    Length behaviour, stated precisely because it has been a source of
+    confusion: appending ``k`` tokens to an otherwise correct length-``G``
+    completion gives ``edit_sim = 1 - k/(G+k)``, which is strictly decreasing in
+    ``k``. Pure verbosity is therefore penalized, not rewarded. The
+    ``max(|a|, |b|)`` denominator only makes an individual *substitution* cheaper
+    on longer outputs at fixed length; it does not reward lengthening.
+
+    Vocabulary matching is casefolded, so the reward does not depend on the
+    corpus's uppercase convention. It requires ``initialize_rewards`` to have
+    been called; without a vocabulary the validity term is skipped and the reward
+    degrades to pure edit similarity rather than punishing every rollout.
+
+    Args:
+        completion: Generated gloss sequence (model output).
+        gold_gloss: Ground-truth gloss sequence.
+        oov_weight: Weight of the validity term, in ``[0, 1]``. ``0.0``
+            reproduces :func:`gloss_order_reward`.
+
+    Returns:
+        Reward in ``[-1, 1]``; ``-1.0`` only for an empty generation or an
+        empty reference.
+
+    Raises:
+        ValueError: If ``oov_weight`` is not a finite value in ``[0, 1]``.
+    """
+    if not math.isfinite(oov_weight) or not 0.0 <= oov_weight <= 1.0:
+        raise ValueError(f"oov_weight must be a finite value in [0, 1]: {oov_weight!r}")
+
+    generated = extract_gloss_text(completion).strip()
+    gold = gold_gloss.strip()
+    if not generated or not gold:
+        return -1.0
+
+    gen_tokens = generated.split()
+    gold_tokens = gold.split()
+    if not gen_tokens or not gold_tokens:
+        return -1.0
+
+    distance = _word_level_levenshtein(gen_tokens, gold_tokens)
+    max_len = max(len(gen_tokens), len(gold_tokens))
+    edit_similarity = max(0.0, 1.0 - distance / max_len)
+
+    if _gloss_vocab:
+        allowed = {token.casefold() for token in _gloss_vocab}
+        in_vocab = sum(1 for token in gen_tokens if token.casefold() in allowed)
+        validity = in_vocab / len(gen_tokens)
+        score = (1.0 - oov_weight) * edit_similarity + oov_weight * validity
+    else:
+        # No vocabulary loaded: degrade to pure edit similarity instead of
+        # punishing every rollout with a spurious validity term.
+        score = edit_similarity
+
+    return _to_symmetric(float(min(1.0, max(0.0, score))))
+
+
 # ---------------------------------------------------------------------------
 # Reward Component 4: Viterbi Distance Reward
 # ---------------------------------------------------------------------------
@@ -1354,6 +1472,24 @@ def build_t2g_reward_functions(
     w = reward_config.get("weight_gloss_order", 0.0)
     if w > 0:
         funcs.append(_make_gloss_reward_fn(gloss_order_reward, needs_gold_gloss=True))
+        weights.append(w)
+
+    # Edit-validity reward: edit similarity with a GRADED in-vocabulary term.
+    # This is the repaired successor of the `edit-validity` reward from the
+    # `edit-rewards` branch (which used a hard -1 gate). Default weight 0.0, so
+    # every historical config keeps its exact reward stack.
+    # NOTE: where validity ~= 1 (i.e. under the Trie) this reduces to
+    # 0.5 * gloss_order_reward + 0.5, so under scale_rewards='none' it halves
+    # the advantage magnitude. See the function docstring before combining it
+    # with `weight_gloss_order`, which carries the same underlying signal.
+    w = reward_config.get("weight_edit_validity", 0.0)
+    if w > 0:
+        oov_weight = float(reward_config.get("edit_validity_oov_weight", 0.5))
+
+        def _edit_validity(completion: str, gold_gloss: str) -> float:
+            return edit_validity_reward(completion, gold_gloss, oov_weight=oov_weight)
+
+        funcs.append(_make_gloss_reward_fn(_edit_validity, needs_gold_gloss=True))
         weights.append(w)
 
     # Format reward

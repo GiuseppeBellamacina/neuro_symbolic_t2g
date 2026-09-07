@@ -1,0 +1,75 @@
+# ============================================================================
+# REWARD CELL — GRPO from scratch with the graded edit-validity reward
+#
+# One-factor variant of grpo-only.yaml: identical model, data, split, prompting,
+# curriculum, decoding and optimisation budget; ONLY the reward stack changes.
+#
+# Why this cell exists
+# --------------------
+# The `edit-rewards` branch replaced the 7-component reward with a single
+# edit-validity reward that used a HARD gate: any out-of-vocabulary token, or an
+# empty output, returned -1.0 and discarded all partial credit. This cell uses
+# the repaired version, whose validity term is continuous (see
+# src/rewards/t2g_rewards.py::edit_validity_reward).
+#
+# What the measurements actually justify (docs/RECOVERY_REPORT.md §9):
+#   - On zero-shot+Trie rollouts, 53.88% of rewards sit at -1.0, but only 2.43%
+#     of those come from the gate (131 OOV, 0 empty). The other 97.57% are
+#     completions with zero edit similarity to the reference — a legitimate
+#     floor. The Trie forces in-vocabulary output (fraction 0.9996), so an OOV
+#     gate cannot fire often.
+#   - Removing the cliff therefore changes group statistics only slightly:
+#     fully-dead groups 19.90% -> 19.00%, zero-variance 21.45% -> 20.55%.
+#   - Dead groups are dead because no rollout shares a token with the reference.
+#     No reward reshaping repairs that; only rollout support does (few-shot or
+#     SFT initialisation).
+#
+# So this is a controlled reward comparison, NOT an expected fix for the
+# zero-gradient problem. Read it as one factor in the reward axis.
+#
+# IMPORTANT — scale interaction
+# -----------------------------
+# Where validity ~= 1 (i.e. under the Trie) this reward reduces exactly to
+# 0.5 * gloss_order_reward + 0.5. GRPO subtracts the group mean, so the offset
+# cancels but the 0.5 factor does not:
+#   - scale_rewards='group' (TRL 0.24.0 default, what this branch uses): the
+#     advantage is divided by its std, the factor cancels, no scale change.
+#   - scale_rewards='none' (Dr-GRPO): the advantage magnitude is HALVED.
+# This config does not set scale_rewards, so the TRL default applies and the
+# comparison against grpo-only.yaml stays single-factor. Set
+# edit_validity_oov_weight: 0.0 to recover the exact historical reward scale.
+#
+# Uso:
+#   CONFIG=experiments/configs/t2g/grpo-edit-validity.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: grpo-only.yaml
+
+# --- Reward: single graded edit-validity term, historical stack disabled ---
+reward:
+  weight_edit_validity: 1.0
+  # Weight of the in-vocabulary term inside edit-validity. 0.5 is the audited
+  # default and is inside the safe regime: in-vocabulary garbage (0.000) and
+  # degenerate repetition (+0.125) both stay below a mostly-correct completion
+  # containing one OOV token (+0.500). At 0.75 that ordering INVERTS
+  # (degenerate repetition reaches +0.563), which is why the default is not
+  # higher. See tests/test_edit_validity_reward.py.
+  edit_validity_oov_weight: 0.5
+
+  # Historical 7-component stack explicitly zeroed, so the diff against
+  # grpo-only.yaml is a single factor and nothing is inherited implicitly.
+  weight_translation: 0.0
+  weight_bleu: 0.0
+  weight_gold_structure: 0.0
+  weight_gloss_order: 0.0
+  weight_verifier_scaled: 0.0
+  weight_format: 0.0
+  weight_repetition: 0.0
+
+# --- Directory dedicate (tag separato: run e risultati indipendenti) ---
+training:
+  output_dir: "experiments/checkpoints/qwen25-05b-grpo-edit-validity"
+  log_dir: "experiments/logs/qwen25-05b-grpo-edit-validity"
+
+wandb:
+  name: "qwen25-05b-grpo-edit-validity"

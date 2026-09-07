@@ -309,12 +309,16 @@ _chain_resume_impl() {
 
         case "$st_type" in
             train)
-                rebuild_chain "train:${st_cfg}:${st_tag}:--resume"
-                # Evita eval duplicato se già in testa alla coda originale
+                # rebuild_chain fa PREPEND: per ottenere la coda [train, eval]
+                # va inserito prima eval e poi train. L'ordine inverso
+                # produceva [eval, train], cioe' l'eval PRIMA del training da
+                # cui dipende. Vedi docs/RECOVERY_REPORT.md §7.
+                # Evita eval duplicato se gia' in testa alla coda originale.
                 if [ "$(echo "$head" | cut -d: -f1)" != "eval" ] || [ "$(echo "$head" | cut -d: -f3)" != "$st_tag" ]; then
                     rebuild_chain "eval:${st_cfg}:${st_tag}"
                 fi
-                echo "→ Training $st_tag verrà ripreso dall'ultimo checkpoint"
+                rebuild_chain "train:${st_cfg}:${st_tag}:--resume"
+                echo " Training $st_tag verra' ripreso dall'ultimo checkpoint"
                 ;;
             eval)
                 rebuild_chain "eval:${st_cfg}:${st_tag}"
