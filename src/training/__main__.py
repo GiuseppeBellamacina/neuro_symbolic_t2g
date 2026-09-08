@@ -61,6 +61,38 @@ _early_args, _remaining = _parser.parse_known_args()
 
 _cfg = _peek_config(_early_args.config) if _early_args.config else {}
 
+# ── Guardia eval-only: PRIMA di caricare Unsloth ────────────────────────────
+# Le celle `baseline/*` non addestrano: ereditano una sezione `training`
+# parziale da base.yaml e non dichiarano output_dir/log_dir. Lanciarle con
+# cluster/train.sh e' un errore d'uso.
+#
+# La guardia sta QUI e non nel trainer perche' l'import di Unsloth (sotto)
+# costa minuti su un nodo GPU allocato: il job 7294 fallira con
+# `KeyError: 'output_dir'` solo DOPO aver caricato Unsloth, il modello e il
+# dataset. Fallire in un secondo, prima di occupare la GPU, e' il punto.
+if _early_args.config and not _early_args.prepare_data:
+    _training = _cfg.get("training", {})
+    if _training.get("trainer", "grpo") != "sft":
+        _missing = [k for k in ("output_dir", "log_dir") if k not in _training]
+        if _missing:
+            _has_steps = bool({"max_steps", "num_train_epochs"} & set(_training))
+            _sys.stderr.write(
+                f"\n[bootstrap] Config non addestrabile: {_early_args.config}\n"
+                f"            Chiavi mancanti in `training`: "
+                f"{', '.join(_missing)}.\n"
+                + (
+                    "            Questa e' una cella EVAL-ONLY: usa "
+                    "cluster/eval.sh, non cluster/train.sh.\n"
+                    f"              CONFIG={_early_args.config} "
+                    "sbatch cluster/eval.sh\n"
+                    if not _has_steps
+                    else "            La cella dichiara step di training ma "
+                    "non le directory di output: aggiungi training.output_dir "
+                    "e training.log_dir.\n"
+                )
+            )
+            raise SystemExit(2)
+
 # Auto-disable Unsloth when using multiple GPUs
 _num_gpus = _cfg.get("model", {}).get("num_gpus", 1)
 if _num_gpus > 1:

@@ -718,7 +718,32 @@ def main() -> None:
     # ── Resolve timestamped output/log directories and resume logic ──────
     from datetime import datetime
 
-    training_cfg = config["training"]
+    training_cfg = config.get("training", {})
+
+    # Le celle eval-only (baseline/*) NON dichiarano output_dir/log_dir perche'
+    # non addestrano nulla: ereditano solo la sezione `training` parziale da
+    # base.yaml. Lanciarle con cluster/train.sh e' un errore d'uso, non un bug
+    # di configurazione, quindi va detto in modo esplicito: prima questo punto
+    # sollevava `KeyError: 'output_dir'` dopo aver gia' caricato Unsloth e il
+    # modello, cioe' un messaggio incomprensibile a minuti dall'avvio del job.
+    missing = [key for key in ("output_dir", "log_dir") if key not in training_cfg]
+    if missing:
+        has_steps = bool({"max_steps", "num_train_epochs"} & set(training_cfg))
+        raise SystemExit(
+            f"\n[grpo] Config non addestrabile: {args.config}\n"
+            f"       Chiavi mancanti in `training`: {', '.join(missing)}.\n"
+            + (
+                "       Questa e' una cella EVAL-ONLY (nessun training.max_steps "
+                "ne' num_train_epochs).\n"
+                "       Usa cluster/eval.sh, non cluster/train.sh:\n"
+                f"         CONFIG={args.config} sbatch cluster/eval.sh\n"
+                if not has_steps
+                else "       La cella dichiara step di training ma non le "
+                "directory di output: aggiungi training.output_dir e "
+                "training.log_dir al config.\n"
+            )
+        )
+
     base_output_dir = Path(training_cfg["output_dir"])
     base_log_dir = Path(training_cfg["log_dir"])
 
