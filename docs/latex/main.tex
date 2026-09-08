@@ -1,0 +1,100 @@
+% ============================================================================
+% Relazione tecnico-scientifica del progetto neuro_symbolic_t2g
+%
+% Compilazione:
+%   pdflatex main && bibtex main && pdflatex main && pdflatex main
+%
+% Vedi README.md per le dipendenze dei pacchetti.
+% ============================================================================
+\documentclass[11pt,a4paper]{report}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[italian]{babel}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage[a4paper,margin=2.8cm]{geometry}
+\usepackage[hidelinks]{hyperref}
+
+% Segnaposto per i valori non ancora misurati: meglio dichiarare un buco che
+% inventare un numero.
+\newcommand{\todo}[1]{\textcolor{red}{[DA FARE: #1]}}
+
+% Notazione ricorrente
+\newcommand{\vocab}{\mathcal{V}}
+\newcommand{\allowed}{\mathcal{A}}
+\newcommand{\policy}{\pi_\theta}
+\newcommand{\reference}{\pi_{\text{ref}}}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  frame=single,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  keywordstyle=\color{blue!70!black},
+  commentstyle=\color{green!40!black},
+  stringstyle=\color{red!60!black},
+  showstringspaces=false,
+  captionpos=b,
+}
+
+\title{%
+  Generazione di gloss ASL da testo inglese:\\
+  un'analisi neuro-simbolica\\
+  \large Fondamenti teorici, implementazione e risultati negativi con meccanismo}
+\author{Progetto \texttt{neuro\_symbolic\_t2g}}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Questa relazione documenta un sistema di traduzione automatica da inglese scritto
+a \emph{gloss} della lingua dei segni americana (ASL), realizzato con un modello
+linguistico di piccole dimensioni (Qwen2.5-0.5B-Instruct) addestrato con
+\emph{supervised fine-tuning} (SFT) e con \emph{reinforcement learning} nella
+variante GRPO, sotto vincolo simbolico di decodifica.
+
+Il risultato principale non è un miglioramento delle metriche, ma un
+\textbf{risultato negativo con meccanismo}: sul corpus impiegato (ASLG-PC12) le
+metriche di sovrapposizione lessicale sono \emph{sature}, nel senso preciso che
+una baseline a regole di circa quindici righe di codice raggiunge
+ROUGE-L $0{,}9697$ e supera ogni risultato ottenuto con reinforcement learning.
+Ne segue che la domanda di ricerca inizialmente posta --- ``il GRPO migliora la
+generazione di gloss?'' --- non è ben posta su questo corpus, e che i numeri
+pubblicati in letteratura su ASLG-PC12 vanno riletti alla luce di tale
+saturazione.
+
+La relazione è scritta in modo autocontenuto: ogni nozione teorica di
+complessità media viene introdotta prima di essere usata, e ogni scelta
+implementativa è collegata al file e alla funzione che la realizzano.
+\end{abstract}
+
+\tableofcontents
+
+\input{capitoli/01_introduzione}
+\input{capitoli/02_fondamenti_teorici}
+\input{capitoli/03_dataset}
+\input{capitoli/04_architettura_modello}
+\input{capitoli/05_sft}
+\input{capitoli/06_grpo}
+\input{capitoli/07_reward}
+\input{capitoli/08_decoding_vincolato}
+\input{capitoli/09_obiettivi_ausiliari}
+\input{capitoli/10_metriche_valutazione}
+\input{capitoli/11_risultati}
+\input{capitoli/12_infrastruttura_cluster}
+\input{capitoli/13_codebase}
+\input{capitoli/14_conclusioni}
+
+\bibliographystyle{plain}
+\bibliography{bibliografia}
+
+\end{document}

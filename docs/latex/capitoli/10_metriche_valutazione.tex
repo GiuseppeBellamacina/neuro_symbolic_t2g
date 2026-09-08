@@ -1,0 +1,284 @@
+\chapter{Metriche di valutazione}
+\label{cap:metriche}
+
+Le metriche non sono uno strumento neutrale di misura: sono parte del disegno
+sperimentale, e su un corpus saturo come quello descritto nel
+Capitolo~\ref{cap:dataset} la scelta della metrica determina la conclusione. Questo
+capitolo documenta la loro implementazione, i loro difetti misurati, e le
+metriche introdotte per rimediarvi.
+
+L'implementazione è in \texttt{src/utils/metrics.py}. Il modulo espone una
+costante \texttt{METRICS\_VERSION}, il cui valore corrente è $2$: tutti i numeri
+riportati in questa relazione sono calcolati con la versione $2$, e la costante
+esiste perché confrontare numeri prodotti da versioni diverse del codice di
+valutazione è un errore facile da commettere e difficile da individuare.
+
+\section{Il difetto di ROUGE-L, misurato}
+\label{sec:difetto-rouge}
+
+L'implementazione di ROUGE-L impiegata (che segue la convenzione più diffusa
+nella letteratura di riferimento, così da restare confrontabile con i numeri
+pubblicati) esegue due normalizzazioni prima del confronto:
+
+\begin{enumerate}
+  \item porta tutto in minuscolo (\emph{case-insensitive});
+  \item spezza i token sui caratteri non alfanumerici.
+\end{enumerate}
+
+Su un compito generico sono scelte innocue. Su un compito in cui il gloss è
+distinto dal testo \emph{proprio} dal maiuscolo e dai prefissi con trattino, sono
+devastanti. Ecco le misure dirette.
+
+\subsection{Il maiuscolo non conta}
+
+\begin{center}
+\begin{tabular}{llr}
+\toprule
+Generato & Riferimento & ROUGE-L \\
+\midrule
+\texttt{cat sat} & \texttt{CAT SAT} & $1{,}00$ \\
+\texttt{the cat sat} & \texttt{CAT SAT} & $0{,}80$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La prima riga è il problema in forma pura: un'uscita in minuscolo, cioè inglese
+non convertito in gloss, ottiene il punteggio massimo. La seconda mostra che
+anche mantenendo un articolo che il gloss elimina si resta a $0{,}80$.
+
+Poiché il modello base, non addestrato, produce esattamente inglese in
+minuscolo, ne segue che ROUGE-L assegna un punteggio alto a un sistema che non
+ha eseguito \emph{nessuna} conversione. È la spiegazione del risultato
+apparentemente paradossale della sezione~\ref{sec:trie-risultato}: il modello
+senza vincolo ottiene $0{,}3648$ facendo la cosa sbagliata.
+
+\subsection{I prefissi grammaticali vengono distrutti}
+
+La tokenizzazione sui caratteri non alfanumerici spezza i marcatori del gloss:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Stringa & Token prodotti \\
+\midrule
+\texttt{DESC-GOOD X-WE} & \texttt{['desc', 'good', 'x', 'we']} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il prefisso \texttt{DESC-}, che porta informazione grammaticale, diventa un
+token indipendente. La conseguenza è che due gloss diversi condividono metà dei
+loro token:
+
+\begin{center}
+\begin{tabular}{llr}
+\toprule
+Generato & Riferimento & ROUGE-L \\
+\midrule
+\texttt{DESC-GOOD} & \texttt{DESC-BAD} & $0{,}50$ \\
+\texttt{X-WE} & \texttt{X-I} & $0{,}50$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Confondere \emph{buono} con \emph{cattivo} costa metà del punteggio. Confondere
+\emph{noi} con \emph{io} costa metà del punteggio. Un sistema che indovina il
+prefisso e sbaglia sistematicamente la parola ottiene $0{,}50$ su ogni gloss
+marcato.
+
+\subsection{La conclusione operativa}
+
+ROUGE-L, su questo corpus e con questa implementazione, è una metrica di
+\emph{copia}: premia la sovrapposizione superficiale di caratteri alfanumerici
+in minuscolo, che è precisamente la relazione che il corpus sintetico garantisce
+per costruzione (sezione~\ref{sec:sintetico}).
+
+Non è stata rimossa, per due ragioni: è l'unica metrica su cui esistano numeri
+pubblicati confrontabili, e la sua degenerazione è essa stessa un risultato da
+documentare. È stata invece \textbf{degradata} da metrica primaria a metrica di
+confronto storico, e nel codice le metriche di questa famiglia sono raccolte
+sotto la costante \texttt{SATURATED\_OVERLAP\_METRICS} così che ogni consumatore
+sappia come trattarle.
+
+\section{Le metriche primarie}
+
+Al posto di ROUGE-L, le metriche promosse a primarie (costante
+\texttt{PRIMARY\_METRICS}) sono due.
+
+\subsection{Exact match normalizzato}
+
+Confronto di uguaglianza dopo normalizzazione degli spazi. È binario, severo e
+non manipolabile: non esiste una strategia che aumenti l'exact match senza
+produrre l'uscita corretta.
+
+Il suo pregio principale su questo corpus è che \emph{ha ancora risoluzione}.
+Come mostrato nel Capitolo~\ref{cap:sft}, fra baseline a regole e SFT ROUGE-L
+distingue $0{,}0067$ mentre l'exact match distingue $0{,}2265$: due ordini di
+grandezza di differenza nella capacità discriminante.
+
+\subsection{Non-copy-token accuracy}
+
+È la metrica progettata specificamente per questo corpus, e il contributo
+metodologico principale del capitolo.
+
+L'idea: si considerano soltanto le posizioni in cui il gloss di riferimento
+\emph{differisce} dal token sorgente maiuscolizzato. Su quelle posizioni, e solo
+su quelle, si misura l'accuratezza. Formalmente, detto
+$\mathcal{N} = \{ t : r_t \neq \mathrm{upper}(x_t) \}$ l'insieme delle posizioni
+non banali,
+\begin{equation}
+  \label{eq:noncopy}
+  \texttt{non\_copy\_token\_accuracy}
+  \;=\;
+  \frac{|\{ t \in \mathcal{N} : g_t = r_t \}|}{|\mathcal{N}|}.
+\end{equation}
+
+Sui $2\,000$ prompt di valutazione, $|\mathcal{N}| = 9\,350$ token: un campione
+ampio, non un residuo marginale.
+
+Il potere discriminante è evidente:
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Sistema & ROUGE-L & Non-copy accuracy \\
+\midrule
+Base zero-shot senza Trie & $0{,}3648$ & $0{,}0006$ \\
+Base zero-shot con Trie & $0{,}1373$ & $0{,}0432$ \\
+GRPO da modello base & $0{,}6076$ & $0{,}4641$ \\
+Baseline a regole & $0{,}9685$ & $0{,}9424$ \\
+SFT & $0{,}9752$ & $0{,}9660$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La colonna di destra ordina i sistemi in modo interpretabile e, soprattutto,
+assegna al modello base senza vincolo il valore che merita: $0{,}0006$, cioè
+niente. La colonna di sinistra gli assegna $0{,}3648$, che è più del doppio di
+quanto ottenga lo stesso modello con il vincolo di decodifica attivo.
+
+\section{Validity: la definizione, versione 2}
+
+La \emph{validity} misura la frazione di uscite ben formate. La definizione è
+stata rivista dopo aver osservato che la versione iniziale accettava uscite
+degeneri.
+
+Nella versione $2$ un'uscita è dichiarata \textbf{non valida} se si verifica
+almeno una delle condizioni:
+
+\begin{enumerate}
+  \item meno del $50\%$ dei suoi token appartiene al vocabolario gloss;
+  \item ha più di $4$ token e il rapporto fra token distinti e token totali
+        (\emph{unicità}) è inferiore a $0{,}3$.
+\end{enumerate}
+
+La prima condizione cattura le uscite che non sono gloss. La seconda cattura le
+ripetizioni degeneri del tipo \texttt{HOUSE HOUSE HOUSE HOUSE HOUSE}, che
+soddisfano la prima condizione perfettamente (tutti i token sono in
+vocabolario) e sono comunque prive di valore. La soglia di $4$ token evita di
+penalizzare uscite legittimamente brevi in cui una ripetizione può essere reale.
+
+\section{Pass@$k$}
+
+L'implementazione segue lo stimatore combinatorio non
+distorto~\eqref{eq:passk}, con soglia di correttezza posta a ROUGE-L $\ge 0{,}3$.
+
+La soglia va dichiarata perché il valore di pass@$k$ dipende interamente da essa
+e $0{,}3$ è, su questo corpus, una soglia \emph{permissiva}: dato il difetto
+documentato nella sezione~\ref{sec:difetto-rouge}, un'uscita che supera $0{,}3$
+non è necessariamente una traduzione utile. Pass@$k$ va quindi letta come misura
+di \emph{copertura} del campionamento, non di qualità.
+
+\section{La metrica composta e la sua correzione}
+
+Una metrica composta comoda è il prodotto fra qualità media e frazione di uscite
+valide, che penalizza i sistemi che ottengono punteggi alti su poche uscite ben
+formate:
+\begin{equation}
+  \label{eq:valid-rouge-v2}
+  \texttt{valid\_rouge\_l\_mean}
+  \;=\;
+  \overline{\texttt{rouge}} \times \texttt{validity\_rate}.
+\end{equation}
+
+Questa forma ha però un difetto: il prodotto di due medie \emph{non} è la media
+del prodotto. Se le uscite non valide fossero sistematicamente quelle con ROUGE-L
+più alto (caso possibile: un'uscita che copia l'inglese può avere ROUGE-L alto e
+validity nulla), la~\eqref{eq:valid-rouge-v2} sovrastimerebbe.
+
+È stata quindi affiancata una versione per riga:
+\begin{equation}
+  \label{eq:valid-rouge-v3}
+  \texttt{valid\_rouge\_l\_mean\_v3}
+  \;=\;
+  \frac{1}{N}\sum_{i=1}^{N}
+  \begin{cases}
+    \texttt{rouge}_i & \text{se l'uscita } i \text{ è valida},\\
+    0 & \text{altrimenti.}
+  \end{cases}
+\end{equation}
+
+Il confronto fra le due:
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Cella & Versione 2 & Versione 3 \\
+\midrule
+Base few-shot & $0{,}4581$ & $0{,}4645$ \\
+Base zero-shot con Trie & $0{,}1243$ & $0{,}1335$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le differenze sono piccole ($+0{,}006$ e $+0{,}009$) e nella direzione opposta a
+quella temuta: la versione per riga dà valori leggermente \emph{più alti}, il che
+significa che le uscite non valide tendevano ad avere ROUGE-L sotto la media.
+Entrambe le versioni sono riportate, così che il lettore possa verificare che la
+scelta fra le due non cambia le conclusioni.
+
+\section{Incertezza: bootstrap clusterizzato}
+
+Tutti gli intervalli di confidenza riportati in questa relazione sono ottenuti
+per bootstrap, con una precisazione necessaria: il ricampionamento è
+\textbf{clusterizzato per prompt}.
+
+La ragione è che la valutazione genera $N=5$ uscite per ogni prompt. Le cinque
+uscite dello stesso prompt non sono osservazioni indipendenti: condividono la
+frase di ingresso, la sua difficoltà e il suo riferimento. Ricampionare le
+singole uscite come se fossero indipendenti gonfierebbe la dimensione effettiva
+del campione di un fattore fino a cinque, restituendo intervalli di confidenza
+artificialmente stretti.
+
+Il bootstrap clusterizzato ricampiona i \emph{prompt} con reimmissione,
+portandosi dietro tutte le uscite di ciascun prompt selezionato. È la procedura
+corretta in presenza di questa struttura a gruppi, e produce intervalli più
+larghi e onesti. Gli intervalli riportati nella sezione sul confronto fra SFT e
+baseline a regole (Capitolo~\ref{cap:sft}) sono calcolati in questo modo.
+
+\section{Il protocollo di valutazione, riassunto}
+
+Perché i numeri del capitolo successivo siano interpretabili, il protocollo è
+fissato e identico per tutte le celle:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Parametro & Valore \\
+\midrule
+Prompt valutati & $2\,000$ (dal test set) \\
+Generazioni per prompt & $N = 5$ \\
+Strategia di decodifica & campionamento, $\tau = 0{,}7$ \\
+Versione delle metriche & $2$ \\
+Intervalli di confidenza & bootstrap clusterizzato per prompt \\
+Riferimento obbligatorio & baseline a regole \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il campionamento a temperatura $0{,}7$ invece del greedy è una scelta che va
+motivata: consente di stimare pass@$k$ e di misurare la varianza delle uscite,
+che è l'informazione necessaria per interpretare il supporto dei rollout
+(sezione~\ref{sec:supporto}). Il costo è che i numeri di exact match sono
+leggermente inferiori a quelli che si otterrebbero in greedy; poiché il confronto
+fra celle usa lo stesso protocollo, i confronti restano validi.

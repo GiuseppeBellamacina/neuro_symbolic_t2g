@@ -62,3 +62,14 @@ experiments/configs/t2g/grpo_optimal_old.yaml
 
 # Snapshot locale hashato dei risultati storici (non e' un backup)
 experiments/results-archive/
+
+# Latex
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc

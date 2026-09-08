@@ -1,0 +1,281 @@
+\chapter{Infrastruttura di calcolo}
+\label{cap:infrastruttura}
+
+Questo capitolo documenta l'ambiente di esecuzione e, soprattutto, sei guasti
+reali che ne sono derivati. I guasti sono riportati per esteso perché sono il
+prodotto più trasferibile del progetto: nessuno di essi era un errore di
+algoritmo, tutti erano errori di \emph{ordine} o di \emph{ambiente}, e tutti
+producevano fallimenti silenziosi o diagnostiche fuorvianti.
+
+\section{La catena di esecuzione}
+
+L'addestramento non gira sulla macchina di sviluppo, ma su un cluster gestito da
+SLURM. Il percorso completo è:
+
+\begin{equation}
+  \texttt{login} \;\to\; \texttt{srun} \;\to\; \texttt{compute}
+  \;\to\; \texttt{apptainer} \;\to\; \texttt{setup}
+\end{equation}
+
+\begin{description}
+  \item[login] Il nodo di accesso. Non ha il runtime del progetto: nessuna GPU,
+        nessun ambiente Python con le dipendenze. Qualunque comando che importi
+        il codice del progetto fallisce qui.
+  \item[srun] Il comando di allocazione SLURM, che ottiene un nodo di calcolo.
+  \item[compute] Il nodo di calcolo con GPU. Ha il container ma non l'ambiente
+        installato sull'host.
+  \item[apptainer] Il container che fornisce l'ambiente di esecuzione.
+  \item[setup] Lo script che, all'interno del container, prepara l'ambiente.
+\end{description}
+
+Il fatto che il nodo di login non abbia il runtime è una fonte ricorrente di
+confusione, perché il modo naturale di verificare qualcosa (``eseguo un
+\texttt{python -c} per controllare'') non funziona lì.
+
+\subsection{Il container: \texttt{exec} e non \texttt{run}}
+
+Il container viene invocato con \texttt{apptainer exec}, non con
+\texttt{apptainer run}. La ragione è concreta: \texttt{run} passa attraverso lo
+\emph{runscript} del container, che manipola gli argomenti, e questa
+manipolazione corrompe la lista degli argomenti quando si invoca
+\texttt{python -c} con codice che contiene virgolette e spazi. Il sintomo è un
+errore di sintassi Python su codice sintatticamente valido, che è una
+diagnostica particolarmente inutile.
+
+L'invocazione è centralizzata nella funzione \texttt{run\_py} di
+\texttt{cluster/\_lib.sh}, che costruisce il comando con dieci direttive
+\texttt{--env} per propagare le variabili d'ambiente necessarie. La
+centralizzazione è deliberata: se ogni script costruisse la propria
+invocazione, l'insieme delle variabili propagate divergerebbe fra script e i
+guasti sarebbero specifici del punto di ingresso.
+
+\section{Il regime offline}
+
+I nodi di calcolo non hanno accesso alla rete. Questo vincolo è più stringente
+di quanto sembri, perché le librerie moderne di machine learning tentano
+connessioni di rete per motivi non ovvi: verificare la presenza di aggiornamenti
+del modello, risolvere un identificativo di dataset, inizializzare la
+telemetria di un servizio di logging.
+
+L'unico percorso in cui la rete è disponibile è \texttt{setup.sh}, che scarica
+in anticipo modello e dati nella cache locale. Tutti i job successivi girano
+offline.
+
+La configurazione dell'ambiente offline è raccolta nella funzione
+\texttt{export\_offline\_env}, che esporta:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Variabile & Effetto \\
+\midrule
+\texttt{HF\_HUB\_OFFLINE} & disattiva le chiamate all'hub dei modelli \\
+\texttt{TRANSFORMERS\_OFFLINE} & idem, a livello di libreria \\
+\texttt{HF\_DATASETS\_OFFLINE} & idem, per i dataset \\
+\texttt{WANDB\_MODE=offline} & registrazione locale, nessun invio \\
+\texttt{WANDB\_DISABLE\_WEAVE} & disattiva un componente accessorio \\
+\texttt{WANDB\_SILENT} & riduce l'output \\
+\texttt{PYTHONUNBUFFERED} & log immediati, essenziale per diagnosticare i job \\
+\texttt{HF\_HOME} & radice della cache (\texttt{\$HOME/.cache/huggingface}) \\
+\texttt{HF\_HUB\_CACHE} & cache specifica dell'hub \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Regola critica}: \texttt{export\_offline\_env} va invocata
+\emph{prima di qualunque processo Python}. Le librerie leggono queste variabili
+al momento dell'import, non all'uso: esportarle dopo il primo import non ha
+effetto. La sezione~\ref{sec:bug-offline-order} documenta il caso in cui questa
+regola era violata.
+
+\section{La catena di job}
+
+La quota assegnata consente \textbf{una sola allocazione} alla volta. Non è
+possibile lanciare più esperimenti in parallelo; le celle sperimentali devono
+essere eseguite in sequenza.
+
+Questo ha richiesto un meccanismo di concatenazione: uno script
+(\texttt{job\_chain}) mantiene una coda persistente di celle da eseguire, e a
+ogni conclusione di job accoda il successivo. Il meccanismo è basato su
+\emph{tick} periodici, usa \texttt{flock} per garantire l'accesso esclusivo alla
+coda (due tick concorrenti corromperebbero lo stato) e implementa un ritentativo
+sulle interrogazioni a \texttt{sacct}, che sotto carico può non rispondere.
+
+Il monitoraggio è realizzato da \texttt{python3 -m src.utils.chain\_monitor}, con
+una modalità \texttt{monitor --all} che mostra lo stato di tutta la coda.
+
+\section{Sei guasti reali}
+
+Ciò che segue è la parte utile del capitolo.
+
+\subsection{Guasto 1: percorso dei dati divergente fra test e produzione}
+
+Lo script di preparazione dei dati verificava l'esistenza del percorso
+\texttt{data/aslg\_pc12\_train}. La produzione, però, usa
+\texttt{data/aslg\_pc12}. Il percorso testato non esisteva.
+
+La conseguenza: il controllo di presenza della cache falliva sempre, quindi lo
+script tentava il \emph{download} del dataset. Su un nodo offline, il download
+fallisce. Il sintomo era dunque un errore di rete durante una fase che avrebbe
+dovuto essere puramente locale, con la diagnostica che indirizzava verso la
+configurazione offline invece che verso un percorso sbagliato.
+
+Lezione: un controllo di esistenza su un percorso che non è quello usato in
+produzione è peggio di nessun controllo, perché produce un ramo di fallback che
+non doveva essere raggiunto.
+
+\subsection{Guasto 2: ambiente offline esportato dopo il primo Python}
+\label{sec:bug-offline-order}
+
+Nello script di valutazione, \texttt{export\_offline\_env} era invocata alla riga
+$177$. Il primo processo Python veniva però lanciato alla riga $86$, per
+risolvere la directory di uscita.
+
+Quel processo girava dunque \emph{senza} le variabili offline, tentava una
+connessione, e in assenza di rete si bloccava fino al timeout. Il job appariva
+sospeso in una fase di inizializzazione banale.
+
+Lezione: l'ordine delle esportazioni d'ambiente rispetto al primo import è un
+vincolo di correttezza, non di stile. La contromisura strutturale è invocare la
+configurazione d'ambiente come primissima istruzione dello script, prima di
+qualunque logica.
+
+\subsection{Guasto 3: cambio di firma in Transformers 5.3.0}
+\label{sec:bug-weave}
+
+Questo è il guasto tecnicamente più interessante.
+
+Transformers $5{,}3{,}0$ ha modificato una funzione interna di rilevamento dei
+pacchetti, \texttt{\_is\_package\_available}, che ora restituisce una
+\emph{tupla} invece di un booleano. Il codice chiamante valutava il risultato in
+un contesto booleano. Ma in Python
+\begin{equation}
+  \texttt{bool((False, None))} \;=\; \texttt{True}
+\end{equation}
+perché una tupla non vuota è sempre veritiera, indipendentemente dal suo
+contenuto.
+
+Il risultato: il codice concludeva che il pacchetto di telemetria \emph{era}
+disponibile, tentava di importarlo, e l'import falliva. Poiché la catena di
+import passava per \texttt{trl.trainer.grpo\_trainer}, l'effetto era che
+\textbf{l'intero modulo del trainer GRPO diventava non importabile}, con sette
+test in rosso e un errore che non menzionava né TRL né il GRPO.
+
+Lezione doppia. Primo: verificare esplicitamente il tipo dei valori restituiti
+dalle API interne di librerie di terze parti, che non seguono garanzie di
+compatibilità. Secondo, e più generale: la veridicità implicita in Python
+trasforma un cambio di tipo in un cambio di comportamento silenzioso.
+L'esportazione di \texttt{WANDB\_DISABLE\_WEAVE} nella lista della sezione
+precedente è la contromisura applicata.
+
+\subsection{Guasto 4: la coda invertita}
+
+La funzione di ricostruzione della coda dei job effettuava un \emph{prepend},
+cioè inseriva in testa, invece di un \emph{append}.
+
+L'effetto: ricostruendo una coda che doveva essere
+$[\texttt{train}, \texttt{eval}]$ si otteneva $[\texttt{eval}, \texttt{train}]$.
+La valutazione girava prima dell'addestramento, su un checkpoint inesistente o
+obsoleto.
+
+Il guasto è insidioso perché entrambi i job \emph{riuscivano}: la valutazione
+trovava un checkpoint (quello precedente) e produceva metriche plausibili.
+L'errore si manifestava come risultati sperimentali che non corrispondevano alla
+configurazione dichiarata, che è la peggiore classe di guasto in un contesto
+sperimentale.
+
+Lezione: nelle strutture dati che rappresentano un ordine di esecuzione,
+l'orientamento dell'inserimento va verificato con un test esplicito. Un
+commento non basta.
+
+\subsection{Guasto 5: il generatore casuale globale nel curriculum}
+
+Già documentato nella sezione~\ref{sec:curriculum}: la classe
+\texttt{CurriculumFilteredDataset} usava il generatore casuale globale del
+modulo \texttt{random}, rendendo la selezione degli esempi dipendente da quante
+volte il generatore fosse stato consumato altrove nel processo.
+
+La correzione è un generatore dedicato con seed derivato deterministicamente da
+$(\texttt{seed}, \texttt{stage})$.
+
+Lezione: in un processo di addestramento, ogni componente che campiona deve
+possedere il proprio generatore. La condivisione dello stato globale crea
+accoppiamenti fra parti del codice che non hanno nessuna relazione logica.
+
+\subsection{Guasto 6: celle di sola valutazione lanciate come addestramento}
+\label{sec:bug-evalonly}
+
+Le celle \texttt{baseline/*} sono celle di \emph{sola valutazione}: misurano il
+modello base, senza addestrarlo. Le loro configurazioni non contengono quindi la
+sezione relativa all'addestramento, e in particolare non contengono la chiave
+\texttt{output\_dir}.
+
+Lanciandone una con lo script di addestramento, il risultato era:
+\begin{center}
+\texttt{KeyError: 'output\_dir'}
+\end{center}
+
+L'errore in sé è corretto: la configurazione non ha quella chiave, perché non
+deve averla. Il problema era \emph{quando} si manifestava. La validazione
+avveniva dopo il caricamento di Unsloth e del modello, quindi il job occupava una
+GPU per minuti prima di fallire con un errore di configurazione diagnosticabile
+in millisecondi. In un regime a una sola allocazione, ogni minuto sprecato è un
+esperimento non eseguito.
+
+La correzione è su due livelli, per difesa in profondità:
+
+\begin{enumerate}
+  \item nel punto di ingresso \texttt{src/training/\_\_main\_\_.py}, una guardia
+        posta \textbf{prima} dell'import di Unsloth. Riconosce le celle di sola
+        valutazione, fallisce in circa un secondo, e il messaggio d'errore indica
+        lo script corretto da usare (\texttt{cluster/eval.sh}). L'uscita avviene
+        con codice $2$, distinguibile da un fallimento generico;
+  \item nella funzione principale di \texttt{src/training/grpo\_t2g\_train.py},
+        la stessa guardia ripetuta, con messaggi distinti per i due casi: cella
+        di sola valutazione contro configurazione genuinamente incompleta.
+\end{enumerate}
+
+La copertura è garantita da dieci test in
+\texttt{tests/test\_train\_entrypoint\_guard.py}, che verificano sia
+l'invariante diretta (una cella di sola valutazione viene rifiutata) sia
+l'invariante inversa (una cella addestrabile \emph{non} viene rifiutata). Il
+secondo gruppo è quello che conta di più: una guardia troppo aggressiva
+rifiuterebbe esperimenti validi, e sarebbe un guasto peggiore di quello che
+corregge.
+
+Lezione, che è la stessa del guasto 2 in forma generale: \textbf{validare prima
+di allocare}. Ogni controllo che può essere eseguito senza caricare il modello
+deve essere eseguito prima di caricarlo. È anche il principio codificato nel
+contratto degli obiettivi ausiliari
+(sezione~\ref{sec:contratto-ausiliari}), dove
+\texttt{resolve\_auxiliary\_config} valida prima del caricamento.
+
+\section{Il filo comune}
+
+I sei guasti hanno cause diverse ma condividono una struttura: nessuno era un
+errore di matematica, tutti riguardavano l'\emph{ordine} delle operazioni o
+l'\emph{ambiente} in cui avvenivano.
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Guasto & Categoria \\
+\midrule
+1. percorso dati divergente & ambiente: percorso testato $\neq$ usato \\
+2. offline dopo il primo Python & ordine: esportazione dopo l'import \\
+3. tupla veritiera & ambiente: API interna di terze parti \\
+4. coda invertita & ordine: prepend invece di append \\
+5. generatore globale & ambiente: stato condiviso \\
+6. validazione dopo l'allocazione & ordine: controllo dopo il costo \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Quattro su sei producevano fallimenti \emph{plausibili}: il job girava, non
+segnalava nulla di anomalo, e restituiva numeri. Su un progetto sperimentale
+questa è la categoria di guasto più costosa, perché contamina i risultati senza
+lasciare traccia nei log.
+
+La contromisura adottata in tutti i casi è la stessa e vale come conclusione del
+capitolo: \textbf{fallire presto e in modo rumoroso}, e codificare ogni
+invariante scoperta in un test che ne impedisca il ritorno.

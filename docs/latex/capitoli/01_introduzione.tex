@@ -1,0 +1,183 @@
+\chapter{Introduzione}
+\label{cap:introduzione}
+
+\section{Il problema: dal testo al gloss}
+
+La lingua dei segni americana (\emph{American Sign Language}, ASL) è una lingua
+naturale completa, con una propria grammatica, che non coincide con l'inglese.
+Non esiste una forma scritta ufficiale dell'ASL. Per lavorare con strumenti
+testuali si usa quindi una convenzione di trascrizione chiamata \emph{gloss}:
+ogni segno viene rappresentato dalla parola inglese in maiuscolo che gli
+corrisponde più da vicino, eventualmente con marcatori aggiuntivi.
+
+Un esempio reale tratto dal corpus impiegato in questo lavoro:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Inglese & \texttt{they will not flinch .} \\
+Gloss   & \texttt{X-Y WILL DESC-NOT FLINCH .} \\
+\midrule
+Inglese & \texttt{this kind of thing must never happen again .} \\
+Gloss   & \texttt{THIS KIND THING MUST DESC-NEVER HAPPEN DESC-AGAIN .} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Va detto subito, perché condiziona tutta l'interpretazione dei risultati: il
+gloss \textbf{non è} la lingua dei segni. È una trascrizione lessicale
+impoverita, che perde la struttura spaziale, i marcatori non manuali (espressioni
+facciali, direzione dello sguardo) e la simultaneità tipica del segnato. Parte
+della letteratura sostiene che il gloss sia una rappresentazione
+inadeguata: Yin e Read~\cite{yinread2020stmc} osservano che nei loro esperimenti
+la traduzione a partire dal \emph{video} batte quella a partire dal gloss di
+riferimento, e concludono che il gloss è una rappresentazione inefficiente della
+lingua dei segni. Sul piano più generale del trattamento delle lingue dei segni
+nell'elaborazione del linguaggio naturale, Yin et
+al.~\cite{yin2021including} raccolgono le raccomandazioni metodologiche del
+settore, fra cui l'avvertenza a non trattare il gloss come se fosse la lingua.
+
+Nonostante questi limiti il gloss resta l'interfaccia testuale su cui si
+costruiscono i sistemi esistenti: esistono baseline aperte basate su gloss per
+la traduzione da lingua parlata a lingua dei segni~\cite{moryossef2023baseline} e
+architetture di produzione che trattano il compito come selezione e riordino di
+segni~\cite{walsh2024select}.
+
+Il compito affrontato qui, detto \emph{text-to-gloss} (T2G), è dunque:
+
+\begin{equation}
+  \text{inglese scritto} \;\longmapsto\; \text{sequenza di gloss ASL}
+\end{equation}
+
+Si tratta di un passo intermedio in una ipotetica pipeline più ampia
+(testo $\to$ gloss $\to$ avatar segnante), non di un sistema di traduzione
+completo.
+
+\section{Che cosa è stato costruito}
+
+Il sistema si basa su un modello linguistico di piccole dimensioni,
+\texttt{Qwen2.5-0.5B-Instruct}, adattato al compito con due famiglie di metodi:
+
+\begin{itemize}
+  \item \textbf{SFT} (\emph{supervised fine-tuning}): addestramento supervisionato
+        classico, in cui il modello impara a riprodurre il gloss di riferimento;
+  \item \textbf{GRPO} (\emph{Group Relative Policy Optimization}): apprendimento
+        per rinforzo, in cui il modello genera più candidati per ogni frase e
+        viene premiato in base alla qualità relativa di ciascuno.
+\end{itemize}
+
+Le due famiglie sono state combinate in quattro celle sperimentali: modello base
+senza addestramento, solo SFT, solo GRPO a partire dal modello base, e la
+pipeline completa SFT seguito da GRPO.
+
+A queste si sovrappongono due fattori ortogonali:
+
+\begin{itemize}
+  \item la modalità di \emph{prompting}: \emph{zero-shot} (solo la frase da
+        tradurre) oppure \emph{few-shot} con retrieval (nel prompt vengono
+        inseriti $k=3$ esempi simili recuperati dal training set);
+  \item la \emph{decodifica vincolata}: un componente simbolico (un
+        \emph{Trie}, ossia un albero di prefissi) che a ogni passo di generazione
+        vieta al modello di emettere token che non portino a un gloss valido.
+\end{itemize}
+
+Quest'ultimo elemento è ciò che rende il sistema \emph{neuro-simbolico}: una rete
+neurale produce le probabilità, una struttura dati simbolica ne restringe il
+supporto.
+
+\section{Il risultato principale, in anticipo}
+
+Questa relazione non riporta un miglioramento delle metriche. Riporta un
+\textbf{risultato negativo con meccanismo}, che è più utile di un miglioramento
+apparente perché spiega \emph{perché} la domanda iniziale era mal posta.
+
+Il fatto centrale, misurato e documentato nel
+Capitolo~\ref{cap:dataset}, è che il corpus impiegato (ASLG-PC12) non è stato
+prodotto da annotatori umani: è \textbf{sintetico}, generato applicando regole
+all'inglese. La conseguenza pratica è che una baseline a regole, costruita in
+circa quindici righe di codice contando le corrispondenze parola-per-parola nel
+solo training set, ottiene:
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Sistema & ROUGE-L & Exact match \\
+\midrule
+Baseline a regole (nessun apprendimento) & $0{,}9697$ & $0{,}5912$ \\
+SFT (modello addestrato) & $0{,}9752$ & $0{,}8130$ \\
+GRPO da modello base & $0{,}6076$ & $0{,}0528$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Si legga con attenzione la terza riga: il miglior risultato ottenuto con
+reinforcement learning ($0{,}6076$) sta \emph{molto sotto} una regola che non
+apprende nulla ($0{,}9697$). Persino la trasformazione banale ``metti tutto in
+maiuscolo'' raggiunge ROUGE-L $0{,}6454$, cioè batte il GRPO.
+
+Da qui seguono tre conseguenze che strutturano il resto della relazione:
+
+\begin{enumerate}
+  \item \textbf{Nessun numero è interpretabile senza la baseline a regole
+        accanto.} Un risultato di $0{,}6$ su questo corpus non è un successo
+        parziale: è un fallimento rispetto a un riferimento che nessuno aveva
+        calcolato.
+  \item \textbf{La domanda ``il GRPO aiuta il T2G?'' non è ben posta su
+        ASLG-PC12.} Il compito è quasi deterministico, l'SFT lo satura, e
+        qualsiasi metodo di rinforzo parte già in svantaggio rispetto a una
+        regola. La domanda si riduce a ``il GRPO memorizza una mappa
+        quasi-identità meglio dell'SFT?'', che riguarda l'ottimizzazione e non
+        la lingua dei segni.
+  \item \textbf{La metrica di riferimento è essa stessa difettosa.} Come
+        mostrato nel Capitolo~\ref{cap:metriche}, l'implementazione di ROUGE-L
+        impiegata è insensibile alle maiuscole e spezza i token sui caratteri
+        non alfanumerici, quindi premia un modello che si limita a copiare
+        l'inglese.
+\end{enumerate}
+
+\section{Contributi}
+
+Al netto del risultato negativo, il lavoro produce alcuni contributi
+verificabili:
+
+\begin{itemize}
+  \item una \textbf{baseline a regole} riutilizzabile
+        (\texttt{src/analysis/rule\_baseline.py}) che rende interpretabili i
+        numeri su questo corpus, insieme a una metrica insensibile alla copia
+        (\emph{non-copy-token accuracy});
+  \item un \textbf{censimento degli artefatti} del generatore del corpus: il
+        $10{,}47\%$ delle righe di training contiene parole corrotte da una
+        rimozione di sottostringa (per esempio \texttt{therefore} diventa
+        \texttt{DESC-REFORE});
+  \item la \textbf{quantificazione del supporto dei rollout}, che spiega
+        meccanicamente quando il reinforcement learning non può funzionare
+        (Capitolo~\ref{cap:grpo});
+  \item un risultato \textbf{neuro-simbolico non ovvio}: il vincolo simbolico
+        peggiora la metrica di sovrapposizione e contemporaneamente \emph{abilita}
+        il segnale di reward (Capitolo~\ref{cap:decoding});
+  \item due \textbf{obiettivi ausiliari} implementati e qualificati prima di
+        essere addestrati, con i relativi criteri di promozione
+        (Capitolo~\ref{cap:ausiliari}).
+\end{itemize}
+
+\section{Come leggere questa relazione}
+
+La relazione è pensata per essere autocontenuta. Il
+Capitolo~\ref{cap:fondamenti} introduce da zero le nozioni teoriche necessarie:
+modelli linguistici autoregressivi, entropia incrociata, adattamento a rango
+basso, apprendimento per rinforzo, gradiente di policy. Chi ha già familiarità
+con questi argomenti può saltarlo.
+
+I capitoli successivi seguono la pipeline: dati
+(Capitolo~\ref{cap:dataset}), modello (Capitolo~\ref{cap:modello}), i due
+metodi di addestramento (Capitoli~\ref{cap:sft} e~\ref{cap:grpo}), il disegno
+delle reward (Capitolo~\ref{cap:reward}), il componente simbolico
+(Capitolo~\ref{cap:decoding}), gli obiettivi ausiliari
+(Capitolo~\ref{cap:ausiliari}), le metriche (Capitolo~\ref{cap:metriche}) e i
+risultati (Capitolo~\ref{cap:risultati}). Gli ultimi tre capitoli riguardano
+l'infrastruttura di calcolo, l'organizzazione del codice e le conclusioni.
+
+Ogni capitolo segue lo stesso schema: prima la teoria, poi la scelta
+implementativa, poi il file e la funzione che la realizzano. I valori numerici
+riportati sono tutti misurati; dove un valore non è disponibile è indicato
+esplicitamente con un segnaposto, invece di essere stimato.

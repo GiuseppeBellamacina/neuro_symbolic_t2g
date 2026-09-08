@@ -1,0 +1,292 @@
+\chapter{Decodifica vincolata: il componente simbolico}
+\label{cap:decoding}
+
+Questo capitolo descrive l'unico elemento propriamente \emph{neuro-simbolico} del
+sistema, e riporta il risultato più controintuitivo dell'intero lavoro: il
+vincolo simbolico \emph{peggiora} la metrica di sovrapposizione e
+contemporaneamente \emph{abilita} il segnale di reward.
+
+\section{Il problema: dal vincolo sulle parole al vincolo sui token}
+
+L'uscita valida è una sequenza di gloss appartenenti a un vocabolario finito $G$
+di $15\,472$ elementi. Il modello, però, genera \emph{token}, e un gloss
+corrisponde in generale a più token (sezione sui fondamenti di tokenizzazione).
+Non si può quindi semplicemente restringere il vocabolario di uscita: bisogna
+tradurre il vincolo sul livello delle parole in un vincolo sul livello dei token.
+
+La formulazione corretta è quella della~\eqref{eq:trie-allowed}: al passo $t$,
+dato il prefisso di token già emesso, sono ammessi i token che mantengono il
+prefisso estendibile a un elemento di $G$. Il Trie costruito su $G$ è la
+struttura dati che rende questo calcolo immediato.
+
+Operativamente il vincolo agisce sui logits come nella~\eqref{eq:constrained}:
+si pone $z_{t,v} = -\infty$ per ogni $v \notin \allowed_t$ prima della softmax.
+
+\section{Implementazione}
+
+Due componenti, con responsabilità separate:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+File & Ruolo \\
+\midrule
+\texttt{src/grammar/gloss\_grammar.py} & \texttt{GlossVocabularyMask}: il Trie e il calcolo dell'insieme ammesso \\
+\texttt{src/grammar/grammar\_logits\_processor.py} & \texttt{GlossVocabularyLogitsProcessor}: l'applicazione ai logits \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La separazione è deliberata: la maschera è una struttura dati pura, testabile
+senza modello, mentre il processore di logits è l'adattatore verso l'interfaccia
+di generazione della libreria. Tutti i test sulla correttezza del vincolo agiscono
+sulla prima, senza caricare la GPU.
+
+\subsection{La doppia radice}
+\label{sec:trie-dual-root}
+
+Un dettaglio che non è un dettaglio. Il tokenizzatore codifica lo spazio come
+parte del token successivo: il token per \texttt{"HOUSE"} e quello per
+\texttt{"~HOUSE"} sono identificatori distinti. Ne segue che il primo gloss di
+una sequenza e i gloss successivi hanno insiemi di primi token \emph{diversi}.
+
+Il Trie è quindi costruito con \textbf{due radici}:
+\begin{description}
+  \item[\texttt{root}] usata per il primo gloss della sequenza, i cui token
+        iniziali non hanno spazio davanti;
+  \item[\texttt{space\_root}] usata per tutti i gloss successivi, i cui token
+        iniziali portano lo spazio.
+\end{description}
+
+Se si usasse una sola radice si aprirebbe un difetto concreto: il modello
+potrebbe concatenare due gloss senza separatore, producendo forme come
+\texttt{DEBUTRECHT} (dalla giustapposizione di \texttt{DEBUT} e
+\texttt{RECHT}) che il Trie a radice singola accetterebbe come prefisso valido
+perché non distingue il confine di parola. La doppia radice rende il confine
+esplicito nella struttura.
+
+\subsection{Numeri della costruzione}
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Grandezza & Valore \\
+\midrule
+Gloss nel vocabolario & $15\,472$ \\
+Identificatori di token ammessi come primo token & $3\,967$ \\
+Gloss con il primo token bloccato & $4$ \\
+Massa di probabilità irraggiungibile & $12 / 897\,971$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+I quattro gloss non emettibili sono \texttt{-RRB-}, \texttt{WWW.8HOURS.EU},
+una forma costituita da un asterisco isolato, e una forma che inizia con il
+carattere di \emph{byte order mark}. Sono tutti artefatti del corpus
+(sezione~\ref{sec:artefatti}), non gloss linguisticamente significativi: la loro
+inaccessibilità non costituisce una perdita.
+
+La massa irraggiungibile di $12$ su $897\,971$ è la verifica quantitativa che il
+vincolo non stia tagliando fuori qualcosa di rilevante: circa una parte su
+settantacinquemila.
+
+\subsection{L'interfaccia per gli usi non generativi}
+
+Il vincolo serve anche al di fuori della generazione: gli obiettivi ausiliari
+del Capitolo~\ref{cap:ausiliari} hanno bisogno di conoscere l'insieme ammesso in
+modalità \emph{teacher-forced}, cioè per prefissi noti in blocco e non generati
+uno alla volta. A questo scopo è stato aggiunto il metodo
+\begin{center}
+\texttt{allowed\_mask\_for\_prefixes(prefixes, vocab\_size, device)}
+\end{center}
+con il supporto interno \texttt{\_allowed\_after\_prefix}. Restituisce
+direttamente la maschera booleana per un insieme di prefissi, evitando di
+duplicare la logica del Trie in due punti del codice: la definizione di ``token
+ammesso'' esiste in un solo posto, e sia la generazione sia la loss ausiliaria
+la consumano.
+
+\section{L'alternativa scartata: l'automa a stack}
+\label{sec:pda-scartato}
+
+Il progetto conteneva, in una fase precedente, un'implementazione di automa a
+stack (\emph{pushdown automaton}) con parsing LL(1), pensata per imporre una
+grammatica context-free invece di un semplice lessico chiuso. È stata rimossa.
+Le ragioni vanno documentate, perché la rimozione di codice funzionante richiede
+giustificazione.
+
+\begin{enumerate}
+  \item \textbf{Non è mai stata eseguita.} Il componente non ha mai prodotto un
+        risultato sperimentale. Manteneva quindi un costo di manutenzione senza
+        contropartita.
+  \item \textbf{Conflitto di parsing non risolto.} La grammatica presentava un
+        conflitto fra la produzione vuota e l'insieme dei simboli che possono
+        seguire un non terminale, innescato dai gloss che iniziano con una cifra
+        (per esempio \texttt{0}, \texttt{8}, \texttt{08.30}). Un parser LL(1)
+        richiede che l'insieme dei primi simboli e quello dei simboli seguenti
+        siano disgiunti in presenza di produzioni vuote; qui non lo erano.
+  \item \textbf{Sovradimensionamento.} Il linguaggio target è
+        \texttt{gloss*}: una chiusura di Kleene su un insieme finito. È un
+        linguaggio regolare, riconoscibile da un automa a stati finiti. Un automa
+        a stack riconosce linguaggi context-free, strettamente più espressivi:
+        la potenza aggiuntiva non serviva a nulla su questo compito.
+\end{enumerate}
+
+La conclusione generale è che la scelta del formalismo simbolico deve seguire la
+complessità effettiva del linguaggio da vincolare, non l'ambizione del disegno.
+Sulla decodifica grammaticalmente vincolata in senso pieno esiste letteratura
+matura~\cite{geng2023gcd,park2024gad}; sarebbe la strada corretta se il vincolo
+fosse davvero context-free, che qui non è il caso.
+
+\section{Il risultato controintuitivo}
+\label{sec:trie-risultato}
+
+Ecco l'effetto del vincolo sulla cella base zero-shot.
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Metrica & Senza Trie & Con Trie \\
+\midrule
+ROUGE-L & $0{,}3648$ & $0{,}1373$ \\
+Non-copy-token accuracy & $0{,}0006$ & $0{,}0432$ \\
+Validity & --- & $0{,}9006$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il vincolo fa \emph{crollare} ROUGE-L da $0{,}3648$ a $0{,}1373$: una perdita
+apparente di $0{,}23$. Allo stesso tempo la non-copy-token accuracy passa da
+$0{,}0006$ a $0{,}0432$, un fattore circa $70$.
+
+\subsection{Come si spiega}
+
+Le due metriche misurano cose diverse, e il vincolo agisce su di esse in
+direzioni opposte.
+
+Senza vincolo, il modello base fa la cosa per cui è stato pre-addestrato: produce
+inglese. Poiché il gloss è in larga parte inglese maiuscolizzato
+(sezione~\ref{sec:sintetico}), produrre inglese ottiene un ROUGE-L
+rispettabile ``per caso''. Ma la non-copy-token accuracy, che valuta solo le
+posizioni dove il gloss \emph{differisce} dal testo, è $0{,}0006$: praticamente
+nulla. Il modello non ha imparato niente sul gloss; sta beneficiando della
+sovrapposizione lessicale del corpus.
+
+Con il vincolo, il modello è costretto a emettere solo gloss del vocabolario.
+Perde la possibilità di copiare l'inglese, quindi perde il ROUGE-L gratuito. In
+compenso, sulle posizioni che richiedono una trasformazione reale, comincia a
+produrre qualcosa di corretto ($0{,}0432$ invece di $0{,}0006$).
+
+Detto in modo compatto: il vincolo trasforma una copia con punteggio alto in un
+tentativo di traduzione con punteggio basso. La metrica di sovrapposizione
+registra un peggioramento; la metrica che conta registra un miglioramento di
+quasi due ordini di grandezza.
+
+\subsection{L'effetto veramente importante: il vincolo crea il supporto}
+
+Il ROUGE-L, però, non è la ragione per cui il vincolo è presente nel sistema. La
+ragione è nella tabella del supporto dei rollout
+(sezione~\ref{sec:supporto}), che vale la pena riportare nella parte pertinente:
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Substrato zero-shot & Gruppi morti & Reward media \\
+\midrule
+Senza Trie & $0{,}7390$ & $-0{,}9579$ \\
+Con Trie   & $0{,}1990$ & $-0{,}8034$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Senza vincolo, il $74\%$ dei gruppi è morto: come stabilito nella
+sezione~\ref{sec:gruppi-morti}, per quei prompt il gradiente è esattamente zero e
+il reinforcement learning non è nemmeno definito come procedura utile. Con il
+vincolo, i gruppi morti scendono al $20\%$.
+
+\textbf{Il componente simbolico non migliora le metriche: rende possibile
+l'apprendimento.} È il risultato neuro-simbolico di questo lavoro, e ha una forma
+argomentativa precisa. Il vincolo restringe il supporto della distribuzione
+generativa alla regione in cui la reward è \emph{discriminante}. Fuori da quella
+regione tutti i candidati sono ugualmente cattivi, quindi la
+sottrazione~\eqref{eq:grpo-adv} li annulla tutti; dentro, differiscono, quindi
+producono gradiente.
+
+Questo giustifica anche una raccomandazione operativa generale: quando si prepara
+un esperimento di reinforcement learning su un compito con uscita strutturata,
+conviene misurare il supporto dei rollout \emph{prima} di addestrare, e
+considerare il vincolo simbolico non come un accessorio di qualità ma come una
+precondizione per la fattibilità.
+
+\section{Il costo}
+
+Il vincolo non è gratuito. A ogni passo di generazione richiede:
+\begin{itemize}
+  \item la risoluzione del nodo corrente del Trie a partire dal prefisso;
+  \item la costruzione di una maschera booleana sulla dimensione del vocabolario;
+  \item l'applicazione della maschera ai logits.
+\end{itemize}
+
+Il costo dominante è la costruzione della maschera, lineare in $|\vocab|$. Nel
+regime di questo progetto (modello piccolo, $G=8$ candidati per gruppo,
+completion di al massimo $128$ token) resta trascurabile rispetto al costo del
+passaggio in avanti della rete. Su modelli più grandi la valutazione andrebbe
+rifatta, e la memorizzazione delle maschere per nodo del Trie sarebbe
+l'ottimizzazione naturale.
+
+\section{Che cosa non fa il vincolo}
+
+Per evitare sovrainterpretazioni, va delimitato ciò che il Trie garantisce.
+
+\begin{description}
+  \item[Garantisce] che ogni parola emessa appartenga al vocabolario gloss e che
+        i confini di parola siano rispettati.
+  \item[Non garantisce] che la \emph{sequenza} sia grammaticalmente valida in
+        ASL: il linguaggio riconosciuto è \texttt{gloss*}, cioè qualunque
+        successione di gloss legali.
+  \item[Non garantisce] che la sequenza sia una traduzione corretta della frase
+        di ingresso. Il vincolo è sintattico e non guarda l'ingresso.
+  \item[Non impedisce] le ripetizioni degeneri: \texttt{HOUSE HOUSE HOUSE} è una
+        sequenza perfettamente ammissibile per il Trie. È il motivo per cui la
+        reward include una componente dedicata alla ripetizione
+        (Capitolo~\ref{cap:reward}) e per cui il test avversario sul peso $w$
+        della sezione precedente era necessario.
+\end{description}
+
+Il vincolo è dunque una condizione necessaria di buona formazione, non una
+condizione sufficiente di correttezza. Confondere le due cose porterebbe a
+attribuire al componente simbolico garanzie che non ha.
+
+\section{Il costo nascosto della generazione vincolata}
+
+Il risultato della sezione~\ref{sec:trie-risultato} --- il vincolo peggiora la
+metrica di sovrapposizione --- non è un'anomalia locale di questo progetto. È
+un fenomeno riconosciuto nella letteratura sulla generazione strutturata, e
+conviene collocarvelo perché ne chiarisce la natura.
+
+Il punto teorico è quello anticipato a proposito della~\eqref{eq:constrained}:
+mascherare i logits e rinormalizzare produce una distribuzione che \emph{non} è
+la distribuzione condizionata del modello all'insieme delle sequenze valide. La
+rinormalizzazione è locale, passo per passo, mentre il condizionamento corretto
+richiederebbe di tenere conto della probabilità che il prefisso corrente possa
+essere completato in una sequenza valida. Ne segue un errore sistematico, ed
+esistono metodi che lo correggono restituendo stimatori asintoticamente non
+distorti~\cite{ye2504}.
+
+Le conseguenze pratiche di questa distorsione sono state documentate da due
+angoli distinti. Da un lato, il vincolo può degradare la qualità del contenuto
+generato anche quando garantisce la forma, con un costo che è stato
+caratterizzato come dipendente dal condizionamento sulla bozza
+\cite{reddy2603}. Dall'altro, il vincolo può indurre il modello a proseguire
+lungo una struttura formalmente valida ma sostanzialmente sbagliata, un effetto
+descritto come tassa di allineamento della decodifica
+vincolata~\cite{zhou2604}.
+
+Nel presente lavoro la manifestazione è precisamente questa: il modello base
+vincolato produce sequenze di gloss ben formate (validity $0{,}9006$) ma con
+punteggio di sovrapposizione basso ($0{,}1373$), mentre senza vincolo produce
+sequenze mal formate (validity $0{,}1043$) con punteggio più alto ($0{,}3648$).
+La differenza rispetto alla letteratura citata è nella conclusione operativa:
+qui il vincolo va mantenuto \emph{nonostante} il costo, perché è ciò che rende
+non nullo il gradiente del reinforcement learning
+(sezione~\ref{sec:supporto}). Il costo sulla metrica di sovrapposizione è il
+prezzo pagato per avere un segnale di apprendimento.

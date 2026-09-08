@@ -1,0 +1,259 @@
+\chapter{Risultati}
+\label{cap:risultati}
+
+Tutti i numeri di questo capitolo seguono il protocollo fissato nel
+Capitolo~\ref{cap:metriche}: $2\,000$ prompt del test set, $N=5$ generazioni per
+prompt, campionamento a temperatura $0{,}7$, metriche versione $2$.
+
+\section{La tabella principale}
+
+\begin{center}
+\begin{tabular}{lrrrrrr}
+\toprule
+Cella & ROUGE-L & Pass@1 & BLEU-s & GlossF1 & Validity & EM \\
+\midrule
+Base zero-shot senza Trie & $0{,}3648$ & --- & --- & $0{,}2279$ & $0{,}1043$ & $0{,}0012$ \\
+Base zero-shot con Trie & $0{,}1373$ & $0{,}182$ & $0{,}030$ & $0{,}1186$ & $0{,}9006$ & $0{,}0017$ \\
+Base few-shot con Trie & $0{,}4664$ & $0{,}733$ & $0{,}188$ & $0{,}4026$ & $0{,}9676$ & $0{,}0148$ \\
+GRPO da modello base & $0{,}6076$ & $0{,}9285$ & $0{,}3205$ & $0{,}6147$ & $0{,}9915$ & $0{,}0528$ \\
+SFT seguito da GRPO & $0{,}5114$ & $0{,}796$ & $0{,}210$ & $0{,}4702$ & $0{,}9880$ & $0{,}0203$ \\
+SFT soltanto & $0{,}9752$ & $0{,}9985$ & $0{,}9436$ & $0{,}9765$ & $0{,}9998$ & $0{,}8130$ \\
+\midrule
+\textbf{Baseline a regole} & $\mathbf{0{,}9685}$ & --- & $\mathbf{0{,}8846}$ & $\mathbf{0{,}9665}$ & --- & $\mathbf{0{,}5865}$ \\
+$\mathrm{uppercase}(\text{text})$ & $0{,}6454$ & --- & --- & --- & --- & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La riga in grassetto è il riferimento che rende il resto leggibile. Le
+osservazioni sostanziali sono cinque, ed è opportuno affrontarle in ordine di
+importanza decrescente.
+
+\section{Osservazione 1: nessun risultato con RL supera la regola}
+
+Il miglior risultato ottenuto con reinforcement learning è $0{,}6076$ di ROUGE-L
+(GRPO dal modello base). La baseline a regole ottiene $0{,}9685$. La
+trasformazione \emph{metti tutto in maiuscolo} ottiene $0{,}6454$.
+
+Cioè: il miglior risultato con RL è \textbf{inferiore} a quello ottenibile
+maiuscolizzando l'input, e distante $0{,}36$ da una tabella di corrispondenze
+costruita contando parole nel training set.
+
+Su exact match il divario è più netto: $0{,}0528$ contro $0{,}5865$, un fattore
+undici. Su gloss F1: $0{,}6147$ contro $0{,}9665$.
+
+Non esiste una lettura in cui questi numeri rappresentino un successo del
+reinforcement learning su questo compito. La domanda residua non è ``quanto
+migliora'', ma ``perché non poteva funzionare''; il capitolo sul GRPO ha dato la
+risposta meccanica, e la sezione~\ref{sec:decomposizione} la quantifica.
+
+\section{Osservazione 2: l'SFT è al tetto, il che invalida la metrica}
+
+L'SFT ottiene ROUGE-L $0{,}9752$, superiore sia alla baseline a regole
+($0{,}9685$) sia al miglior valore pubblicato in letteratura su ASLG-PC12
+($0{,}9587$, \cite{peng2023monolingual}).
+
+Un modello da $0{,}5$ miliardi di parametri, con adattatori LoRA, addestrato per
+tre epoche su una singola GPU, che supera lo stato dell'arte pubblicato. La
+lettura corretta non è che il nostro sistema sia migliore: è che la metrica ha
+esaurito la propria capacità discriminante.
+
+Il contrasto con PHOENIX-2014T rende la cosa evidente. Su quel corpus, dove la
+sovrapposizione lessicale fra gloss e testo è $15{,}59\%$ invece di $98{,}23\%$
+(sezione~\ref{sec:sintetico}), i migliori risultati T2G riportati sono intorno a
+ROUGE-L $55{,}18$~\cite{ouargani2023t2g}. Circa quaranta punti in meno, sullo
+stesso compito nominale e con metodi comparabili. La differenza non è nei
+metodi: è nel dato.
+
+\section{Osservazione 3: il vincolo simbolico e le due metriche}
+
+Le prime due righe della tabella principale, lette insieme alla non-copy-token
+accuracy, sono il risultato neuro-simbolico del lavoro.
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+Cella & ROUGE-L & Validity & Non-copy accuracy \\
+\midrule
+Base zero-shot senza Trie & $0{,}3648$ & $0{,}1043$ & $0{,}0006$ \\
+Base zero-shot con Trie & $0{,}1373$ & $0{,}9006$ & $0{,}0432$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il vincolo abbassa ROUGE-L di $0{,}23$, alza la validity di $0{,}80$ e alza la
+non-copy accuracy di un fattore $70$. Il meccanismo è quello discusso nel
+Capitolo~\ref{cap:decoding}: senza vincolo il modello produce inglese in
+minuscolo, che la metrica premia per il difetto documentato nella
+sezione~\ref{sec:difetto-rouge}; con il vincolo produce gloss, male, ma
+producendo gloss.
+
+La validity di $0{,}1043$ nella prima riga è il dato che chiude la questione:
+nove uscite su dieci del modello senza vincolo non sono nemmeno sequenze di
+gloss ben formate. Assegnare loro ROUGE-L $0{,}3648$ è un artefatto della
+metrica, non una misura di qualità.
+
+\section{Osservazione 4: le lunghezze non mostrano deriva verso la verbosità}
+
+Un'ipotesi corrente sul reinforcement learning è che tenda a produrre uscite più
+lunghe, perché la reward correla con la lunghezza~\cite{singhal2023length}. Era
+l'ipotesi di partenza dell'analisi della reward
+(sezione sul test avversario nel Capitolo~\ref{cap:reward}), e va verificata sui
+dati.
+
+\begin{center}
+\begin{tabular}{lrrrrr}
+\toprule
+Cella & Gen.\ & Rif.\ & Rapporto & Errore firmato & Errore assoluto \\
+\midrule
+GRPO da base & $12{,}40$ & $12{,}26$ & $1{,}011$ & $+0{,}14$ & $2{,}81$ \\
+SFT seguito da GRPO & $10{,}86$ & $12{,}26$ & $0{,}886$ & $-1{,}40$ & $3{,}59$ \\
+SFT soltanto & $12{,}32$ & $12{,}26$ & $1{,}005$ & $+0{,}06$ & $0{,}09$ \\
+Base zero-shot con Trie & $13{,}96$ & $12{,}26$ & $1{,}139$ & $+1{,}70$ & --- \\
+Base zero-shot senza Trie & $10{,}09$ & $12{,}26$ & $0{,}823$ & $-2{,}17$ & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La lettura contraddice l'ipotesi.
+
+\begin{itemize}
+  \item Il GRPO dal modello base produce uscite di lunghezza praticamente
+        corretta in media (rapporto $1{,}011$, errore firmato $+0{,}14$). Nessuna
+        deriva verso la verbosità.
+  \item La cella SFT seguito da GRPO produce uscite \emph{più corte} del
+        riferimento (rapporto $0{,}886$, errore firmato $-1{,}40$). Se ci fosse
+        una pressione della reward sulla lunghezza, agirebbe nella direzione
+        opposta a quella prevista.
+  \item L'errore \emph{assoluto} è la colonna informativa. L'SFT ha $0{,}09$:
+        azzecca la lunghezza quasi sempre. Il GRPO da base ha $2{,}81$ e la
+        pipeline SFT$\to$GRPO ha $3{,}59$, con errori firmati piccoli. Cioè: le
+        celle con RL sbagliano la lunghezza di circa tre token per volta, in
+        entrambe le direzioni, e gli errori si compensano nella media.
+\end{itemize}
+
+La conclusione è che il problema delle celle con RL non è un bias di lunghezza
+ma una \emph{varianza} di lunghezza. È coerente con l'analisi analitica della
+componente \texttt{edit\_validity}, che perde circa $0{,}13$ per token appeso
+(equazione~\eqref{eq:append-k}): la reward penalizza attivamente
+l'allungamento, quindi la verbosità non può essere il canale di guadagno.
+
+Questa è una ritrattazione dichiarata: l'ipotesi ``la reward premia la
+verbosità'' era ragionevole a priori, è stata testata due volte
+(analiticamente e sui dati di lunghezza), e va abbandonata.
+
+\section{Osservazione 5: la degradazione della pipeline SFT$\to$GRPO}
+
+Il risultato più scomodo della tabella:
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Cella & ROUGE-L & EM \\
+\midrule
+SFT soltanto & $0{,}9752$ & $0{,}8130$ \\
+SFT seguito da GRPO & $0{,}5114$ & $0{,}0203$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Applicare il GRPO a una policy già addestrata la \textbf{distrugge}: ROUGE-L da
+$0{,}9752$ a $0{,}5114$, exact match da $0{,}8130$ a $0{,}0203$. Non un
+peggioramento marginale, un crollo di quaranta punti di ROUGE-L e di quasi
+ottanta punti di exact match.
+
+Il meccanismo è quello documentato nella tabella del supporto dei rollout
+(sezione~\ref{sec:supporto}). Sulla policy SFT, l'$84{,}8\%$ dei gruppi ha
+varianza nulla: reward media $+0{,}9462$, nessun gruppo al valore minimo, tutti
+gli otto candidati corretti e con la stessa reward. Su quei gruppi il
+vantaggio~\eqref{eq:grpo-adv} è esattamente zero e non c'è aggiornamento utile.
+
+Sul restante $15{,}2\%$, invece, c'è varianza, e l'aggiornamento avviene. Ma
+quel $15\%$ è per costruzione il sottoinsieme in cui la policy SFT era
+\emph{incerta}, cioè i casi difficili e potenzialmente atipici. Ottimizzare la
+reward su un campione così selezionato, con la penalità KL come unico freno
+($\beta = 0{,}04$), sposta la policy in una regione che soddisfa meglio la reward
+e peggio il riferimento. In assenza di dynamic sampling
+(sezione sui limiti di TRL nel Capitolo~\ref{cap:grpo}) non esiste nessun
+meccanismo che compensi questa selezione.
+
+Il fenomeno è documentato in letteratura come sovraottimizzazione del modello di
+reward~\cite{gao2022overoptimization}: la reward è un surrogato imperfetto, e
+oltre un certo punto migliorarla peggiora l'obiettivo vero. La particolarità qui
+è che si dispone della misura che lo prevedeva \emph{prima} dell'esperimento:
+l'$84{,}8\%$ di varianza nulla era osservabile con una singola sonda sui rollout,
+senza addestrare.
+
+\section{La decomposizione dell'effetto}
+\label{sec:decomposizione}
+
+La domanda che chiude il capitolo: quanto dell'apparente miglioramento è
+attribuibile al reinforcement learning?
+
+Si consideri il percorso dal punto di partenza peggiore al miglior risultato con
+RL:
+
+\begin{center}
+\begin{tabular}{lrl}
+\toprule
+Passaggio & ROUGE-L & Variazione \\
+\midrule
+Base zero-shot con Trie & $0{,}1373$ & --- \\
+Base few-shot con Trie & $0{,}4664$ & $\mathbf{+0{,}33}$ \quad (prompting, nessun addestramento) \\
+GRPO da modello base & $0{,}6076$ & $+0{,}14$ \quad (RL, confuso) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il totale è circa $+0{,}47$, di cui:
+
+\begin{itemize}
+  \item \textbf{$0{,}33$ viene dal prompting}, cioè dall'inserimento di tre
+        esempi recuperati nel prompt. Nessun parametro aggiornato, nessun tempo
+        di GPU per addestramento. Circa il $70\%$ dell'effetto totale.
+  \item \textbf{$0{,}14$ è attribuito al RL}, ma in modo \emph{confuso}: la cella
+        GRPO da modello base non è isolata dal fattore prompting, e non esiste
+        una cella che vari soltanto il metodo di addestramento tenendo fisso il
+        prompting.
+\end{itemize}
+
+Questa è la confusione di fattori centrale nel disegno originale. Le celle
+sperimentali variavano simultaneamente metodo di addestramento e modalità di
+prompting, quindi il contributo dei due non è separabile dai dati raccolti.
+
+La conseguenza per la lettura di questa relazione è precisa: \textbf{il fattore
+sperimentale più efficace misurato in tutto il progetto è il prompting}, e non
+il metodo di addestramento. Se si dovesse riprogettare l'esperimento, il fattore
+primario sarebbe la griglia prompting $\times$ decodifica, con il metodo di
+addestramento come fattore secondario applicato \emph{dopo} aver identificato il
+substrato con supporto migliore (che, secondo la
+sezione~\ref{sec:supporto}, è few-shot con Trie: gruppi morti allo $0{,}85\%$).
+
+\section{Riepilogo per non-copy accuracy}
+
+Poiché la non-copy-token accuracy è la metrica con maggiore potere discriminante
+su questo corpus (Capitolo~\ref{cap:metriche}), vale la pena chiudere con
+l'ordinamento che essa induce:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Sistema & Non-copy accuracy \\
+\midrule
+SFT soltanto & $0{,}9660$ \\
+Baseline a regole & $0{,}9424$ \\
+GRPO da modello base & $0{,}4641$ \\
+Base zero-shot con Trie & $0{,}0432$ \\
+Base zero-shot senza Trie & $0{,}0006$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+L'ordinamento è lo stesso che si ottiene con ROUGE-L, con un'eccezione
+significativa: le prime due righe si stringono ($0{,}9660$ contro $0{,}9424$,
+cioè $+0{,}0236$) e le ultime due si separano in modo interpretabile. In
+particolare, il GRPO da modello base risolve correttamente meno della metà delle
+posizioni non banali, contro il $94\%$ di una tabella di corrispondenze.
+
+Nessuna delle celle con reinforcement learning si avvicina alla regola. È il
+risultato del progetto, ed è negativo.
