@@ -45,12 +45,32 @@ from typing import Any
 
 import numpy as np
 
+# tqdm fallback for Apptainer containers without tqdm installed
+try:
+    from tqdm import tqdm
+except ImportError:
+
+    def tqdm(iterable=None, **kwargs):
+        return iterable if iterable is not None else iter(())
+
+
+from src.utils.phase_timing import phase
+
 logger = logging.getLogger(__name__)
 
 _META_VERSION = 1
 _META_FILENAME = "meta.json"
 _INDEX_FILENAME = "index.pkl"
 _SUPPORTED_BACKENDS = ("tfidf", "minilm")
+# Query per chunk nel percorso batch: gli score densi sono C x N float64,
+# quindi con N = 72979 e C = 256 si arriva a ~150 MB per chunk (72979 * 256
+# * 8 byte).  C = 512 raddoppierebbe a ~300 MB; float32 dimezzerebbe ma
+# cambiare i valori romperebbe la bit-parita' con il percorso a query
+# singola, che e' un requisito.
+_SCORE_CHUNK = 256
+# Finestra top-M iniziale della selezione: see _select_results.
+_TOP_M_BASE = 64
+_TOP_M_K_FACTOR = 8
 _DEFAULT_MINILM_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 _MINILM_INSTALL_HINT = (
     "Backend 'minilm' requires the optional 'retrieval' extra. "
@@ -321,7 +341,11 @@ class ExampleRetriever:
         except ImportError as e:
             raise ImportError(_TFIDF_INSTALL_HINT) from e
         self._vectorizer = TfidfVectorizer(sublinear_tf=True, ngram_range=(1, 2))
-        self._matrix = self._vectorizer.fit_transform(self._texts)
+        # Il fit su ~73k documenti costa 30-120s in silenzio: la fase viene
+        # annunciata PRIMA di iniziare, perche' un messaggio a posteriori non
+        # serve a nulla mentre il processo e' fermo.
+        with phase("Building TF-IDF index", detail=f"{len(self._texts)} documents"):
+            self._matrix = self._vectorizer.fit_transform(self._texts)
 
     def _build_minilm(self) -> None:
         """Encode the corpus texts with the MiniLM sentence transformer."""
@@ -389,8 +413,230 @@ class ExampleRetriever:
         if not self._texts:
             raise RuntimeError("Retriever has no indexed corpus; call build() first")
         scores = self._query_scores(query)
-        order = np.argsort(-scores, kind="stable")
         excluded = {normalize_text(t) for t in (exclude or ())}
+        return self._select_results(
+            scores, k, max_self_similarity=max_self_similarity, excluded=excluded
+        )
+
+    def retrieve_batch(
+        self,
+        queries: list[str],
+        k: int,
+        *,
+        exclude: set[str] | None = None,
+        max_self_similarity: float = 0.98,
+        per_query_exclude: list[set[str]] | None = None,
+    ) -> list[list[RetrievedExample]]:
+        """Apply :meth:`retrieve` to every query with one vectorized pass.
+
+        Le query vengono trasformate in un colpo solo e gli score calcolati
+        a chunk con un prodotto matriciale per blocco, invece che con una
+        ``transform`` e un prodotto per query; la selezione per riga usa la
+        stessa logica di :meth:`retrieve` (finestra top-M con fallback), quindi
+        sul backend ``tfidf`` i risultati sono bit-identici alle chiamate
+        singole.  Sul backend ``minilm`` gli score passano da BLAS in batch e
+        possono differire di qualche ulp dal percorso a query singola.
+
+        Args:
+            queries: Lista di query.
+            k: Number of examples per query.
+            exclude: Set di testi da non restituire mai (normalizzati
+                internamente), valido per tutte le query.
+            max_self_similarity: See :meth:`retrieve`.
+            per_query_exclude: Un set per query, unito a ``exclude``; serve
+                al caso "ogni query esclude se stessa" di
+                :func:`src.training.retrieval_setup.retrieve_few_shot_batch`.
+                Deve avere una voce per ogni query.
+
+        Returns:
+            One list of examples per query.
+
+        Raises:
+            ValueError: Se ``per_query_exclude`` non ha una voce per query.
+        """
+        if not queries:
+            return []
+        if not self._texts:
+            raise RuntimeError("Retriever has no indexed corpus; call build() first")
+        if k <= 0:
+            return [[] for _ in queries]
+        if per_query_exclude is not None and len(per_query_exclude) != len(queries):
+            raise ValueError(
+                "per_query_exclude must have one entry per query "
+                f"(got {len(per_query_exclude)} for {len(queries)} queries)"
+            )
+        shared = {normalize_text(t) for t in (exclude or ())}
+        # Set per riga precalcolati: nel loop caldo non si rifanno unioni ne'
+        # normalizzazioni a ogni query.
+        if per_query_exclude is None:
+            row_excludes: list[set[str] | None] = [None] * len(queries)
+        else:
+            row_excludes = [
+                shared | {normalize_text(t) for t in entry}
+                for entry in per_query_exclude
+            ]
+
+        n_chunks = -(-len(queries) // _SCORE_CHUNK)
+        chunks: Any = self._iter_score_chunks(queries)
+        # La barra ha senso solo su batch grandi (piu' di un chunk): su
+        # batch piccoli e' solo rumore e inquina l'output catturato dai test.
+        if len(queries) > _SCORE_CHUNK:
+            chunks = tqdm(
+                chunks, total=n_chunks, desc="Retrieving examples", unit="chunk"
+            )
+        results: list[list[RetrievedExample]] = []
+        offset = 0
+        for scores_chunk in chunks:
+            for row in range(scores_chunk.shape[0]):
+                row_exclude = row_excludes[offset + row]
+                excluded = shared if row_exclude is None else row_exclude
+                results.append(
+                    self._select_results(
+                        scores_chunk[row],
+                        k,
+                        max_self_similarity=max_self_similarity,
+                        excluded=excluded,
+                    )
+                )
+            offset += scores_chunk.shape[0]
+        return results
+
+    def _iter_score_chunks(self, queries: list[str]) -> Any:
+        """Genera gli score a chunk: un ndarray ``(C, N)``, una query per riga.
+
+        La memoria del chunk e' il compromesso chiave: gli score densi sono
+        ``C x N`` float64, quindi con N = 72979 e C = 256 si tengono ~150 MB
+        per chunk.  ``float32`` dimezzerebbe il picco ma cambiare i valori
+        romperebbe la bit-parita' con :meth:`retrieve`.
+        """
+        n = len(queries)
+        if self.backend == "tfidf":
+            # Una sola transform per tutte le query: nel percorso a query
+            # singola il costo dominante era la ripetizione di
+            # transform([q]) per ogni query.
+            q_matrix = self._vectorizer.transform(queries)
+            for start in range(0, n, _SCORE_CHUNK):
+                q_chunk = q_matrix[start : start + _SCORE_CHUNK]
+                # La matrice del corpus resta a SINISTRA: l'accumulo del
+                # prodotto sparso segue le righe del corpus, lo stesso ordine
+                # di self._matrix.dot(q_vec), quindi gli score sono
+                # bit-identici al percorso a query singola (con le query a
+                # sinistra l'ordine di accumulo cambia e gli score differiscono
+                # negli ultimi bit).  toarray(order="F") + trasposizione da
+                # una vista (C, N) a righe contigue, senza copia aggiuntiva.
+                chunk = (self._matrix @ q_chunk.T).toarray(order="F").T
+                yield np.clip(chunk, 0.0, 1.0)
+        else:
+            if self._embeddings is None:
+                raise RuntimeError(
+                    "Retriever has no indexed corpus; call build() first"
+                )
+            model = self._get_encoder()
+            # Un'unica encode per tutte le query al posto di N encode([q]).
+            emb = model.encode(
+                queries,
+                convert_to_numpy=True,
+                normalize_embeddings=True,
+                show_progress_bar=False,
+            )
+            for start in range(0, n, _SCORE_CHUNK):
+                emb_chunk = emb[start : start + _SCORE_CHUNK]
+                # BLAS su (C, D) @ (D, N): rispetto al prodotto a query
+                # singola (gemv) il blocking puo' differire di qualche ulp.
+                chunk = emb_chunk @ self._embeddings.T
+                yield np.clip(np.asarray(chunk, dtype=np.float64), 0.0, 1.0)
+
+    def _select_results(
+        self,
+        scores: np.ndarray,
+        k: int,
+        *,
+        max_self_similarity: float,
+        excluded: set[str] | None,
+    ) -> list[RetrievedExample]:
+        """Top-k con i filtri anti-leakage, equivalente allo scan completo.
+
+        Invece di ordinare tutto il corpus con ``argsort`` (O(N log N) per
+        query: ~5.5 min su 72979 query) si ordina solo una finestra top-M.
+        La selezione e' corretta finché nella finestra sopravvivono ai
+        filtri almeno ``k`` candidati; altrimenti la finestra si allarga
+        (M * 4) e in ultima istanza si ricade sull'argsort completo.  Il
+        fallback e' obbligatorio: su questo corpus la query e' sempre
+        presente nel corpus con similarita' 1.0 e ha near-duplicati sopra
+        0.98, quindi il numero di candidati scartati non e' limitato a
+        priori.
+        """
+        if k <= 0:
+            return []
+        n = scores.shape[0]
+        # M = max(64, 8k): con k = 3 (il caso few-shot) una finestra da 64
+        # assorbe la query se stessa e le decine di near-duplicati scartati
+        # dalla soglia; il fattore 8 copia k grandi.  Da benchmark locale
+        # (N = 72979): argpartition su M = 64 costa ~0.35 ms/query contro
+        # ~4.5 ms dell'argsort completo.
+        m = max(_TOP_M_BASE, _TOP_M_K_FACTOR * k)
+        excluded = excluded or set()
+        while True:
+            order = self._stable_top_window(scores, m)
+            results = self._scan_order(
+                order,
+                scores,
+                k,
+                max_self_similarity=max_self_similarity,
+                excluded=excluded,
+            )
+            if len(results) == k or m >= n:
+                # Con la finestra completa l'ordine e' quello dell'argsort
+                # globale: il risultato (anche piu' corto di k, quando i
+                # candidati superanti i filtri non bastano) e' definitivo.
+                return results
+            m *= 4
+
+    @staticmethod
+    def _stable_top_window(scores: np.ndarray, m: int) -> np.ndarray:
+        """Indici del top-``m`` in ordine stabile (score desc, indice asc).
+
+        ``np.argpartition`` non e' stabile e a parita' di score sceglie un
+        sottoinsieme arbitrario degli ex aequo; la finestra deve invece
+        contenere ESATTAMENTE il prefisso stabile del ranking completo,
+        altrimenti a parita' di score emergerebbero indici diversi dallo
+        scan di riferimento (non e' un caso teorico: la maggior parte del
+        corpus ha score 0.0 e il pareggio a cavallo della finestra e' la
+        norma).  Per questo si ricava la soglia ``tau`` (l'm-esimo score
+        maggiore), si prendono tutti gli strettamente maggiori di ``tau``
+        piu' i pareggi a ``tau`` con indice piu' basso finché non si arriva
+        a ``m``, e infine si ordina la finestra con ``lexsort`` su
+        (indice, -score), che replica il tie-breaking di
+        ``np.argsort(-scores, kind="stable")``.
+        """
+        n = scores.shape[0]
+        if m >= n:
+            return np.argsort(-scores, kind="stable")
+        # Il pivot alla posizione m-1 dell'argpartition e' l'm-esimo score
+        # maggiore, indipendentemente da quale pareggio finisce nel pivot.
+        tau = scores[np.argpartition(-scores, m - 1)[m - 1]]
+        greater = np.flatnonzero(scores > tau)
+        ties = np.flatnonzero(scores == tau)[: m - greater.size]
+        window = np.concatenate((greater, ties))
+        # lexsort usa l'ULTIMO key come primario: score decrescente, poi
+        # indice crescente per i pareggi.
+        return window[np.lexsort((window, -scores[window]))]
+
+    def _scan_order(
+        self,
+        order: np.ndarray,
+        scores: np.ndarray,
+        k: int,
+        *,
+        max_self_similarity: float,
+        excluded: set[str],
+    ) -> list[RetrievedExample]:
+        """Scorre ``order`` e raccoglie fino a ``k`` candidati superanti i filtri.
+
+        Identico allo scan dell'implementazione originale sull'argsort
+        completo: e' il punto in cui la semantica (scarti e ordine) resta
+        definita.
+        """
         results: list[RetrievedExample] = []
         for idx in order:
             score = float(scores[idx])
@@ -409,32 +655,6 @@ class ExampleRetriever:
             if len(results) == k:
                 break
         return results
-
-    def retrieve_batch(
-        self,
-        queries: list[str],
-        k: int,
-        *,
-        exclude: set[str] | None = None,
-        max_self_similarity: float = 0.98,
-    ) -> list[list[RetrievedExample]]:
-        """Apply :meth:`retrieve` to every query.
-
-        Args:
-            queries: List of queries.
-            k: Number of examples per query.
-            exclude: See :meth:`retrieve`.
-            max_self_similarity: See :meth:`retrieve`.
-
-        Returns:
-            One list of examples per query.
-        """
-        return [
-            self.retrieve(
-                q, k, exclude=exclude, max_self_similarity=max_self_similarity
-            )
-            for q in queries
-        ]
 
     def _query_scores(self, query: str) -> np.ndarray:
         """Compute the similarity of ``query`` against every corpus item."""

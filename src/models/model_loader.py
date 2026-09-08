@@ -7,6 +7,9 @@ Uses standard HuggingFace backend (transformers + peft + bitsandbytes).
 from __future__ import annotations
 
 import logging
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -24,8 +27,33 @@ from transformers import (
 )
 
 from src.utils.distributed import is_main_process
+from src.utils.phase_timing import format_duration
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _phase_log(label: str, *, detail: str = "") -> Iterator[None]:
+    """Replica logger-based di ``phase()`` (``src/utils/phase_timing.py``).
+
+    WHY: questo modulo emette tutto via ``logger.info``; usare ``phase()``
+    (che fa ``print``) introdurrebbe un secondo sink nello stesso percorso.
+    Il pattern è lo stesso: annuncio PRIMA del lavoro, durata DOPO — un
+    messaggio a posteriori non dice nulla mentre il processo è fermo.
+
+    Args:
+        label: Nome della fase.
+        detail: Informazione dimensionale opzionale (modello, quantizzazione).
+    """
+    suffix = f" ({detail})" if detail else ""
+    if is_main_process():
+        logger.info("%s%s...", label, suffix)
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        if is_main_process():
+            logger.info("%s: %s", label, format_duration(time.perf_counter() - start))
 
 
 # ---------------------------------------------------------------------------
@@ -167,13 +195,14 @@ def load_tokenizer(model_name: str) -> Any:
     Sets pad_token to eos_token if missing, and forces padding_side="left"
     (required for batched generation).
     """
-    if is_main_process():
-        logger.info(f"Loading tokenizer: {model_name}")
-    # Local snapshot when cached → skips transformers 5.3's network
-    # mistral-check + HEAD retries on DNS-less nodes (see resolve_model_source).
-    tokenizer = AutoTokenizer.from_pretrained(
-        resolve_model_source(model_name), trust_remote_code=True
-    )
+    # WHY phase: il from_pretrained del tokenizer legge file su disco e (senza
+    # snapshot locale) può riprovare contro la rete: decine di secondi mute.
+    with _phase_log("Loading tokenizer", detail=model_name):
+        # Local snapshot when cached → skips transformers 5.3's network
+        # mistral-check + HEAD retries on DNS-less nodes (see resolve_model_source).
+        tokenizer = AutoTokenizer.from_pretrained(
+            resolve_model_source(model_name), trust_remote_code=True
+        )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         logger.info(
@@ -198,23 +227,24 @@ def load_model(
     """Load a causal LM with optional quantization."""
     dtype = getattr(torch, dtype, torch.bfloat16)
     quant_config = get_quantization_config(quantization, dtype=dtype)
-    if is_main_process():
-        logger.info(
-            "Loading %s (quantization=%s, dtype=%s, device_map=%s)",
-            model_name,
-            quantization,
-            dtype,
-            device_map,
+    # WHY phase: il caricamento 4-bit è il collo di bottiglia del setup
+    # (dequantizzazione/allocazione layer per layer), finora senza riga di
+    # completamento. Il detail conserva le info del vecchio messaggio.
+    with _phase_log(
+        "Loading model weights",
+        detail=(
+            f"{model_name} (quantization={quantization}, "
+            f"dtype={dtype}, device_map={device_map})"
+        ),
+    ):
+        model = AutoModelForCausalLM.from_pretrained(
+            # Local snapshot when cached (offline-first, see resolve_model_source)
+            resolve_model_source(model_name),
+            quantization_config=quant_config,
+            dtype=dtype,
+            device_map=device_map,
+            trust_remote_code=True,
         )
-
-    model = AutoModelForCausalLM.from_pretrained(
-        # Local snapshot when cached (offline-first, see resolve_model_source)
-        resolve_model_source(model_name),
-        quantization_config=quant_config,
-        dtype=dtype,
-        device_map=device_map,
-        trust_remote_code=True,
-    )
     # NOTE: Do NOT manually cast non-quantized layers (lm_head, embed, norms)
     # to bfloat16 here.  prepare_model_for_kbit_training() (called by
     # apply_lora) may re-cast some of them to float32 for gradient stability,
@@ -247,21 +277,51 @@ def apply_lora(
     if getattr(model, "is_loaded_in_4bit", False) or getattr(
         model, "is_loaded_in_8bit", False
     ):
-        model = prepare_model_for_kbit_training(model)
+        # WHY phase: prepare_model_for_kbit_training scandisce tutto il
+        # modello (upcast norm/lm_head, talvolta un forward di calibrazione):
+        # decine di secondi senza alcun output.
+        with _phase_log("Preparing quantized model for k-bit training"):
+            model = prepare_model_for_kbit_training(model)
 
-    lora_config = LoraConfig(
-        r=r,
-        lora_alpha=lora_alpha,
-        lora_dropout=lora_dropout,
-        target_modules=target_modules,
-        task_type=task_type,
-        bias="none",
-    )
+    with _phase_log("Attaching LoRA adapters"):
+        lora_config = LoraConfig(
+            r=r,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+            target_modules=target_modules,
+            task_type=task_type,
+            bias="none",
+        )
 
-    model = get_peft_model(model, lora_config)
+        model = get_peft_model(model, lora_config)
     _align_lora_dtype_to_base(model)
+    _log_trainable_parameters(model)
     model.print_trainable_parameters()
     return model
+
+
+def _log_trainable_parameters(model: Any) -> None:
+    """Logga il conteggio dei parametri addestrabili e la percentuale sul totale.
+
+    WHY: è la verifica a occhio che LoRA sia stato applicato ai moduli
+    attesi invece di restare silenziosamente inerte (``target_modules`` che
+    non matcha nulla, adapter non montato): in quel caso la percentuale è
+    0.0000% e il training "gira" senza aggiornare alcun peso, e l'errore
+    si scopre solo dai loss (identici) a fine run.
+    """
+    try:
+        trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        total = sum(p.numel() for p in model.parameters())
+        pct = (100.0 * trainable / total) if total else 0.0
+        if is_main_process():
+            logger.info(
+                "Trainable parameters: %d / %d (%.4f%%)",
+                trainable,
+                total,
+                pct,
+            )
+    except Exception as exc:  # pragma: no cover - diagnostica, non deve rompere il load
+        logger.warning("Skipped trainable-parameters logging: %s", exc)
 
 
 def _load_with_transformers(
@@ -302,9 +362,10 @@ def _load_with_transformers(
         logger.info("Loading existing SFT adapter from: %s", adapter_path)
         # Load adapter as non-trainable, merge it, and unload it to get a pure base model with SFT weights
         model = PeftModel.from_pretrained(model, adapter_path, is_trainable=False)
-        logger.info("Merging SFT adapter in-memory...")
-        model = model.merge_and_unload()
-        logger.info("SFT adapter successfully merged into base model.")
+        # WHY phase: merge_and_unload tocca tutti i layer del modello su
+        # checkpoint 7B: minuti senza output fra i due logger.info esistenti.
+        with _phase_log("Merging SFT adapter in-memory"):
+            model = model.merge_and_unload()
         _log_merge_checksum(model, label="transformers")
 
     if lora_cfg:
@@ -423,27 +484,28 @@ def _load_with_unsloth(
 
     model_to_load = adapter_path if adapter_path else model_cfg["name"]
 
-    if is_main_process():
-        logger.info(
-            "[unsloth] Loading %s (quantization=%s, max_seq_length=%d)",
-            model_to_load,
-            quantization,
-            model_cfg.get("max_seq_length", 2048),
+    # WHY phase: il from_pretrained di Unsloth (4-bit) è decine di secondi
+    # mute dopo il vecchio logger.info di annuncio, che non riferiva la fine.
+    with _phase_log(
+        "Loading model via Unsloth",
+        detail=(
+            f"{model_to_load} (quantization={quantization}, "
+            f"max_seq_length={model_cfg.get('max_seq_length', 2048)})"
+        ),
+    ):
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=model_to_load,
+            max_seq_length=model_cfg.get("max_seq_length", 2048),
+            load_in_4bit=load_in_4bit,
+            dtype=None,  # auto-detect
         )
 
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=model_to_load,
-        max_seq_length=model_cfg.get("max_seq_length", 2048),
-        load_in_4bit=load_in_4bit,
-        dtype=None,  # auto-detect
-    )
-
     if adapter_path:
-        if is_main_process():
-            logger.info("[unsloth] Merging SFT adapter in-memory...")
-        model = model.merge_and_unload()
-        if is_main_process():
-            logger.info("[unsloth] SFT adapter successfully merged into base model.")
+        # WHY phase: il merge tocca tutti i layer su NFS/VRAM: minuti senza
+        # output fra l'annuncio e la fine (i due logger.info sostituiti qui
+        # annunciavano senza riferire la durata).
+        with _phase_log("Merging SFT adapter in-memory"):
+            model = model.merge_and_unload()
         _log_merge_checksum(model, label="unsloth")
 
     if lora_cfg:
@@ -466,16 +528,24 @@ def _load_with_unsloth(
                 lora_cfg.get("lora_alpha", 32),
                 target_modules,
             )
-        model = FastLanguageModel.get_peft_model(
-            model,
-            r=lora_cfg.get("r", 16),
-            lora_alpha=lora_cfg.get("lora_alpha", 32),
-            lora_dropout=lora_cfg.get("lora_dropout", 0),
-            target_modules=target_modules,
-            use_gradient_checkpointing="unsloth",
-            random_state=lora_cfg.get("random_state", 3407),
-        )
+        # WHY phase: get_peft_model monta gli adapter sui 7 target_modules e
+        # (con unsloth) riapplica le patch di gradient checkpointing: decine
+        # di secondi dopo il log [unsloth-lora], senza riga di completamento.
+        with _phase_log("Attaching LoRA adapters"):
+            model = FastLanguageModel.get_peft_model(
+                model,
+                r=lora_cfg.get("r", 16),
+                lora_alpha=lora_cfg.get("lora_alpha", 32),
+                lora_dropout=lora_cfg.get("lora_dropout", 0),
+                target_modules=target_modules,
+                use_gradient_checkpointing="unsloth",
+                random_state=lora_cfg.get("random_state", 3407),
+            )
         _align_lora_dtype_to_base(model)
+        # WHY: il percorso Unsloth non chiama print_trainable_parameters()
+        # (l'unica conferma di LoRA attiva era assente qui): la riga rende
+        # visibile a occhio che i 7 target_modules sono stati agganciati.
+        _log_trainable_parameters(model)
 
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token

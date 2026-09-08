@@ -137,9 +137,20 @@ curriculum:
   enabled: false
 
 # --- Evaluation ---
+#
+# max_samples fissa il numero di PROMPT valutati (sottocampionati dal test set
+# di 8109 righe con seed 42 deterministico, vedi utils/metrics.py
+# seeded_sample_indices). num_samples e' il numero di generazioni per prompt.
+# Il totale di uscite generate e' max_samples * num_samples.
+#
+# ATTENZIONE alla comparabilita': i numeri di una cella valutata con
+# max_samples diverso NON sono confrontabili con quelli di un'altra cella.
+# Cambiando questo valore vanno rivalutate TUTTE le celle. La cache della
+# baseline si autoprotegge (eval_t2g.py: n_eval != max_samples -> no reuse),
+# ma le tabelle dei risultati gia' pubblicate no.
 evaluation:
   batch_size: 8
-  max_samples: 2000
+  max_samples: 5000
   num_samples: 5
   best_of_n: true
 

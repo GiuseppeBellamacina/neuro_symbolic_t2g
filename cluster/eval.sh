@@ -6,12 +6,22 @@
 #   CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/eval.sh
 #   CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml CHECKPOINT="path/to/ckpt" sbatch cluster/eval.sh
 #   CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml CHECKPOINT="path/to/ckpt" BEST_OF_N=1 sbatch cluster/eval.sh
+#   CONFIG=... PROMPTING=zero-shot sbatch cluster/eval.sh        # override modalità di prompting della sola eval
+#   CONFIG=... DUAL_EVAL=1 sbatch cluster/eval.sh                # seconda passata con la modalità complementare
 #
-# --compare è sempre attivo: valuta baseline (zero-shot) + GRPO e genera
-#   grafici di confronto + comparison.json + wandb con tag dedicati.
+# --compare è sempre attivo sulle celle di training: valuta baseline (base
+#   model SENZA checkpoint, STESSA config ⇒ stessa modalità di prompting e
+#   decodifica della cella) + checkpoint, e genera grafici di confronto +
+#   comparison.json + wandb con tag dedicati.
 # BEST_OF_N=1 abilita la selezione best-of-N: è un ORACOLO DIAGNOSTICO
 #   (limite superiore: quanto può essere buono il modello scegliendo il
 #   migliore di N campioni), NON la metrica primaria — quella resta Pass@1.
+#
+# TERMINOLOGIA (due concetti distinti, non usarli come sinonimi):
+#   - "no-checkpoint / base model": mancano i pesi addestrati (eval del base
+#     model). NON dice nulla sul prompting.
+#   - "zero-shot / few-shot": modalità di PROMPTING (con o senza esempi
+#     few-shot nel prompt, da retrieval.enabled o da PROMPTING/--prompting).
 # ============================================================================
 
 # ┌────────────────────────────────────────────────────────┐
@@ -77,11 +87,12 @@ mkdir -p logs
 # `extends: base.yaml`) — NIENTE yaml.safe_load del solo file figlio.
 # Il python gira DENTRO Apptainer sul compute node (stessa pattern di train.sh).
 #
-# Politica anti-silent-zero-shot:
+# Politica anti-silent-no-checkpoint (qui "zero-shot" NON c'entra: il
+# pericolo è valutare il BASE MODEL senza pesi addestrati):
 #   - config di training (ha training.output_dir) ma NESSUN checkpoint trovato
-#     → FAIL LOUD (exit 1). Un eval in zero-shot su modello non addestrato
-#     produrrebbe numeri senza senso senza alcun errore.
-#   - config SENZA training.output_dir → zero-shot (eval senza checkpoint)
+#     → FAIL LOUD (exit 1). Un eval del base model (senza checkpoint) su una
+#     cella addestrata produrrebbe numeri senza senso senza alcun errore.
+#   - config SENZA training.output_dir → eval senza checkpoint (base model)
 #     legittimo e voluto.
 resolve_output_dir() {
     local out=""
@@ -151,8 +162,9 @@ if [ -z "$CHECKPOINT" ]; then
             echo ""
             echo "  La config dichiara training.output_dir ma non esiste"
             echo "  nessun run_*/final|checkpoint-*: il modello NON è stato"
-            echo "  addestrato. Un eval in zero-shot su modello non addestrato"
-            echo "  produrrebbe numeri senza senso SENZA errori — rifiutiamo."
+            echo "  addestrato. Un eval del base model (senza checkpoint) su"
+            echo "  una cella non addestrata produrrebbe numeri senza senso"
+            echo "  SENZA errori — rifiutiamo."
             echo ""
             echo "  Soluzioni:"
             echo "   1. addestra prima (run-all / chain / sbatch cluster/train.sh)"
@@ -163,7 +175,7 @@ if [ -z "$CHECKPOINT" ]; then
             exit 1
         fi
     else
-        echo "Config senza training.output_dir - zero-shot inteso"
+        echo "Config without training.output_dir - no-checkpoint eval intended (base model)"
     fi
 fi
 
@@ -183,12 +195,15 @@ prepare_data
 # (ambiente offline gia esportato subito dopo il source di _lib.sh)
 
 # ── Modalità eval ─────────────────────────────────────────────────────────────
+# (terminologia: "no-checkpoint" = mancano i pesi addestrati; "zero-shot /
+#  few-shot" = modalità di PROMPTING — due concetti distinti, vedi header)
 # - Config di TRAINING (ha output_dir + checkpoint auto/explicito): --compare
-#   (baseline zero-shot cachata/riusata + checkpoint).
-# - Config EVAL-ONLY (zero-shot, SENZA training.output_dir) e nessun
-#   checkpoint esplicito: --eval-baseline-only — singolo eval del base
-#   model. Con --compare il base model verrebbe valutato DUE volte (Step A
-#   baseline + Step B "checkpoint" = entrambi zero-shot).
+#   (baseline senza checkpoint, cachata/riusata, con la STESSA config della
+#   cella ⇒ stessa modalità di prompting e decodifica + checkpoint).
+# - Config EVAL-ONLY (senza training.output_dir) e nessun checkpoint
+#   esplicito: --eval-baseline-only — singolo eval del base model. Con
+#   --compare il base model verrebbe valutato DUE volte (Step A baseline +
+#   Step B "checkpoint" = entrambi senza pesi addestrati).
 # NB: OUTPUT_DIR è risolta nel blocco auto-detect sopra (solo quando
 # CHECKPOINT è vuoto — con un checkpoint esplicito il confronto ha senso).
 if [ -z "${CHECKPOINT}" ] && [ -z "${OUTPUT_DIR:-}" ]; then
@@ -197,22 +212,44 @@ fi
 
 if [ "${EVAL_ONLY_MODE:-0}" = "1" ]; then
     EVAL_ARGS="--config ${CONFIG} --plot --eval-baseline-only"
-    echo "Eval-only config (zero-shot): --eval-baseline-only (niente --compare)"
+    echo "Eval-only config (no checkpoint, base model): --eval-baseline-only (niente --compare)"
 else
     EVAL_ARGS="--config ${CONFIG} --plot --compare"
+    # NB: con --compare la baseline riusa la STESSA config della cella (e lo
+    # stesso eventuale --prompting): su una cella few-shot anche la baseline
+    # di confronto è few-shot. L'eval stampa la modalità effettiva e la sua
+    # provenienza (Prompting: ...).
 fi
 
 # Override opzionale del numero di campioni (default: quello del config,
-# oggi 2000 da base.yaml). Esempio eval rapido: MAX_SAMPLES=500 CONFIG=...
+# oggi 5000 da base.yaml). Esempio eval rapido: MAX_SAMPLES=500 CONFIG=...
+# NOTA: un override rende i numeri NON confrontabili con le altre celle.
 if [ -n "${MAX_SAMPLES:-}" ]; then
     EVAL_ARGS="${EVAL_ARGS} --max-samples ${MAX_SAMPLES}"
     echo "MAX_SAMPLES override: ${MAX_SAMPLES}"
 fi
 
+# Override opzionale della modalità di prompting (default: quella del
+# config, comportamento invariato). Valori: zero-shot | few-shot.
+# ATTENZIONE: l'override vale per QUESTA eval sola (non tocca la config di
+# training) e con few-shot l'eval abortisce se max_prompt_length < 512.
+if [ -n "${PROMPTING:-}" ]; then
+    case "${PROMPTING}" in
+        zero-shot|few-shot)
+            EVAL_ARGS="${EVAL_ARGS} --prompting ${PROMPTING}"
+            echo "PROMPTING override: ${PROMPTING}"
+            ;;
+        *)
+            echo "❌ PROMPTING non valido: '${PROMPTING}' (valori amessi: zero-shot, few-shot)"
+            exit 1
+            ;;
+    esac
+fi
+
 if [ -n "$CHECKPOINT" ]; then
     EVAL_ARGS="${EVAL_ARGS} --checkpoint ${CHECKPOINT}"
 else
-    echo "Zero-shot mode: nessun checkpoint (base model pulito)"
+    echo "No-checkpoint mode: nessun peso addestrato, si valuta il base model (modalità di prompting: quella della config o PROMPTING)"
 fi
 
 # Best-of-N selection (opzionale — passa BEST_OF_N=1 per attivare)
@@ -225,24 +262,101 @@ if [ "${BEST_OF_N}" = "1" ]; then
 fi
 
 
+# Modalità di prompting dichiarata dalla config (per il dual pass):
+# "few-shot" se retrieval.enabled, altrimenti "zero-shot". Stessa pattern di
+# resolve_output_dir (python dentro Apptainer sul compute node). Stamp "err"
+# quando la config non è risolvibile: il chiamante decude se procedere.
+resolve_config_prompting() {
+    local enabled=""
+    if command -v apptainer >/dev/null 2>&1 && [ -f /shared/sifs/latest.sif ]; then
+        enabled=$(apptainer exec /shared/sifs/latest.sif python -c "
+from src.utils.config import resolve_config
+try:
+    print('yes' if resolve_config('${CONFIG}').get('retrieval', {}).get('enabled') else 'no')
+except Exception:
+    print('err')
+" 2>/dev/null) || true
+    else
+        enabled=$(python3 -c "
+from src.utils.config import resolve_config
+try:
+    print('yes' if resolve_config('${CONFIG}').get('retrieval', {}).get('enabled') else 'no')
+except Exception:
+    print('err')
+" 2>/dev/null) || true
+    fi
+    echo "$enabled"
+}
+
+# Esegue l'eval python nell'ambiente del job (Apptainer se presente).
+# Gli argomenti passano NON quotati di proposito: stesso word-splitting
+# dell'invocazione originale (${EVAL_ARGS}).
+run_eval_python() {
+    if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
+        apptainer run --nv \
+            --env WANDB_MODE=offline \
+            --env PYTHONUNBUFFERED=1 \
+            --env HF_HUB_OFFLINE=1 \
+            --env TRANSFORMERS_OFFLINE=1 \
+            --env HF_DATASETS_OFFLINE=1 \
+            --env PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8 \
+            /shared/sifs/latest.sif \
+            python -m src.training.eval_t2g "$@"
+    else
+        python -m src.training.eval_t2g "$@"
+    fi
+}
+
 echo ""
 echo "Avvio evaluation..."
 echo "  Args: ${EVAL_ARGS}"
 echo ""
 
-# ── Esecuzione ────────────────────────────────────────────────────────────────
-if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
-    apptainer run --nv \
-        --env WANDB_MODE=offline \
-        --env PYTHONUNBUFFERED=1 \
-        --env HF_HUB_OFFLINE=1 \
-        --env TRANSFORMERS_OFFLINE=1 \
-        --env HF_DATASETS_OFFLINE=1 \
-        --env PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8 \
-        /shared/sifs/latest.sif \
-        python -m src.training.eval_t2g ${EVAL_ARGS}
-else
-    python -m src.training.eval_t2g ${EVAL_ARGS}
+# ── Esecuzione (passata primaria) ─────────────────────────────────────────────
+run_eval_python ${EVAL_ARGS}
+
+# ── Dual eval (OPT-IN esplicito: DUAL_EVAL=1) ─────────────────────────────────
+# Valuta la cella ANCHE con la modalità di prompting complementare: una cella
+# "train few-shot / eval few-shot" accanto a "train few-shot / eval zero-shot"
+# misura se il modello ha interiorizzato la mappatura o se dipende dal prompt
+# come stampella. DEFAULT: disattivato — nessuna seconda passata, tempi e
+# matrice di celle invariati.
+# - Con PROMPTING impostato, il complemento è l'altra modalità.
+# - Senza PROMPTING, il complemento si risolve dalla config (retrieval.enabled).
+#   Se la config non è risolvibile, il dual pass viene SALTATO con messaggio
+#   loud invece di tirare a indovinare.
+# - Una dual pass few-shot su una config con max_prompt_length < 512 FALLISCE
+#   LOUD (validazione runtime in eval_t2g.py): è voluto, non un bug.
+# - I file di output della seconda passata hanno suffisso __<mode> (gestito
+#   da eval_t2g), quindi le due modalità non si sovrascrivono.
+# NB: se EVAL_ARGS contiene già --prompting (PROMPTING impostato), l'ultimo
+# --prompting sulla riga vince in argparse — qui si appende il complemento.
+if [ "${DUAL_EVAL:-0}" = "1" ]; then
+    if [ -n "${PROMPTING:-}" ]; then
+        if [ "${PROMPTING}" = "zero-shot" ]; then
+            DUAL_PROMPTING="few-shot"
+        else
+            DUAL_PROMPTING="zero-shot"
+        fi
+    else
+        CFG_PROMPTING=$(resolve_config_prompting)
+        case "${CFG_PROMPTING}" in
+            yes)  DUAL_PROMPTING="zero-shot" ;;  # config few-shot → complemento zero-shot
+            no)   DUAL_PROMPTING="few-shot" ;;   # config zero-shot → complemento few-shot
+            *)
+                echo "⚠️  DUAL_EVAL=1 ma config non risolvibile: seconda passata SALTATA (imposta PROMPTING=... per forzarla)."
+                DUAL_PROMPTING=""
+                ;;
+        esac
+    fi
+    if [ -n "${DUAL_PROMPTING}" ]; then
+        DUAL_ARGS="${EVAL_ARGS} --prompting ${DUAL_PROMPTING}"
+        echo ""
+        echo "DUAL_EVAL attivo: seconda passata con --prompting ${DUAL_PROMPTING} (complemento della primaria)"
+        echo "  Args: ${DUAL_ARGS}"
+        echo ""
+        run_eval_python ${DUAL_ARGS}
+    fi
 fi
 
 echo ""

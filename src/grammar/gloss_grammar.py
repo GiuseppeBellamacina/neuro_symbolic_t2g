@@ -13,6 +13,17 @@ import logging
 import string
 from typing import Any
 
+# tqdm fallback for Apptainer containers without tqdm installed
+try:
+    from tqdm import tqdm
+except ImportError:
+
+    def tqdm(iterable=None, **kwargs):
+        return iterable if iterable is not None else iter(())
+
+
+from src.utils.phase_timing import phase
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -47,92 +58,121 @@ class GlossVocabularyMask:
 
         self.token_ids: set[int] = set()
         _skipped_glosses: list[str] = []
+        # Glossi senza forma a token unico (né forma nuda né con prefisso
+        # spazio): il loro "primo token" è bloccato e possono essere emessi
+        # solo come sequenza di subword. Loggato a fine costruzione.
+        _no_single_token_glosses = 0
 
-        for token in vocab:
-            # ── Filter the whole gloss entry first ────────────────────
-            # Skip glosses that are purely numeric (dates, codes, etc.)
-            # or contain digits mixed with other chars (e.g. "T04931944").
-            # These leak digit token IDs into the mask and let the model
-            # generate long numeric garbage strings.
-            stripped = token.strip()
-            if any(c.isdigit() for c in stripped) and stripped not in {
-                "<BOS>",
-                "<EOS>",
-                "<UNK>",
-            }:
-                _skipped_glosses.append(stripped)
-                continue
+        # WHY phase: 3-5 chiamate tokenizer per gloss su ~15k gloss = minuti
+        # al primo run, con un gap completamente muto fra l'annuncio del
+        # chiamante ("Using lightweight GlossVocabularyMask...") e
+        # "Vocabulary mask ready". L'annuncio esce PRIMA del lavoro; la barra
+        # tqdm segue il pattern di src/datasets/aslg_dataset.py (con fallback
+        # per i container senza tqdm).
+        with phase("Building gloss vocabulary mask", detail=f"{len(vocab)} glosses"):
+            for token in tqdm(vocab, desc="Building vocabulary mask"):
+                # ── Filter the whole gloss entry first ────────────────────
+                # Skip glosses that are purely numeric (dates, codes, etc.)
+                # or contain digits mixed with other chars (e.g. "T04931944").
+                # These leak digit token IDs into the mask and let the model
+                # generate long numeric garbage strings.
+                stripped = token.strip()
+                if any(c.isdigit() for c in stripped) and stripped not in {
+                    "<BOS>",
+                    "<EOS>",
+                    "<UNK>",
+                }:
+                    _skipped_glosses.append(stripped)
+                    continue
 
-            # Add the full token ID (if the tokenizer knows it as a single token)
-            tid = tokenizer.convert_tokens_to_ids(token)
-            if isinstance(tid, int) and tid != tokenizer.unk_token_id:
-                self.token_ids.add(tid)
+                # Add the full token ID (if the tokenizer knows it as a single token)
+                tid = tokenizer.convert_tokens_to_ids(token)
+                if isinstance(tid, int) and tid != tokenizer.unk_token_id:
+                    self.token_ids.add(tid)
 
-            # Add the space-prefixed token ID (if it represents a single token in Qwen)
-            tid_space = tokenizer.convert_tokens_to_ids(" " + token)
-            if isinstance(tid_space, int) and tid_space != tokenizer.unk_token_id:
-                self.token_ids.add(tid_space)
+                # Add the space-prefixed token ID (if it represents a single token in Qwen)
+                tid_space = tokenizer.convert_tokens_to_ids(" " + token)
+                if isinstance(tid_space, int) and tid_space != tokenizer.unk_token_id:
+                    self.token_ids.add(tid_space)
 
-            # Add subword token IDs for both representations, but filter noisy ones aggressively.
-            # Without filtering, individual character subwords (digits,
-            # punctuation, lowercase letters) let the model generate garbage
-            # like "c010500040005" or "-1-1-1-1-2-2".
-            for token_variant in [token, " " + token]:
-                sub_tokens = tokenizer.tokenize(token_variant)
-                for st in sub_tokens:
-                    # Decode the subword to check its surface form
-                    # Strip leading space markers (like G, ▁) and literal spaces
-                    raw = st.lstrip("Ġ▁ ").strip()
-                    if not raw:
-                        continue
+                # WHY: se né la forma nuda né quella con prefisso spazio
+                # esistono come token unico, il gloss non è emettibile in un
+                # solo token: il suo "primo token" è bloccato e passa solo
+                # attraverso le subword filtrate sotto.
+                if not (
+                    (isinstance(tid, int) and tid != tokenizer.unk_token_id)
+                    or (
+                        isinstance(tid_space, int)
+                        and tid_space != tokenizer.unk_token_id
+                    )
+                ):
+                    _no_single_token_glosses += 1
 
-                    # Block subwords containing ANY digit (catches "2022",
-                    # "T04", "97", "00" etc.)
-                    if any(c.isdigit() for c in raw):
-                        continue
+                # Add subword token IDs for both representations, but filter noisy ones aggressively.
+                # Without filtering, individual character subwords (digits,
+                # punctuation, lowercase letters) let the model generate garbage
+                # like "c010500040005" or "-1-1-1-1-2-2".
+                for token_variant in [token, " " + token]:
+                    sub_tokens = tokenizer.tokenize(token_variant)
+                    for st in sub_tokens:
+                        # Decode the subword to check its surface form
+                        # Strip leading space markers (like G, ▁) and literal spaces
+                        raw = st.lstrip("Ġ▁ ").strip()
+                        if not raw:
+                            continue
 
-                    # Block subwords that are entirely lowercase (catches
-                    # "ment", "ation", "auto", "ing" etc. that let the model
-                    # invent fake glosses like AUTOPARTICIPATE, PREVIUSION)
-                    if raw.islower():
-                        continue
+                        # Block subwords containing ANY digit (catches "2022",
+                        # "T04", "97", "00" etc.)
+                        if any(c.isdigit() for c in raw):
+                            continue
 
-                    # Block single characters that aren't uppercase letters
-                    if len(raw) == 1 and not raw.isupper():
-                        continue
+                        # Block subwords that are entirely lowercase (catches
+                        # "ment", "ation", "auto", "ing" etc. that let the model
+                        # invent fake glosses like AUTOPARTICIPATE, PREVIUSION)
+                        if raw.islower():
+                            continue
 
-                    # Block pure punctuation
-                    if all(c in string.punctuation for c in raw):
-                        continue
+                        # Block single characters that aren't uppercase letters
+                        if len(raw) == 1 and not raw.isupper():
+                            continue
 
-                    stid = tokenizer.convert_tokens_to_ids(st)
-                    if isinstance(stid, int) and stid != tokenizer.unk_token_id:
-                        self.token_ids.add(stid)
+                        # Block pure punctuation
+                        if all(c in string.punctuation for c in raw):
+                            continue
 
-        if _skipped_glosses:
-            logger.info(
-                "GlossVocabularyMask: skipped %d glosses containing digits "
-                "(e.g. %s)",
-                len(_skipped_glosses),
-                _skipped_glosses[:5],
-            )
+                        stid = tokenizer.convert_tokens_to_ids(st)
+                        if isinstance(stid, int) and stid != tokenizer.unk_token_id:
+                            self.token_ids.add(stid)
 
-        # Add EOS so the model can stop generating
-        self.eos_token_id: int = tokenizer.eos_token_id
-        self.token_ids.add(self.eos_token_id)
+            if _skipped_glosses:
+                logger.info(
+                    "GlossVocabularyMask: skipped %d glosses containing digits "
+                    "(e.g. %s)",
+                    len(_skipped_glosses),
+                    _skipped_glosses[:5],
+                )
 
-        # Add whitespace tokens so the model can separate glosses with spaces
-        # (without this, it resorts to commas, dashes, or concatenation)
-        for space_str in [" ", "  ", "\n"]:
-            space_tokens = tokenizer.encode(space_str, add_special_tokens=False)
-            for stid in space_tokens:
-                self.token_ids.add(stid)
+            # Add EOS so the model can stop generating
+            self.eos_token_id: int = tokenizer.eos_token_id
+            self.token_ids.add(self.eos_token_id)
 
+            # Add whitespace tokens so the model can separate glosses with spaces
+            # (without this, it resorts to commas, dashes, or concatenation)
+            for space_str in [" ", "  ", "\n"]:
+                space_tokens = tokenizer.encode(space_str, add_special_tokens=False)
+                for stid in space_tokens:
+                    self.token_ids.add(stid)
+
+        # Numeri che caratterizzano la struttura della maschera: vederli a
+        # runtime permette di accorgersi subito se vocabolario o tokenizer
+        # cambiano rispetto ai valori documentati (15.472 / 3.967 / 4).
         logger.info(
-            "GlossVocabularyMask: %d glosses → %d unique token IDs (inc. EOS=%d)",
+            "GlossVocabularyMask: %d glosses → %d unique token IDs (inc. EOS=%d); "
+            "%d glosses have no single-token form",
             len(self.vocab),
             len(self.token_ids),
             self.eos_token_id,
+            _no_single_token_glosses,
         )
 
     def get_allowed_token_ids(self) -> list[int]:

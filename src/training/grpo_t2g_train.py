@@ -41,6 +41,15 @@ from typing import Any
 import numpy as np
 import torch
 
+# tqdm fallback for Apptainer containers without tqdm installed
+try:
+    from tqdm import tqdm
+except ImportError:
+
+    def tqdm(iterable=None, **kwargs):
+        return iterable if iterable is not None else iter(())
+
+
 # ── Silence noisy transformers FutureWarnings ──────────────────────────
 # transformers 5.3.0 prints 5 FutureWarning lines per generate() call about
 # the deprecated AttentionMaskConverter API. These are internal to transformers
@@ -105,6 +114,7 @@ from src.training.retrieval_setup import (
 )
 from src.utils.config import load_config
 from src.utils.live_status import live_status_set
+from src.utils.phase_timing import log_step, phase
 from src.utils.prompting import build_t2g_prompt
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -326,7 +336,9 @@ def _prepare_t2g_dataset(
     # backend is deterministic and fast; this never runs during rollout).
     top_k = int((retrieval_cfg or {}).get("top_k", 3))
     max_self_similarity = float((retrieval_cfg or {}).get("max_self_similarity", 0.98))
-    texts = [t2g_ds[i]["prompt"] for i in range(len(t2g_ds))]
+    # WHY phase: 72.979 accessi singoli ad Arrow (~10-60s), completamente muti.
+    with phase("Extracting prompts from dataset", detail=f"{len(t2g_ds)} rows"):
+        texts = [t2g_ds[i]["prompt"] for i in range(len(t2g_ds))]
     examples_batch = (
         retrieve_few_shot_batch(retriever, texts, top_k, max_self_similarity)
         if retriever is not None
@@ -335,35 +347,41 @@ def _prepare_t2g_dataset(
 
     # Format prompts with the centralized T2G prompt builder.
     # This guarantees train/eval/test use identical formatting.
-    formatted: list[dict[str, str]] = []
-    for i in range(len(t2g_ds)):
-        sample = t2g_ds[i]
-        text = sample["prompt"]
+    # WHY phase+barra: 72.979 build_t2g_prompt con apply_chat_template sono
+    # la fase di setup più lunga (2-6 min), finora completamente muta; la
+    # barra segue il pattern di src/datasets/aslg_dataset.py.
+    with phase("Formatting prompts with chat template", detail=f"{len(t2g_ds)} rows"):
+        formatted: list[dict[str, str]] = []
+        for i in tqdm(range(len(t2g_ds)), desc="Formatting T2G prompts"):
+            sample = t2g_ds[i]
+            text = sample["prompt"]
 
-        prompt = build_t2g_prompt(
-            text,
-            tokenizer,
-            examples=examples_batch[i] if examples_batch is not None else None,
-        )
+            prompt = build_t2g_prompt(
+                text,
+                tokenizer,
+                examples=examples_batch[i] if examples_batch is not None else None,
+            )
 
-        # Keep every column produced by build_t2g_dataset.  In particular
-        # ``gold_gloss`` must survive to the GRPOTrainer dataset so TRL
-        # forwards it to the reward functions as a kwarg (see
-        # ``t2g_rewards._make_gloss_reward_fn``). ``sample_id`` already
-        # encodes normalized text + gold gloss (collision-safe), so it no
-        # longer needs to be recomputed here.
-        formatted.append(
-            {
-                "prompt": prompt,
-                "text": sample.get("text", text),
-                "completion": sample["completion"],
-                "gold_gloss": sample.get("gold_gloss", sample["completion"]),
-                "difficulty": sample.get("difficulty", "medium"),
-                "sample_id": sample.get("sample_id", ""),
-            }
-        )
+            # Keep every column produced by build_t2g_dataset.  In particular
+            # ``gold_gloss`` must survive to the GRPOTrainer dataset so TRL
+            # forwards it to the reward functions as a kwarg (see
+            # ``t2g_rewards._make_gloss_reward_fn``). ``sample_id`` already
+            # encodes normalized text + gold gloss (collision-safe), so it no
+            # longer needs to be recomputed here.
+            formatted.append(
+                {
+                    "prompt": prompt,
+                    "text": sample.get("text", text),
+                    "completion": sample["completion"],
+                    "gold_gloss": sample.get("gold_gloss", sample["completion"]),
+                    "difficulty": sample.get("difficulty", "medium"),
+                    "sample_id": sample.get("sample_id", ""),
+                }
+            )
 
-    result = Dataset.from_list(formatted)
+    # WHY phase: l'encoding Arrow di 72.979 righe impiega 10-60s in silenzio.
+    with phase("Encoding dataset to Arrow", detail=f"{len(formatted)} rows"):
+        result = Dataset.from_list(formatted)
     logger.info(f"[dataset] T2G training set: {len(result)} prompts")
     return result
 
@@ -562,39 +580,47 @@ class CurriculumFilteredDataset:
 
     def _rebuild(self) -> None:
         """Rebuild index list to match the current stage's difficulty distribution."""
-        distribution = self._schedule._STAGES[self._stage]
+        # WHY phase: iterare ~73k campioni per raggruppare per difficoltà è
+        # muto, e la stessa operazione ricorre anche a metà training alle
+        # transizioni di stage — dove una pausa silenziosa è indistinguibile
+        # da un hang del job.
+        with phase(
+            "Rebuilding curriculum difficulty index",
+            detail=f"stage {self._stage + 1}/3, {len(self._full_dataset)} samples",
+        ):
+            distribution = self._schedule._STAGES[self._stage]
 
-        # Group indices by difficulty label
-        by_diff: dict[str, list[int]] = {"simple": [], "medium": [], "hard": []}
-        for i, row in enumerate(self._full_dataset):
-            diff = row.get("difficulty", "medium")
-            if diff not in by_diff:
-                diff = "medium"
-            by_diff[diff].append(i)
+            # Group indices by difficulty label
+            by_diff: dict[str, list[int]] = {"simple": [], "medium": [], "hard": []}
+            for i, row in enumerate(self._full_dataset):
+                diff = row.get("difficulty", "medium")
+                if diff not in by_diff:
+                    diff = "medium"
+                by_diff[diff].append(i)
 
-        total = len(self._full_dataset)
-        rng = self._rng()
-        indices: list[int] = []
-        for diff, target_pct in distribution.items():
-            count = min(int(total * target_pct), len(by_diff[diff]))
-            if count > 0 and by_diff[diff]:
-                indices.extend(rng.sample(by_diff[diff], count))
+            total = len(self._full_dataset)
+            rng = self._rng()
+            indices: list[int] = []
+            for diff, target_pct in distribution.items():
+                count = min(int(total * target_pct), len(by_diff[diff]))
+                if count > 0 and by_diff[diff]:
+                    indices.extend(rng.sample(by_diff[diff], count))
 
-        if not indices:
-            indices = list(range(total))
+            if not indices:
+                indices = list(range(total))
 
-        # Shuffle so items are mixed, not grouped by difficulty
-        rng.shuffle(indices)
+            # Shuffle so items are mixed, not grouped by difficulty
+            rng.shuffle(indices)
 
-        # Pad/truncate to maintain constant length
-        # (prevents DataLoader sampler from generating out-of-bounds indices)
-        target_len = len(self._full_dataset)
-        if len(indices) < target_len:
-            indices.extend(rng.choices(indices, k=target_len - len(indices)))
-        elif len(indices) > target_len:
-            indices = indices[:target_len]
+            # Pad/truncate to maintain constant length
+            # (prevents DataLoader sampler from generating out-of-bounds indices)
+            target_len = len(self._full_dataset)
+            if len(indices) < target_len:
+                indices.extend(rng.choices(indices, k=target_len - len(indices)))
+            elif len(indices) > target_len:
+                indices = indices[:target_len]
 
-        self._indices = indices
+            self._indices = indices
 
     def update_stage(self, stage: int) -> None:
         """Transition to a new curriculum stage (rebuilds index list)."""
@@ -803,13 +829,16 @@ def main() -> None:
     vocab_path = ds_cfg.get("vocab_path", "data/gloss_vocab.txt")
     bigram_path = ds_cfg.get("bigram_matrix_path", "data/bigram_transition.npy")
 
-    print(f"\n{'=' * 60}")
-    print("STEP 1: Data Preparation")
+    log_step(1, "Data Preparation")
 
     # Download dataset
-    dataset = download_aslg_dataset(
-        cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
-    )
+    # WHY phase: load_dataset + dedup di ~80k righe + split 90/10 impiegano
+    # 10-60s emettendo solo i logger.info interni di aslg_dataset (senza
+    # durata): al primo avvio il job sembra appeso.
+    with phase("Loading ASLG-PC12 dataset", detail="cache + dedup + 90/10 split"):
+        dataset = download_aslg_dataset(
+            cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
+        )
 
     # Caches are keyed by (seed, train_size): if either changes (e.g. a new
     # seed, or dataset dedup changing the split composition), the vocab and
@@ -961,14 +990,21 @@ def main() -> None:
         torch.cuda.empty_cache()
 
     # ── Step 2: Model loading ────────────────────────────────────────────
-    print(f"\n{'=' * 60}")
-    print("STEP 2: Model Loading")
+    log_step(2, "Model Loading")
 
-    model, tokenizer = load_model_and_tokenizer(config, adapter_path=sft_adapter_path)
+    # WHY phase: il caricamento 4-bit + tokenizer + LoRA è la parte più lunga
+    # del setup (decine di secondi); l'annuncio esce PRIMA, la durata DOPO.
+    # Le sotto-fasi dettagliate sono emesse da model_loader stesso.
+    with phase(
+        "Loading model + tokenizer",
+        detail=config["model"]["name"] + (" + SFT adapter" if sft_adapter_path else ""),
+    ):
+        model, tokenizer = load_model_and_tokenizer(
+            config, adapter_path=sft_adapter_path
+        )
 
     # ── Step 3: Constrained decoding setup ────────────────────────────────
-    print(f"\n{'=' * 60}")
-    print("STEP 3: Constrained Decoding Setup")
+    log_step(3, "Constrained Decoding Setup")
 
     # Grammar toggle: set ``grammar.enabled: false`` to disable constrained
     # decoding (for ablation study — GRPO without grammar).
@@ -989,8 +1025,7 @@ def main() -> None:
         print("  Vocabulary mask ready")
 
     # ── Step 4: Dataset preparation ──────────────────────────────────────
-    print(f"\n{'=' * 60}")
-    print("STEP 4: Dataset Preparation")
+    log_step(4, "Dataset Preparation")
 
     # ── Optional few-shot retrieval (train-split demonstrations) ─────────
     # Build (or load from cache) the ExampleRetriever over the deduplicated
@@ -1040,8 +1075,7 @@ def main() -> None:
     # registry (duplicate English sentences mapped to the wrong gold gloss).
 
     # ── Step 5: Reward functions ─────────────────────────────────────────
-    print(f"\n{'=' * 60}")
-    print("STEP 5: Reward Functions")
+    log_step(5, "Reward Functions")
 
     initialize_rewards(
         bigram_matrix,
@@ -1058,7 +1092,10 @@ def main() -> None:
     )
 
     sample_logger = CompletionSampleLogger(reward_fns, reward_weights, n_samples=3)
-    sample_logger.set_difficulty_map(t2g_dataset)
+    # WHY phase: set_difficulty_map itera TUTTO il dataset (~73k righe) in
+    # silenzio per costruire la lookup prompt→difficoltà.
+    with phase("Indexing difficulty map", detail=f"{len(t2g_dataset)} samples"):
+        sample_logger.set_difficulty_map(t2g_dataset)
     wrapped_reward_fns = sample_logger.wrapped_reward_fns
     sample_callback = CompletionSampleCallback(
         sample_logger,
@@ -1104,8 +1141,7 @@ def main() -> None:
         curriculum_callback = CurriculumCallback(curriculum_schedule, t2g_dataset)
 
     # ── Step 6: GRPO configuration ───────────────────────────────────────
-    print(f"\n{'=' * 60}")
-    print("STEP 6: GRPO Configuration")
+    log_step(6, "GRPO Configuration")
 
     grpo_config = _build_grpo_config(
         config["training"],
@@ -1224,8 +1260,7 @@ def main() -> None:
     sys.stdout = _Tee()
 
     # ── Step 7: Training ─────────────────────────────────────────────────
-    print(f"\n{'=' * 60}")
-    print("STEP 7: GRPO Training")
+    log_step(7, "GRPO Training")
     # Live status: the GRPO phase begins (SFT phase, if any, is over).
     live_status_set(
         phase="grpo",
@@ -1344,10 +1379,12 @@ def main() -> None:
         trainer.train(resume_from_checkpoint=resume_from)
 
         # ── Save final model ─────────────────────────────────────────────
+        # WHY phase: save_model su NFS scrive GB di pesi in silenzio; il
+        # vecchio print annunciava la scrittura ma non riferiva la fine.
         final_path = Path(grpo_config.output_dir) / "final"
-        print(f"\n[grpo] Saving final model to {final_path}...")
-        trainer.save_model(str(final_path))
-        tokenizer.save_pretrained(str(final_path))
+        with phase("Saving final model", detail=str(final_path)):
+            trainer.save_model(str(final_path))
+            tokenizer.save_pretrained(str(final_path))
 
         # ── Clean up duplicate final step checkpoint ──────────────────────
         global_step = trainer.state.global_step
@@ -1355,18 +1392,23 @@ def main() -> None:
         if last_ckpt.exists():
             import shutil
 
-            print(
-                f"[grpo] Cleaning up duplicate final step checkpoint folder: {last_ckpt}"
-            )
-            shutil.rmtree(last_ckpt, ignore_errors=True)
+            # WHY phase: rmtree di GB di optimizer state su NFS può richiedere
+            # minuti; il vecchio print annunciava ma non riferiva la fine.
+            with phase("Removing duplicate final checkpoint", detail=str(last_ckpt)):
+                shutil.rmtree(last_ckpt, ignore_errors=True)
     finally:
         # ── Cleanup ───────────────────────────────────────────────────────
+        # WHY phase: anche la chiusura è muta ma costosa — wandb.finish()
+        # flussha il run offline su NFS (con WANDB_SILENT=true non stampa
+        # nulla) e il rilascio può bloccarsi su gc/empty_cache.
         if wandb.run:
-            wandb.finish()
+            with phase("Finalizing wandb run"):
+                wandb.finish()
 
-        del trainer
-        gc.collect()
-        torch.cuda.empty_cache()
+        with phase("Releasing trainer memory"):
+            del trainer
+            gc.collect()
+            torch.cuda.empty_cache()
 
     print(f"\n{'=' * 60}")
     print("GRPO T2G training complete!")

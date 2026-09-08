@@ -19,7 +19,11 @@ so ROUGE-L/BLEU/chrF/F1/exact-match/bigram/validity are honest numbers
 for the actual decoding strategy.  ``pass_at_1`` is the fraction of
 prompts whose *first* completion reaches ROUGE-L >= 0.3 (a single
 honest draw), computed with the shared ``compute_pass_at_k`` helper
-(k=1) for consistency with the Pass@k curve.
+(k=1) for consistency with the Pass@k curve.  NOTE: the CI block
+(``evaluation_report["pass_at_1"]``) reports a DIFFERENT pass@1
+estimator — the empirical pass rate over ALL completions with a
+bootstrap CI.  The two are labeled distinctly in the output and agree
+within sampling noise (docs/EVALUATION.md §2a).
 
 **Best-of-N is oracle-only.**  When ``--best-of-n`` is enabled, the gold
 reference is used to pick the best completion per prompt; those metrics
@@ -35,7 +39,8 @@ Usage:
     # Single checkpoint eval
     python -m src.training.eval_t2g --config experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml --checkpoint path/to/ckpt --plot
 
-    # Compare baseline (zero-shot) vs checkpoint — SAME decoding for both
+    # Compare baseline vs checkpoint — SAME decoding AND same prompting for
+    # both (the baseline reuses the cell's config, incl. retrieval.enabled)
     python -m src.training.eval_t2g --config experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml --checkpoint path/to/ckpt --compare
 
     # Best-of-N selection (DIAGNOSTIC ONLY — oracle; reported separately)
@@ -115,6 +120,7 @@ from src.utils.metrics import (
     rouge_l_score,
     seeded_sample_indices,
 )
+from src.utils.phase_timing import phase
 from src.utils.prompting import SYSTEM_PROMPT, build_t2g_prompt
 
 logger = logging.getLogger("t2g-eval")
@@ -230,8 +236,25 @@ def _generate_batch(
 # ---------------------------------------------------------------------------
 
 
-def _prompt_context_fingerprint(config: dict[str, Any], num_samples: int) -> str:
-    """Stable identity of the zero-shot baseline eval context.
+def _config_prompting_mode(config: dict[str, Any]) -> str:
+    """Prompting mode implied by the config: ``few-shot`` when retrieval is
+    enabled, ``zero-shot`` otherwise.
+
+    Unica fonte di verità per derivare la modalità dalla config — usata sia
+    dall'override CLI (per capire se l'override cambia davvero qualcosa) sia
+    dalla risoluzione di default (``--prompting config``).
+    """
+    return (
+        "few-shot" if config.get("retrieval", {}).get("enabled", False) else "zero-shot"
+    )
+
+
+def _prompt_context_fingerprint(
+    config: dict[str, Any],
+    num_samples: int,
+    prompting: str | None = None,
+) -> str:
+    """Stable identity of the baseline eval context.
 
     The baseline depends only on: base model, dataset + seed, system
     prompt, few-shot retrieval settings, constrained-decoding setup and the
@@ -241,8 +264,17 @@ def _prompt_context_fingerprint(config: dict[str, Any], num_samples: int) -> str
     while config changes that alter baseline generations (retrieval or
     grammar toggles, different num_samples, new system prompt) invalidate
     the cache and force a re-evaluation.
+
+    ``prompting`` è l'eventuale override CLI (``--prompting``). Entra nel
+    payload SOLO quando cambia effettivamente la modalità rispetto alla
+    config: i fingerprint delle run di default (e degli override ridondanti,
+    che generano le stesse completions) restano byte-identici a quelli già
+    calcolati, quindi la cache esistente sul cluster NON viene invalidata
+    gratuitamente; un override che cambia modalità (es. ``zero-shot`` su una
+    cella few-shot) produce un fingerprint diverso e forza la ricomputo.
     """
     grammar_cfg = config.get("grammar", {})
+    config_mode = _config_prompting_mode(config)
     payload = {
         "version": 1,
         "model": config.get("model", {}).get("name"),
@@ -255,6 +287,8 @@ def _prompt_context_fingerprint(config: dict[str, Any], num_samples: int) -> str
         },
         "num_samples": num_samples,
     }
+    if prompting in ("zero-shot", "few-shot") and prompting != config_mode:
+        payload["prompting_override"] = prompting
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -264,15 +298,21 @@ def _try_cached_baseline(
     num_samples: int,
     max_samples: int | None,
     fingerprint: str,
+    filename: str = "eval_baseline.json",
 ) -> tuple[dict[str, Any], list[dict[str, Any]] | None] | None:
-    """Check ONE results dir for a compatible cached eval_baseline.json.
+    """Check ONE results dir for a compatible cached baseline JSON.
 
     Compatible = same metric definitions (``metrics_version``), same prompt
     context (``prompt_context_fingerprint``), same decoding
     (``num_completions_per_prompt``) and same prompt count (``max_samples``
     or full test set).  Returns the baseline (+ generations) or None.
+
+    ``filename`` distingue le baseline per modalità di prompting: un
+    override ``--prompting`` che cambia modalità salva/rilegge
+    ``eval_baseline__<mode>.json`` così i due cache non si sovrascrivono;
+    la compatibilità resta comunque garantita dal fingerprint.
     """
-    bl_path = results_dir / "eval_baseline.json"
+    bl_path = results_dir / filename
     if not bl_path.exists():
         return None
     try:
@@ -294,7 +334,9 @@ def _try_cached_baseline(
         return None  # cached was a subset, current wants the full test set
 
     generations: list[dict[str, Any]] | None = None
-    gen_path = results_dir / "generations_baseline.json"
+    gen_path = results_dir / filename.replace(
+        "eval_baseline", "generations_baseline", 1
+    )
     if gen_path.exists():
         try:
             generations = json.loads(gen_path.read_text(encoding="utf-8"))
@@ -308,24 +350,34 @@ def _load_cached_baseline(
     num_samples: int,
     max_samples: int | None,
     fingerprint: str,
+    filename: str = "eval_baseline.json",
 ) -> tuple[dict[str, Any], list[dict[str, Any]] | None, Path] | None:
-    """Load a compatible cached ``eval_baseline.json`` — this run first,
+    """Load a compatible cached baseline JSON — this run first,
     then SIBLING runs of the same model tag (newest first), then runs under
     OTHER model tags (cross-tag, fingerprint-guarded — ablation cells share
-    the same zero-shot baseline).
+    the same base-model baseline).
 
-    The zero-shot baseline is identical for every run of the same prompt
+    The base-model baseline is identical for every run of the same prompt
     context (same base model, dataset, prompting, decoding): re-evaluating
     it (~28 min GPU on 500 prompts) for each new training run is pure waste.
     Sibling reuse is guarded by the compatibility checks in
     :func:`_try_cached_baseline`.
 
-    Returns ``(baseline_results, generations_or_None, source_dir)`` or
-    ``None`` when absent/stale/incompatible (caller re-evaluates).
+    Args:
+        results_dir: Run directory to search first.
+        num_samples: Completions per prompt of the current eval.
+        max_samples: Prompt count of the current eval (``None`` = full set).
+        fingerprint: Prompt-context fingerprint of the current eval.
+        filename: Baseline filename (mode-suffixed quando l'override CLI
+            cambia la modalità di prompting).
+
+    Returns:
+        ``(baseline_results, generations_or_None, source_dir)`` or
+        ``None`` when absent/stale/incompatible (caller re-evaluates).
     """
     # Current run dir first
     cached = _try_cached_baseline(
-        Path(results_dir), num_samples, max_samples, fingerprint
+        Path(results_dir), num_samples, max_samples, fingerprint, filename
     )
     if cached is not None:
         return *cached, Path(results_dir)
@@ -343,13 +395,15 @@ def _load_cached_baseline(
             reverse=True,
         )
         for d in siblings:
-            cached = _try_cached_baseline(d, num_samples, max_samples, fingerprint)
+            cached = _try_cached_baseline(
+                d, num_samples, max_samples, fingerprint, filename
+            )
             if cached is not None:
                 return *cached, d
 
     # Cross-tag: other model tags under experiments/results/. The baseline
-    # is the same zero-shot BASE model evaluated with the same prompt
-    # context — ablation cells (sft-grpo-*, grpo-only, ...
+    # is the same BASE model (no trained weights) evaluated with the same
+    # prompt context — ablation cells (sft-grpo-*, grpo-only, ...
     # with sft-grpo, so re-evaluating it per tag is pure waste
     # (~28 GPU-min each). The prompt-context fingerprint check in
     # _try_cached_baseline guarantees the context matches exactly.
@@ -365,7 +419,9 @@ def _load_cached_baseline(
                 key=lambda r: r.stat().st_mtime,
                 reverse=True,
             ):
-                cached = _try_cached_baseline(d, num_samples, max_samples, fingerprint)
+                cached = _try_cached_baseline(
+                    d, num_samples, max_samples, fingerprint, filename
+                )
                 if cached is not None:
                     return *cached, d
     return None
@@ -398,6 +454,23 @@ def _compute_primary_metrics(
     with the Pass@k curve.  It never uses the gold to select among
     samples; the higher pass@N (N = num_samples) is reported under
     ``pass_at_k``.
+
+    DUE STIMATORI pass@1 DIVERSI con lo stesso scopo (probabilità che una
+    singola completion campionata superi la soglia) — ora con etichette
+    distinte nell'output (docs/EVALUATION.md §2a):
+
+    - ``pass_at_1`` (blocco primario): frazione di prompt la cui PRIMA
+      completion raggiunge ROUGE-L >= 0.3 — un draw onesto per prompt, ed è
+      l'ancora k=1 della curva Pass@k (che usa le prime k completions).
+    - ``evaluation_report["pass_at_1"]["mean"]`` (blocco CI): media empirica
+      dell'indicatore ROUGE-L >= 0.3 su TUTTE le completions (num_samples
+      draw per prompt) — più efficiente (5x i campioni), con CI bootstrap.
+
+    Nessuno dei due è lo stimatore combinatorio non distorto
+    ``1 - C(n-c, k) / C(n, k)``: sono entrambe medie empiriche su
+    sottoinsiemi diversi dello stesso campione e coincidono quando
+    ``num_samples = 1``. I valori NON sono stati modificati: solo le
+    etichette distinguono i due numeri.
 
     Args:
         flat_completions: All completions flattened (one entry per
@@ -475,8 +548,20 @@ def _compute_primary_metrics(
         references=flat_references,
         reward_weights=reward_weights,
     )
+    # Corpus-level values computed ONCE and reused by both the primary
+    # block and the evaluation report: they are the same functions on the
+    # same input, so recomputing them only doubled the corpus passes (and
+    # emitted the sacrebleu tokenized-data warning twice per eval).
+    bleu_corpus_value = bleu_corpus(flat_completions, flat_references)
+    chrf_corpus_value = corpus_chrf(flat_completions, flat_references)
+    gloss_f1_micro_value = corpus_gloss_f1(flat_completions, flat_references)["micro"]
     eval_report = compute_evaluation_report(
-        flat_completions, flat_references, n_bootstrap=n_bootstrap
+        flat_completions,
+        flat_references,
+        n_bootstrap=n_bootstrap,
+        corpus_bleu_score=bleu_corpus_value,
+        corpus_chrf_score=chrf_corpus_value,
+        gloss_f1_micro_score=gloss_f1_micro_value,
     )
 
     rouge_mean = float(np.mean(rouge_scores)) if rouge_scores else 0.0
@@ -513,13 +598,13 @@ def _compute_primary_metrics(
             else 0.0
         ),
         "bleu_sentence_mean": float(np.mean(bleu_scores)) if bleu_scores else 0.0,
-        "bleu_corpus": bleu_corpus(flat_completions, flat_references),
+        "bleu_corpus": bleu_corpus_value,
         "chrf_sentence_mean": float(np.mean(chrf_scores)) if chrf_scores else 0.0,
-        "chrf_corpus": corpus_chrf(flat_completions, flat_references),
+        "chrf_corpus": chrf_corpus_value,
         "gloss_f1_sentence_mean": (
             float(np.mean(gloss_f1_scores)) if gloss_f1_scores else 0.0
         ),
-        "gloss_f1_micro": corpus_gloss_f1(flat_completions, flat_references)["micro"],
+        "gloss_f1_micro": gloss_f1_micro_value,
         "exact_match": float(np.mean(exact_matches)) if exact_matches else 0.0,
         "bigram_log_prob_mean": (
             float(np.mean(bigram_scores)) if bigram_scores else 0.0
@@ -577,6 +662,8 @@ def evaluate_checkpoint(
     max_samples: int | None = None,
     num_samples: int = 1,
     best_of_n: bool = False,
+    prompting_mode: str | None = None,
+    prompting_source: str | None = None,
 ) -> tuple[
     dict[str, Any],
     list[str],
@@ -591,8 +678,8 @@ def evaluate_checkpoint(
 
     Args:
         config: Parsed YAML config.
-        checkpoint_path: Path to the checkpoint directory, or ``None`` for
-            zero-shot evaluation (loads the base model without LoRA).
+        checkpoint_path: Path to the checkpoint directory, or ``None`` to
+            evaluate the base model without trained weights (no LoRA).
         max_samples: Max test samples to evaluate, or ``None`` for the full
             test set.  When set, a *seeded random sample* of the test set
             is used (seed from ``dataset.seed``), never the first N.
@@ -602,6 +689,13 @@ def evaluate_checkpoint(
             the gold reference, so it is NOT deployable.  Results are
             reported in a separate ``oracle_best_of_n`` block and never
             overwrite the primary metrics.
+        prompting_mode: Modalità di prompting effettiva (``zero-shot`` /
+            ``few-shot``). ``None`` (default, comportamento legacy) la deriva
+            da ``retrieval.enabled`` nella config. Un valore esplicito SOVRASCRIVE
+            la config: ``zero-shot`` forza il retriever a None, ``few-shot``
+            forza il retrieval attivo.
+        prompting_source: Provenienza della modalità (``config`` / ``cli``),
+            stampata nei risultati accanto alla modalità.
 
     Returns:
         Tuple of ``(results, flat_completions, validity, all_references,
@@ -633,10 +727,24 @@ def evaluate_checkpoint(
     # ── Optional few-shot retrieval (same strategy as GRPO training) ─────
     # When enabled, eval prompts are augmented with the same top_k
     # (text→gloss) examples retrieved from the TRAIN split, keeping
-    # train/inference consistent.  Disabled ⇒ zero-shot, identical to the
-    # legacy eval.  Baseline and checkpoint evals share the same retriever,
-    # so ``--compare`` stays fair (same decoding AND same prompting).
-    retrieval_cfg = config.get("retrieval", {})
+    # train/inference consistent.  Disabled ⇒ zero-shot prompting, identical
+    # to the legacy eval.  Baseline and checkpoint evals share the same
+    # retriever, so ``--compare`` stays fair (same decoding AND same
+    # prompting).
+    #
+    # Override CLI (--prompting): copia locale della sezione retrieval per
+    # NON mutare la config condivisa. ``zero-shot`` forza enabled=False
+    # (retriever None), ``few-shot`` lo forza True. Con ``None``/``config``
+    # il comportamento è quello legacy.
+    retrieval_cfg = dict(config.get("retrieval", {}))
+    if prompting_mode == "zero-shot":
+        retrieval_cfg["enabled"] = False
+    elif prompting_mode == "few-shot":
+        retrieval_cfg["enabled"] = True
+    if prompting_mode is None:
+        prompting_mode = _config_prompting_mode(config)
+    if prompting_source is None:
+        prompting_source = "config"
     retriever = build_train_retriever(
         dataset,
         retrieval_cfg,
@@ -662,7 +770,16 @@ def evaluate_checkpoint(
 
     # ── Load model ───────────────────────────────────────────────────────
     if checkpoint_path is None:
-        logger.info(f"Zero-shot mode: loading base model {config['model']['name']}")
+        # Nessun checkpoint: si valuta il base model SENZA pesi addestrati.
+        # "zero-shot" qui indicherebbe l'assenza di checkpoint ma è anche il
+        # nome della modalità di prompting: nel log si usa terminologia
+        # inequivoca (no-checkpoint), la modalità di prompting è riportata
+        # nel blocco "Prompting:" di main().
+        logger.info(
+            "No-checkpoint mode: loading base model %s (prompting: %s)",
+            config["model"]["name"],
+            prompting_mode,
+        )
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         # Offline-first: resolve the hub id to its LOCAL snapshot when
@@ -851,31 +968,56 @@ def evaluate_checkpoint(
         "gloss_repetition_reward": rewards_cfg.get("weight_repetition", 0.0),
     }
 
+    # Ripetizioni bootstrap del blocco CI: è il default storico di
+    # _compute_primary_metrics, reso esplicito qui solo per dichiararlo nel
+    # log di fase (il valore non cambia).
+    n_bootstrap_resamples = 1000
+
     # ── Primary metrics (honest, averaged over ALL completions) ─────────
-    results, rouge_scores, validity, bleu_scores, chrf_scores = (
-        _compute_primary_metrics(
-            flat_completions,
-            flat_references,
-            all_completions,
-            all_references,
-            token_to_idx=token_to_idx,
-            bigram=bigram,
-            reward_weights=reward_weight_map,
+    # Fase più lunga dell'eval (metriche per-completion + 5 CI bootstrap da
+    # n_bootstrap ripetizioni ciascuna, su num_samples x N completions): il
+    # messaggio di apertura esce PRIMA del lavoro e la barra tqdm del
+    # bootstrap copre le ripetizioni.
+    with phase(
+        "Computing per-completion metrics + bootstrap CIs",
+        detail=(
+            f"{len(flat_completions)} completions, "
+            f"5 bootstrap CIs x {n_bootstrap_resamples} resamples"
+        ),
+    ):
+        results, rouge_scores, validity, bleu_scores, chrf_scores = (
+            _compute_primary_metrics(
+                flat_completions,
+                flat_references,
+                all_completions,
+                all_references,
+                token_to_idx=token_to_idx,
+                bigram=bigram,
+                reward_weights=reward_weight_map,
+                n_bootstrap=n_bootstrap_resamples,
+            )
         )
-    )
     results["num_samples_evaluated"] = len(all_references)
     results["test_set_size"] = test_set_size
     results["num_completions_per_prompt"] = num_samples
     results["best_of_n"] = best_of_n
+    # Modalità di prompting effettiva + provenienza (dalla config o forzata
+    # da CLI): senza questo stamp due run con prompting diverso producono
+    # JSON indistinguibili — il difetto peggiore in un contesto sperimentale.
+    results["prompting"] = {
+        "mode": prompting_mode,
+        "source": prompting_source,
+    }
     # Stamp the metric definitions used — cached-baseline reuse (see
     # _load_cached_baseline) refuses to reuse results computed with a
     # different version (e.g. pre corpus-BLEU-fix numbers).
     results["metrics_version"] = METRICS_VERSION
     # Stamp the prompting context (model/dataset/system prompt/retrieval/
-    # grammar/decoding) — guards sibling-run baseline reuse against config
-    # changes that would alter baseline generations.
+    # grammar/decoding, più l'eventuale override CLI) — guards sibling-run
+    # baseline reuse against config changes that would alter baseline
+    # generations.
     results["prompt_context_fingerprint"] = _prompt_context_fingerprint(
-        config, num_samples
+        config, num_samples, prompting_mode
     )
     results["decoding"] = {
         "do_sample": do_sample,
@@ -1010,7 +1152,9 @@ def main() -> None:
         "--checkpoint",
         type=str,
         default=None,
-        help="Checkpoint path (omit for zero-shot base model evaluation)",
+        help="Checkpoint path (omit to evaluate the base model WITHOUT "
+        "trained weights — the prompting mode is unrelated and comes from "
+        "--prompting / config)",
     )
     parser.add_argument(
         "--max-samples",
@@ -1026,6 +1170,20 @@ def main() -> None:
         default=None,
         help="Completions per prompt (1=greedy, >1=sampled for Pass@k). "
         "Overrides config evaluation.num_samples.",
+    )
+    parser.add_argument(
+        "--prompting",
+        type=str,
+        default="config",
+        choices=["config", "zero-shot", "few-shot"],
+        help="Prompting mode for THIS eval (default: config = derive from "
+        "retrieval.enabled, today's behavior). 'zero-shot' forces the "
+        "retriever OFF (no few-shot examples); 'few-shot' forces it ON "
+        "(requires max_prompt_length >= 512 in the config, else aborts — "
+        "shorter prompt budgets would truncate the few-shot examples and "
+        "make the cell indistinguishable from zero-shot). The effective "
+        "mode + provenance are printed and stamped into the results JSON; "
+        "mode-changing overrides also suffix the output filenames.",
     )
     parser.add_argument(
         "--output", type=str, default=None, help="Path to save results JSON"
@@ -1050,8 +1208,10 @@ def main() -> None:
     parser.add_argument(
         "--compare",
         action="store_true",
-        help="Also evaluate the base model (zero-shot) and generate "
-        "baseline-vs-GRPO comparison plots + JSON. Implies --plot.",
+        help="Also evaluate the base model (NO trained weights) and generate "
+        "baseline-vs-GRPO comparison plots + JSON. Implies --plot. The "
+        "baseline uses the SAME config as the checkpoint — decoding AND "
+        "prompting (on a few-shot cell the baseline is few-shot too).",
     )
     parser.add_argument(
         "--best-of-n",
@@ -1064,13 +1224,14 @@ def main() -> None:
     parser.add_argument(
         "--eval-baseline-only",
         action="store_true",
-        help="Evaluate only the base model (zero-shot, no checkpoint). "
-        "Useful for generating the baseline JSON to compare against later.",
+        help="Evaluate only the base model (no checkpoint, no trained "
+        "weights). Useful for generating the baseline JSON to compare "
+        "against later.",
     )
     parser.add_argument(
         "--force-baseline-eval",
         action="store_true",
-        help="In --compare mode, re-evaluate the zero-shot baseline even "
+        help="In --compare mode, re-evaluate the base-model baseline even "
         "when a compatible eval_baseline.json is cached in the results dir "
         "(metrics_version + decoding + sample count all match). Default: "
         "reuse the cached baseline (~28 min GPU saved per re-eval).",
@@ -1100,9 +1261,55 @@ def main() -> None:
     # best_of_n: CLI flag overrides config; config default is False
     best_of_n = args.best_of_n or eval_cfg.get("best_of_n", False)
 
+    # ── Resolve the effective prompting mode ─────────────────────────────
+    # 'config' = comportamento odierno (modalità da retrieval.enabled);
+    # 'zero-shot'/'few-shot' = override esplicito della sola EVAL (la config
+    # di training non viene toccata). La coppia (modalità, provenienza) viene
+    # stampata, stampata nei file di output e stampata nel fingerprint del
+    # contesto prompt — due run con prompting diverso devono restare
+    # distinguibili ovunque.
+    config_prompting = _config_prompting_mode(config)
+    if args.prompting == "config":
+        prompting_mode = config_prompting
+        prompting_source = "config"
+    else:
+        prompting_mode = args.prompting
+        prompting_source = "cli"
+    # Un override ridondante (few-shot su config già few-shot) genera le
+    # stesse completions del default: nessun suffisso file, nessuna
+    # invalidazione di cache, nessun diverso fingerprint.
+    prompting_changed = prompting_mode != config_prompting
+
+    # Validazione runtime (replica il vincolo di tests/validate_configs.py
+    # per la sezione retrieval): forzare few-shot su una config che non
+    # prevede un budget di prompt adeguato troncherebbe gli esempi few-shot
+    # (o li renderebbero inconsistenti col training) rendendo la cella
+    # indistinguibile dallo zero-shot. FALLIMENTO LOUD, non warning.
+    if prompting_mode == "few-shot":
+        max_prompt = config.get("grpo", {}).get("max_prompt_length") or config.get(
+            "generation", {}
+        ).get("max_prompt_length")
+        if max_prompt is None or int(max_prompt) < 512:
+            parser.error(
+                f"--prompting few-shot richiede max_prompt_length >= 512, "
+                f"trovato {max_prompt!r} (config: {args.config}). Con un "
+                f"budget di prompt più corto gli esempi few-shot verrebbero "
+                f"troncati e la cella misurerebbe altro. Correggi la config "
+                f"(grpo.max_prompt_length o generation.max_prompt_length) "
+                f"oppure ometti --prompting."
+            )
+
     # ── Log eval configuration ───────────────────────────────────────────
     logger.info(f"Config: {args.config}")
-    logger.info(f"Checkpoint: {args.checkpoint or 'zero-shot (base model)'}")
+    logger.info(f"Checkpoint: {args.checkpoint or 'base model, no trained weights'}")
+    logger.info(
+        f"Prompting: {prompting_mode} "
+        + (
+            f"(forced via --prompting; config says {config_prompting})"
+            if prompting_changed
+            else "(from config retrieval.enabled)"
+        )
+    )
     logger.info(
         f"Max samples: {max_samples if max_samples is not None else 'all (full test set)'}"
     )
@@ -1176,14 +1383,26 @@ def main() -> None:
     #   1. --eval-baseline-only: eval base model, save as baseline_results.json
     #   2. --compare: eval baseline (or load from --baseline-json) + eval GRPO,
     #      then generate comparison plots + JSON
-    #   3. default: eval single checkpoint (or zero-shot)
+    #   3. default: eval single checkpoint (or the base model, no checkpoint)
+    #
+    # Suffisso per modalità di prompting: applicato ai file di output SOLO
+    # quando un override CLI cambia davvero la modalità, così due eval della
+    # stessa cella in modalità diverse non si sovrascrivono (es.
+    # eval_final__zero-shot.json accanto a eval_final.json). Il default resta
+    # byte-compatibile con i nomi file esistenti.
+    prompting_suffix = f"__{prompting_mode}" if prompting_changed else ""
+    baseline_filename = f"eval_baseline{prompting_suffix}.json"
+    baseline_fingerprint = _prompt_context_fingerprint(
+        config, num_samples, prompting_mode
+    )
+
     baseline_results: dict[str, Any] | None = None
     baseline_generations: list[dict[str, Any]] | None = None
 
     if args.eval_baseline_only:
         # Mode 1: baseline-only eval
         logger.info("=" * 60)
-        logger.info("BASELINE EVALUATION (zero-shot base model)")
+        logger.info("BASELINE EVALUATION (base model, no trained weights)")
         logger.info("=" * 60)
         (
             results,
@@ -1200,6 +1419,8 @@ def main() -> None:
             max_samples=max_samples,
             num_samples=num_samples,
             best_of_n=best_of_n,
+            prompting_mode=prompting_mode,
+            prompting_source=prompting_source,
         )
         model_tag = "baseline"
 
@@ -1225,27 +1446,34 @@ def main() -> None:
                 results_dir,
                 num_samples=num_samples,
                 max_samples=max_samples,
-                fingerprint=_prompt_context_fingerprint(config, num_samples),
+                fingerprint=baseline_fingerprint,
+                filename=baseline_filename,
             )
             if cached is not None:
                 baseline_results, baseline_generations, cached_from = cached
                 logger.info(
                     "=" * 60
-                    + f"\n  REUSING CACHED BASELINE: {cached_from}/eval_baseline.json"
+                    + f"\n  REUSING CACHED BASELINE: {cached_from}/{baseline_filename}"
                     + "\n  (compatible metrics/prompt-context/decoding/sample count —"
                     "\n   pass --force-baseline-eval to re-evaluate)" + "\n" + "=" * 60
                 )
         if baseline_results is None:
             logger.info("=" * 60)
-            logger.info("BASELINE EVALUATION (zero-shot base model)")
+            logger.info("BASELINE EVALUATION (base model, no trained weights)")
             logger.info("=" * 60)
             # Baseline and checkpoint use the SAME decoding strategy so the
             # comparison is fair: same num_samples (greedy by default, same
             # sampling temperature when num_samples > 1). No oracle selection.
+            # SAME PROMPTING too: the baseline reuses the cell's config (and
+            # the same --prompting override), so on a few-shot cell the
+            # comparison baseline is few-shot — this makes the difference
+            # explicit for whoever reads the output.
             logger.info(
-                "  Baseline uses the same decoding as the checkpoint "
-                "(num_samples=%d).",
+                "  Baseline uses the same decoding (num_samples=%d) AND the "
+                "same prompting (%s, source: %s) as the checkpoint.",
                 num_samples,
+                prompting_mode,
+                prompting_source,
             )
             (
                 baseline_results,
@@ -1262,15 +1490,22 @@ def main() -> None:
                 max_samples=max_samples,
                 num_samples=num_samples,
                 best_of_n=False,
+                prompting_mode=prompting_mode,
+                prompting_source=prompting_source,
             )
-            # Save baseline results for future reuse
+            # Save baseline results for future reuse — mode-suffixed filename
+            # when the override changes the prompting mode, so a config-mode
+            # baseline and an override-mode baseline never overwrite each
+            # other (the fingerprint guards reuse either way).
             bl_out_dir = results_dir
-            bl_path = bl_out_dir / "eval_baseline.json"
+            bl_path = bl_out_dir / baseline_filename
             bl_path.write_text(
                 json.dumps(baseline_results, indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
-            bl_gen_path = bl_out_dir / "generations_baseline.json"
+            bl_gen_path = bl_out_dir / baseline_filename.replace(
+                "eval_baseline", "generations_baseline", 1
+            )
             bl_gen_path.write_text(
                 json.dumps(baseline_generations, indent=2, ensure_ascii=False),
                 encoding="utf-8",
@@ -1297,6 +1532,8 @@ def main() -> None:
             max_samples=max_samples,
             num_samples=num_samples,
             best_of_n=best_of_n,
+            prompting_mode=prompting_mode,
+            prompting_source=prompting_source,
         )
 
     else:
@@ -1316,6 +1553,8 @@ def main() -> None:
             max_samples=max_samples,
             num_samples=num_samples,
             best_of_n=best_of_n,
+            prompting_mode=prompting_mode,
+            prompting_source=prompting_source,
         )
 
     # ── Log key metrics ─────────────────────────────────────────────────
@@ -1329,9 +1568,14 @@ def main() -> None:
         f"  ROUGE-L (sent mean):    {results['rouge_l_mean']:.4f} ± {results['rouge_l_std']:.4f}"
     )
     logger.info(f"  Gloss F1 (micro):       {results['gloss_f1_micro']:.4f}")
-    logger.info(f"  Pass@1: {results['pass_at_1']:.4f}")
+    # pass@1 = frazione di prompt la cui PRIMA completion raggiunge la
+    # soglia (k=1 della curva Pass@k). L'etichetta esplicita evita di
+    # confonderlo con la media su tutte le completions del blocco CI.
+    logger.info(f"  Pass@1 (first completion): {results['pass_at_1']:.4f}")
     if results.get("pass_at_k"):
         for k, v in results["pass_at_k"].items():
+            if k == "pass@1":
+                continue  # già stampato come "Pass@1 (first completion)" sopra
             logger.info(f"  Pass@{k}: {v:.4f}")
     logger.info(f"  Validity rate: {results['validity_rate']:.4f}")
     logger.info(
@@ -1400,9 +1644,15 @@ def main() -> None:
         f"  Gloss F1 (sent/micro):   {results['gloss_f1_sentence_mean']:.4f} / "
         f"{results['gloss_f1_micro']:.4f}"
     )
-    print(f"  Pass@1:                  {results['pass_at_1']:.4f}")
+    # pass@1 (first completion) = frazione di prompt la cui PRIMA completion
+    # raggiunge ROUGE-L >= 0.3: un solo draw onesto per prompt, ancora k=1
+    # della curva Pass@k (che usa le prime k completions). Il loop pass@k
+    # sotto salta k=1: stamparlo due volte con lo stesso valore era rumore.
+    print(f"  Pass@1 (first completion): {results['pass_at_1']:.4f}")
     if "pass_at_k" in results:
         for k, v in results["pass_at_k"].items():
+            if k == "pass@1":
+                continue  # già stampato come "Pass@1 (first completion)" sopra
             print(f"  {k}:{' ' * (25 - len(k))}{v:.4f}")
     print(f"  Exact match:             {results['exact_match']:.4f}")
     print(f"  Bigram log-prob (mean):  {results['bigram_log_prob_mean']:.4f}")
@@ -1444,8 +1694,15 @@ def main() -> None:
             )
         if "pass_at_1" in er:
             pa = er["pass_at_1"]
+            # STIMATORE DIVERSO dal "Pass@1 (first completion)" del blocco
+            # principale: qui è la media empirica dell'indicatore
+            # ROUGE-L >= 0.3 su TUTTE le completions (num_samples draw per
+            # prompt, ~num_samples volte i campioni), con CI bootstrap. È
+            # l'estimatore più efficiente della probabilità che una singola
+            # completion campionata superi la soglia — ma NON è lo stesso
+            # numero del blocco primario (docs/EVALUATION.md §2a).
             print(
-                f"    Pass@1:   {pa['mean']:.4f}  "
+                f"    Pass@1 (all completions):  {pa['mean']:.4f}  "
                 f"CI: [{pa['ci_95'][0]:.4f}, {pa['ci_95'][1]:.4f}]"
             )
         if "gloss_validity_rate" in er:
@@ -1474,272 +1731,305 @@ def main() -> None:
         out_path = Path(args.output)
     else:
         ckpt_name = Path(args.checkpoint).name if args.checkpoint else "zero_shot"
-        out_path = results_dir / f"eval_{ckpt_name}.json"
+        out_path = results_dir / f"eval_{ckpt_name}{prompting_suffix}.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(
-        json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-    logger.info(f"Results saved to {out_path}")
+    # Fase istrumentata: la scrittura delle decine di MB di generations JSON
+    # può durare secondi-minuti e il log del path usciva solo DOPO la scrittura.
+    with phase(
+        "Saving eval + generations JSON",
+        detail=f"{len(results)} metric keys, {len(generations)} generations",
+    ):
+        out_path.write_text(
+            json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        logger.info(f"Results saved to {out_path}")
 
-    # ── Save generations JSON (stile grpo-strict-generation) ────────────
-    # File separato con ogni singola generazione (testo/gold/pred/valid/
-    # rouge_l), utile per ispezione manuale e per costruire dataset di
-    # analisi degli errori — analogo a completions_{name}.json in
-    # grpo-strict-generation/src/evaluation/eval_grpo.py.
-    # Naming: sempre dallo stem dell'eval file (mai dal path pieno), e
-    # scritto ACCANTO all'eval file — così `--output` custom resta coerente.
-    gen_stem = out_path.stem
-    if gen_stem.startswith("eval_"):
-        gen_stem = gen_stem[len("eval_") :]
-    gen_path = out_path.parent / f"generations_{gen_stem}.json"
-    gen_path.write_text(
-        json.dumps(generations, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-    logger.info(f"Generations saved to {gen_path}")
+        # ── Save generations JSON (stile grpo-strict-generation) ────────────
+        # File separato con ogni singola generazione (testo/gold/pred/valid/
+        # rouge_l), utile per ispezione manuale e per costruire dataset di
+        # analisi degli errori — analogo a completions_{name}.json in
+        # grpo-strict-generation/src/evaluation/eval_grpo.py.
+        # Naming: sempre dallo stem dell'eval file (mai dal path pieno), e
+        # scritto ACCANTO all'eval file — così `--output` custom resta coerente.
+        gen_stem = out_path.stem
+        if gen_stem.startswith("eval_"):
+            gen_stem = gen_stem[len("eval_") :]
+        gen_path = out_path.parent / f"generations_{gen_stem}.json"
+        gen_path.write_text(
+            json.dumps(generations, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        logger.info(f"Generations saved to {gen_path}")
     print(f"  Generations saved to: {gen_path}")
 
     # ── Generate plots ───────────────────────────────────────────────────
     if args.plot:
-        from src.utils.visualization import (
-            dump_completion_examples,
-            plot_baseline_vs_grpo,
-            plot_baseline_vs_grpo_comparison,
-            plot_completion_length_distribution,
-            plot_difficulty_breakdown,
-            plot_error_breakdown,
-            plot_metrics_dashboard,
-            plot_pass_at_k_curve,
-            plot_reward_breakdown,
-            plot_reward_radar,
-            plot_rouge_distribution,
-            plot_score_distribution,
-            plot_validity_pie,
-        )
-
-        # figures_dir is pre-resolved at the start of main()
-        valid_mask = [v for v, _ in validity]
-
-        logger.info("Generating evaluation figures...")
-
-        # 1. Metrics dashboard — THE comparison figure (headline metrics,
-        #    baseline vs checkpoint, ordered by relevance). Rendered FIRST
-        #    so it's the "one figure to look at" in the figures dir.
-        dashboard_baseline = None
-        if baseline_results is not None:
-            dashboard_baseline = baseline_results
-        elif args.baseline_json is not None and Path(args.baseline_json).exists():
-            dashboard_baseline = json.loads(
-                Path(args.baseline_json).read_text(encoding="utf-8")
-            )
-        plot_metrics_dashboard(
-            dashboard_baseline,
-            results,
-            model_name=model_tag,
-            label=model_tag,
-            output_path=str(figures_dir / "metrics_dashboard.png"),
-        )
-
-        # 2. Difficulty breakdown (per gold-difficulty metrics)
-        if results.get("difficulty_breakdown"):
-            plot_difficulty_breakdown(
-                results["difficulty_breakdown"],
-                model_name=model_tag,
-                output_path=str(figures_dir / "difficulty_breakdown.png"),
+        with phase(
+            "Rendering evaluation figures",
+            detail="11-12 ggplot figures via plotnine (per-figure Saved: lines follow)",
+        ):
+            from src.utils.visualization import (
+                dump_completion_examples,
+                plot_baseline_vs_grpo,
+                plot_baseline_vs_grpo_comparison,
+                plot_completion_length_distribution,
+                plot_difficulty_breakdown,
+                plot_error_breakdown,
+                plot_metrics_dashboard,
+                plot_pass_at_k_curve,
+                plot_reward_breakdown,
+                plot_reward_radar,
+                plot_rouge_distribution,
+                plot_score_distribution,
+                plot_validity_pie,
             )
 
-        # 3. Completion length distribution
-        plot_completion_length_distribution(
-            completions,
-            valid_mask=valid_mask,
-            title=f"Gloss Length - {model_tag}",
-            output_path=str(figures_dir / "completion_lengths.png"),
-        )
+            # figures_dir is pre-resolved at the start of main()
+            valid_mask = [v for v, _ in validity]
 
-        # 4. Metric score distributions (BLEU-4, chrF2, ROUGE-L — same
-        #    histogram format for the three headline content metrics)
-        plot_score_distribution(
-            bleu_scores,
-            metric_name="BLEU-4 (sentence)",
-            xlabel="BLEU-4 Score",
-            model_name=model_tag,
-            output_path=str(figures_dir / "bleu_distribution.png"),
-            valid_mask=valid_mask,
-        )
-        plot_score_distribution(
-            chrf_scores,
-            metric_name="chrF2 (sentence)",
-            xlabel="chrF2 Score",
-            model_name=model_tag,
-            output_path=str(figures_dir / "chrf_distribution.png"),
-            valid_mask=valid_mask,
-        )
-        plot_rouge_distribution(
-            rouge_scores,
-            model_name=model_tag,
-            output_path=str(figures_dir / "rouge_distribution.png"),
-        )
-
-        # 5. Pass@k curve (if multi-sample)
-        if results.get("pass_at_k"):
-            plot_pass_at_k_curve(
-                results["pass_at_k"],
-                model_name=model_tag,
-                output_path=str(figures_dir / "pass_at_k.png"),
-            )
-
-        # 6. Error breakdown pie chart
-        plot_error_breakdown(
-            results["error_distribution"],
-            model_name=model_tag,
-            output_path=str(figures_dir / "error_breakdown.png"),
-        )
-
-        # 7. Validity pie chart
-        plot_validity_pie(
-            valid_count=results["valid_count"],
-            invalid_count=results["invalid_count"],
-            model_name=model_tag,
-            output_path=str(figures_dir / "validity_pie.png"),
-        )
-
-        # 8. Reward breakdown bar chart
-        rewards_cfg = config.get("reward", {})
-        structure_weight = rewards_cfg.get("weight_gold_structure", 0.4)
-        weights = {
-            "translation_quality_reward": rewards_cfg.get("weight_translation", 0.4),
-            "bleu_reward": rewards_cfg.get("weight_bleu", 0.0),
-            "gold_structure_reward": structure_weight,
-            "verifier_scaled_reward": rewards_cfg.get("weight_verifier_scaled", 0.0),
-            "gloss_order_reward": rewards_cfg.get("weight_gloss_order", 0.0),
-            "gloss_format_reward": rewards_cfg.get("weight_format", 0.1),
-            "gloss_repetition_reward": rewards_cfg.get("weight_repetition", 0.1),
-        }
-        plot_reward_breakdown(
-            [{"label": model_tag, "scores": results["reward_breakdown"]}],
-            reward_weights=weights,
-            model_name=model_tag,
-            output_path=str(figures_dir / "reward_breakdown.png"),
-        )
-
-        # 9. Reward radar chart
-        plot_reward_radar(
-            results["reward_breakdown"],
-            reward_weights=weights,
-            model_name=model_tag,
-            output_path=str(figures_dir / "reward_radar.png"),
-        )
-
-        # 10. Completion examples (best & worst) — JSON + HTML
-        # ``completions``/``rouge_scores`` are FLAT (one per completion):
-        # pass the aligned per-completion gold from ``generations``.
-        # ``all_references`` is ONE PER PROMPT and would misalign gold vs
-        # prompt whenever num_samples > 1 (gold shown from another sample).
-        prompts = [g["text"] for g in generations]
-        flat_refs = [g["gold_gloss"] for g in generations]
-        dump_completion_examples(
-            completions,
-            flat_refs,
-            rouge_scores,
-            prompts=prompts,
-            n_examples=10,
-            model_name=model_tag,
-            output_dir=str(figures_dir),
-        )
-
-        # 11. Baseline vs GRPO (if baseline Pass@1 provided via CLI)
-        if args.baseline is not None:
-            plot_baseline_vs_grpo(
-                baseline_pass1=args.baseline,
-                grpo_pass1=results["pass_at_1"],
-                model_name=model_tag,
-                output_path=str(figures_dir / "baseline_vs_grpo.png"),
-            )
-
-        # 12. Baseline vs GRPO full comparison
-        # Triggered by: --compare (baseline_results from in-run eval),
-        # or --baseline-json (baseline_results from saved JSON).
-        comparison_metrics: dict[str, Any] | None = None
-        if baseline_results is not None:
-            comparison_metrics = baseline_results
-        elif args.baseline_json is not None and Path(args.baseline_json).exists():
-            comparison_metrics = json.loads(
-                Path(args.baseline_json).read_text(encoding="utf-8")
-            )
-
-        if comparison_metrics is not None:
-            plot_baseline_vs_grpo_comparison(
-                baseline_metrics=comparison_metrics,
-                grpo_metrics=results,
+            # 1. Metrics dashboard — THE comparison figure (headline metrics,
+            #    baseline vs checkpoint, ordered by relevance). Rendered FIRST
+            #    so it's the "one figure to look at" in the figures dir.
+            dashboard_baseline = None
+            if baseline_results is not None:
+                dashboard_baseline = baseline_results
+            elif args.baseline_json is not None and Path(args.baseline_json).exists():
+                dashboard_baseline = json.loads(
+                    Path(args.baseline_json).read_text(encoding="utf-8")
+                )
+            plot_metrics_dashboard(
+                dashboard_baseline,
+                results,
                 model_name=model_tag,
                 label=model_tag,
-                output_path=str(figures_dir / "baseline_vs_grpo_comparison.png"),
+                output_path=str(figures_dir / "metrics_dashboard.png"),
             )
 
-            # ── Print comparison summary ───────────────────────────────
-            # Both models use the SAME decoding (same num_samples and
-            # temperature), so the comparison is fair.
-            compare_keys = [
-                "rouge_l_mean",
-                "valid_rouge_l_mean",
-                "pass_at_1",
-                "exact_match",
-                "validity_rate",
-                "bleu_sentence_mean",
-                "bleu_corpus",
-                "chrf_sentence_mean",
-                "chrf_corpus",
-                "gloss_f1_sentence_mean",
-                "gloss_f1_micro",
-                "bigram_log_prob_mean",
-            ]
-            compare_labels = {
-                "rouge_l_mean": "ROUGE-L mean",
-                "valid_rouge_l_mean": "Valid ROUGE-L",
-                "pass_at_1": "Pass@1",
-                "exact_match": "Exact Match",
-                "validity_rate": "Validity Rate",
-                "bleu_sentence_mean": "BLEU (sent)",
-                "bleu_corpus": "BLEU (corpus)",
-                "chrf_sentence_mean": "chrF2 (sent)",
-                "chrf_corpus": "chrF2 (corpus)",
-                "gloss_f1_sentence_mean": "Gloss F1 (sent)",
-                "gloss_f1_micro": "Gloss F1 (micro)",
-                "bigram_log_prob_mean": "Bigram LP",
-            }
-            print("\n" + "=" * 60)
-            print("  BASELINE vs CHECKPOINT COMPARISON (same decoding)")
-            print("=" * 60)
-            for metric_key in compare_keys:
-                bl_val = comparison_metrics.get(metric_key, 0.0)
-                gr_val = results.get(metric_key, 0.0)
-                delta = gr_val - bl_val
-                arrow = "↑" if delta > 0 else ("↓" if delta < 0 else "→")
-                print(
-                    f"  {compare_labels[metric_key]:20s}  "
-                    f"BL={bl_val:.4f}  CKPT={gr_val:.4f}  "
-                    f"Δ={delta:+.4f} {arrow}"
+            # 2. Difficulty breakdown (per gold-difficulty metrics)
+            if results.get("difficulty_breakdown"):
+                plot_difficulty_breakdown(
+                    results["difficulty_breakdown"],
+                    model_name=model_tag,
+                    output_path=str(figures_dir / "difficulty_breakdown.png"),
                 )
-            print("=" * 60)
 
-            # ── Save comparison JSON ────────────────────────────────────
-            comparison_json = {
-                "decoding": results.get("decoding", {}),
-                "baseline": {k: comparison_metrics.get(k, 0.0) for k in compare_keys},
-                "checkpoint": {k: results.get(k, 0.0) for k in compare_keys},
-                "delta": {
-                    k: results.get(k, 0.0) - comparison_metrics.get(k, 0.0)
-                    for k in compare_keys
-                },
-            }
-            comp_path = out_path.parent / "comparison.json"
-            comp_path.write_text(
-                json.dumps(comparison_json, indent=2, ensure_ascii=False),
-                encoding="utf-8",
+            # 3. Completion length distribution
+            plot_completion_length_distribution(
+                completions,
+                valid_mask=valid_mask,
+                title=f"Gloss Length - {model_tag}",
+                output_path=str(figures_dir / "completion_lengths.png"),
             )
-            logger.info(f"Comparison saved to {comp_path}")
-            print(f"  Comparison saved to: {comp_path}")
 
-        print(f"\n  Figures saved to: {figures_dir}")
+            # 4. Metric score distributions (BLEU-4, chrF2, ROUGE-L — same
+            #    histogram format for the three headline content metrics)
+            plot_score_distribution(
+                bleu_scores,
+                metric_name="BLEU-4 (sentence)",
+                xlabel="BLEU-4 Score",
+                model_name=model_tag,
+                output_path=str(figures_dir / "bleu_distribution.png"),
+                valid_mask=valid_mask,
+            )
+            plot_score_distribution(
+                chrf_scores,
+                metric_name="chrF2 (sentence)",
+                xlabel="chrF2 Score",
+                model_name=model_tag,
+                output_path=str(figures_dir / "chrf_distribution.png"),
+                valid_mask=valid_mask,
+            )
+            plot_rouge_distribution(
+                rouge_scores,
+                model_name=model_tag,
+                output_path=str(figures_dir / "rouge_distribution.png"),
+            )
+
+            # 5. Pass@k curve (if multi-sample)
+            if results.get("pass_at_k"):
+                plot_pass_at_k_curve(
+                    results["pass_at_k"],
+                    model_name=model_tag,
+                    output_path=str(figures_dir / "pass_at_k.png"),
+                )
+
+            # 6. Error breakdown pie chart
+            plot_error_breakdown(
+                results["error_distribution"],
+                model_name=model_tag,
+                output_path=str(figures_dir / "error_breakdown.png"),
+            )
+
+            # 7. Validity pie chart
+            plot_validity_pie(
+                valid_count=results["valid_count"],
+                invalid_count=results["invalid_count"],
+                model_name=model_tag,
+                output_path=str(figures_dir / "validity_pie.png"),
+            )
+
+            # 8. Reward breakdown bar chart
+            rewards_cfg = config.get("reward", {})
+            structure_weight = rewards_cfg.get("weight_gold_structure", 0.4)
+            weights = {
+                "translation_quality_reward": rewards_cfg.get(
+                    "weight_translation", 0.4
+                ),
+                "bleu_reward": rewards_cfg.get("weight_bleu", 0.0),
+                "gold_structure_reward": structure_weight,
+                "verifier_scaled_reward": rewards_cfg.get(
+                    "weight_verifier_scaled", 0.0
+                ),
+                "gloss_order_reward": rewards_cfg.get("weight_gloss_order", 0.0),
+                "gloss_format_reward": rewards_cfg.get("weight_format", 0.1),
+                "gloss_repetition_reward": rewards_cfg.get("weight_repetition", 0.1),
+            }
+            plot_reward_breakdown(
+                [{"label": model_tag, "scores": results["reward_breakdown"]}],
+                reward_weights=weights,
+                model_name=model_tag,
+                output_path=str(figures_dir / "reward_breakdown.png"),
+            )
+
+            # 9. Reward radar chart
+            plot_reward_radar(
+                results["reward_breakdown"],
+                reward_weights=weights,
+                model_name=model_tag,
+                output_path=str(figures_dir / "reward_radar.png"),
+            )
+
+            # 10. Completion examples (best & worst) — JSON + HTML
+            # ``completions``/``rouge_scores`` are FLAT (one per completion):
+            # pass the aligned per-completion gold from ``generations``.
+            # ``all_references`` is ONE PER PROMPT and would misalign gold vs
+            # prompt whenever num_samples > 1 (gold shown from another sample).
+            prompts = [g["text"] for g in generations]
+            flat_refs = [g["gold_gloss"] for g in generations]
+            dump_completion_examples(
+                completions,
+                flat_refs,
+                rouge_scores,
+                prompts=prompts,
+                n_examples=10,
+                model_name=model_tag,
+                output_dir=str(figures_dir),
+            )
+
+            # 11. Baseline vs GRPO (if baseline Pass@1 provided via CLI)
+            if args.baseline is not None:
+                plot_baseline_vs_grpo(
+                    baseline_pass1=args.baseline,
+                    grpo_pass1=results["pass_at_1"],
+                    model_name=model_tag,
+                    output_path=str(figures_dir / "baseline_vs_grpo.png"),
+                )
+
+            # 12. Baseline vs GRPO full comparison
+            # Triggered by: --compare (baseline_results from in-run eval),
+            # or --baseline-json (baseline_results from saved JSON).
+            comparison_metrics: dict[str, Any] | None = None
+            if baseline_results is not None:
+                comparison_metrics = baseline_results
+            elif args.baseline_json is not None and Path(args.baseline_json).exists():
+                comparison_metrics = json.loads(
+                    Path(args.baseline_json).read_text(encoding="utf-8")
+                )
+
+            if comparison_metrics is not None:
+                plot_baseline_vs_grpo_comparison(
+                    baseline_metrics=comparison_metrics,
+                    grpo_metrics=results,
+                    model_name=model_tag,
+                    label=model_tag,
+                    output_path=str(figures_dir / "baseline_vs_grpo_comparison.png"),
+                )
+
+                # ── Print comparison summary ───────────────────────────────
+                # Both models use the SAME decoding (same num_samples and
+                # temperature), so the comparison is fair.
+                compare_keys = [
+                    "rouge_l_mean",
+                    "valid_rouge_l_mean",
+                    "pass_at_1",
+                    "exact_match",
+                    "validity_rate",
+                    "bleu_sentence_mean",
+                    "bleu_corpus",
+                    "chrf_sentence_mean",
+                    "chrf_corpus",
+                    "gloss_f1_sentence_mean",
+                    "gloss_f1_micro",
+                    "bigram_log_prob_mean",
+                ]
+                compare_labels = {
+                    "rouge_l_mean": "ROUGE-L mean",
+                    "valid_rouge_l_mean": "Valid ROUGE-L",
+                    "pass_at_1": "Pass@1",
+                    "exact_match": "Exact Match",
+                    "validity_rate": "Validity Rate",
+                    "bleu_sentence_mean": "BLEU (sent)",
+                    "bleu_corpus": "BLEU (corpus)",
+                    "chrf_sentence_mean": "chrF2 (sent)",
+                    "chrf_corpus": "chrF2 (corpus)",
+                    "gloss_f1_sentence_mean": "Gloss F1 (sent)",
+                    "gloss_f1_micro": "Gloss F1 (micro)",
+                    "bigram_log_prob_mean": "Bigram LP",
+                }
+                print("\n" + "=" * 60)
+                # Modalità di prompting della baseline: per --compare è identica
+                # a quella del checkpoint per costruzione (stessa config + stesso
+                # override CLI). Per --baseline-json si legge lo stamp nel JSON
+                # della baseline: se dichiara una modalità DIVERSA il confronto
+                # NON è a parità di prompting e va dichiarato.
+                bl_stamp = (
+                    comparison_metrics.get("prompting")
+                    if isinstance(comparison_metrics, dict)
+                    else None
+                )
+                bl_mode_label = (
+                    f"{prompting_mode} (source: {prompting_source})"
+                    if not isinstance(bl_stamp, dict)
+                    or bl_stamp.get("mode") in (None, prompting_mode)
+                    else f"{bl_stamp.get('mode')} — DIFFERS from checkpoint prompting!"
+                )
+                print(
+                    "  BASELINE vs CHECKPOINT COMPARISON "
+                    f"(same decoding; baseline prompting = {bl_mode_label})"
+                )
+                print("=" * 60)
+                for metric_key in compare_keys:
+                    bl_val = comparison_metrics.get(metric_key, 0.0)
+                    gr_val = results.get(metric_key, 0.0)
+                    delta = gr_val - bl_val
+                    arrow = "↑" if delta > 0 else ("↓" if delta < 0 else "→")
+                    print(
+                        f"  {compare_labels[metric_key]:20s}  "
+                        f"BL={bl_val:.4f}  CKPT={gr_val:.4f}  "
+                        f"Δ={delta:+.4f} {arrow}"
+                    )
+                print("=" * 60)
+
+                # ── Save comparison JSON ────────────────────────────────────
+                comparison_json = {
+                    "decoding": results.get("decoding", {}),
+                    "baseline": {
+                        k: comparison_metrics.get(k, 0.0) for k in compare_keys
+                    },
+                    "checkpoint": {k: results.get(k, 0.0) for k in compare_keys},
+                    "delta": {
+                        k: results.get(k, 0.0) - comparison_metrics.get(k, 0.0)
+                        for k in compare_keys
+                    },
+                }
+                comp_path = out_path.parent / "comparison.json"
+                comp_path.write_text(
+                    json.dumps(comparison_json, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                logger.info(f"Comparison saved to {comp_path}")
+                print(f"  Comparison saved to: {comp_path}")
+
+            print(f"\n  Figures saved to: {figures_dir}")
 
     # ── wandb logging ───────────────────────────────────────────────────
     # Log all metrics to wandb (offline mode on cluster). Tags distinguish
@@ -1774,76 +2064,84 @@ def main() -> None:
 
         wandb_dir = logs_dir
 
-        wandb.init(
-            project=wandb_cfg.get("project", "neuro-symbolic-t2g"),
-            name=wandb_run_name,
-            config=config,
-            tags=wandb_tags,
-            dir=str(wandb_dir),
-            mode="offline",
-            settings=wandb.Settings(
-                console_multipart=True,
-                console_chunk_max_bytes=1_000_000,
-                console_chunk_max_seconds=60,
-            ),
-        )
-
-        # Log all scalar metrics
-        wandb.log(results)
-
-        # Log comparison metrics if available
-        if baseline_results is not None:
-            wandb_delta: dict[str, Any] = {
-                "baseline/rouge_l_mean": baseline_results.get("rouge_l_mean", 0.0),
-                "baseline/valid_rouge_l_mean": baseline_results.get(
-                    "valid_rouge_l_mean", 0.0
+        with phase(
+            "Logging results to wandb",
+            detail="offline run: metrics + comparison + figures, then finish()",
+        ):
+            wandb.init(
+                project=wandb_cfg.get("project", "neuro-symbolic-t2g"),
+                name=wandb_run_name,
+                config=config,
+                tags=wandb_tags,
+                dir=str(wandb_dir),
+                mode="offline",
+                settings=wandb.Settings(
+                    console_multipart=True,
+                    console_chunk_max_bytes=1_000_000,
+                    console_chunk_max_seconds=60,
                 ),
-                "baseline/pass_at_1": baseline_results.get("pass_at_1", 0.0),
-                "baseline/exact_match": baseline_results.get("exact_match", 0.0),
-                "baseline/validity_rate": baseline_results.get("validity_rate", 0.0),
-                "baseline/bleu_sentence_mean": baseline_results.get(
-                    "bleu_sentence_mean", 0.0
-                ),
-                "baseline/bleu_corpus": baseline_results.get("bleu_corpus", 0.0),
-                "baseline/chrf_sentence_mean": baseline_results.get(
-                    "chrf_sentence_mean", 0.0
-                ),
-                "baseline/gloss_f1_sentence_mean": baseline_results.get(
-                    "gloss_f1_sentence_mean", 0.0
-                ),
-                "baseline/gloss_f1_micro": baseline_results.get("gloss_f1_micro", 0.0),
-                "delta/rouge_l_mean": results.get("rouge_l_mean", 0.0)
-                - baseline_results.get("rouge_l_mean", 0.0),
-                "delta/valid_rouge_l_mean": results.get("valid_rouge_l_mean", 0.0)
-                - baseline_results.get("valid_rouge_l_mean", 0.0),
-                "delta/pass_at_1": results.get("pass_at_1", 0.0)
-                - baseline_results.get("pass_at_1", 0.0),
-                "delta/exact_match": results.get("exact_match", 0.0)
-                - baseline_results.get("exact_match", 0.0),
-                "delta/validity_rate": results.get("validity_rate", 0.0)
-                - baseline_results.get("validity_rate", 0.0),
-                "delta/bleu_sentence_mean": results.get("bleu_sentence_mean", 0.0)
-                - baseline_results.get("bleu_sentence_mean", 0.0),
-                "delta/bleu_corpus": results.get("bleu_corpus", 0.0)
-                - baseline_results.get("bleu_corpus", 0.0),
-                "delta/chrf_sentence_mean": results.get("chrf_sentence_mean", 0.0)
-                - baseline_results.get("chrf_sentence_mean", 0.0),
-                "delta/gloss_f1_sentence_mean": results.get(
-                    "gloss_f1_sentence_mean", 0.0
-                )
-                - baseline_results.get("gloss_f1_sentence_mean", 0.0),
-                "delta/gloss_f1_micro": results.get("gloss_f1_micro", 0.0)
-                - baseline_results.get("gloss_f1_micro", 0.0),
-            }
-            wandb.log(wandb_delta)
+            )
 
-        # Log figures as images
-        if args.plot:
-            # figures_dir is pre-resolved
-            for fig_file in figures_dir.glob("*.png"):
-                wandb.log({f"figures/{fig_file.stem}": wandb.Image(str(fig_file))})
+            # Log all scalar metrics
+            wandb.log(results)
 
-        wandb.finish()
+            # Log comparison metrics if available
+            if baseline_results is not None:
+                wandb_delta: dict[str, Any] = {
+                    "baseline/rouge_l_mean": baseline_results.get("rouge_l_mean", 0.0),
+                    "baseline/valid_rouge_l_mean": baseline_results.get(
+                        "valid_rouge_l_mean", 0.0
+                    ),
+                    "baseline/pass_at_1": baseline_results.get("pass_at_1", 0.0),
+                    "baseline/exact_match": baseline_results.get("exact_match", 0.0),
+                    "baseline/validity_rate": baseline_results.get(
+                        "validity_rate", 0.0
+                    ),
+                    "baseline/bleu_sentence_mean": baseline_results.get(
+                        "bleu_sentence_mean", 0.0
+                    ),
+                    "baseline/bleu_corpus": baseline_results.get("bleu_corpus", 0.0),
+                    "baseline/chrf_sentence_mean": baseline_results.get(
+                        "chrf_sentence_mean", 0.0
+                    ),
+                    "baseline/gloss_f1_sentence_mean": baseline_results.get(
+                        "gloss_f1_sentence_mean", 0.0
+                    ),
+                    "baseline/gloss_f1_micro": baseline_results.get(
+                        "gloss_f1_micro", 0.0
+                    ),
+                    "delta/rouge_l_mean": results.get("rouge_l_mean", 0.0)
+                    - baseline_results.get("rouge_l_mean", 0.0),
+                    "delta/valid_rouge_l_mean": results.get("valid_rouge_l_mean", 0.0)
+                    - baseline_results.get("valid_rouge_l_mean", 0.0),
+                    "delta/pass_at_1": results.get("pass_at_1", 0.0)
+                    - baseline_results.get("pass_at_1", 0.0),
+                    "delta/exact_match": results.get("exact_match", 0.0)
+                    - baseline_results.get("exact_match", 0.0),
+                    "delta/validity_rate": results.get("validity_rate", 0.0)
+                    - baseline_results.get("validity_rate", 0.0),
+                    "delta/bleu_sentence_mean": results.get("bleu_sentence_mean", 0.0)
+                    - baseline_results.get("bleu_sentence_mean", 0.0),
+                    "delta/bleu_corpus": results.get("bleu_corpus", 0.0)
+                    - baseline_results.get("bleu_corpus", 0.0),
+                    "delta/chrf_sentence_mean": results.get("chrf_sentence_mean", 0.0)
+                    - baseline_results.get("chrf_sentence_mean", 0.0),
+                    "delta/gloss_f1_sentence_mean": results.get(
+                        "gloss_f1_sentence_mean", 0.0
+                    )
+                    - baseline_results.get("gloss_f1_sentence_mean", 0.0),
+                    "delta/gloss_f1_micro": results.get("gloss_f1_micro", 0.0)
+                    - baseline_results.get("gloss_f1_micro", 0.0),
+                }
+                wandb.log(wandb_delta)
+
+            # Log figures as images
+            if args.plot:
+                # figures_dir is pre-resolved
+                for fig_file in figures_dir.glob("*.png"):
+                    wandb.log({f"figures/{fig_file.stem}": wandb.Image(str(fig_file))})
+
+            wandb.finish()
         logger.info(f"wandb run logged: {wandb_run_name} (tags={wandb_tags})")
     except Exception as e:
         logger.warning(f"wandb logging failed (non-fatal): {e}")

@@ -18,6 +18,18 @@ from rouge_score import rouge_scorer
 
 from src.utils.text_utils import extract_gloss_text
 
+# tqdm fallback per i container Apptainer del cluster senza tqdm installato
+# (stessa pattern di src/datasets/aslg_dataset.py): la barra del bootstrap è
+# una comodità diagnostica, mai una dipendenza dura dell'eval.
+try:
+    from tqdm import tqdm
+except ImportError:
+
+    def tqdm(iterable=None, **kwargs):
+        """No-op fallback when tqdm is not installed."""
+        return iterable if iterable is not None else iter(())
+
+
 # Version of the metric definitions. Bump whenever a metric formula changes
 # (e.g. v2 = corpus BLEU/chrF reference-format fix). Eval results carry this
 # stamp so cached baselines computed with older definitions are detected and
@@ -333,6 +345,17 @@ def _get_sacrebleu_bleu() -> Any:
     against the n-gram orders actually present instead of collapsing to
     0) and ``floor`` smoothing, matching the configuration used by
     ``bleu_reward`` in ``src.rewards.t2g_rewards``.
+
+    ``force=True`` sopprime il warning sacrebleu sui dati pre-tokenizzati
+    ("That's 100 lines that end in a tokenized period"). La soppressione è
+    CONSAPEVOLE, non una scorciatoia: il gloss ASL ha la punteggiatura come
+    token separato (``X-Y WILL DESC-NOT FLINCH .``), quindi ogni hyp termina
+    legittimamente con ``.`` e sacrebleu lo scambia per dato dimenticato
+    detokenizzato. Il warning non indica alcun difetto dei nostri dati.
+    Conseguenza documentata (docs/EVALUATION.md §6): i valori ASSOLUTI di
+    BLEU non sono confrontabili con numeri pubblicati calcolati su dato
+    detokenizzato; i confronti fra celle di questo progetto restano validi
+    perché tutte usano lo stesso protocollo.
     """
     global _SACREBLEU_BLEU_METRIC
     if _SACREBLEU_BLEU_METRIC is None:
@@ -342,6 +365,11 @@ def _get_sacrebleu_bleu() -> Any:
             effective_order=True,
             smooth_method="floor",
             smooth_value=0.1,
+            # Dato legittimamente pre-tokenizzato (il gloss ha "." come
+            # token): silenzia il check "tokenized period" di sacrebleu
+            # (presente nelle versioni <= 2.4.x, rimosso nelle successive —
+            # il parametro è accettato da entrambe).
+            force=True,
         )
     return _SACREBLEU_BLEU_METRIC
 
@@ -588,8 +616,21 @@ def bootstrap_confidence_interval(
     n = len(values_arr)
     alpha = 1 - confidence
 
+    # Barra sulle ripetizioni: a 25k completions (max_samples 5000 x 5) la
+    # fase bootstrap dura minuti ed è la più lunga dell'eval — senza barra
+    # il log resta muto mentre il processo lavora. La sequenza di estrazioni
+    # del RandomState NON cambia (stessa chiamata per iterazione di prima):
+    # i valori restano bit-identici.
     bootstrap_means = np.array(
-        [values_arr[rng.randint(0, n, n)].mean() for _ in range(n_bootstrap)]
+        [
+            values_arr[rng.randint(0, n, n)].mean()
+            for _ in tqdm(
+                range(n_bootstrap),
+                desc=f"    Bootstrap CI ({n} values)",
+                unit="resample",
+                leave=False,
+            )
+        ]
     )
 
     lower = float(np.percentile(bootstrap_means, 100 * alpha / 2))
@@ -603,6 +644,10 @@ def compute_evaluation_report(
     completions: list[str],
     references: list[str],
     n_bootstrap: int = 1000,
+    *,
+    corpus_bleu_score: float | None = None,
+    corpus_chrf_score: float | None = None,
+    gloss_f1_micro_score: float | None = None,
 ) -> dict[str, Any]:
     """Compute a comprehensive evaluation report with confidence intervals.
 
@@ -613,7 +658,12 @@ def compute_evaluation_report(
     - BLEU via sacrebleu (corpus + sentence mean with 95% CI, [0, 1])
     - chrF2 via sacrebleu (corpus + sentence mean with 95% CI, 0-100 scale)
     - Token-level gloss F1 (micro + sentence mean with 95% CI, [0, 1])
-    - Pass@1 (with 95% CI)
+    - Pass@1 (with 95% CI) — empirical pass rate over **all** completions
+      (every sampled completion of every prompt), NOT the per-prompt
+      "first completion" pass@1 of :func:`compute_pass_at_k`: the two
+      estimators agree within sampling noise but are not the same number
+      (docs/EVALUATION.md §2a). The bootstrap CI here covers this
+      all-completions mean only.
     - Gloss validity rate
     - Error distribution
 
@@ -625,11 +675,27 @@ def compute_evaluation_report(
         completions: Generated gloss sequences.
         references: Gold reference gloss sequences.
         n_bootstrap: Number of bootstrap resamples for CIs.
+        corpus_bleu_score: Corpus BLEU già calcolato dal chiamante sullo
+            stesso input (l'eval lo produce comunque per il blocco
+            primario). ``None`` lo ricalcola qui. Passarlo elimina la
+            seconda passata corpus — un tempo reale a 25k completions e la
+            seconda emissione del warning sacrebleu sul dato
+            pre-tokenizzato.
+        corpus_chrf_score: Corpus chrF già calcolato, come sopra.
+        gloss_f1_micro_score: Gloss F1 micro già calcolato, come sopra.
 
     Returns:
         Dict with all metrics and confidence intervals.
     """
     total = len(completions)
+
+    # Corpus-level values: riusa quelli passati dal chiamante quando
+    # disponibili — sono la STESSA funzione sullo STESSO input, quindi il
+    # valore non cambia; cambia solo che non viene ricalcolato.
+    if corpus_bleu_score is None:
+        corpus_bleu_score = bleu_corpus(completions, references)
+    if corpus_chrf_score is None:
+        corpus_chrf_score = corpus_chrf(completions, references)
 
     # Per-sample metrics
     rouge_scores = [rouge_l_score(c, r) for c, r in zip(completions, references)]
@@ -643,7 +709,8 @@ def compute_evaluation_report(
     valid_count = sum(1 for is_valid, _ in valid_results if is_valid)
     error_types = Counter(msg for _, msg in valid_results if msg)
 
-    # Bootstrap CIs
+    # Bootstrap CIs — 5 metriche x n_bootstrap ripetizioni: la fase più
+    # lunga dell'eval, la barra tqdm la rende visibile riga per riga.
     rouge_mean, rouge_lo, rouge_hi = bootstrap_confidence_interval(
         rouge_scores, n_bootstrap
     )
@@ -660,7 +727,9 @@ def compute_evaluation_report(
         pass_scores, n_bootstrap
     )
 
-    corpus_f1 = corpus_gloss_f1(completions, references)
+    if gloss_f1_micro_score is None:
+        corpus_f1 = corpus_gloss_f1(completions, references)
+        gloss_f1_micro_score = corpus_f1["micro"]
 
     return {
         "total_samples": total,
@@ -675,17 +744,17 @@ def compute_evaluation_report(
             },
         },
         "bleu": {
-            "corpus": bleu_corpus(completions, references),
+            "corpus": corpus_bleu_score,
             "sentence_mean": bleu_mean,
             "ci_95": [bleu_lo, bleu_hi],
         },
         "chrf": {
-            "corpus": corpus_chrf(completions, references),
+            "corpus": corpus_chrf_score,
             "sentence_mean": chrf_mean,
             "ci_95": [chrf_lo, chrf_hi],
         },
         "gloss_f1": {
-            "micro": corpus_f1["micro"],
+            "micro": gloss_f1_micro_score,
             "sentence_mean": gloss_f1_mean,
             "ci_95": [gloss_f1_lo, gloss_f1_hi],
         },

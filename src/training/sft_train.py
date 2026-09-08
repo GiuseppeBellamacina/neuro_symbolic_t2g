@@ -28,7 +28,10 @@ import logging
 import os
 import random
 import sys
+import time
 import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -69,11 +72,35 @@ from src.training.auxiliary_sft_trainer import (
 )
 from src.utils.config import load_config
 from src.utils.live_status import live_status_reset, live_status_set
+from src.utils.phase_timing import format_duration
 from src.utils.prompting import SYSTEM_PROMPT
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _phase_log(label: str, *, detail: str = "") -> Iterator[None]:
+    """Replica logger-based di ``phase()`` (``src/utils/phase_timing.py``).
+
+    WHY: questo file emette via ``logger.info`` (logging.basicConfig con
+    format ``%(message)s``); ``phase()`` fa ``print`` e cambiare sink
+    altererebbe il formato dei log di un percorso che funziona. Il pattern
+    è lo stesso: annuncio PRIMA del lavoro, durata DOPO — un messaggio a
+    posteriori non dice nulla mentre il processo è fermo.
+
+    Args:
+        label: Nome della fase.
+        detail: Informazione dimensionale opzionale (percorso, numero righe).
+    """
+    suffix = f" ({detail})" if detail else ""
+    logger.info("%s%s...", label, suffix)
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        logger.info("%s: %s", label, format_duration(time.perf_counter() - start))
 
 
 # ---------------------------------------------------------------------------
@@ -183,8 +210,11 @@ def _prepare_sft_dataset(
         max_samples=ds_cfg.get("max_samples"),
     )
 
-    rows = [_build_prompt_completion_example(sample) for sample in t2g_ds]
-    sft_ds = Dataset.from_list(rows)
+    # WHY phase: costruire ~73k prompt-completion dict e l'encoding Arrow
+    # sono muti (build_t2g_dataset sopra ha gia' la sua barra tqdm).
+    with _phase_log("Formatting prompt-completion pairs", detail=f"{len(t2g_ds)} rows"):
+        rows = [_build_prompt_completion_example(sample) for sample in t2g_ds]
+        sft_ds = Dataset.from_list(rows)
     logger.info(
         "[sft] SFT dataset: %d prompt-completion pairs (columns=%s)",
         len(sft_ds),
@@ -565,9 +595,13 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     logger.info("STEP 1: Data Preparation")
     logger.info("=" * 60)
 
-    dataset = download_aslg_dataset(
-        cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
-    )
+    # WHY phase: load_dataset + dedup di ~80k righe + split 90/10 impiegano
+    # 10-60s emettendo solo i logger.info interni di aslg_dataset (senza
+    # durata): al primo avvio il job sembra appeso.
+    with _phase_log("Loading ASLG-PC12 dataset", detail="cache + dedup + 90/10 split"):
+        dataset = download_aslg_dataset(
+            cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
+        )
 
     # Vocabulary (needed for eval compatibility)
     if Path(vocab_path).exists():
@@ -895,34 +929,44 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
             "Auxiliary objectives attivi: %s",
             ", ".join(f"{k}(w={v['weight']})" for k, v in auxiliary.items()),
         )
-        trainer = AuxiliarySFTTrainer(
-            model=model,
-            args=sft_config,
-            train_dataset=sft_train_ds,
-            eval_dataset=sft_eval_ds if eval_enabled else None,
-            processing_class=tokenizer,
-            data_collator=CompletionSpanCollator(
-                tokenizer=tokenizer,
-                mlm=False,
-                eos_token_id=tokenizer.eos_token_id,
-            ),
-            allowed_mask_fn=allowed_mask_fn,
-            mass_weight=float(mass_cfg.get("weight", 0.0)),
-            mass_warmup_steps=int(mass_cfg.get("warmup_steps", 0)),
-            structured_head=structured_head,
-            structured_loss=structured_loss,
-            structured_graph=structured_graph,
-            structured_weight=float(structured_cfg.get("weight", 0.0)),
-            structured_warmup_steps=int(structured_cfg.get("warmup_steps", 0)),
-        )
+        # WHY phase: l'init del trainer tokenizza/pacchettizza l'intero train
+        # set (~78k righe): minuti di gap muto fra questo punto e la prima
+        # barra tqdm del training loop.
+        with _phase_log(
+            "Initializing AuxiliarySFTTrainer",
+            detail="tokenizes/packs the training set",
+        ):
+            trainer = AuxiliarySFTTrainer(
+                model=model,
+                args=sft_config,
+                train_dataset=sft_train_ds,
+                eval_dataset=sft_eval_ds if eval_enabled else None,
+                processing_class=tokenizer,
+                data_collator=CompletionSpanCollator(
+                    tokenizer=tokenizer,
+                    mlm=False,
+                    eos_token_id=tokenizer.eos_token_id,
+                ),
+                allowed_mask_fn=allowed_mask_fn,
+                mass_weight=float(mass_cfg.get("weight", 0.0)),
+                mass_warmup_steps=int(mass_cfg.get("warmup_steps", 0)),
+                structured_head=structured_head,
+                structured_loss=structured_loss,
+                structured_graph=structured_graph,
+                structured_weight=float(structured_cfg.get("weight", 0.0)),
+                structured_warmup_steps=int(structured_cfg.get("warmup_steps", 0)),
+            )
     else:
-        trainer = SFTTrainer(
-            model=model,
-            args=sft_config,
-            train_dataset=sft_train_ds,
-            eval_dataset=sft_eval_ds if eval_enabled else None,
-            processing_class=tokenizer,
-        )
+        with _phase_log(
+            "Initializing SFTTrainer", detail="tokenizes/packs the training set"
+        ):
+            trainer = SFTTrainer(
+                model=model,
+                args=sft_config,
+                train_dataset=sft_train_ds,
+                eval_dataset=sft_eval_ds if eval_enabled else None,
+                processing_class=tokenizer,
+            )
 
     # Replace default ProgressCallback with TqdmOnlyProgressCallback
     # (keeps tqdm bar, suppresses duplicate log lines — same as grpo-strict-generation)
@@ -988,9 +1032,11 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         # With load_best_model_at_end=True the trainer already re-loaded the
         # best checkpoint weights, so `final` holds the best adapter.
         final_path = Path(output_dir) / "final"
-        logger.info("Saving final model to %s...", final_path)
-        trainer.save_model(str(final_path))
-        tokenizer.save_pretrained(str(final_path))
+        # WHY phase: la scrittura dell'adapter su NFS è muta; il vecchio
+        # logger.info annunciava ma non riferiva il completamento.
+        with _phase_log("Saving final model", detail=str(final_path)):
+            trainer.save_model(str(final_path))
+            tokenizer.save_pretrained(str(final_path))
         final_path_str = str(final_path)
 
         # ── Record SFT fingerprint (adapter reuse in the GRPO flow) ──────
@@ -1008,18 +1054,25 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         if last_ckpt.exists():
             import shutil
 
-            logger.info(
-                "Cleaning up duplicate final step checkpoint folder: %s", last_ckpt
-            )
-            shutil.rmtree(last_ckpt, ignore_errors=True)
+            # WHY phase: rmtree di GB di optimizer state su NFS può richiedere
+            # minuti; il vecchio logger.info annunciava ma non riferiva la fine.
+            with _phase_log(
+                "Removing duplicate final checkpoint", detail=str(last_ckpt)
+            ):
+                shutil.rmtree(last_ckpt, ignore_errors=True)
     finally:
         # ── Cleanup (aggressive: free VRAM for GRPO phase) ───────────────
+        # WHY phase: chiusura muta ma costosa — wandb.finish() flussha il run
+        # offline su NFS (WANDB_SILENT=true non stampa nulla) e il rilascio
+        # può bloccarsi su gc/empty_cache.
         if wandb.run:
-            wandb.finish()
+            with _phase_log("Finalizing wandb run"):
+                wandb.finish()
 
-        del trainer, model
-        gc.collect()
-        torch.cuda.empty_cache()
+        with _phase_log("Releasing trainer memory"):
+            del trainer, model
+            gc.collect()
+            torch.cuda.empty_cache()
 
     logger.info("=" * 60)
     logger.info("SFT T2G training complete!")
