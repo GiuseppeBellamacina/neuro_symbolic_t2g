@@ -434,13 +434,30 @@ determina l'interpretazione dei risultati.
         separatamente.
   \item[chrF.] Analoga a BLEU ma su $n$-grammi di \emph{caratteri}
         \cite{popovic2015chrf}; più robusta alla morfologia.
-  \item[Pass@$k$.] Probabilità che almeno una fra $k$ generazioni indipendenti
-        superi una soglia di correttezza. Dato che su $n$ campioni si osservano
-        $c$ successi, lo stimatore non distorto è
+  \item[Pass@$k$.] Frazione di prompt per cui almeno una fra $k$ generazioni
+        supera una soglia di correttezza. Detti $g^{(i)}_1, \dots, g^{(i)}_N$ le
+        $N$ generazioni per il prompt $i$, $r^{(i)}$ il riferimento, $\theta$ la
+        soglia e $\mathbb{1}[\cdot]$ la funzione indicatrice, la definizione
+        adottata in questo lavoro è
         \begin{equation}
           \label{eq:passk}
-          \mathrm{pass@}k \;=\; 1 - \frac{\binom{n-c}{k}}{\binom{n}{k}}.
+          \mathrm{pass@}k
+          \;=\;
+          \frac{1}{M}\sum_{i=1}^{M}
+          \mathbb{1}\!\left[\;\exists\, j \le k :\;
+            \mathrm{ROUGE\text{-}L}\!\left(g^{(i)}_j, r^{(i)}\right) \ge \theta
+          \right],
         \end{equation}
+        dove $M$ è il numero di prompt. Si tratta di una \emph{media empirica}
+        sulle prime $k$ generazioni di ciascun prompt, con $\theta = 0{,}3$.
+
+        Va segnalato, perché è fonte di confusione, che questa \textbf{non} è la
+        forma combinatoria $1 - \binom{n-c}{k} / \binom{n}{k}$ diffusa in
+        letteratura, la quale stima senza distorsione la probabilità di successo
+        su $k$ estrazioni a partire da $n > k$ campioni osservati. Quella forma
+        non è impiegata qui. La differenza è discussa nel
+        Capitolo~\ref{cap:metriche}, insieme a un secondo stimatore empirico
+        della stessa quantità che il codice riporta accanto al primo.
 \end{description}
 
 Un avvertimento che il Capitolo~\ref{cap:metriche} svilupperà in dettaglio:

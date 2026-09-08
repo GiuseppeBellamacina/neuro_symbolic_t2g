@@ -104,14 +104,14 @@ solo training set, ottiene:
 Sistema & ROUGE-L & Exact match \\
 \midrule
 Baseline a regole (nessun apprendimento) & $0{,}9697$ & $0{,}5912$ \\
-SFT (modello addestrato) & $0{,}9752$ & $0{,}8130$ \\
-GRPO da modello base & $0{,}6076$ & $0{,}0528$ \\
+SFT (modello addestrato) & $0{,}9749$ & $0{,}8117$ \\
+GRPO da modello base & $0{,}5998$ & $0{,}0499$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 Si legga con attenzione la terza riga: il miglior risultato ottenuto con
-reinforcement learning ($0{,}6076$) sta \emph{molto sotto} una regola che non
+reinforcement learning ($0{,}5998$) sta \emph{molto sotto} una regola che non
 apprende nulla ($0{,}9697$). Persino la trasformazione banale ``metti tutto in
 maiuscolo'' raggiunge ROUGE-L $0{,}6454$, cioè batte il GRPO.
 

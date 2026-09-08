@@ -14,7 +14,7 @@ baseline a regole di poche righe, che non apprende nulla, ottiene ROUGE-L
 $0{,}9697$ e supera ogni risultato ottenuto con reinforcement learning
 (Capitolo~\ref{cap:dataset}). Persino la trasformazione
 $\mathrm{uppercase}(\text{text})$ ottiene $0{,}6454$, cioè batte il miglior
-risultato con RL ($0{,}6076$).
+risultato con RL ($0{,}5998$).
 
 La causa è documentata: il corpus è sintetico
 (sezione~\ref{sec:sintetico}), la sovrapposizione fra token del gloss e del
@@ -35,7 +35,7 @@ supera il miglior valore pubblicato su questo corpus.
 
 La domanda ``il GRPO migliora la generazione di gloss?'' non è rispondibile su
 ASLG-PC12, perché presuppone che esista un margine di miglioramento su cui il
-reinforcement learning possa agire. Con l'SFT a exact match $0{,}8130$ e validity
+reinforcement learning possa agire. Con l'SFT a exact match $0{,}8117$ e validity
 $0{,}9998$, e una baseline a regole a ROUGE-L $0{,}9685$, quel margine non
 esiste.
 
@@ -59,8 +59,8 @@ misure che spiegano \emph{perché} non poteva funzionare.
         simmetrici, e la finestra utile su un compito quasi deterministico è
         stretta.
   \item[Parte 2: la degradazione della pipeline.] Applicare il GRPO alla policy
-        SFT porta ROUGE-L da $0{,}9752$ a $0{,}5114$ ed exact match da
-        $0{,}8130$ a $0{,}0203$. Il meccanismo è che gli aggiornamenti avvengono
+SFT porta ROUGE-L da $0{,}9749$ a $0{,}5114$ ed exact match da
+$0{,}8117$ a $0{,}0203$. Il meccanismo è che gli aggiornamenti avvengono
         soltanto sul $15{,}2\%$ dei gruppi con varianza, che è per costruzione il
         sottoinsieme in cui la policy era incerta; ottimizzare la reward su un
         campione così selezionato, con la sola penalità KL come freno, sposta la
@@ -92,7 +92,7 @@ $0{,}1373$ e contemporaneamente:
 \begin{itemize}
   \item alza la non-copy-token accuracy da $0{,}0006$ a $0{,}0432$, un fattore
         circa $70$;
-  \item alza la validity da $0{,}1043$ a $0{,}9006$;
+  \item alza la validity da $0{,}0370$ a $0{,}9055$, un fattore $24$;
   \item porta i gruppi morti dal $73{,}9\%$ al $19{,}9\%$, cioè \emph{crea} il
         supporto su cui il reinforcement learning può operare.
 \end{itemize}
@@ -112,8 +112,8 @@ che su un compito con supporto scarso quel costo va pagato, perché l'alternativ
 
 \subsection{L'onestà metodologica come parte del risultato}
 
-Tre ritrattazioni misurate sono documentate in questa relazione, e sono parte del
-contributo.
+Quattro ritrattazioni misurate sono documentate in questa relazione, e sono
+parte del contributo.
 
 \begin{enumerate}
   \item L'ipotesi ``la reward premia la verbosità'', ragionevole a priori e
@@ -134,12 +134,29 @@ contributo.
         algebricamente sullo stesso segnale, e che empiricamente restano entro
         $\pm 0{,}006$ dal valore di controllo
         (sezione~\ref{sec:reward-rimosse}).
+  \item Il vantaggio dell'SFT sulla baseline a regole misurato con ROUGE-L è
+        stato \textbf{declassato}. Una precedente stesura lo presentava come
+        statisticamente solido sulla base di un intervallo bootstrap che esclude
+        lo zero. Il confronto fra le otto celle eseguite due volte mostra però
+        che la dispersione dovuta al solo addestramento eguaglia o supera quegli
+        intervalli (sezione~\ref{sec:dispersione-run}): il delta su ROUGE-L
+        ($+0{,}0064$) non è distinguibile dal rumore, mentre quello su exact
+        match ($+0{,}2252$) resta robusto.
 \end{enumerate}
 
-Va dichiarato anche un test rosso: \texttt{test\_ssh\_alias\_no\_user\_no\_port}
-fallisce, per una dipendenza dalla rete nel test stesso, e il fallimento è stato
-verificato presente anche sul codice non modificato
-(Capitolo~\ref{cap:codebase}).
+Alla stessa categoria appartiene una correzione di coerenza interna. Una
+precedente stesura della tabella principale mescolava valori prodotti da due
+versioni diverse del modulo delle metriche, con l'effetto che le colonne di
+sovrapposizione e quella di validity provenivano da codici differenti, e che
+celle diverse pescavano da run differenti. Le tabelle sono state ricostruite da
+fonte unica, dichiarata nella sezione~\ref{sec:provenienza}. L'errore è
+segnalato perché la sua correzione ha spostato la validity della cella senza
+vincolo da $0{,}1043$ a $0{,}0370$, cioè ha \emph{rafforzato} il risultato
+sul vincolo simbolico portando il fattore di miglioramento da circa $9$ a $24$.
+
+Va dichiarato infine lo stato della suite di test: un test dipende da una
+connessione di rete verso il cluster e il suo esito varia con l'ambiente di
+esecuzione, non con il codice (Capitolo~\ref{cap:codebase}).
 
 \section{Lavoro futuro}
 

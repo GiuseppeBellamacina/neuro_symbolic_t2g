@@ -1,6 +1,6 @@
 # Protocollo di Valutazione — neuro_symbolic_t2g
 
-Versione: 1.1 (2026-09-02). Questo documento definisce il protocollo con cui
+Versione: 1.2 (2026-09-08). Questo documento definisce il protocollo con cui
 vengono prodotti e confrontati i numeri del progetto. **Dichiarare e mantenere
 questo protocollo è prerequisito per ogni claim sul target BLEU 0.80** — i numeri
 sono comparabili solo dentro lo stesso protocollo. La gerarchia delle metriche
@@ -65,6 +65,41 @@ prescrive. Conseguenze:
 - Pass@5 − Pass@1 misura quanto il modello "sa ma non è deterministico"
   (headroom del sampling a temp 0.7).
 
+### 2a-bis. I DUE stimatori Pass@1 nell'output eval — quale è il riferimento
+
+L'output dell'eval contiene DUE numeri Pass@1 che NON sono lo stesso
+stimatore, ora con etichette distinte (prima condividevano l'etichetta
+"Pass@1" con valori leggermente diversi — difetto di presentazione, non di
+calcolo; nessun valore è stato modificato):
+
+| Etichetta nell'output | Chiave JSON | Definizione | Campioni |
+|---|---|---|---|
+| `Pass@1 (first completion)` | `pass_at_1` | frazione di prompt la cui **prima** completion raggiunge ROUGE-L ≥ 0.3 (`compute_pass_at_k`, k=1) | 1 draw per prompt (N prompt) |
+| `Pass@1 (all completions)` (blocco CI) | `evaluation_report.pass_at_1` | media empirica dell'indicatore ROUGE-L ≥ 0.3 su **tutte** le completions, con CI bootstrap | `num_samples` draw per prompt |
+
+**Stimatore di riferimento: `Pass@1 (first completion)`** (`pass_at_1`,
+chiave JSON `pass_at_1`). Motivazioni:
+
+1. è l'ancora k=1 della curva Pass@k, che per definizione usa le **prime k**
+   completions di ogni prompt: pass@1 e la curva restano così coerenti fra
+   loro;
+2. è la quantità "deployable" del protocollo: il primo draw è ciò che un uso
+   reale greedy/singolo-sample otterrebbe.
+
+Il valore nel blocco CI (`Pass@1 (all completions)`) stima la STESSA
+quantità sottostante (probabilità che una singola completion campionata
+superi la soglia) ma con ~`num_samples`× i campioni, quindi con varianza
+minore: **usare quello quando si cita un intervallo di confidenza**. I due
+numeri differiscono solo per rumore di campionamento e coincidono quando
+`num_samples = 1` (test: `tests/test_eval_pass_estimators.py`).
+
+**Nota esplicita**: NESSUNO dei due è lo stimatore combinatorio non distorto
+`pass@k = 1 − C(n−c, k)/C(n, k)` di HumanEval/Codex (nel repo non esiste
+alcuna implementazione del genere). Sono entrambe medie empiriche su
+sottoinsiemi diversi dello stesso campione. Se in futuro si introducesse lo
+stimatore combinatorio, andrebbe aggiunto come TERZA riga con etichetta
+propria e bump di `METRICS_VERSION` se sostituisse una delle due.
+
 ### 2b. Fonti della gerarchia (letteratura T2G)
 
 - **BLEU-4 + chrF + valutazione umana**: Bangla T2G benchmark (Abdullah et
@@ -97,6 +132,44 @@ fa fatica" (monitor per-difficulty).
 - **Few-shot**: se `retrieval.enabled`, il prompt eval include gli stessi k
   esempi recuperati dal train (stesso retriever, stesso anti-leakage) —
   coerenza train/inference obbligatoria.
+
+### 3a. Override della modalità di prompting (opt-in) e dual eval
+
+La modalità di prompting viene dalla `retrieval.enabled` della config
+(comportamento di default, invariato). Per l'eval sola esiste un override
+esplicito **disattivato per default**:
+
+- **CLI**: `--prompting {config,zero-shot,few-shot}` (default `config`).
+  `zero-shot` forza il retriever a None; `few-shot` lo forza attivo e
+  **abortisce** se `max_prompt_length < 512` nella config (grpo o
+  generation): con un budget più corto gli esempi few-shot verrebbero
+  troncati e la cella sarebbe indistinguibile dallo zero-shot. Fail loud,
+  non warning. Un override ridondante (few-shot su config già few-shot) è
+  equivalente al default: nessun effetto su nomi file o cache.
+- **Shell**: `PROMPTING=zero-shot sbatch cluster/eval.sh` (stesso modello di
+  `MAX_SAMPLES`; default: nessun flag).
+- **Provenienza e distinguibilità**: la modalità effettiva e la sua
+  provenienza (`config`/`cli`) sono stampate nel log, stampate nel JSON
+  (`results["prompting"] = {mode, source}`) e usate nel nome dei file: un
+  override che cambia modalità suffissa l'output (`eval_final__zero-shot.json`,
+  `generations_final__zero-shot.json`, `eval_baseline__zero-shot.json`),
+  così due eval della stessa cella in modalità diverse non si sovrascrivono.
+- **Cache della baseline**: il fingerprint del contesto prompt include
+  l'override SOLO quando cambia la modalità — le run di default mantengono
+  fingerprint byte-identici a quelli pre-esistenti (cache valide), un
+  override cambiante invalida la cache e forza la ricomputo. È la correzione
+  del bug latente per cui una baseline calcolata in una modalità poteva
+  essere riusata nell'altra.
+- **DUAL eval (opt-in esplicito)**: valutare la stessa cella in ENTRAMBE le
+  modalità misura se il modello ha interiorizzato la mappatura o se dipende
+  dal prompt come stampella (cfr. celle "train few-shot / eval zero-shot").
+  Attivazione: `DUAL_EVAL=1 sbatch cluster/eval.sh` o `DUAL_EVAL=1` prima di
+  `run_all.sh` (la seconda passata con la modalità complementare parte DOPO
+  quella primaria nello stesso job; i file hanno il suffisso `__<mode>`).
+  NON è attivo nella catena di default: la matrice di celle e i tempi sono
+  invariati. Nota sulla propagazione: per i tick di catena via hook bashrc la
+  variabile deve essere presente anche nell'ambiente che esegue il tick
+  (`export DUAL_EVAL=1`).
 
 ## 4. Selezione dei sample
 
@@ -132,14 +205,31 @@ fa fatica" (monitor per-difficulty).
    per la direzione T2G). Dichiararlo sempre nei report.
 4. **chrF è case-sensitive** a livello di carattere (sacrebleu): le nostre gloss
    sono uppercase uniformi, quindi l'effetto è trascurabile, ma va dichiarato.
+5. **Dato pre-tokenizzato: BLEU/chrF assoluti NON confrontabili con la
+   letteratura.** Il gloss ASL ha la punteggiatura come token separato
+   (`X-Y WILL DESC-NOT FLINCH .`): ogni riga termina legittimamente con
+   `.` e sacrebleu (≤ 2.4.x) lo segnala come possibile dato dimenticato
+   detokenizzato. Il warning è corretto sul dato ma NON indica un difetto
+   nostro: la soppressione via `force=True` in `src/utils/metrics.py` è
+   consapevole e documentata lì. Conseguenze dichiarate:
+   - i confronti **FRA celle** di questo progetto restano validi (stesso
+     protocollo, stesso pre-tokenizzamento, tutte le celle);
+   - i valori **ASSOLUTI** di BLEU/chrF NON sono confrontabili con numeri
+     pubblicati calcolati su dato detokenizzato (13a tokenizer su testo
+     con punteggiatura attaccata): ogni tabella della tesi che cita valori
+     assoluti deve ripetere questo caveat.
 
 ## 7. File di output e figure
 
 Per ogni eval (in `experiments/results/<model>/<run_id>/`):
 - `eval_<ckpt>.json` — metriche primarie + `oracle_best_of_n` + reward
-  breakdown + `difficulty_breakdown`
+  breakdown + `difficulty_breakdown` + stamp `prompting` (modalità e
+  provenienza)
 - `generations_<ckpt>.json` — completions grezze con valid/rouge per sample
 - `comparison.json` (solo `--compare`) — baseline vs checkpoint + delta
+- Con un override `--prompting` che cambia modalità, i file portano il
+  suffisso `__<mode>` (es. `eval_final__zero-shot.json`) così le due
+  modalità non si sovrascrivono (§3a)
 
 Figure (in `experiments/figures/<model>/<run_id>/`), in ordine di
 rilevanza:

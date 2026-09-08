@@ -71,11 +71,11 @@ Capitolo~\ref{cap:metriche}).
 \toprule
 Metrica & SFT \\
 \midrule
-ROUGE-L & $0{,}9752$ \\
-Exact match & $0{,}8130$ \\
-Gloss F1 & $0{,}9765$ \\
-BLEU (a frase) & $0{,}9436$ \\
-chrF & $97{,}31$ \\
+ROUGE-L & $0{,}9749$ \\
+Exact match & $0{,}8117$ \\
+Gloss F1 & $0{,}9760$ \\
+BLEU (a corpus) & $0{,}9426$ \\
+chrF (a corpus) & $97{,}27$ \\
 Validity & $0{,}9998$ \\
 Non-copy-token accuracy & $0{,}9660$ \\
 \bottomrule
@@ -92,8 +92,8 @@ baseline a regole.
 \toprule
 Metrica & Regola & SFT & Delta \\
 \midrule
-ROUGE-L & $0{,}9685$ & $0{,}9752$ & $+0{,}0067$ \\
-Exact match & $0{,}5865$ & $0{,}8130$ & $+0{,}2265$ \\
+ROUGE-L & $0{,}9685$ & $0{,}9749$ & $+0{,}0064$ \\
+Exact match & $0{,}5865$ & $0{,}8117$ & $+0{,}2252$ \\
 Non-copy-token accuracy & $0{,}9424$ & $0{,}9660$ & $+0{,}0236$ \\
 \bottomrule
 \end{tabular}
@@ -107,23 +107,33 @@ prompt (si veda il Capitolo~\ref{cap:metriche}), sono:
 \toprule
 Delta & Intervallo di confidenza $95\%$ \\
 \midrule
-ROUGE-L: $+0{,}0067$ & $[+0{,}0038,\; +0{,}0098]$ \\
-Exact match: $+0{,}2265$ & $[+0{,}2025,\; +0{,}2510]$ \\
+ROUGE-L: $+0{,}0064$ & $[+0{,}0038,\; +0{,}0098]$ \\
+Exact match: $+0{,}2252$ & $[+0{,}2025,\; +0{,}2510]$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Entrambi gli intervalli escludono lo zero: il vantaggio dell'SFT è
-statisticamente solido. Ma la sua \emph{grandezza} dipende radicalmente dalla
-metrica:
+Entrambi gli intervalli escludono lo zero. Va però anticipato subito un
+\textbf{caveat che li ridimensiona}, sviluppato nella
+sezione~\ref{sec:dispersione-run}: il bootstrap ricampiona i prompt di
+valutazione e quindi stima soltanto l'incertezza dovuta al campione di test, non
+quella dovuta all'addestramento. La cella SFT, eseguita due volte, varia da sola
+di $0{,}0036$ su ROUGE-L e di $0{,}0304$ su exact match. Ne segue che
+l'intervallo su ROUGE-L è ottimistico e il delta corrispondente non è
+distinguibile dal rumore di addestramento.
+
+Con questa avvertenza, la \emph{grandezza} del vantaggio dipende radicalmente
+dalla metrica:
 
 \begin{itemize}
-  \item su ROUGE-L il guadagno è $+0{,}0067$, cioè lo $0{,}7\%$ assoluto. Un
-        modello addestrato su $73$ mila esempi guadagna meno di un punto
-        percentuale su una tabella di corrispondenze;
-  \item su exact match il guadagno è $+0{,}2265$, cioè un abbattimento del tasso
+  \item su ROUGE-L il guadagno è $+0{,}0064$, cioè lo $0{,}6\%$ assoluto, dello
+        stesso ordine della dispersione fra due run della stessa cella
+        ($0{,}0036$). Un modello addestrato su $73$ mila esempi guadagna, su
+        questa metrica, quanto il rumore del proprio addestramento;
+  \item su exact match il guadagno è $+0{,}2252$, cioè un abbattimento del tasso
         di errore dal $41{,}4\%$ al $18{,}8\%$. In termini di errore relativo è
-        una riduzione di circa il $55\%$.
+        una riduzione di circa il $54\%$, ed è circa sette volte la dispersione
+        osservata: questo delta regge.
 \end{itemize}
 
 Questa discrepanza è la prima manifestazione concreta della saturazione:
@@ -185,7 +195,7 @@ dell'apprendimento su questo corpus, ed è piccolo ma identificabile.
 
 \section{L'SFT è al tetto del corpus}
 
-Il ROUGE-L dell'SFT è $0{,}9752$. Il miglior valore pubblicato in letteratura su
+Il ROUGE-L dell'SFT è $0{,}9749$. Il miglior valore pubblicato in letteratura su
 ASLG-PC12 è $95{,}87$~\cite{peng2023monolingual}, cioè $0{,}9587$.
 
 Segue che l'SFT di un modello da $0{,}5$ miliardi di parametri con adattatori
@@ -196,7 +206,7 @@ singola GPU, non batte anni di ricerca; batte una metrica satura.
 
 Ne segue anche la conseguenza operativa più importante per il resto della
 relazione: \textbf{non c'è spazio di miglioramento residuo che il reinforcement
-learning possa colmare}. Con exact match $0{,}8130$ e validity $0{,}9998$, un
+learning possa colmare}. Con exact match $0{,}8117$ e validity $0{,}9998$, un
 metodo di rinforzo partirebbe da una policy già quasi ottima rispetto alla
 reward disponibile, in una regione dove i gruppi di candidati tendono a essere
 omogenei e quindi il vantaggio~\eqref{eq:advantage} tende a annullarsi. È

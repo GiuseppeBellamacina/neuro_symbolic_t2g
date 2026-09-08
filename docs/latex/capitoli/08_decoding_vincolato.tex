@@ -149,7 +149,7 @@ Metrica & Senza Trie & Con Trie \\
 \midrule
 ROUGE-L & $0{,}3648$ & $0{,}1373$ \\
 Non-copy-token accuracy & $0{,}0006$ & $0{,}0432$ \\
-Validity & --- & $0{,}9006$ \\
+Validity & $0{,}0370$ & $0{,}9055$ \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -282,9 +282,9 @@ descritto come tassa di allineamento della decodifica
 vincolata~\cite{zhou2604}.
 
 Nel presente lavoro la manifestazione è precisamente questa: il modello base
-vincolato produce sequenze di gloss ben formate (validity $0{,}9006$) ma con
+vincolato produce sequenze di gloss ben formate (validity $0{,}9055$) ma con
 punteggio di sovrapposizione basso ($0{,}1373$), mentre senza vincolo produce
-sequenze mal formate (validity $0{,}1043$) con punteggio più alto ($0{,}3648$).
+sequenze mal formate (validity $0{,}0370$) con punteggio più alto ($0{,}3648$).
 La differenza rispetto alla letteratura citata è nella conclusione operativa:
 qui il vincolo va mantenuto \emph{nonostante} il costo, perché è ciò che rende
 non nullo il gradiente del reinforcement learning

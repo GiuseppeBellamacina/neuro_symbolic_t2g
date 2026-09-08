@@ -5,21 +5,54 @@ Tutti i numeri di questo capitolo seguono il protocollo fissato nel
 Capitolo~\ref{cap:metriche}: $2\,000$ prompt del test set, $N=5$ generazioni per
 prompt, campionamento a temperatura $0{,}7$, metriche versione $2$.
 
+\section{Provenienza dei numeri}
+\label{sec:provenienza}
+
+Prima della tabella va dichiarato da dove vengono i valori, perché una
+precedente stesura di questo capitolo mescolava versioni diverse del codice di
+valutazione e va evitato che l'errore si ripeta.
+
+Ogni riga della tabella principale è letta da \emph{un solo} file
+\texttt{eval\_*.json} prodotto dalla pipeline di valutazione, e per ogni cella è
+usato il run più recente disponibile. Tutti i file dichiarano
+\texttt{metrics\_version = 2}. Nessun valore proviene da documenti derivati o da
+ri-calcoli successivi.
+
+Questa precisazione è necessaria perché nel progetto è esistita una versione $3$
+sperimentale del modulo delle metriche, con definizioni diverse di validity e di
+exact match normalizzato. La versione $3$ \textbf{non} è uniformemente più
+severa della $2$: sull'uscita non vincolata è più permissiva (validity
+$0{,}0370$ in v2 contro $0{,}1043$ in v3), mentre sull'uscita quasi corretta
+dell'SFT è più severa sull'exact match ($0{,}8117$ in v2 contro un valore
+inferiore in v3, per effetto della normalizzazione degli spazi). Mescolare le due
+versioni nella stessa tabella produce quindi incoerenze in entrambe le
+direzioni, ed è esattamente ciò che va evitato.
+
+Una nota separata riguarda la \emph{non-copy-token accuracy}. Il
+Capitolo~\ref{cap:metriche} la promuove a metrica primaria, e nel codice compare
+nella costante \texttt{PRIMARY\_METRICS} di \texttt{src/utils/metrics.py}. La sua
+implementazione, però, vive in \texttt{src/analysis/rule\_baseline.py} e
+\textbf{non} è calcolata dalla pipeline di valutazione: i suoi valori provengono
+da un percorso di analisi separato, eseguito sulle generazioni salvate. Ne segue
+un limite pratico da dichiarare: per una cella nuova quella metrica non è
+disponibile automaticamente, e va calcolata a posteriori. È un difetto di
+integrazione, non di definizione.
+
 \section{La tabella principale}
 
 \begin{center}
 \begin{tabular}{lrrrrrr}
 \toprule
-Cella & ROUGE-L & Pass@1 & BLEU-s & GlossF1 & Validity & EM \\
+Cella & ROUGE-L & Pass@1 & BLEU-c & GlossF1 & Validity & EM \\
 \midrule
-Base zero-shot senza Trie & $0{,}3648$ & --- & --- & $0{,}2279$ & $0{,}1043$ & $0{,}0012$ \\
-Base zero-shot con Trie & $0{,}1373$ & $0{,}182$ & $0{,}030$ & $0{,}1186$ & $0{,}9006$ & $0{,}0017$ \\
-Base few-shot con Trie & $0{,}4664$ & $0{,}733$ & $0{,}188$ & $0{,}4026$ & $0{,}9676$ & $0{,}0148$ \\
-GRPO da modello base & $0{,}6076$ & $0{,}9285$ & $0{,}3205$ & $0{,}6147$ & $0{,}9915$ & $0{,}0528$ \\
-SFT seguito da GRPO & $0{,}5114$ & $0{,}796$ & $0{,}210$ & $0{,}4702$ & $0{,}9880$ & $0{,}0203$ \\
-SFT soltanto & $0{,}9752$ & $0{,}9985$ & $0{,}9436$ & $0{,}9765$ & $0{,}9998$ & $0{,}8130$ \\
+Base zero-shot senza Trie & $0{,}3648$ & $0{,}5845$ & $0{,}0008$ & $0{,}2279$ & $0{,}0370$ & $0{,}0007$ \\
+Base zero-shot con Trie & $0{,}1373$ & $0{,}1820$ & $0{,}0270$ & $0{,}1186$ & $0{,}9055$ & $0{,}0017$ \\
+Base few-shot con Trie & $0{,}4664$ & $0{,}7330$ & $0{,}1880$ & $0{,}4026$ & $0{,}9821$ & $0{,}0148$ \\
+GRPO da modello base & $0{,}5998$ & $0{,}9315$ & $0{,}3263$ & $0{,}6072$ & $0{,}9933$ & $0{,}0499$ \\
+SFT seguito da GRPO & $0{,}5114$ & $0{,}8100$ & $0{,}2222$ & $0{,}4702$ & $0{,}9925$ & $0{,}0203$ \\
+SFT soltanto & $0{,}9749$ & $0{,}9980$ & $0{,}9426$ & $0{,}9760$ & $0{,}9998$ & $0{,}8117$ \\
 \midrule
-\textbf{Baseline a regole} & $\mathbf{0{,}9685}$ & --- & $\mathbf{0{,}8846}$ & $\mathbf{0{,}9665}$ & --- & $\mathbf{0{,}5865}$ \\
+\textbf{Baseline a regole} & $\mathbf{0{,}9685}$ & --- & $\mathbf{0{,}8907}$ & $\mathbf{0{,}9665}$ & --- & $\mathbf{0{,}5865}$ \\
 $\mathrm{uppercase}(\text{text})$ & $0{,}6454$ & --- & --- & --- & --- & --- \\
 \bottomrule
 \end{tabular}
@@ -29,9 +62,27 @@ La riga in grassetto è il riferimento che rende il resto leggibile. Le
 osservazioni sostanziali sono cinque, ed è opportuno affrontarle in ordine di
 importanza decrescente.
 
+Due avvertenze sulla lettura della tabella.
+
+La colonna BLEU riporta il valore \emph{a corpus}. Va notato che i valori di
+BLEU e chrF sono calcolati su dato pre-tokenizzato: il gloss ha la punteggiatura
+come token separato (\texttt{X-Y WILL DESC-NOT FLINCH .}), e la libreria
+impiegata lo segnala. I confronti \emph{fra} celle di questa tabella restano
+validi, perché il protocollo è identico per tutte; i valori assoluti
+\textbf{non} sono confrontabili con numeri pubblicati calcolati su dato
+detokenizzato.
+
+La colonna Pass@1 usa una soglia permissiva (ROUGE-L $\ge 0{,}3$, si veda il
+Capitolo~\ref{cap:metriche}). Il primo valore della colonna, $0{,}5845$ sulla
+cella senza vincolo, va letto insieme all'exact match della stessa riga
+($0{,}0007$) e alla sua validity ($0{,}0370$): una cella in cui il $96\%$ delle
+uscite non è nemmeno una sequenza di gloss ben formata ottiene comunque
+pass@1 $0{,}58$. È una misura di copertura del campionamento rispetto a una
+soglia bassa, non di qualità.
+
 \section{Osservazione 1: nessun risultato con RL supera la regola}
 
-Il miglior risultato ottenuto con reinforcement learning è $0{,}6076$ di ROUGE-L
+Il miglior risultato ottenuto con reinforcement learning è $0{,}5998$ di ROUGE-L
 (GRPO dal modello base). La baseline a regole ottiene $0{,}9685$. La
 trasformazione \emph{metti tutto in maiuscolo} ottiene $0{,}6454$.
 
@@ -39,8 +90,8 @@ Cioè: il miglior risultato con RL è \textbf{inferiore} a quello ottenibile
 maiuscolizzando l'input, e distante $0{,}36$ da una tabella di corrispondenze
 costruita contando parole nel training set.
 
-Su exact match il divario è più netto: $0{,}0528$ contro $0{,}5865$, un fattore
-undici. Su gloss F1: $0{,}6147$ contro $0{,}9665$.
+Su exact match il divario è più netto: $0{,}0499$ contro $0{,}5865$, un fattore
+dodici. Su gloss F1: $0{,}6072$ contro $0{,}9665$.
 
 Non esiste una lettura in cui questi numeri rappresentino un successo del
 reinforcement learning su questo compito. La domanda residua non è ``quanto
@@ -49,7 +100,7 @@ risposta meccanica, e la sezione~\ref{sec:decomposizione} la quantifica.
 
 \section{Osservazione 2: l'SFT è al tetto, il che invalida la metrica}
 
-L'SFT ottiene ROUGE-L $0{,}9752$, superiore sia alla baseline a regole
+L'SFT ottiene ROUGE-L $0{,}9749$, superiore sia alla baseline a regole
 ($0{,}9685$) sia al miglior valore pubblicato in letteratura su ASLG-PC12
 ($0{,}9587$, \cite{peng2023monolingual}).
 
@@ -75,23 +126,53 @@ accuracy, sono il risultato neuro-simbolico del lavoro.
 \toprule
 Cella & ROUGE-L & Validity & Non-copy accuracy \\
 \midrule
-Base zero-shot senza Trie & $0{,}3648$ & $0{,}1043$ & $0{,}0006$ \\
-Base zero-shot con Trie & $0{,}1373$ & $0{,}9006$ & $0{,}0432$ \\
+Base zero-shot senza Trie & $0{,}3648$ & $0{,}0370$ & $0{,}0006$ \\
+Base zero-shot con Trie & $0{,}1373$ & $0{,}9055$ & $0{,}0432$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Il vincolo abbassa ROUGE-L di $0{,}23$, alza la validity di $0{,}80$ e alza la
-non-copy accuracy di un fattore $70$. Il meccanismo è quello discusso nel
-Capitolo~\ref{cap:decoding}: senza vincolo il modello produce inglese in
-minuscolo, che la metrica premia per il difetto documentato nella
-sezione~\ref{sec:difetto-rouge}; con il vincolo produce gloss, male, ma
-producendo gloss.
+Il vincolo abbassa ROUGE-L di $0{,}23$, alza la validity di un fattore $24$
+(da $0{,}0370$ a $0{,}9055$) e alza la non-copy accuracy di un fattore circa
+$70$. Il meccanismo è quello discusso nel Capitolo~\ref{cap:decoding}: senza
+vincolo il modello produce inglese in minuscolo, che la metrica premia per il
+difetto documentato nella sezione~\ref{sec:difetto-rouge}; con il vincolo
+produce gloss, male, ma producendo gloss.
 
-La validity di $0{,}1043$ nella prima riga è il dato che chiude la questione:
-nove uscite su dieci del modello senza vincolo non sono nemmeno sequenze di
-gloss ben formate. Assegnare loro ROUGE-L $0{,}3648$ è un artefatto della
+La validity di $0{,}0370$ nella prima riga è il dato che chiude la questione:
+il $96\%$ delle uscite del modello senza vincolo non è nemmeno una sequenza di
+gloss ben formata. Assegnare loro ROUGE-L $0{,}3648$ è un artefatto della
 metrica, non una misura di qualità.
+
+\subsection{Una conferma indipendente dalla scelta della metrica}
+\label{sec:conferma-case-sensitive}
+
+Su questa cella esiste una verifica che non dipende dalla non-copy accuracy né
+da alcuna metrica introdotta da questo lavoro, e che è quindi la prova più
+difficile da contestare. Sulle \emph{stesse} generazioni, senza vincolo:
+
+\begin{center}
+\begin{tabular}{lrl}
+\toprule
+Metrica & Valore & Sensibile al maiuscolo? \\
+\midrule
+ROUGE-L & $0{,}3648$ & no \\
+chrF (a corpus) & $1{,}18$ su $100$ & sì \\
+BLEU (a corpus) & $0{,}0008$ & sì \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le tre metriche sono calcolate sullo stesso file di generazioni, nella stessa
+esecuzione. Le due sensibili al maiuscolo assegnano un valore prossimo a zero;
+quella insensibile assegna $0{,}36$. Il rapporto è di circa un fattore $30$.
+
+Questo è il difetto della sezione~\ref{sec:difetto-rouge} osservato su
+$10\,000$ generazioni reali invece che su casi costruiti a mano: il modello
+produce inglese minuscolo, ROUGE-L lo premia perché normalizza via il maiuscolo,
+e ogni metrica che il maiuscolo lo guarda registra il fallimento. Per confronto,
+sulla cella con vincolo attivo chrF sale a $13{,}21$, cioè di un fattore $11$
+rispetto a $1{,}18$ --- nella direzione opposta a quella indicata da ROUGE-L.
 
 \section{Osservazione 4: le lunghezze non mostrano deriva verso la verbosità}
 
@@ -151,14 +232,14 @@ Il risultato più scomodo della tabella:
 \toprule
 Cella & ROUGE-L & EM \\
 \midrule
-SFT soltanto & $0{,}9752$ & $0{,}8130$ \\
+SFT soltanto & $0{,}9749$ & $0{,}8117$ \\
 SFT seguito da GRPO & $0{,}5114$ & $0{,}0203$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 Applicare il GRPO a una policy già addestrata la \textbf{distrugge}: ROUGE-L da
-$0{,}9752$ a $0{,}5114$, exact match da $0{,}8130$ a $0{,}0203$. Non un
+$0{,}9749$ a $0{,}5114$, exact match da $0{,}8117$ a $0{,}0203$. Non un
 peggioramento marginale, un crollo di quaranta punti di ROUGE-L e di quasi
 ottanta punti di exact match.
 
@@ -200,18 +281,18 @@ Passaggio & ROUGE-L & Variazione \\
 \midrule
 Base zero-shot con Trie & $0{,}1373$ & --- \\
 Base few-shot con Trie & $0{,}4664$ & $\mathbf{+0{,}33}$ \quad (prompting, nessun addestramento) \\
-GRPO da modello base & $0{,}6076$ & $+0{,}14$ \quad (RL, confuso) \\
+GRPO da modello base & $0{,}5998$ & $+0{,}13$ \quad (RL, confuso) \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Il totale è circa $+0{,}47$, di cui:
+Il totale è circa $+0{,}46$, di cui:
 
 \begin{itemize}
   \item \textbf{$0{,}33$ viene dal prompting}, cioè dall'inserimento di tre
         esempi recuperati nel prompt. Nessun parametro aggiornato, nessun tempo
-        di GPU per addestramento. Circa il $70\%$ dell'effetto totale.
-  \item \textbf{$0{,}14$ è attribuito al RL}, ma in modo \emph{confuso}: la cella
+        di GPU per addestramento. Circa il $72\%$ dell'effetto totale.
+  \item \textbf{$0{,}13$ è attribuito al RL}, ma in modo \emph{confuso}: la cella
         GRPO da modello base non è isolata dal fattore prompting, e non esiste
         una cella che vari soltanto il metodo di addestramento tenendo fisso il
         prompting.
@@ -228,6 +309,120 @@ primario sarebbe la griglia prompting $\times$ decodifica, con il metodo di
 addestramento come fattore secondario applicato \emph{dopo} aver identificato il
 substrato con supporto migliore (che, secondo la
 sezione~\ref{sec:supporto}, è few-shot con Trie: gruppi morti allo $0{,}85\%$).
+
+\section{La dispersione fra run e i limiti degli intervalli di confidenza}
+\label{sec:dispersione-run}
+
+Otto celle sperimentali sono state eseguite \emph{due volte}, in occasioni
+distinte. Il confronto fra le coppie di run permette una verifica che gli
+intervalli di confidenza riportati altrove in questa relazione non possono
+fornire, e il risultato impone una precisazione.
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+Cella & Run 1 & Run 2 & Dispersione \\
+\midrule
+Ablazione senza grammatica & $0{,}5878$ & $0{,}5717$ & $\mathbf{0{,}0161}$ \\
+SFT seguito da GRPO & $0{,}5014$ & $0{,}5114$ & $\mathbf{0{,}0099}$ \\
+GRPO da modello base & $0{,}6076$ & $0{,}5998$ & $\mathbf{0{,}0077}$ \\
+Ablazione Viterbi & $0{,}5105$ & $0{,}5171$ & $0{,}0066$ \\
+Ablazione soft-Viterbi & $0{,}5048$ & $0{,}5090$ & $0{,}0041$ \\
+SFT soltanto & $0{,}9785$ & $0{,}9749$ & $0{,}0036$ \\
+Ablazione stack storico & $0{,}5128$ & $0{,}5101$ & $0{,}0027$ \\
+Ablazione struttura & $0{,}5108$ & $0{,}5101$ & $0{,}0007$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il termine di confronto è l'ampiezza tipica degli intervalli di confidenza
+ottenuti per bootstrap, che su ROUGE-L è di circa $\pm 0{,}0044$
+(l'intervallo misurato sulla cella senza vincolo è
+$[0{,}3605,\; 0{,}3692]$).
+
+\textbf{Tre celle su otto hanno una dispersione fra run superiore all'intera
+ampiezza dell'intervallo di confidenza.} Sull'ablazione senza grammatica la
+dispersione ($0{,}0161$) è quasi quattro volte l'intervallo.
+
+\subsection{Perché accade, e che cosa implica}
+
+Non è un'anomalia: è una conseguenza di che cosa il bootstrap misura. Il
+bootstrap clusterizzato per prompt descritto nel Capitolo~\ref{cap:metriche}
+ricampiona i \emph{prompt di valutazione}, quindi stima l'incertezza dovuta alla
+scelta del campione di test. Non stima, e non può stimare, la variabilità
+dovuta all'addestramento: seed, ordine di presentazione dei dati, non
+determinismo delle operazioni su GPU, rumore di quantizzazione.
+
+Segue una regola di lettura che si applica a tutta la relazione:
+
+\begin{quote}
+Gli intervalli di confidenza riportati sono \textbf{limiti inferiori}
+dell'incertezza reale. Una differenza fra celle inferiore a circa $0{,}02$ di
+ROUGE-L non è distinguibile dalla variabilità di addestramento con i dati
+disponibili.
+\end{quote}
+
+\subsection{La conseguenza sul confronto SFT contro regola}
+
+Questa osservazione tocca direttamente l'affermazione più delicata della
+relazione. Il Capitolo~\ref{cap:sft} riporta:
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+Delta SFT $-$ regola & Valore & Intervallo bootstrap $95\%$ \\
+\midrule
+ROUGE-L & $+0{,}0064$ & $[+0{,}0038,\; +0{,}0098]$ \\
+Exact match & $+0{,}2252$ & $[+0{,}2025,\; +0{,}2510]$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Ma la cella SFT, da sola, varia di $0{,}0036$ fra i suoi due run su ROUGE-L, e
+di $\mathbf{0{,}0304}$ su exact match ($0{,}8421$ contro $0{,}8117$). Ne segue
+una lettura differenziata:
+
+\begin{itemize}
+  \item il delta su \textbf{ROUGE-L} ($+0{,}0064$) è dello stesso ordine di
+        grandezza della dispersione propria dell'SFT ($0{,}0036$). Va
+        \textbf{declassato}: non è un vantaggio stabilito, è un vantaggio
+        compatibile con il rumore di addestramento;
+  \item il delta su \textbf{exact match} ($+0{,}2252$) resta ampiamente
+        robusto: è circa sette volte la dispersione osservata ($0{,}0304$).
+        L'affermazione che l'SFT abbatta il tasso di errore dal $41\%$ al
+        $19\%$ regge.
+\end{itemize}
+
+Questo non indebolisce la tesi centrale della relazione: la rafforza. Se su un
+corpus il vantaggio di un modello addestrato su $73$ mila esempi rispetto a una
+tabella di corrispondenze non è distinguibile dal rumore quando misurato con la
+metrica di riferimento della letteratura, allora quella metrica ha esaurito la
+propria capacità discriminante in modo ancora più netto di quanto la
+sezione~\ref{sec:decomposizione} suggerisse.
+
+\subsection{Che cosa si sarebbe dovuto fare}
+
+La procedura corretta, e la raccomandazione per chi riprenda il lavoro, è di
+eseguire ogni cella con almeno tre seed distinti e riportare media e deviazione
+standard fra i seed, invece di un singolo run con l'intervallo bootstrap. Il
+costo è triplo, ma è l'unico modo di distinguere un effetto reale da una
+fluttuazione di addestramento.
+
+Questa raccomandazione ha \textbf{precedenza} su quella di aumentare il numero
+di prompt valutati. Passare da $2\,000$ a $5\,000$ prompt restringe
+l'intervallo bootstrap da circa $\pm 0{,}004$ a $\pm 0{,}003$, ma agisce sulla
+componente di incertezza \emph{minore}: non tocca la dispersione da
+addestramento, che su tre celle su otto è già superiore all'intervallo intero.
+Un campione di valutazione più ampio produce quindi intervalli più stretti
+attorno a un valore che resta instabile fra run, cioè una falsa impressione di
+precisione. L'ordine corretto degli interventi è prima i seed multipli, poi
+eventualmente il campione più ampio.
+
+Le otto coppie di run disponibili sono state prodotte come conseguenza
+dell'infrastruttura, non per disegno, ed è per questo che sono soltanto due per
+cella. Il fatto che siano sufficienti a mettere in discussione un intervallo di
+confidenza pubblicato in questa stessa relazione è la migliore dimostrazione
+della loro necessità.
 
 \section{Riepilogo per non-copy accuracy}
 

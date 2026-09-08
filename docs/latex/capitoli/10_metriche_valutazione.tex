@@ -113,7 +113,7 @@ produrre l'uscita corretta.
 
 Il suo pregio principale su questo corpus è che \emph{ha ancora risoluzione}.
 Come mostrato nel Capitolo~\ref{cap:sft}, fra baseline a regole e SFT ROUGE-L
-distingue $0{,}0067$ mentre l'exact match distingue $0{,}2265$: due ordini di
+distingue $0{,}0064$ mentre l'exact match distingue $0{,}2252$: due ordini di
 grandezza di differenza nella capacità discriminante.
 
 \subsection{Non-copy-token accuracy}
@@ -145,9 +145,9 @@ Sistema & ROUGE-L & Non-copy accuracy \\
 \midrule
 Base zero-shot senza Trie & $0{,}3648$ & $0{,}0006$ \\
 Base zero-shot con Trie & $0{,}1373$ & $0{,}0432$ \\
-GRPO da modello base & $0{,}6076$ & $0{,}4641$ \\
+GRPO da modello base & $0{,}5998$ & $0{,}4641$ \\
 Baseline a regole & $0{,}9685$ & $0{,}9424$ \\
-SFT & $0{,}9752$ & $0{,}9660$ \\
+SFT & $0{,}9749$ & $0{,}9660$ \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -178,16 +178,88 @@ soddisfano la prima condizione perfettamente (tutti i token sono in
 vocabolario) e sono comunque prive di valore. La soglia di $4$ token evita di
 penalizzare uscite legittimamente brevi in cui una ripetizione può essere reale.
 
-\section{Pass@$k$}
+\section{Pass@$k$ e i suoi due stimatori}
+\label{sec:passk-due-stimatori}
 
-L'implementazione segue lo stimatore combinatorio non
-distorto~\eqref{eq:passk}, con soglia di correttezza posta a ROUGE-L $\ge 0{,}3$.
+L'implementazione segue la media empirica~\eqref{eq:passk}, con soglia di
+correttezza posta a ROUGE-L $\ge 0{,}3$. Va ribadito quanto anticipato nei
+fondamenti: la forma combinatoria non distorta
+$1 - \binom{n-c}{k}/\binom{n}{k}$, diffusa in letteratura, \textbf{non} è
+impiegata in questo progetto. Il codice non contiene alcun calcolo di
+coefficienti binomiali.
 
 La soglia va dichiarata perché il valore di pass@$k$ dipende interamente da essa
 e $0{,}3$ è, su questo corpus, una soglia \emph{permissiva}: dato il difetto
 documentato nella sezione~\ref{sec:difetto-rouge}, un'uscita che supera $0{,}3$
 non è necessariamente una traduzione utile. Pass@$k$ va quindi letta come misura
 di \emph{copertura} del campionamento, non di qualità.
+
+\subsection{Due valori per la stessa quantità}
+
+L'output della valutazione riporta \emph{due} valori di pass@1, che in una
+precedente stesura comparivano con la stessa etichetta e potevano essere
+confusi per un'incoerenza. Non lo sono: stimano la stessa probabilità su insiemi
+di osservazioni diversi.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Stimatore & Insieme & Valore \\
+\midrule
+Prima generazione & $M$ estrazioni (una per prompt) & $0{,}5845$ \\
+Tutte le generazioni & $M \times N$ estrazioni & $0{,}5903$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il primo è la~\eqref{eq:passk} con $k=1$: usa soltanto la prima delle cinque
+generazioni di ogni prompt, quindi si basa su $2\,000$ estrazioni. Il secondo
+media l'indicatore su tutte le $10\,000$ generazioni, ed è accompagnato
+dall'intervallo di confidenza.
+
+La differenza osservata è $0{,}0058$. Dato che l'errore standard del primo
+stimatore su $2\,000$ estrazioni binarie con $p \approx 0{,}59$ è
+\begin{equation}
+  \mathrm{SE} \;=\; \sqrt{\frac{p(1-p)}{M}}
+  \;=\; \sqrt{\frac{0{,}59 \cdot 0{,}41}{2\,000}} \;\approx\; 0{,}011,
+\end{equation}
+lo scarto è entro un errore standard: è rumore di campionamento, non un difetto
+di implementazione.
+
+Quale usare dipende dallo scopo. Il valore sulla \emph{prima} generazione è
+l'ancora $k=1$ della curva pass@$k$ (che per costruzione usa le prime $k$
+generazioni) e corrisponde a ciò che si otterrebbe generando una sola volta:
+è la quantità operativamente rilevante. Il valore su \emph{tutte} le
+generazioni ha varianza minore di un fattore circa $\sqrt{5}$, e va preferito
+quando si cita un intervallo di confidenza. Nell'output i due sono ora
+etichettati in modo distinto, e la duplicazione della stessa cifra sotto due
+nomi è stata rimossa.
+
+\section{BLEU e chrF su dato pre-tokenizzato}
+\label{sec:sacrebleu-caveat}
+
+Un caveat necessario per la lettura dei valori assoluti di BLEU e chrF.
+
+La libreria impiegata (\texttt{sacrebleu}) rileva che le uscite terminano con un
+punto separato da spazio e avverte che il dato sembra non essere stato
+detokenizzato. L'avvertimento è \emph{corretto}: il gloss ASL ha la punteggiatura
+come token autonomo, per costruzione del corpus
+(\texttt{X-Y WILL DESC-NOT FLINCH .}). Il dato è dunque legittimamente
+pre-tokenizzato, e l'avvertimento è stato soppresso in modo consapevole.
+
+La conseguenza va però dichiarata, perché non è neutrale:
+
+\begin{itemize}
+  \item i confronti \textbf{fra} le celle di questo lavoro restano validi,
+        perché il protocollo di tokenizzazione è identico per tutte;
+  \item i valori assoluti \textbf{non} sono confrontabili con numeri BLEU o
+        chrF pubblicati altrove, se calcolati su dato detokenizzato.
+\end{itemize}
+
+Poiché il contributo principale della relazione riguarda il confronto interno
+fra celle e con la baseline a regole, la limitazione non intacca le conclusioni.
+Sarebbe invece decisiva se si volesse collocare un valore di BLEU di questo
+lavoro accanto a uno di letteratura, operazione che qui non viene fatta.
 
 \section{La metrica composta e la sua correzione}
 
