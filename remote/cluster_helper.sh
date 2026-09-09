@@ -259,9 +259,14 @@ _tick_run() {
     return 0
 }
 
+# Il tick stampa lo snapshot DA SOLO, prima di uscire: `exit "$rc"` salta il
+# dispatch finale in coda al file, quindi delegargli il dump_status lasciava
+# l'output del solo `OK_TICK=1` senza STATUS_OK e il driver lo interpretava
+# come violazione di protocollo (tick riuscito segnalato come errore).
 tick() {
     local rc=0
     _tick_run || rc=$?
+    dump_status
     exit "$rc"
 }
 
@@ -455,6 +460,8 @@ esac
 # scancel NON ristampa più solo OK_SCANCEL: stampa già lo snapshot monitor
 # dentro scancel_active (vedi sopra). start_batch/timeseries/results stampano
 # da soli il loro output completo: nessun dump aggiuntivo.
+# tick NON è in questa lista: esce con `exit "$rc"` per propagare il rc del
+# chain_tick, quindi non arriverebbe mai qui e stampa il proprio snapshot.
 case "$CMD" in
-    enqueue|rewrite_queue|enqueue_batch|pause|resume|tick) dump_status ;;
+    enqueue|rewrite_queue|enqueue_batch|pause|resume) dump_status ;;
 esac
