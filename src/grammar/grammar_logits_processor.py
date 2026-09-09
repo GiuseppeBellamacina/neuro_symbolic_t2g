@@ -230,19 +230,12 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
             # Extract newly generated tokens (slice from the end of the prompt)
             gen_tokens = input_ids[i, self.prompt_len :].tolist()
 
-            # Trace history through the dual-root Trie.
-            #
-            # The Trie has two roots:
-            # - ``self.root``: non-space-prefixed gloss starts (first token
-            #   of generation only).
-            # - ``self.space_root``: space-prefixed gloss starts (used to
-            #   begin a new gloss after a terminal node).
-            #
-            # This enforces whitespace boundaries: after a terminal gloss,
-            # the next token MUST come from ``space_root`` (i.e. it must be
-            # a space-prefixed BPE token), preventing arbitrary
-            # concatenation of single-BPE-token glosses like DE+B+RE+CH+T
-            # → "DEBUTRECHT". See docs/T2G_PIPELINE_REVIEW.md §9.2, §10.
+            # Trace history through the dual-root Trie: ``root`` matcha i
+            # gloss-start NON prefissati da spazio (solo primo token della
+            # generazione), ``space_root`` gli start space-prefixed (nuovo
+            # gloss dopo un nodo terminale). Impone i confini di whitespace e
+            # impedisce concatenazioni tipo DE+B+RE+CH+T → "DEBUTRECHT".
+            # See docs/T2G_PIPELINE_REVIEW.md §9.2, §10.
             node = self.root
             at_start = True  # True only for the very first generated token
 
@@ -251,9 +244,8 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
                     node = node.children[tok]
                     at_start = False
                 elif node.is_terminal and tok in self.space_root.children:
-                    # Whitespace boundary: previous gloss is complete (node
-                    # is terminal), and `tok` starts a new space-prefixed
-                    # gloss. Jump to the space_root's child.
+                    # Whitespace boundary: gloss precedente terminale, si
+                    # salta al child di space_root.
                     node = self.space_root.children[tok]
                     at_start = False
                 elif at_start and tok in self.root.children:

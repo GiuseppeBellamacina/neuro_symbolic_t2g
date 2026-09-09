@@ -1,7 +1,7 @@
 \chapter{Infrastruttura di calcolo}
 \label{cap:infrastruttura}
 
-Questo capitolo documenta l'ambiente di esecuzione e, soprattutto, sei guasti
+Questo capitolo documenta l'ambiente di esecuzione e, soprattutto, cinque guasti
 reali che ne sono derivati. I guasti sono riportati per esteso perché sono il
 prodotto più trasferibile del progetto: nessuno di essi era un errore di
 algoritmo, tutti erano errori di \emph{ordine} o di \emph{ambiente}, e tutti
@@ -104,7 +104,7 @@ sulle interrogazioni a \texttt{sacct}, che sotto carico può non rispondere.
 Il monitoraggio è realizzato da \texttt{python3 -m src.utils.chain\_monitor}, con
 una modalità \texttt{monitor --all} che mostra lo stato di tutta la coda.
 
-\section{Sei guasti reali}
+\section{Cinque guasti reali}
 
 Ciò che segue è la parte utile del capitolo.
 
@@ -188,21 +188,7 @@ Lezione: nelle strutture dati che rappresentano un ordine di esecuzione,
 l'orientamento dell'inserimento va verificato con un test esplicito. Un
 commento non basta.
 
-\subsection{Guasto 5: il generatore casuale globale nel curriculum}
-
-Già documentato nella sezione~\ref{sec:curriculum}: la classe
-\texttt{CurriculumFilteredDataset} usava il generatore casuale globale del
-modulo \texttt{random}, rendendo la selezione degli esempi dipendente da quante
-volte il generatore fosse stato consumato altrove nel processo.
-
-La correzione è un generatore dedicato con seed derivato deterministicamente da
-$(\texttt{seed}, \texttt{stage})$.
-
-Lezione: in un processo di addestramento, ogni componente che campiona deve
-possedere il proprio generatore. La condivisione dello stato globale crea
-accoppiamenti fra parti del codice che non hanno nessuna relazione logica.
-
-\subsection{Guasto 6: celle di sola valutazione lanciate come addestramento}
+\subsection{Guasto 5: celle di sola valutazione lanciate come addestramento}
 \label{sec:bug-evalonly}
 
 Le celle \texttt{baseline/*} sono celle di \emph{sola valutazione}: misurano il
@@ -252,7 +238,7 @@ contratto degli obiettivi ausiliari
 
 \section{Il filo comune}
 
-I sei guasti hanno cause diverse ma condividono una struttura: nessuno era un
+I cinque guasti hanno cause diverse ma condividono una struttura: nessuno era un
 errore di matematica, tutti riguardavano l'\emph{ordine} delle operazioni o
 l'\emph{ambiente} in cui avvenivano.
 

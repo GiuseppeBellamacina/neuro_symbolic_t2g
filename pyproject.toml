@@ -111,3 +111,8 @@ ignore = ["E402", "E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "isort>=8.0.1",
+]

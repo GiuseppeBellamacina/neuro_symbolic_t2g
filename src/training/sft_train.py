@@ -28,10 +28,8 @@ import logging
 import os
 import random
 import sys
-import time
 import warnings
-from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -72,7 +70,7 @@ from src.training.auxiliary_sft_trainer import (
 )
 from src.utils.config import load_config
 from src.utils.live_status import live_status_reset, live_status_set
-from src.utils.phase_timing import format_duration
+from src.utils.phase_timing import phase
 from src.utils.prompting import SYSTEM_PROMPT
 
 load_dotenv()
@@ -80,27 +78,25 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
-@contextmanager
-def _phase_log(label: str, *, detail: str = "") -> Iterator[None]:
-    """Replica logger-based di ``phase()`` (``src/utils/phase_timing.py``).
+def _phase_log(label: str, *, detail: str = "") -> AbstractContextManager[None]:
+    """Cronometra una fase emettendo via ``logger``, non via ``print``.
 
-    WHY: questo file emette via ``logger.info`` (logging.basicConfig con
-    format ``%(message)s``); ``phase()`` fa ``print`` e cambiare sink
-    altererebbe il formato dei log di un percorso che funziona. Il pattern
-    è lo stesso: annuncio PRIMA del lavoro, durata DOPO — un messaggio a
-    posteriori non dice nulla mentre il processo è fermo.
+    Sottile adattatore su ``phase()``: questo file emette via ``logger.info``
+    (``logging.basicConfig`` con format ``%(message)s``) e usare il sink
+    predefinito di ``phase()`` (``print``) altererebbe il formato dei log di
+    un percorso che funziona. Il parametro ``sink`` di ``phase()`` esiste
+    proprio per questo, quindi qui non si duplica la logica: si configura.
+
+    ``indent=""`` perche' il logger ha gia' il proprio prefisso.
 
     Args:
         label: Nome della fase.
         detail: Informazione dimensionale opzionale (percorso, numero righe).
+
+    Returns:
+        Il gestore di contesto che delimita la fase.
     """
-    suffix = f" ({detail})" if detail else ""
-    logger.info("%s%s...", label, suffix)
-    start = time.perf_counter()
-    try:
-        yield
-    finally:
-        logger.info("%s: %s", label, format_duration(time.perf_counter() - start))
+    return phase(label, detail=detail, indent="", sink=logger.info)
 
 
 # ---------------------------------------------------------------------------

@@ -10,9 +10,11 @@ extras): serve solo a questo test, non alle dipendenze core del progetto.
 
 from __future__ import annotations
 
+import base64
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -105,9 +107,10 @@ class FakeClusterSSH:
     """Doppio di ClusterSSH: stato in memoria + log dei comandi remoti.
 
     Simula fedelmente il helper lato cluster: subcomandi enqueue /
-    rewrite_queue / pause / resume modificano la coda e lo stato; ogni
-    `run` ritorna lo snapshot KEY=VALUE aggiornato. Supporta anche i
-    subcomandi v2: `monitor` (snapshot + LOG_TAIL_B64), `scancel` (kill).
+    enqueue_batch / start_batch / rewrite_queue / pause / resume modificano
+    la coda e lo stato; ogni `run` ritorna lo snapshot KEY=VALUE aggiornato.
+    Supporta anche i subcomandi v2/v4: `monitor` (snapshot + LOG_TAIL_B64),
+    `scancel` (kill + snapshot), `timeseries` e `results` (dati grafici).
     """
 
     def __init__(self, settings: app_module.Settings) -> None:
@@ -126,6 +129,14 @@ class FakeClusterSSH:
         # `monitor` risponde senza LOG_TAIL_B64 (nessun log disponibile).
         self.log_lines: list[str] | None = None
         self.scancel_calls: list[str] = []
+        # v4 (grafici): serie timeseries finta e risultati eval finti
+        self.ts_lines: list[str] | None = None
+        self.ts_job_id = "777"
+        self.ts_job_type = "train"
+        self.ts_total_steps = "900"
+        self.results_dirs: list[str] = []
+        self.results_dir_name = "qwen25-05b-sft-grpo"
+        self.results_runs: list[tuple[str, dict]] = []
 
     def _snapshot(self, with_log: bool = False) -> str:
         if self.status_text is not None:
@@ -143,8 +154,6 @@ class FakeClusterSSH:
             f"ERRORS_TAIL={tail}\n"
         )
         if with_log:
-            import base64
-
             log_path = ""
             b64 = ""
             if self.active_job and self.log_lines is not None:
@@ -158,6 +167,47 @@ class FakeClusterSSH:
             out += f"LOG_PATH={log_path}\nLOG_TAIL_B64={b64}\n"
         return out
 
+    def _timeseries_result(self, _tag: str) -> app_module.SSHResult:
+        if self.rc != 0:  # ssh fallita: nessun output utile
+            return app_module.SSHResult(self.rc, "", self.stderr)
+        if self.ts_lines is None:
+            return app_module.SSHResult(
+                0,
+                "TS_MATCH=0\nTS_JOB_ID=\nTS_JOB_TYPE=\nTS_LOG_PATH=\n"
+                "TS_TOTAL_STEPS=\nTS_LOG_B64=\n",
+                "",
+            )
+        b64 = base64.b64encode("\n".join(self.ts_lines).encode()).decode()
+        out = (
+            "TS_MATCH=1\n"
+            f"TS_JOB_ID={self.ts_job_id}\n"
+            f"TS_JOB_TYPE={self.ts_job_type}\n"
+            "TS_LOG_PATH=~/neuro_symbolic_t2g/logs/slurm-"
+            f"{self.ts_job_type}-{self.ts_job_id}.log\n"
+            f"TS_TOTAL_STEPS={self.ts_total_steps}\n"
+            f"TS_LOG_B64={b64}\n"
+        )
+        return app_module.SSHResult(0, out, "")
+
+    def _results_result(self, token: str) -> app_module.SSHResult:
+        if self.rc != 0:  # ssh fallita: nessun output utile
+            return app_module.SSHResult(self.rc, "", self.stderr)
+        if not token:
+            return app_module.SSHResult(
+                0, "RESULTS_DIRS=" + "\x1f".join(self.results_dirs) + "\n", ""
+            )
+        if not self.results_runs:
+            return app_module.SSHResult(0, "RESULTS_DIR=\nRESULTS_COUNT=0\n", "")
+        lines = [f"RESULTS_DIR=experiments/results/{self.results_dir_name}"]
+        for i, (run_id, payload) in enumerate(self.results_runs, 1):
+            lines.append(f"RUN_ID_{i}={run_id}")
+            lines.append(
+                f"RUN_B64_{i}="
+                + base64.b64encode(json.dumps(payload).encode()).decode()
+            )
+        lines.append(f"RESULTS_COUNT={len(self.results_runs)}")
+        return app_module.SSHResult(0, "\n".join(lines) + "\n", "")
+
     def run(self, remote_cmd: str, timeout: int | None = None) -> app_module.SSHResult:
         self.commands.append(remote_cmd)
         if self.helper_missing_calls > 0:
@@ -166,6 +216,21 @@ class FakeClusterSSH:
         sub = self._subcommand(remote_cmd)
         if sub == "enqueue":
             self.queue.append(self._arg(remote_cmd))
+        elif sub == "enqueue_batch":
+            for entry in [e for e in self._arg(remote_cmd).split("\x1f") if e]:
+                self.queue.append(entry)
+        elif sub in ("start_batch", "start"):
+            for entry in [e for e in self._arg(remote_cmd).split("\x1f") if e]:
+                self.queue.append(entry)
+            # il tick sottomette il primo job se la coda è libera (chain_tick)
+            if self.queue and not self.active_job:
+                entry = self.queue.pop(0)
+                parts = entry.split(":")
+                self.active_job = f"777|{parts[0]}-{parts[2]}|RUNNING"
+                self.last_job = f"777:{entry}:0"
+            return app_module.SSHResult(
+                self.rc, self._snapshot(with_log=True), self.stderr
+            )
         elif sub == "rewrite_queue":
             content = self._arg(remote_cmd)
             self.queue = [e for e in content.split("\x1f") if e]
@@ -177,13 +242,20 @@ class FakeClusterSSH:
             return app_module.SSHResult(
                 self.rc, self._snapshot(with_log=True), self.stderr
             )
+        elif sub == "timeseries":
+            return self._timeseries_result(self._arg(remote_cmd))
+        elif sub == "results":
+            return self._results_result(self._arg(remote_cmd))
         elif sub == "scancel":
             if not self.active_job:
                 return app_module.SSHResult(1, "", "ERR_NO_ACTIVE_JOB=1")
             job_id = self.active_job.split("|")[0]
             self.scancel_calls.append(job_id)
-            self.active_job = ""
-            return app_module.SSHResult(0, f"OK_SCANCEL={job_id}", "")
+            # il job resta RUNNING qualche secondo dopo lo scancel (come
+            # squeue reale): lo snapshot viene stampato DOPO il kill
+            return app_module.SSHResult(
+                0, f"OK_SCANCEL={job_id}\n{self._snapshot(with_log=True)}", ""
+            )
         # "status" e "tick" non mutano lo stato simulato
         return app_module.SSHResult(self.rc, self._snapshot(), self.stderr)
 
@@ -256,6 +328,13 @@ def test_auth_required_401(client):
     assert test_client.delete("/jobs/foo").status_code == 401
     assert test_client.post("/pause").status_code == 401
     assert test_client.post("/resume").status_code == 401
+    assert test_client.get("/monitor").status_code == 401
+    assert test_client.get("/logs").status_code == 401
+    # endpoint v4 (lettura): stessa convenzione auth delle route esistenti
+    assert test_client.get("/timeseries").status_code == 401
+    assert test_client.get("/results").status_code == 401
+    assert test_client.get("/health").status_code == 401
+    assert test_client.get("/configs").status_code == 401
     assert (
         test_client.get("/status", headers={"X-Auth-Token": "sbagliato"}).status_code
         == 401
@@ -675,7 +754,7 @@ def _fake_with_live(fake, live: dict | None) -> None:
     def _run(remote_cmd, timeout=None):
         result = orig_run(remote_cmd, timeout)
         sub = fake._subcommand(remote_cmd)
-        if sub == "monitor" and live is not None:
+        if sub in ("monitor", "start_batch", "start") and live is not None:
             line = f"LIVE_STATUS={json.dumps(live, ensure_ascii=False)}\n"
             result = app_module.SSHResult(
                 result.rc, result.stdout + line, result.stderr
@@ -746,21 +825,6 @@ def test_jobs_batch_enqueues_in_order_and_ticks(client):
     """POST /jobs/batch: train+eval accodati in ordine + tick; started_now."""
     test_client, fake = client
 
-    def _tick_side_effect(remote_cmd, timeout=None):
-        fake.commands.append(remote_cmd)
-        sub = fake._subcommand(remote_cmd)
-        if sub == "enqueue":
-            fake.queue.append(fake._arg(remote_cmd))
-        elif sub == "tick":
-            if fake.queue and not fake.active_job:
-                entry = fake.queue.pop(0)
-                parts = entry.split(":")
-                fake.active_job = f"777|{parts[0]}-{parts[2]}|RUNNING"
-                fake.last_job = f"777:{entry}:0"
-        return app_module.SSHResult(0, fake._snapshot(), "")
-
-    fake.run = _tick_side_effect  # type: ignore[method-assign]
-
     resp = test_client.post(
         "/jobs/batch",
         headers=AUTH,
@@ -781,9 +845,11 @@ def test_jobs_batch_enqueues_in_order_and_ticks(client):
         "eval:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:few-shot"
     ]
     assert len(body["queued"]) == 2
-    joined = " ".join(fake.commands)
-    assert joined.count("enqueue") >= 2
-    assert " tick" in joined
+    # PROVA riduzione round-trip: erano N+2 ssh seriali → ora 1 sola
+    # connessione; le entry viaggiano separate da \x1f dentro il comando
+    assert len(fake.commands) == 1
+    assert "cluster_helper.sh start_batch" in fake.commands[0]
+    assert fake.commands[0].count("\x1f") == 1
 
 
 def test_jobs_batch_atomic_validation(client):
@@ -825,7 +891,9 @@ def test_jobs_batch_without_start_now_only_enqueues(client):
     assert resp.status_code == 201
     assert resp.json()["started_now"] is False
     assert len(fake.queue) == 1  # solo il job richiesto, nessuna espansione
-    assert not any(" tick" in c for c in fake.commands)
+    assert any("enqueue_batch" in c for c in fake.commands)
+    assert not any("start_batch" in c for c in fake.commands)
+    assert len(fake.commands) == 1  # 1 sola ssh anche senza tick
 
 
 # ── API v2: /monitor /jobs/start /kill /logs ──────────────────────────────────
@@ -894,22 +962,6 @@ def test_start_job_enqueues_and_ticks(client):
     """POST /jobs/start: enqueue + tick; started_now se il job è attivo."""
     test_client, fake = client
 
-    # tick sottomette il job → diventa attivo con nome train-<tag>
-    def _tick_side_effect(remote_cmd, timeout=None):
-        fake.commands.append(remote_cmd)
-        sub = fake._subcommand(remote_cmd)
-        if sub == "enqueue":
-            fake.queue.append(fake._arg(remote_cmd))
-        elif sub == "tick":
-            if fake.queue and not fake.active_job:
-                entry = fake.queue.pop(0)
-                parts = entry.split(":")
-                fake.active_job = f"777|{parts[0]}-{parts[2]}|RUNNING"
-                fake.last_job = f"777:{entry}:0"
-        return app_module.SSHResult(0, fake._snapshot(), "")
-
-    fake.run = _tick_side_effect  # type: ignore[method-assign]
-
     resp = test_client.post(
         "/jobs/start",
         headers=AUTH,
@@ -919,9 +971,10 @@ def test_start_job_enqueues_and_ticks(client):
     body = resp.json()
     assert body["started_now"] is True
     assert body["active_job"]["name"] == "train-few-shot"
-    joined = " ".join(fake.commands)
-    assert "enqueue" in joined
-    assert " tick" in joined
+    # PROVA riduzione round-trip: erano 3 ssh seriali (enqueue, tick, monitor)
+    # → ora è UNA sola connessione con il subcomando combinato start_batch
+    assert len(fake.commands) == 1
+    assert "cluster_helper.sh start_batch" in fake.commands[0]
 
 
 def test_start_job_enqueued_when_busy(client):
@@ -939,6 +992,7 @@ def test_start_job_enqueued_when_busy(client):
     assert fake.queue == [
         "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:few-shot"
     ]
+    assert len(fake.commands) == 1  # anche a coda occupata: 1 sola ssh
 
 
 def test_kill_cancels_active_job(client):
@@ -949,8 +1003,9 @@ def test_kill_cancels_active_job(client):
     resp = test_client.post("/kill", headers=AUTH)
     assert resp.status_code == 200
     assert fake.scancel_calls == ["12345"]
-    # il comando scancel è tra quelli inviati (seguito dal monitor di risposta)
-    assert any("cluster_helper.sh scancel" in c for c in fake.commands)
+    # PROVA riduzione round-trip: erano 2 ssh (scancel + monitor) → ora 1 sola
+    assert len(fake.commands) == 1
+    assert "cluster_helper.sh scancel" in fake.commands[0]
 
 
 def test_kill_without_active_job_409(client):
@@ -1051,3 +1106,526 @@ def test_ssh_alias_no_user_no_port(monkeypatch, tmp_path):
     assert cmd[-1] == "gcluster"  # target = solo alias
     assert not any(t == "-p" for t in cmd)  # nessuna porta esplicita
     assert not any("@" in t for t in cmd)  # nessun user@
+
+
+# ── Cache con TTL di /monitor ──────────────────────────────────────────────────
+
+
+def test_monitor_cache_hit_avoids_ssh(client):
+    """2ª GET /monitor entro il TTL: risposta dalla cache, ZERO ssh nuove."""
+    test_client, fake = client
+    fake.active_job = "12345|train-sft-grpo|RUNNING"
+    fake.log_lines = TRAIN_LOG_LINES
+
+    r1 = test_client.get("/monitor", headers=AUTH)
+    assert r1.status_code == 200
+    assert r1.json()["source"] == "live"
+    assert r1.json()["age_seconds"] == 0.0
+    first_ts = r1.json()["ts"]
+    n_after_first = len(fake.commands)
+
+    r2 = test_client.get("/monitor", headers=AUTH)
+    assert r2.status_code == 200
+    assert len(fake.commands) == n_after_first  # nessuna ssh nuova: cache hit
+    body = r2.json()
+    assert body["source"] == "cache"
+    assert body["age_seconds"] >= 0.0
+    assert body["snapshot_ts"] == first_ts  # stesso snapshot, provenienza onesta
+    # le chiavi esistenti non cambiano forma (compatibilità client)
+    assert body["active_job"]["name"] == "train-sft-grpo"
+    assert body["job_detail"]["step"] == 105
+
+
+def test_monitor_cache_stale_refreshes_via_ssh(client):
+    """Snapshot stantio (età > TTL) → nuova ssh, risposta live."""
+    test_client, fake = client
+    test_client.get("/monitor", headers=AUTH)
+    n = len(fake.commands)
+    # invecchia artificialmente lo snapshot oltre il TTL (niente sleep nei test)
+    app_module._MONITOR_CACHE["ts"] -= app_module.settings.monitor_cache_ttl + 1
+    r = test_client.get("/monitor", headers=AUTH)
+    assert r.status_code == 200
+    assert len(fake.commands) == n + 1  # refresh via ssh
+    assert r.json()["source"] == "live"
+
+
+def test_monitor_refresh_param_forces_ssh(client):
+    """?refresh=1 → ssh esplicita anche con cache fresca (tasto 'aggiorna')."""
+    test_client, fake = client
+    test_client.get("/monitor", headers=AUTH)
+    n = len(fake.commands)
+    r = test_client.get("/monitor", headers=AUTH, params={"refresh": "1"})
+    assert r.status_code == 200
+    assert len(fake.commands) == n + 1
+    assert r.json()["source"] == "live"
+
+
+def test_monitor_ttl_configurable_zero_disables_cache(client, monkeypatch):
+    """TTL 0 → ogni GET fa ssh (comportamento pre-cache ottenibile via env)."""
+    test_client, fake = client
+    monkeypatch.setattr(app_module.settings, "monitor_cache_ttl", 0)
+    test_client.get("/monitor", headers=AUTH)
+    n = len(fake.commands)
+    test_client.get("/monitor", headers=AUTH)
+    assert len(fake.commands) == n + 1
+
+
+def test_monitor_stale_cache_served_when_cluster_down(client):
+    """Cluster giù + cache stantia → 200 cache con fetch_error esplicito.
+
+    Se esistono dati validi (seppur vecchi) non c'è motivo di dare 502; e i
+    dati vecchi NON sono mai spacciati per freschi (source/age/fetch_error).
+    """
+    test_client, fake = client
+    test_client.get("/monitor", headers=AUTH)
+    app_module._MONITOR_CACHE["ts"] -= app_module.settings.monitor_cache_ttl + 1
+    fake.rc = 255
+    fake.stderr = "ssh: connect to host unit.test port 22: Connection refused"
+    r = test_client.get("/monitor", headers=AUTH)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["source"] == "cache"
+    assert "fetch_error" in body
+    assert "Connection refused" in body["fetch_error"]
+
+
+# ── Conteggio SSH via subprocess.run mockato (ClusterSSH REALE) ───────────────
+
+
+def test_ssh_roundtrips_counted_via_subprocess_mock(monkeypatch, tmp_path):
+    """Conteggio CHIAMATE subprocess.run con ClusterSSH reale (ssh mockata):
+    prova diretta della riduzione dei round-trip per operazione.
+
+    Prima: /monitor 1 ssh per poll · /jobs/start 3 · /jobs/batch N+2 · /kill 2.
+    Dopo: 1 per tutte (0 per /monitor servito dalla cache).
+    """
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("T2G_AUTH_TOKEN", "test-token")
+    monkeypatch.setenv("T2G_DB_PATH", str(tmp_path / "t2g_driver.db"))
+    monkeypatch.setenv("T2G_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("T2G_SSH_KEY_FILE", str(tmp_path / "ssh_key"))
+    monkeypatch.setenv("T2G_SSH_KEY_CONTENT", "")
+    monkeypatch.setenv("T2G_SSH_HOST", "unit.test")
+    monkeypatch.setenv("T2G_SSH_USER", "tester")
+    monkeypatch.setenv("T2G_HELPER_AUTO_INSTALL", "0")
+    (tmp_path / "ssh_key").write_text("chiave-di-test", encoding="utf-8")
+    app_module.settings = app_module.Settings.from_env()
+
+    status_out = (
+        "STATUS_OK=1\n"
+        "ACTIVE_JOB=777|train-few-shot|RUNNING\n"
+        "QUEUE=\nQUEUE_COUNT=0\n"
+        "LAST_JOB=777:train:cfg:few-shot:0\n"
+        "STOPPED=0\nERRORS_COUNT=0\nERRORS_TAIL=[]\n"
+        "LOG_PATH=\nLOG_TAIL_B64=\n"
+    )
+    ssh_calls: list[list[str]] = []
+
+    def fake_subprocess_run(args, **kwargs):
+        ssh_calls.append(list(args))
+        cmd = " ".join(args)
+        if "scancel" in cmd:
+            return SimpleNamespace(
+                returncode=0, stdout=f"OK_SCANCEL=777\n{status_out}", stderr=""
+            )
+        return SimpleNamespace(returncode=0, stdout=status_out, stderr="")
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_subprocess_run)
+
+    with TestClient(app_module.app) as test_client:
+        # /jobs/start: 1 sola invocazione ssh (prima: 3)
+        ssh_calls.clear()
+        r = test_client.post(
+            "/jobs/start",
+            headers=AUTH,
+            json={"type": "train", "config": "sft-grpo-few-shot"},
+        )
+        assert r.status_code == 201
+        assert r.json()["started_now"] is True
+        assert len(ssh_calls) == 1
+        assert "start_batch" in " ".join(ssh_calls[0])
+
+        # /jobs/batch (3 job): 1 sola invocazione (prima: N+2 = 5)
+        ssh_calls.clear()
+        r = test_client.post(
+            "/jobs/batch",
+            headers=AUTH,
+            json={
+                "jobs": [
+                    {"type": "train", "config": "sft-grpo-few-shot"},
+                    {"type": "eval", "config": "sft-grpo-few-shot"},
+                    {"type": "eval", "config": "sft-zero-shot"},
+                ],
+                "start_now": True,
+            },
+        )
+        assert r.status_code == 201
+        assert len(ssh_calls) == 1
+
+        # /kill: 1 sola invocazione (prima: 2)
+        ssh_calls.clear()
+        r = test_client.post("/kill", headers=AUTH)
+        assert r.status_code == 200
+        assert len(ssh_calls) == 1
+
+        # /monitor con refresh esplicito: 1 sola invocazione
+        ssh_calls.clear()
+        r = test_client.get("/monitor", headers=AUTH, params={"refresh": "1"})
+        assert r.status_code == 200
+        assert len(ssh_calls) == 1
+
+        # /monitor senza refresh a cache fresca: ZERO invocazioni
+        ssh_calls.clear()
+        r = test_client.get("/monitor", headers=AUTH)
+        assert r.status_code == 200
+        assert len(ssh_calls) == 0
+
+
+# ── Connessione SQLite unica ───────────────────────────────────────────────────
+
+
+def test_single_sqlite_connection_reused(client, monkeypatch):
+    """Una sola connessione SQLite riusata: prima ogni _kv_get/_kv_set apriva
+    e chiudeva una connessione nuova (decine per tick)."""
+    test_client, _ = client
+    opens: list = []
+    real_connect = app_module.sqlite3.connect
+
+    def counting_connect(*args, **kwargs):
+        opens.append(args)
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(app_module.sqlite3, "connect", counting_connect)
+
+    test_client.post("/tick", headers=AUTH)  # ~10 scritture kv + eventi
+    test_client.get("/status", headers=AUTH)
+    test_client.get("/health", headers=AUTH)
+    test_client.get("/configs", headers=AUTH)
+    # la connessione è già aperta dal lifespan → 0 nuove aperture
+    assert len(opens) == 0
+
+
+# ── API v4: /timeseries ────────────────────────────────────────────────────────
+
+
+def _ts_lines() -> list[str]:
+    """40 righe KV come quelle stampate da src/training/callbacks.py."""
+    return [
+        f"  step={i * 10}  loss={1.0 - i * 0.01:.4f}  reward={0.1 * i:.4f}  "
+        f"learning_rate=0.00003  kl=0.00{i % 10}"
+        for i in range(1, 41)
+    ]
+
+
+def _prime_known_tags(test_client, fake, tag: str) -> None:
+    """Popola la cache DB (active_job) così il tag è 'noto' a /timeseries."""
+    fake.active_job = f"777|train-{tag}|RUNNING"
+    r = test_client.post("/tick", headers=AUTH)
+    assert r.status_code == 200
+
+
+def test_timeseries_parses_points(client):
+    """Punti (step, value) dalle righe KV; total_steps dal helper; 1 sola ssh."""
+    test_client, fake = client
+    fake.ts_lines = _ts_lines()
+    _prime_known_tags(test_client, fake, "sft-grpo")
+
+    r = test_client.get(
+        "/timeseries",
+        headers=AUTH,
+        params={"tag": "sft-grpo", "metric": "loss"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["tag"] == "sft-grpo"
+    assert body["metric"] == "loss"
+    assert body["points"][0] == {"step": 10, "value": 0.99}
+    assert body["points"][-1]["step"] == 400
+    assert body["current_step"] == 400
+    assert body["total_steps"] == 900
+    assert body["source"] == "live"
+    # il tick iniziale + 1 sola ssh timeseries per costruire l'intera serie
+    assert len([c for c in fake.commands if "timeseries" in c]) == 1
+
+
+def test_timeseries_all_metrics_from_same_cache(client):
+    """Le 4 metriche arrivano dalla STESSA serie cached: una ssh sola."""
+    test_client, fake = client
+    fake.ts_lines = _ts_lines()
+    _prime_known_tags(test_client, fake, "sft-grpo")
+
+    first = test_client.get(
+        "/timeseries", headers=AUTH, params={"tag": "sft-grpo", "metric": "loss"}
+    )
+    assert first.status_code == 200
+    n = len([c for c in fake.commands if "timeseries" in c])
+
+    for metric, value in (("reward", 0.1), ("lr", 0.00003), ("kl", 0.001)):
+        r = test_client.get(
+            "/timeseries", headers=AUTH, params={"tag": "sft-grpo", "metric": metric}
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["metric"] == metric
+        assert body["source"] == "cache"
+        assert body["points"][0]["value"] == value
+    assert len([c for c in fake.commands if "timeseries" in c]) == n
+
+
+def test_timeseries_limit_subsample_keeps_latest(client):
+    """limit sottocampiona uniformemente: estremi e ultimo punto preservati."""
+    test_client, fake = client
+    fake.ts_lines = _ts_lines()  # 40 punti
+    _prime_known_tags(test_client, fake, "sft-grpo")
+
+    r = test_client.get(
+        "/timeseries", headers=AUTH, params={"tag": "sft-grpo", "limit": 10}
+    )
+    assert r.status_code == 200
+    pts = r.json()["points"]
+    assert len(pts) == 10
+    assert pts[0]["step"] == 10  # primo preservato
+    assert pts[-1]["step"] == 400  # ultimo (più recente) SEMPRE incluso
+    steps = [p["step"] for p in pts]
+    assert steps == sorted(steps)
+    assert len(set(steps)) == len(steps)
+
+
+def test_timeseries_unknown_tag_404_without_ssh(client):
+    """Tag non noto e cache vuota → 404 SENZA sprecare una connessione ssh."""
+    test_client, fake = client
+    r = test_client.get("/timeseries", headers=AUTH, params={"tag": "mai-esistito"})
+    assert r.status_code == 404
+    assert not fake.commands  # il tag non è tra i noti: zero ssh
+
+
+def test_timeseries_finished_job_cache_survives_cluster_down(client):
+    """Serie cached di un job finito + cluster giù → 200 cache (dati immutabili)."""
+    test_client, fake = client
+    fake.ts_lines = _ts_lines()
+    _prime_known_tags(test_client, fake, "sft-grpo")
+    test_client.get("/timeseries", headers=AUTH, params={"tag": "sft-grpo"})
+
+    # cache stantia + cluster irraggiungibile: la serie finita non cambia mai
+    app_module._TS_CACHE["sft-grpo"]["ts"] -= (
+        app_module.settings.timeseries_cache_ttl + 1
+    )
+    fake.rc = 255
+    fake.stderr = "ssh: connect refused"
+    r = test_client.get("/timeseries", headers=AUTH, params={"tag": "sft-grpo"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["source"] == "cache"
+    assert body["points"], "la serie cached non deve svuotarsi"
+    assert "fetch_error" in body  # la provenienza resta onesta
+
+
+def test_timeseries_metric_and_tag_validation(client):
+    test_client, _ = client
+    assert (
+        test_client.get(
+            "/timeseries", headers=AUTH, params={"tag": "x", "metric": "speed"}
+        ).status_code
+        == 422
+    )
+    assert (
+        test_client.get(
+            "/timeseries", headers=AUTH, params={"tag": "tag con spazi"}
+        ).status_code
+        == 422
+    )
+
+
+# ── API v4: /results ───────────────────────────────────────────────────────────
+
+RESULTS_METRICS = {
+    "rouge_l_mean": 0.42,
+    "exact_match": 0.11,
+    "validity_rate": 0.97,
+    "pass_at_1": 0.35,
+    "gloss_f1_micro": 0.78,
+    "bleu_corpus": 0.31,
+    "chrf_corpus": 44.2,
+    "reward_breakdown": {
+        "grammar": 0.9,
+        "edit": 0.5,
+        "historical": 0.4,
+        "validity": 0.8,
+        "gloss": 0.6,
+        "length": 0.7,
+        "format": 0.95,
+    },
+    "pass_at_k": {
+        "pass@1": 0.35,
+        "pass@2": 0.4,
+        "pass@3": 0.44,
+        "pass@4": 0.47,
+        "pass@5": 0.5,
+    },
+    "error_distribution": {"TIMEOUT": 3, "OOM": 1},
+    "detailed_metrics": {"rouge_l_percentiles": {"p50": 0.41, "p90": 0.55}},
+    "difficulty_breakdown": {
+        "simple": {"rouge_l_mean": 0.5},
+        "medium": {"rouge_l_mean": 0.4},
+        "hard": {"rouge_l_mean": 0.3},
+    },
+    "prompting": {"mode": "few-shot", "source": "config"},
+}
+
+
+def test_results_returns_runs_with_full_metrics(client):
+    """GET /results?config=...: run + metriche complete (contratto client)."""
+    test_client, fake = client
+    fake.results_runs = [
+        ("run_20260904_000559", RESULTS_METRICS),
+        ("run_20260901_233552", {"rouge_l_mean": 0.39}),
+    ]
+
+    r = test_client.get(
+        "/results", headers=AUTH, params={"config": "qwen25-05b-sft-grpo"}
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["config"] == "qwen25-05b-sft-grpo"
+    assert body["results_dir"] == "experiments/results/qwen25-05b-sft-grpo"
+    assert body["source"] == "live"
+    assert len(body["runs"]) == 2
+    assert body["runs"][0]["run_id"] == "run_20260904_000559"
+    m = body["runs"][0]["metrics"]
+    for key in (
+        "rouge_l_mean",
+        "exact_match",
+        "validity_rate",
+        "pass_at_1",
+        "gloss_f1_micro",
+        "bleu_corpus",
+        "chrf_corpus",
+        "reward_breakdown",
+        "pass_at_k",
+        "error_distribution",
+        "detailed_metrics",
+        "difficulty_breakdown",
+        "prompting",
+    ):
+        assert key in m, f"manca {key} nel contratto /results"
+    assert m["detailed_metrics"]["rouge_l_percentiles"]["p50"] == 0.41
+    assert m["pass_at_k"]["pass@5"] == 0.5
+    assert m["prompting"] == {"mode": "few-shot", "source": "config"}
+    assert len([c for c in fake.commands if "results" in c]) == 1
+
+
+def test_results_cached_second_call_no_ssh(client):
+    """Seconda chiamata entro TTL: cache SQLite, zero ssh (file immutabili)."""
+    test_client, fake = client
+    fake.results_runs = [("run_1", RESULTS_METRICS)]
+    test_client.get("/results", headers=AUTH, params={"config": "qwen25-05b-sft-grpo"})
+    n = len(fake.commands)
+    r = test_client.get(
+        "/results", headers=AUTH, params={"config": "qwen25-05b-sft-grpo"}
+    )
+    assert r.status_code == 200
+    assert len(fake.commands) == n  # cache hit
+    body = r.json()
+    assert body["source"] == "cache"
+    assert body["runs"][0]["metrics"]["rouge_l_mean"] == 0.42
+
+
+def test_results_stale_cache_served_when_cluster_down(client):
+    """Cluster giù ma risultati già in cache → 200 cache (non 502)."""
+    test_client, fake = client
+    fake.results_runs = [("run_1", RESULTS_METRICS)]
+    test_client.get("/results", headers=AUTH, params={"config": "qwen25-05b-sft-grpo"})
+    # invalida la cache + cluster giù
+    fake.rc = 255
+    fake.stderr = "ssh: connect refused"
+    conn = app_module._db_conn()
+    conn.execute(
+        "UPDATE kv SET value = ? WHERE key = ?",
+        (
+            json.dumps(
+                {
+                    "ts": 0,
+                    "dir": "experiments/results/qwen25-05b-sft-grpo",
+                    "runs": [{"run_id": "run_1", "metrics": RESULTS_METRICS}],
+                }
+            ),
+            "results:qwen25-05b-sft-grpo",
+        ),
+    )
+    conn.commit()
+    r = test_client.get(
+        "/results", headers=AUTH, params={"config": "qwen25-05b-sft-grpo"}
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["source"] == "cache"
+    assert body["runs"][0]["metrics"]["rouge_l_mean"] == 0.42
+    assert "fetch_error" in body
+
+
+def test_results_unknown_config_404(client):
+    test_client, _ = client
+    r = test_client.get("/results", headers=AUTH, params={"config": "no-such-config"})
+    assert r.status_code == 404
+    assert "GET /results" in r.json()["detail"]
+
+
+def test_results_discovery_lists_dirs(client):
+    """GET /results senza config: elenco delle dir disponibili sul cluster."""
+    test_client, fake = client
+    fake.results_dirs = ["t2g-zero-shot", "qwen25-05b-sft-grpo"]
+    r = test_client.get("/results", headers=AUTH)
+    assert r.status_code == 200
+    assert r.json()["results_dirs"] == ["qwen25-05b-sft-grpo", "t2g-zero-shot"]
+
+
+# ── API v4: /health e /configs ─────────────────────────────────────────────────
+
+
+def test_health_reports_state_without_ssh(client):
+    """GET /health: DB, pausa, età snapshot, ultimo errore — ZERO ssh."""
+    test_client, fake = client
+    _prime_known_tags(test_client, fake, "sft-grpo")
+    n = len(fake.commands)
+
+    r = test_client.get("/health", headers=AUTH)
+    assert r.status_code == 200
+    assert len(fake.commands) == n  # nessuna ssh: solo DB
+    body = r.json()
+    assert body["ok"] is True
+    assert body["db_ok"] is True
+    assert body["cluster_reachable"] is True
+    assert body["paused"] is False
+    assert body["last_tick_at"]
+    assert body["snapshot_age_seconds"] is not None
+    assert body["last_error"] is None
+
+
+def test_health_reports_pause_and_last_error(client):
+    """Catena in pausa + cluster giù: /health mostra lo stato ONESTO."""
+    test_client, fake = client
+    test_client.post("/pause", headers=AUTH)
+    fake.rc = 255
+    fake.stderr = "ssh: connect to host unit.test port 22: Connection refused"
+    test_client.post("/tick", headers=AUTH)  # fallisce → evento error
+
+    r = test_client.get("/health", headers=AUTH)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["paused"] is True
+    assert body["cluster_reachable"] is False
+    assert body["last_error"] is not None
+    assert body["ok"] is True  # il DB è sano anche a cluster giù
+
+
+def test_configs_exposes_known_config_map(client):
+    """GET /configs: la mappa nome→path — il client può rimuovere la sua copia."""
+    test_client, _ = client
+    r = test_client.get("/configs", headers=AUTH)
+    assert r.status_code == 200
+    body = r.json()
+    names = [c["name"] for c in body["configs"]]
+    assert len(names) == len(app_module.CONFIG_MAP) == 15
+    assert "sft-grpo-zero-shot" in names
+    assert all(c["path"] for c in body["configs"])

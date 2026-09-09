@@ -12,6 +12,29 @@
 # shellcheck source=cluster/_lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_lib.sh"
 
+# Elenca le celle sperimentali leggendole dal filesystem.
+#
+# Perche' derivarle invece di elencarle: la stessa lista era ricopiata a mano
+# in quattro punti del progetto (questo file, cluster/run_all.sh, remote/app.py
+# e remote/tui.py). Una lista statica non segnala mai di essere incompleta:
+# aggiungendo una cella si ottiene un aiuto in linea che mente. Derivandola,
+# l'aiuto e' corretto per costruzione.
+#
+# base.yaml e' escluso: e' il file ereditato via `extends`, non una cella
+# eseguibile.
+_t2g_list_configs() {
+    local root="${PROJ_DIR:-$HOME/neuro_symbolic_t2g}/experiments/configs/qwen25-05b"
+    if [ ! -d "$root" ]; then
+        echo "     (directory dei config non trovata: $root)"
+        return 1
+    fi
+    # -print evita la dipendenza da find -printf, assente in alcune immagini.
+    find "$root" -name '*.yaml' -not -name 'base.yaml' -print 2>/dev/null \
+        | sed -e "s|^${root}/||" -e 's|\.yaml$||' \
+        | sort \
+        | sed 's|^|     |'
+}
+
 # ── Job management ───────────────────────────────────────────────────────────
 
 # Controlla i miei job attivi
@@ -451,6 +474,16 @@ ablation-summary() {
     cd "$PROJ_DIR" && python3 -u -m src.utils.ablation_summary "$@"
 }
 
+# Confronti strutturati cross-fattore per la matrice di ablazione
+# (uso: campaign-report). Complementare ad ablation-summary: appaia i run
+# che differiscono per UN solo fattore sperimentale (metodo, prompting,
+# grammar) e riporta i delta con le avvertenze obbligatorie (campioni
+# discordanti, metrics_version, soglia di rumore). Da lanciare a fine
+# campagna o quando il cluster termina una chain.
+campaign-report() {
+    cd "$PROJ_DIR" && python3 -u -m src.analysis.campaign_report "$@"
+}
+
 # ── Pip / Environment ────────────────────────────────────────────────────────
 
 # Pulisci tutti i pacchetti --user
@@ -476,7 +509,7 @@ pip-reset() {
 
 # ── Meta ─────────────────────────────────────────────────────────────────────
 
-_CLAUDIO_ALIASES="myjobs jobinfo killjob killalljobs trainlog evallog lastlog tree gpu quota proj ckpts train run-eval run-all chain-status clean clean-model chain-add chain-remove chain-stop chain-start chain-resume chain-show chain-hook-install chain-hook-uninstall monitor ablation-summary pip-clean pip-setup pip-reset unload-aliases install-aliases uninstall-aliases t2g-train t2g-eval t2g-run-all t2g-monitor t2g-chain-show t2g-chain-stop t2g-chain-start t2g-chain-resume t2g-clean t2g-gpu t2g-trainlog t2g-help"
+_CLAUDIO_ALIASES="myjobs jobinfo killjob killalljobs trainlog evallog lastlog tree gpu quota proj ckpts train run-eval run-all chain-status clean clean-model chain-add chain-remove chain-stop chain-start chain-resume chain-show chain-hook-install chain-hook-uninstall monitor ablation-summary campaign-report pip-clean pip-setup pip-reset unload-aliases install-aliases uninstall-aliases t2g-train t2g-eval t2g-run-all t2g-monitor t2g-chain-show t2g-chain-stop t2g-chain-start t2g-chain-resume t2g-clean t2g-gpu t2g-trainlog t2g-help"
 
 # Mostra i comandi disponibili
 claudio() {
@@ -502,19 +535,11 @@ claudio() {
     echo "                     — lancia pipeline train+eval (tick + avanza via hook/server)"
     echo ""
     echo "   Config disponibili (path relativo a experiments/configs/qwen25-05b, senza .yaml):"
-    echo "     sft-grpo/few-shot           pipeline SFT→GRPO few-shot (default)"
-    echo "     sft-grpo/zero-shot          pipeline SFT→GRPO zero-shot"
-    echo "     sft/zero-shot               SFT supervised da solo"
-    echo "     grpo/few-shot               GRPO dal base, few-shot"
-    echo "     grpo/zero-shot              GRPO dal base, zero-shot"
-    echo "     baseline/zero-shot          Base model + Trie (solo eval)"
-    echo "     baseline/zero-shot-no-grammar  Base model senza vincolo (solo eval)"
-    echo "     baseline/few-shot           Base model few-shot (solo eval)"
-    echo "     ablations/decoding/no-grammar   GRPO senza vincolo simbolico"
-    echo "     ablations/decoding/hot-rollout  rollout T=1.3"
-    echo "     ablations/rewards/{edit-validity,historical-stack}"
-    echo "     ablations/loss/dr-grpo          obiettivo Dr-GRPO"
-    echo "     ablations/objectives/{sft-allowed-mass,sft-structured}"
+    # Derivati dal filesystem invece di essere elencati a mano: una lista
+    # hardcoded divergerebbe silenziosamente appena si aggiunge una cella, e
+    # in questo repo la stessa lista era duplicata in quattro punti.
+    # base.yaml e' escluso perche' non e' una cella eseguibile.
+    _t2g_list_configs
     echo ""
     echo "── Pipeline (tick-based) ──"
     echo "   chain-show   — mostra stato pipeline + job in coda"
@@ -530,6 +555,7 @@ claudio() {
     echo "   monitor [--poll N] [--tab] [--samples [N]] [--metrics] [--all [N]]"
     echo "                    — monitor live della pipeline"
     echo "   ablation-summary  — genera tabella + grafico cross-config dopo l'ablation"
+    echo "   campaign-report   — confronti appaiati cross-fattore per la matrice di ablazione"
     echo ""
     echo "── Utilità ──"
     echo "   proj         — cd al progetto"

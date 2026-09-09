@@ -20,6 +20,7 @@ di test, esattamente come fa sync_cluster.ps1.
 from __future__ import annotations
 
 import base64
+import copy
 import json
 import logging
 import os
@@ -27,6 +28,8 @@ import re
 import secrets
 import sqlite3
 import subprocess
+import threading
+import time
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -77,6 +80,9 @@ class Settings:
     db_path: str
     data_dir: str
     helper_auto_install: bool
+    monitor_cache_ttl: int
+    timeseries_cache_ttl: int
+    results_cache_ttl: int
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -109,6 +115,18 @@ class Settings:
             data_dir=data_dir,
             helper_auto_install=os.environ.get("T2G_HELPER_AUTO_INSTALL", "1")
             not in ("", "0", "false", "False"),
+            # TTL cache /monitor: la TUI polla ogni 10s → con TTL 15s le ssh
+            # reali scendono a ~1 ogni 20s. L'età e' SEMPRE esposta al client
+            # (`source`, `age_seconds`, `snapshot_ts`): mai reattività falsata;
+            # `?refresh=1` resta per il refresh forzato.
+            monitor_cache_ttl=_env_int("T2G_MONITOR_CACHE_TTL", 15),
+            # Serie timeseries: cambia solo quando il training logga un nuovo
+            # step (secondi-minuti) e il grep del log intero è più pesante
+            # dello snapshot → TTL più largo di /monitor è sufficiente.
+            timeseries_cache_ttl=_env_int("T2G_TIMESERIES_CACHE_TTL", 60),
+            # Risultati eval: immutabili una volta scritti su disco → cache
+            # aggressiva (1h): solo i run NUOVI appaiono dopo il refresh.
+            results_cache_ttl=_env_int("T2G_RESULTS_CACHE_TTL", 3600),
         )
 
 
@@ -136,7 +154,7 @@ CONFIG_MAP: dict[str, str] = {
 
 CONFIG_PATHS: set[str] = set(CONFIG_MAP.values())
 
-# Campagna completa in ORDINE DI RIUSO (maximizza elementi già
+# Campagna completa in ORDINE DI RIUSO (massimizza elementi già
 # addestrati/valutati): baselines eval-only prime (baseline/zero-shot COL Trie
 # CACHEA la baseline --compare per tutte le celle successive),
 # sft/zero-shot addestra l'adapter SFT che TUTTE le celle sft-grpo riusano via
@@ -145,8 +163,7 @@ CONFIG_PATHS: set[str] = set(CONFIG_MAP.values())
 # MODE: e = eval-only · te = train+eval. Tag = path relativo a qwen25-05b,
 # slash → trattini (safe per SLURM/monitor, allineato a cluster/run_all.sh).
 ABLATION_MODELS: list[tuple[str, str, str]] = [
-    # 1-3. Baseline eval-only (~zero costo; baseline/zero-shot CACHEA la
-    # baseline --compare per tutte le celle successive)
+    # 1-3. Baseline eval-only (~zero costo)
     (
         "baseline-zero-shot",
         "experiments/configs/qwen25-05b/baseline/zero-shot.yaml",
@@ -158,9 +175,9 @@ ABLATION_MODELS: list[tuple[str, str, str]] = [
         "e",
     ),
     ("baseline-few-shot", "experiments/configs/qwen25-05b/baseline/few-shot.yaml", "e"),
-    # 4. SFT-only: addestra L'adapter SFT (le celle sft-grpo lo riusano via fingerprint)
+    # 4. SFT-only: addestra l'adapter SFT
     ("sft-zero-shot", "experiments/configs/qwen25-05b/sft/zero-shot.yaml", "te"),
-    # 5-8. Celle GRPO / SFT→GRPO (riusano l'adapter SFT + la baseline cached)
+    # 5-8. Celle GRPO / SFT→GRPO
     ("grpo-zero-shot", "experiments/configs/qwen25-05b/grpo/zero-shot.yaml", "te"),
     ("grpo-few-shot", "experiments/configs/qwen25-05b/grpo/few-shot.yaml", "te"),
     (
@@ -217,49 +234,70 @@ HELPER_REMOTE = "~/neuro_symbolic_t2g/cluster/cluster_helper.sh"  # path sul clu
 _TAG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 _EXTRA_RE = re.compile(r"[-A-Za-z0-9][A-Za-z0-9 ._=/:,-]{0,127}\Z")
 
+# Valori KV nelle righe di training `step=N loss=...` (emesse da
+# src/training/callbacks.py): definite UNA volta e riusate da job_detail e
+# /timeseries — nel repo esistono gia' troppe copie di queste regex.
+_KV_LOSS_VAL_RE = re.compile(r"\bloss=([\d.eE+-]+)")
+_KV_LR_VAL_RE = re.compile(r"\b(?:lr|learning_rate)=([\d.eE+-]+)")
+
 # ── DB SQLite locale (cache + diario eventi) ─────────────────────────────────
+# UNA SOLA connessione riusata (prima: open/close a ogni _kv_get/_kv_set).
+# check_same_thread=False: le route sync girano nel threadpool di FastAPI;
+# l'accesso e' serializzato da _DB_LOCK, che evita anche i "database is
+# locked" tra writer concorrenti (piu' economico e deterministico del retry).
+
+_DB_LOCK = threading.RLock()
+_DB_CONN: sqlite3.Connection | None = None
+_DB_CONN_PATH: str | None = None
 
 
 def _db_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(settings.db_path, timeout=10)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Connessione SQLite condivisa, riaperta solo se db_path cambia (i test
+    reistanzano Settings con un DB temporaneo)."""
+    global _DB_CONN, _DB_CONN_PATH
+    with _DB_LOCK:
+        if _DB_CONN is None or _DB_CONN_PATH != settings.db_path:
+            if _DB_CONN is not None:
+                try:
+                    _DB_CONN.close()
+                except sqlite3.Error:  # pragma: no cover - chiusura best effort
+                    pass
+            Path(settings.db_path).parent.mkdir(parents=True, exist_ok=True)
+            _DB_CONN = sqlite3.connect(
+                settings.db_path, timeout=10, check_same_thread=False
+            )
+            _DB_CONN.row_factory = sqlite3.Row
+            _DB_CONN_PATH = settings.db_path
+        return _DB_CONN
 
 
 def _init_db() -> None:
-    Path(settings.db_path).parent.mkdir(parents=True, exist_ok=True)
-    conn = _db_conn()
-    try:
+    with _DB_LOCK:
+        conn = _db_conn()
         conn.executescript(
             "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);\n"
             "CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT,"
             " ts TEXT NOT NULL, type TEXT NOT NULL, detail TEXT NOT NULL);"
         )
         conn.commit()
-    finally:
-        conn.close()
 
 
 def _kv_get(key: str, default: str | None = None) -> str | None:
-    conn = _db_conn()
-    try:
-        row = conn.execute("SELECT value FROM kv WHERE key = ?", (key,)).fetchone()
-        return str(row["value"]) if row else default
-    finally:
-        conn.close()
+    with _DB_LOCK:
+        row = (
+            _db_conn().execute("SELECT value FROM kv WHERE key = ?", (key,)).fetchone()
+        )
+    return str(row["value"]) if row else default
 
 
 def _kv_set(key: str, value: str) -> None:
-    conn = _db_conn()
-    try:
-        conn.execute(
+    with _DB_LOCK:
+        _db_conn().execute(
             "INSERT INTO kv (key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (key, value),
         )
-        conn.commit()
-    finally:
-        conn.close()
+        _db_conn().commit()
 
 
 def _kv_json(key: str, default=None):
@@ -273,9 +311,8 @@ def _kv_json(key: str, default=None):
 
 
 def _add_event(event_type: str, detail: str) -> None:
-    conn = _db_conn()
-    try:
-        conn.execute(
+    with _DB_LOCK:
+        _db_conn().execute(
             "INSERT INTO events (ts, type, detail) VALUES (?, ?, ?)",
             (
                 datetime.now().isoformat(timespec="seconds"),
@@ -283,22 +320,35 @@ def _add_event(event_type: str, detail: str) -> None:
                 str(detail)[:500],
             ),
         )
-        conn.commit()
-    finally:
-        conn.close()
+        _db_conn().commit()
 
 
 def _recent_events(limit: int = 10) -> list[dict]:
-    conn = _db_conn()
-    try:
-        rows = conn.execute(
-            "SELECT ts, type, detail FROM events ORDER BY id DESC LIMIT ?", (limit,)
-        ).fetchall()
-    finally:
-        conn.close()
+    with _DB_LOCK:
+        rows = (
+            _db_conn()
+            .execute(
+                "SELECT ts, type, detail FROM events ORDER BY id DESC LIMIT ?", (limit,)
+            )
+            .fetchall()
+        )
     return [{"ts": r["ts"], "type": r["type"], "detail": r["detail"]} for r in rows][
         ::-1
     ]
+
+
+def _last_error_event() -> dict | None:
+    """Ultimo evento di errore (per GET /health): None se il diario è pulito."""
+    with _DB_LOCK:
+        row = (
+            _db_conn()
+            .execute(
+                "SELECT ts, detail FROM events WHERE type = 'error' "
+                "ORDER BY id DESC LIMIT 1"
+            )
+            .fetchone()
+        )
+    return {"ts": row["ts"], "detail": row["detail"]} if row else None
 
 
 # ── SSH verso il login node (subprocess + ssh nativo, zero lib esotiche) ─────
@@ -532,33 +582,69 @@ def _store_snapshot(state: dict) -> None:
     _kv_set("errors_offset", str(total))
 
 
+def _ssh_failure(action: str, res: SSHResult) -> str:
+    """Errore SSH LEGGIBILE: cosa è stato tentato, cosa è fallito, cosa fare.
+
+    Un timeout secco non deve diventare un 502 opaco: il messaggio riporta
+    sempre i tre elementi (tentativo / esito / azione suggerita).
+    """
+    if res.timed_out:
+        return (
+            f"tentato '{action}' sul cluster: timeout dopo {settings.ssh_timeout}s "
+            "senza risposta. Azione: riprova; se persiste verifica la "
+            "raggiungibilità del login node o aumenta T2G_SSH_TIMEOUT."
+        )
+    if res.rc == -2:
+        return (
+            f"tentato '{action}' sul cluster: binario ssh non trovato. "
+            "Azione: verifica le dipendenze dell'ambiente di deploy."
+        )
+    err = res.stderr.strip()[:200] or res.stdout.strip()[:200] or "(nessun output)"
+    return (
+        f"tentato '{action}' sul cluster: fallito con rc={res.rc}: {err}. "
+        "Azione: controlla gli eventi recenti in GET /status e lo stato del login node."
+    )
+
+
+def _helper_raw(ssh: ClusterSSH, subcommand: str, arg: str | None = None) -> SSHResult:
+    """Esegue un subcomando del helper gestendo timeout, ssh assente e
+    helper non installato (auto-install via scp, una volta sola).
+
+    NON valuta il rc: alcune operazioni combinate (start_batch) tornano
+    rc!=0 con output valido (enqueue riuscito + tick fallito) — è il
+    chiamante a decidere come interpretarlo.
+    """
+    res = ssh.run(_helper_cmd(subcommand, arg))
+    if res.timed_out:
+        raise ClusterUnreachable(_ssh_failure(f"cluster_helper.sh {subcommand}", res))
+    if res.rc == -2:
+        raise ClusterUnreachable(_ssh_failure(f"cluster_helper.sh {subcommand}", res))
+    if "HELPER_MISSING=1" in (res.stdout or ""):
+        if not settings.helper_auto_install:
+            raise ClusterProtocolError(
+                "cluster_helper.sh non presente sul cluster — copialo con: "
+                "scp remote/cluster_helper.sh "
+                f"{settings.ssh_user}@{settings.ssh_host}:{HELPER_REMOTE}"
+            )
+        _install_helper(ssh)
+        res = ssh.run(_helper_cmd(subcommand, arg))
+        if res.timed_out:
+            raise ClusterUnreachable(
+                _ssh_failure(f"cluster_helper.sh {subcommand}", res)
+            )
+    return res
+
+
 def _helper_do(ssh: ClusterSSH, subcommand: str, arg: str | None = None) -> dict:
     """Esegue un subcomando del helper e sincronizza il DB col nuovo snapshot.
 
     Gestisce timeout ssh, helper non installato (auto-install via scp, una
     volta sola) e output non parsabile; ritorna lo snapshot aggiornato.
     """
-    res = ssh.run(_helper_cmd(subcommand, arg))
-    if res.timed_out:
-        raise ClusterUnreachable(f"ssh timeout dopo {settings.ssh_timeout}s")
-    if res.rc == -2:
-        raise ClusterUnreachable("binario ssh non trovato sul server")
-    text = res.stdout or ""
-    if "HELPER_MISSING=1" in text:
-        if settings.helper_auto_install:
-            _install_helper(ssh)
-            res = ssh.run(_helper_cmd(subcommand, arg))
-            text = res.stdout or ""
-        else:
-            raise ClusterProtocolError(
-                "cluster_helper.sh non presente sul cluster — copialo con: "
-                "scp remote/cluster_helper.sh "
-                f"{settings.ssh_user}@{settings.ssh_host}:{HELPER_REMOTE}"
-            )
+    res = _helper_raw(ssh, subcommand, arg)
     if res.rc != 0:
-        raise ClusterUnreachable(
-            f"ssh rc={res.rc}: {res.stderr.strip()[:200] or res.stdout.strip()[:200]}"
-        )
+        raise ClusterUnreachable(_ssh_failure(f"cluster_helper.sh {subcommand}", res))
+    text = res.stdout or ""
     state = parse_status(text)
     if state.get("status_ok") != 1:
         raise ClusterProtocolError(
@@ -618,6 +704,47 @@ def _cached_status() -> dict:
         "cluster_reachable": _kv_get("cluster_reachable", "0") == "1",
         "events": _recent_events(10),
     }
+
+
+# ── Cache con TTL per lo snapshot /monitor ────────────────────────────────────
+# Razionale e numeri (poll 10s, ssh reali ~1/20s, età dichiarata) nel
+# commento a Settings.monitor_cache_ttl.
+
+_MONITOR_CACHE: dict = {}
+
+
+def _monitor_cache_store(snapshot: dict) -> None:
+    """Salva una COPIA dello snapshot come cache corrente.
+
+    deepcopy: le route mutanti aggiungono chiavi (started_now, queued) alla
+    loro copia di risposta senza inquinare la cache.
+    """
+    _MONITOR_CACHE["snapshot"] = copy.deepcopy(snapshot)
+    _MONITOR_CACHE["ts"] = time.time()
+
+
+def _monitor_cache_get() -> dict | None:
+    """Cache corrente (copia profonda) + timestamp, o None se vuota."""
+    snap = _MONITOR_CACHE.get("snapshot")
+    if snap is None:
+        return None
+    return {"snapshot": copy.deepcopy(snap), "ts": _MONITOR_CACHE["ts"]}
+
+
+def _monitor_cache_clear() -> None:
+    _MONITOR_CACHE.clear()
+
+
+def _monitor_freshness(body: dict, age: float) -> dict:
+    """Aggiunge i metadata di freschezza a una copia superficiale del body.
+
+    Copia superficiale: le chiavi aggiunte qui non toccano l'oggetto in cache.
+    """
+    out = dict(body)
+    out["source"] = "live" if age <= 0.0 else "cache"
+    out["age_seconds"] = round(age, 1)
+    out.setdefault("snapshot_ts", out.get("ts"))
+    return out
 
 
 # ── Validazione config / costruzione entry di coda ───────────────────────────
@@ -697,6 +824,10 @@ async def lifespan(app: FastAPI):
     Path(settings.data_dir).mkdir(parents=True, exist_ok=True)
     _setup_key()
     _init_db()
+    # Cache in-memory svuote all'avvio: dopo un restart non esistono dati
+    # "freschi" in memoria (e in test isola le run l'una dall'altra).
+    _monitor_cache_clear()
+    _timeseries_cache_clear()
     if settings.auth_token:
         _log.info("Auth ATTIVA (X-Auth-Token richiesto)")
     else:
@@ -953,12 +1084,12 @@ def _job_detail_from_log(
     # loss/lr: ultima riga KV che li contiene (il parser non li espone come
     # campi dedicati — loss sta nel KV step, lr nella stessa riga HighPrecision).
     for line in reversed(log_tail_lines):
-        m = re.search(r"\bloss=([\d.eE+-]+)", line)
+        m = _KV_LOSS_VAL_RE.search(line)
         if m and not job.sft_active:
             detail["loss"] = m.group(1)
             break
     for line in reversed(log_tail_lines):
-        m = re.search(r"\b(?:lr|learning_rate)=([\d.eE+-]+)", line)
+        m = _KV_LR_VAL_RE.search(line)
         if m:
             detail["lr"] = m.group(1)
             break
@@ -999,18 +1130,10 @@ def _parse_monitor_status(text: str) -> dict:
 
 def _helper_monitor(ssh: ClusterSSH, nlines: int = 200) -> dict:
     """Subcomando `monitor`: snapshot + log tail; sincronizza il DB."""
-    res = ssh.run(_helper_cmd("monitor", str(nlines)))
-    if res.timed_out:
-        raise ClusterUnreachable(f"ssh timeout dopo {settings.ssh_timeout}s")
-    text = res.stdout or ""
-    if "HELPER_MISSING=1" in text and settings.helper_auto_install:
-        _install_helper(ssh)
-        res = ssh.run(_helper_cmd("monitor", str(nlines)))
-        text = res.stdout or ""
+    res = _helper_raw(ssh, "monitor", str(nlines))
     if res.rc != 0:
-        raise ClusterUnreachable(
-            f"ssh rc={res.rc}: {res.stderr.strip()[:200] or res.stdout.strip()[:200]}"
-        )
+        raise ClusterUnreachable(_ssh_failure("cluster_helper.sh monitor", res))
+    text = res.stdout or ""
     state = _parse_monitor_status(text)
     if state.get("status_ok") != 1:
         raise ClusterProtocolError(
@@ -1033,10 +1156,9 @@ def _job_detail_from_live(
     """
     if not active_job or not active_job.get("id"):
         return None
-    # `live` arriva da json.loads() su una riga LIVE_STATUS remota: un JSON
-    # valido ma non-oggetto (lista, numero, stringa) supererebbe il parsing e
-    # farebbe fallire `.get()` con AttributeError, cioe' un HTTP 500 su
-    # /monitor. Il fallback corretto e' il parsing del log.
+    # `live` arriva da json.loads() di una riga LIVE_STATUS remota: un JSON
+    # valido ma non-oggetto (lista/numero/stringa) farebbe fallire .get()
+    # con AttributeError, cioe' un HTTP 500 su /monitor.
     if not isinstance(live, dict) or not live.get("phase"):
         return None
     name = active_job.get("name") or ""
@@ -1074,15 +1196,18 @@ def _job_detail_from_live(
     }
 
 
-def _monitor_snapshot(ssh: ClusterSSH) -> dict:
-    """Snapshot completo per /monitor: stato + job_detail + samples + log tail.
+def _monitor_snapshot_from_state(state: dict) -> dict:
+    """Snapshot completo per /monitor da uno stato GIÀ ricevuto via ssh.
+
+    Separata da `_monitor_snapshot` per riutilizzare lo stesso stato nelle
+    mutazioni (start/batch/kill): il helper riporta già lo snapshot monitor
+    nella STESSA connessione → zero ssh extra per costruire la risposta.
 
     job_detail: dal live status file (fonte primaria, ``source: "live"``)
     con fallback al parsing del log SLURM via chain_monitor (``source:
     "log"``). samples: dal live status (formattati dal produttore) se
     presenti, altrimenti estratti dal log tail.
     """
-    state = _helper_monitor(ssh)
     tail_lines, log_path = _decode_log_tail(state)
     live = state.get("live_status")
     job_detail = _job_detail_from_live(state.get("active_job"), live, log_path)
@@ -1112,23 +1237,117 @@ def _monitor_snapshot(ssh: ClusterSSH) -> dict:
     return snapshot
 
 
+def _fresh_snapshot_from_state(state: dict) -> dict:
+    """Snapshot monitor fresco da uno stato appena ricevuto + cache aggiornata.
+
+    Le mutazioni (start/batch/kill) rispondono con dati live e popolano la
+    cache di /monitor in un colpo solo: la poll successiva della TUI sarà un
+    cache hit invece di una nuova connessione ssh.
+    """
+    snapshot = _monitor_snapshot_from_state(state)
+    snapshot["source"] = "live"
+    snapshot["age_seconds"] = 0.0
+    snapshot["snapshot_ts"] = snapshot["ts"]
+    _monitor_cache_store(snapshot)
+    return snapshot
+
+
+def _monitor_snapshot(ssh: ClusterSSH) -> dict:
+    """Snapshot completo per /monitor con UNA connessione ssh + cache write."""
+    state = _helper_monitor(ssh)
+    return _fresh_snapshot_from_state(state)
+
+
 @app.get("/monitor", dependencies=[Depends(require_auth)])
-def monitor() -> dict:
+def monitor(refresh: bool = False) -> dict:
     """Snapshot live: stato catena + metriche job attivo + samples + log tail.
 
-    Riusa i parser di src/utils/chain_monitor.py sul log del job attivo
-    (trasportato via base64 dal helper — una sola connessione ssh).
+    Risponde DALLA CACHE quando lo snapshot è fresco (TTL
+    `T2G_MONITOR_CACHE_TTL`, default 15s: la TUI polla ogni 10s → le ssh
+    scendono a ~1 ogni 20s), fa SSH solo quando è stantio o con
+    `?refresh=1` (tasto "aggiorna" del client). I metadata `source`
+    ("cache"|"live"), `age_seconds` e `snapshot_ts` dichiarano SEMPRE la
+    provenienza e l'età dei dati. Se il refresh fallisce ma esiste uno
+    snapshot cached, viene servito quello con `fetch_error` esplicito —
+    mai un 502 quando dati validi (seppur vecchi) sono disponibili, mai
+    dati vecchi spacciati per freschi.
     """
-    with _cluster() as ssh:
-        return _monitor_snapshot(ssh)
+    now = time.time()
+    cached = _monitor_cache_get()
+    if cached is not None and not refresh:
+        age = now - cached["ts"]
+        if age < settings.monitor_cache_ttl:
+            return _monitor_freshness(cached["snapshot"], age)
+    body = None
+    fetch_error = None
+    try:
+        with _cluster() as ssh:
+            body = _monitor_snapshot(ssh)
+        age = 0.0
+    except HTTPException as exc:
+        if cached is None:
+            raise
+        body = cached["snapshot"]
+        age = now - cached["ts"]
+        fetch_error = str(exc.detail)
+    out = _monitor_freshness(body, age)
+    if fetch_error is not None:
+        out["fetch_error"] = fetch_error
+    return out
+
+
+def _helper_start_batch(
+    ssh: ClusterSSH, entries: list[str], tick: bool = True
+) -> tuple[dict, bool]:
+    """enqueue di N entry + tick + snapshot monitor in UNA sola connessione.
+
+    Prima: N enqueue + tick + monitor = N+2 ssh seriali (fino a ~90s di
+    attesa per /jobs/start). Ora il helper (`start_batch`/`enqueue_batch`)
+    fa tutto in un round-trip.
+
+    Ritorna (state, tick_failed): anche a tick fallito lo snapshot viene
+    parsato e sincronizzato (l'enqueue è avvenuto) — il chiamante decide
+    se trasformarlo in 502 leggibile o in risposta.
+    """
+    content = "\x1f".join(entries)
+    sub = "start_batch" if tick else "enqueue_batch"
+    res = _helper_raw(ssh, sub, content)
+    tick_failed = False
+    if res.rc == 3 or "ERR_TICK=" in (res.stderr or ""):
+        tick_failed = True
+    elif res.rc != 0:
+        raise ClusterUnreachable(_ssh_failure(f"cluster_helper.sh {sub}", res))
+    state = _parse_monitor_status(res.stdout or "")
+    if state.get("status_ok") != 1:
+        raise ClusterProtocolError(
+            f"helper '{sub}' senza STATUS_OK=1: {(res.stdout or '')[:200]!r}"
+        )
+    _store_snapshot(state)
+    return state, tick_failed
+
+
+def _tick_failed_detail(n_entries: int, stderr: str) -> str:
+    """Messaggio leggibile per 'enqueue riuscito ma tick fallito'.
+
+    L'entry È in coda: il messaggio dice cosa succede e cosa fare invece di
+    un 502 generico che farebbe riaccodare il client (doppioni).
+    """
+    return (
+        f"Accodate {n_entries} entry in coda, ma il tick immediato è fallito: "
+        f"{(stderr or '').strip()[:200] or 'chain_tick rc!=0'}. Le entry sono "
+        "AL SICURO in coda: il prossimo tick automatico (cron, 5 min) le "
+        "sottometterà, oppure riprova subito con POST /tick."
+    )
 
 
 @app.post("/jobs/start", status_code=201, dependencies=[Depends(require_auth)])
 def start_job(payload: JobIn) -> dict:
     """Accoda un job e fa un tick immediato: parte SUBITO se la coda è libera.
 
-    Response: snapshot /monitor + `started_now` (True se il tick ha sottomesso
-    proprio questo job — nessun altro job era attivo).
+    UNA sola connessione ssh (helper `start_batch`: enqueue+tick+monitor
+    insieme; prima erano 3 ssh seriali). Response: snapshot /monitor +
+    `started_now` (True se il tick ha sottomesso proprio questo job —
+    nessun altro job era attivo).
     """
     entry = build_entry(payload)
     # tag derivato dal payload (stessa regola di build_entry) per verificare
@@ -1137,13 +1356,15 @@ def start_job(payload: JobIn) -> dict:
     entry_tag = entry.split(":")[2] if entry.count(":") >= 2 else ""
     expected_name = f"{payload.type}-{entry_tag}"
     with _cluster() as ssh:
-        _helper_do(ssh, "enqueue", entry)
-        state = _helper_do(ssh, "tick")
+        state, tick_failed = _helper_start_batch(ssh, [entry])
+    if tick_failed:
+        raise HTTPException(
+            502, _tick_failed_detail(1, "cluster_helper.sh start_batch rc=3")
+        )
     active = state.get("active_job")
     started_now = bool(active and active.get("name") == expected_name)
     _add_event("enqueue+tick" if started_now else "enqueue", entry)
-    with _cluster() as ssh:
-        snapshot = _monitor_snapshot(ssh)
+    snapshot = _fresh_snapshot_from_state(state)
     snapshot["started_now"] = started_now
     return snapshot
 
@@ -1157,8 +1378,10 @@ def start_batch(payload: BatchStartIn) -> dict:
     sottomette il primo job quando la coda è libera; gli altri restano in
     coda e avanzano col chain tick successivo.
 
-    Response: snapshot /monitor + `started_now` (True se il tick ha sottomesso
-    il primo job della lista) + `queued` (le entry accodate).
+    UNA sola connessione ssh (helper `start_batch`/`enqueue_batch`; prima
+    erano N+2 ssh seriali). Response: snapshot /monitor + `started_now`
+    (True se il tick ha sottomesso il primo job della lista) + `queued`
+    (le entry accodate).
     """
     if not payload.jobs:
         raise HTTPException(422, "jobs vuoto: almeno un job richiesto")
@@ -1167,10 +1390,11 @@ def start_batch(payload: BatchStartIn) -> dict:
     entries = [build_entry(job) for job in payload.jobs]
 
     with _cluster() as ssh:
-        for entry in entries:
-            _helper_do(ssh, "enqueue", entry)
-        state = (
-            _helper_do(ssh, "tick") if payload.start_now else _helper_do(ssh, "status")
+        state, tick_failed = _helper_start_batch(ssh, entries, tick=payload.start_now)
+    if tick_failed:
+        raise HTTPException(
+            502,
+            _tick_failed_detail(len(entries), "cluster_helper.sh start_batch rc=3"),
         )
 
     started_now = False
@@ -1186,8 +1410,7 @@ def start_batch(payload: BatchStartIn) -> dict:
         f"batch: {len(entries)} job ({', '.join(_parse_entry(e)['tag'] for e in entries[:5])}"
         f"{'…' if len(entries) > 5 else ''})",
     )
-    with _cluster() as ssh:
-        snapshot = _monitor_snapshot(ssh)
+    snapshot = _fresh_snapshot_from_state(state)
     snapshot["started_now"] = started_now
     snapshot["queued"] = entries
     return snapshot
@@ -1200,14 +1423,35 @@ def kill_active() -> dict:
     Semantica: il job killato appare CANCELLED e al prossimo tick la catena
     CONTINUA col job successivo (continue-on-failure). Per fermare TUTTO:
     POST /pause prima (o subito dopo) del kill.
+
+    UNA sola connessione ssh: il helper stampa lo snapshot monitor DOPO lo
+    scancel (prima: 2 ssh). Il job può risultare ancora RUNNING per qualche
+    secondo prima di passare a CANCELLED — è normale e dichiarato.
     """
     with _cluster() as ssh:
-        res = ssh.run(_helper_cmd("scancel"))
-    if res.rc != 0:
-        raise HTTPException(409, "Nessun job attivo da cancellare (o scancel fallito)")
-    _add_event("kill", f"scancel del job attivo: {res.stdout.strip()[:100]}")
-    with _cluster() as ssh:
-        return _monitor_snapshot(ssh)
+        res = _helper_raw(ssh, "scancel")
+        if res.rc != 0:
+            raise HTTPException(
+                409,
+                "Nessun job attivo da cancellare (o scancel fallito): "
+                f"{(res.stderr or '').strip()[:200]}",
+            )
+        state = _parse_monitor_status(res.stdout or "")
+        if state.get("status_ok") != 1:
+            raise ClusterProtocolError(
+                f"helper 'scancel' senza STATUS_OK=1: {(res.stdout or '')[:200]!r}"
+            )
+        _store_snapshot(state)
+    ok_line = next(
+        (
+            line
+            for line in (res.stdout or "").splitlines()
+            if line.startswith("OK_SCANCEL")
+        ),
+        "",
+    )
+    _add_event("kill", f"scancel del job attivo: {ok_line[:100]}")
+    return _fresh_snapshot_from_state(state)
 
 
 @app.get("/logs", dependencies=[Depends(require_auth)])
@@ -1220,6 +1464,393 @@ def get_logs(lines: int = 50) -> dict:
     if not state.get("active_job"):
         raise HTTPException(404, "Nessun job attivo: nessun log da leggere")
     return {"log_path": log_path, "lines": tail_lines[-lines:]}
+
+
+# ── API v4: dati per i grafici client (timeseries/results) + diagnostica ─────
+
+# Metriche esposte da /timeseries: chiave metrica → chiavi KV accettate nel
+# log (callbacks.py emette `learning_rate`, i log SFT/TRL a volte `lr`).
+_TS_METRIC_KEYS: dict[str, tuple[str, ...]] = {
+    "loss": ("loss",),
+    "reward": ("reward",),
+    "lr": ("learning_rate", "lr"),
+    "kl": ("kl",),
+}
+
+# Cache in memoria delle serie: tag → {lines, total_steps, job_id, ts}.
+# In memoria basta: i job attivi si ricaricano con una ssh, i job finiti
+# ricompaiono al primo fetch (il mapping tag→jobid vive in last_job sul
+# cluster, non nel filesystem effimero di Render).
+_TS_CACHE: dict[str, dict] = {}
+
+
+def _timeseries_cache_clear() -> None:
+    _TS_CACHE.clear()
+
+
+def _known_job_tags() -> set[str]:
+    """Tag noti dal DB (job attivo + ultimo sottomesso): evita ssh inutili
+    per tag di cui il cluster non ha comunque nessun log mappabile."""
+    tags: set[str] = set()
+    active = _kv_json("active_job")
+    if isinstance(active, dict) and active.get("name"):
+        name = str(active["name"])
+        if "-" in name:
+            tags.add(name.split("-", 1)[1])
+    parts = (_kv_get("last_job") or "").split(":")
+    # last_job = "<id>:<type>:<cfg>:<tag>:<retries>[:<extra>]": la cfg non
+    # contiene ':', quindi il tag è sempre il 4° campo.
+    if len(parts) > 3 and parts[3]:
+        tags.add(parts[3])
+    return tags
+
+
+def _helper_timeseries(ssh: ClusterSSH, tag: str) -> dict:
+    """Subcomando `timeseries`: righe KV dell'intero log del job col tag dato.
+
+    Il grep gira sul login node e trasporta SOLO le righe metriche (base64):
+    il payload resta piccolo anche per log di decine di MB.
+    """
+    res = _helper_raw(ssh, "timeseries", tag)
+    if res.rc != 0:
+        raise ClusterUnreachable(_ssh_failure("cluster_helper.sh timeseries", res))
+    state: dict = {
+        "ts_match": False,
+        "job_id": None,
+        "total_steps": None,
+        "lines": [],
+    }
+    b64 = ""
+    for line in (res.stdout or "").splitlines():
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if key == "TS_MATCH":
+            state["ts_match"] = value == "1"
+        elif key == "TS_JOB_ID":
+            state["job_id"] = value or None
+        elif key == "TS_TOTAL_STEPS":
+            state["total_steps"] = int(value) if value.isdigit() else None
+        elif key == "TS_LOG_B64":
+            b64 = value
+    if b64:
+        try:
+            state["lines"] = (
+                base64.b64decode(b64).decode("utf-8", errors="replace").splitlines()
+            )
+        except (ValueError, TypeError):
+            state["lines"] = []
+    return state
+
+
+def _parse_timeseries_points(lines: list[str], keys: tuple[str, ...]) -> list[dict]:
+    """Righe KV → punti (step, value) per la metrica richiesta.
+
+    Riusa `_KV_STEP` di src/utils/chain_monitor.py come anchor di riga (stessa
+    definizione di "riga metrica" del monitor esistente) + un tokenizer k=v
+    generico: ZERO nuove regex (nel repo ne esistono già 4 copie uguali).
+    """
+    cm = _import_chain_monitor()
+    by_step: dict[int, float] = {}
+    for line in lines:
+        m = cm._KV_STEP.match(line)
+        if not m:
+            continue
+        value = None
+        for tok in line.split():
+            k, sep, v = tok.partition("=")
+            if sep and k in keys:
+                try:
+                    value = float(v)
+                except ValueError:
+                    value = None
+                break
+        if value is not None:
+            # Step duplicati (run ripresi con --resume): vince l'ultimo, è il più recente.
+            by_step[int(m.group(1))] = value
+    return [{"step": s, "value": v} for s, v in sorted(by_step.items())]
+
+
+def _subsample_points(points: list[dict], limit: int) -> list[dict]:
+    """Sottocampionamento uniforme con estremi PRESERVATI.
+
+    Se i punti superano `limit`: si tengono il primo e l'ultimo e indici
+    equispaziati (arrotondati, senza duplicati). La forma della curva resta
+    fedele e il punto PIÙ RECENTE — quello che interessa alla sparkline —
+    è sempre incluso, anche con limit piccolo.
+    """
+    n = len(points)
+    if n <= limit:
+        return points
+    if limit <= 1:
+        return [points[-1]]
+    idx = sorted({int(round(i * (n - 1) / (limit - 1))) for i in range(limit)})
+    return [points[i] for i in idx]
+
+
+@app.get("/timeseries", dependencies=[Depends(require_auth)])
+def get_timeseries(
+    tag: str, metric: str = "loss", limit: int = 400, refresh: bool = False
+) -> dict:
+    """Serie temporale per-step del job col tag dato (dati per i grafici).
+
+    Sorgente: righe KV del log SLURM (`step=N loss=... reward=...`) via
+    subcomando `timeseries` del helper — UNA connessione ssh. Cache in
+    memoria con TTL (T2G_TIMESERIES_CACHE_TTL, default 60s): i punti del job
+    attivo crescono col training, quelli di un job FINITO sono immutabili →
+    una serie cached di run concluso viene servita senza scadere finché
+    nessun job con lo stesso tag torna attivo. `limit` (default 400, adeguato
+    a una sparkline in terminale) sottocampiona uniformemente; `refresh=1`
+    forza il re-fetch.
+    """
+    tag = tag.strip()
+    if not tag or len(tag) > 64 or any(c.isspace() for c in tag):
+        raise HTTPException(422, f"tag non valido: {tag!r}")
+    keys = _TS_METRIC_KEYS.get(metric)
+    if keys is None:
+        raise HTTPException(
+            422,
+            "metric non valida: "
+            f"{metric!r} (valori: {', '.join(sorted(_TS_METRIC_KEYS))})",
+        )
+    limit = max(10, min(limit, 2000))
+
+    entry = _TS_CACHE.get(tag)
+    age = (time.time() - entry["ts"]) if entry else None
+    fetch_error = None
+    stale = (
+        entry is not None and age is not None and age >= settings.timeseries_cache_ttl
+    )
+    need_fetch = refresh or entry is None or stale
+    if need_fetch and (refresh or tag in _known_job_tags()):
+        state = None
+        try:
+            with _cluster() as ssh:
+                state = _helper_timeseries(ssh, tag)
+        except HTTPException as exc:
+            if entry is None:
+                raise
+            # Cluster irraggiungibile ma serie cached (job finito = dati
+            # immutabili): si serve quella DICHIARANDO il problema, mai dati
+            # vecchi spacciati per freschi.
+            fetch_error = str(exc.detail)
+        if state is not None:
+            if state["ts_match"]:
+                entry = {
+                    "lines": state["lines"],
+                    "total_steps": state["total_steps"],
+                    "job_id": state["job_id"],
+                    "ts": time.time(),
+                }
+                _TS_CACHE[tag] = entry
+                age = 0.0
+            elif entry is None:
+                raise HTTPException(
+                    404,
+                    f"Nessun job attivo o recente col tag {tag!r} sul cluster "
+                    "(e nessuna serie in cache)",
+                )
+    elif need_fetch and entry is None:
+        raise HTTPException(
+            404,
+            f"Nessuna serie in cache per il tag {tag!r} e nessun job attivo o "
+            f"recente con quel tag (noti: "
+            f"{', '.join(sorted(_known_job_tags())) or 'nessuno'}). "
+            "Avvia un job o attendi il prossimo tick.",
+        )
+    if entry is None:  # irraggiungibile: le branch sopra sollevano o popolano
+        raise HTTPException(404, f"Nessuna serie disponibile per il tag {tag!r}")
+
+    points = _parse_timeseries_points(entry["lines"], keys)
+    total_steps = entry.get("total_steps")
+    if not total_steps:
+        # Fallback: total_steps dal job_detail live (live_status.json), solo
+        # se il job attivo è PROPRIO questo tag (confronto sul segmento esatto).
+        snap = _MONITOR_CACHE.get("snapshot") or {}
+        jd = snap.get("job_detail") or {}
+        name = str(jd.get("name") or "")
+        if jd.get("total_steps") and name.split("-", 1)[-1] == tag:
+            total_steps = jd["total_steps"]
+    body = {
+        "tag": tag,
+        "metric": metric,
+        "points": _subsample_points(points, limit),
+        "total_steps": total_steps,
+        "current_step": points[-1]["step"] if points else None,
+        "source": "live" if age == 0.0 else "cache",
+        "age_seconds": round(age or 0.0, 1),
+    }
+    if fetch_error is not None:
+        body["fetch_error"] = fetch_error
+    return body
+
+
+def _parse_results_payload(text: str) -> tuple[str | None, list[dict]]:
+    """Output del subcomando `results` (RUN_ID_n/RUN_B64_n) → (dir, runs)."""
+    dir_name = None
+    run_ids: dict[int, str] = {}
+    run_b64: dict[int, str] = {}
+    for line in (text or "").splitlines():
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key == "RESULTS_DIR":
+            dir_name = value.strip() or None
+        elif key.startswith("RUN_ID_"):
+            try:
+                run_ids[int(key[len("RUN_ID_") :])] = value.strip()
+            except ValueError:
+                continue
+        elif key.startswith("RUN_B64_"):
+            try:
+                run_b64[int(key[len("RUN_B64_") :])] = value.strip()
+            except ValueError:
+                continue
+    runs: list[dict] = []
+    for i in sorted(run_ids):
+        metrics: dict = {}
+        raw = run_b64.get(i, "")
+        if raw:
+            try:
+                metrics = json.loads(
+                    base64.b64decode(raw).decode("utf-8", errors="replace")
+                )
+            except (ValueError, TypeError):
+                metrics = {}
+        runs.append({"run_id": run_ids[i], "metrics": metrics})
+    return dir_name, runs
+
+
+@app.get("/results", dependencies=[Depends(require_auth)])
+def get_results(config: str | None = None, refresh: bool = False) -> dict:
+    """Metriche di valutazione (eval_*.json sul cluster) per un config.
+
+    Senza `config`: discovery — elenca le directory di risultati disponibili
+    sul cluster (il client NON deve mantenere una propria mappa config→dir).
+    Con `config`: per ogni run_* della dir (preferito eval_final.json, stessa
+    convenzione di src/utils/ablation_summary.py) ritorna il JSON metriche
+    completo: rouge_l_mean, exact_match, validity_rate, pass_at_1,
+    gloss_f1_micro, bleu_corpus, chrf_corpus, reward_breakdown, pass_at_k,
+    error_distribution, detailed_metrics.rouge_l_percentiles,
+    difficulty_breakdown e prompting (mode+source).
+
+    I file sono immutabili una volta scritti → cache aggressiva su SQLite
+    (T2G_RESULTS_CACHE_TTL, default 1h); `refresh=1` forza il re-fetch. A
+    cluster irraggiungibile si risponde con la cache esistente dichiarando
+    l'età (fetch_error), non con un 502 per dati già letti.
+    """
+    if not config or not config.strip():
+        with _cluster() as ssh:
+            res = _helper_raw(ssh, "results", "")
+        if res.rc != 0:
+            raise ClusterUnreachable(_ssh_failure("cluster_helper.sh results", res))
+        dirs: list[str] = []
+        for line in (res.stdout or "").splitlines():
+            key, _, value = line.partition("=")
+            if key.strip() == "RESULTS_DIRS":
+                dirs = [d for d in value.split("\x1f") if d]
+        return {"results_dirs": sorted(dirs)}
+
+    config = config.strip()
+    cache_key = f"results:{config}"
+    cached = _kv_json(cache_key)
+    now = time.time()
+    if (
+        cached
+        and not refresh
+        and (now - cached.get("ts", 0)) < settings.results_cache_ttl
+    ):
+        return {
+            "config": config,
+            "results_dir": cached.get("dir"),
+            "runs": cached.get("runs", []),
+            "source": "cache",
+            "age_seconds": round(now - cached.get("ts", now), 1),
+        }
+
+    try:
+        with _cluster() as ssh:
+            res = _helper_raw(ssh, "results", config)
+            if res.rc != 0:
+                raise ClusterUnreachable(
+                    _ssh_failure(f"cluster_helper.sh results '{config}'", res)
+                )
+            dir_name, runs = _parse_results_payload(res.stdout or "")
+        if not dir_name:
+            raise HTTPException(
+                404,
+                f"Nessuna directory risultati per config {config!r} sul cluster. "
+                "GET /results senza parametri elenca le directory disponibili.",
+            )
+        _kv_set(cache_key, json.dumps({"ts": now, "dir": dir_name, "runs": runs}))
+        return {
+            "config": config,
+            "results_dir": dir_name,
+            "runs": runs,
+            "source": "live",
+            "age_seconds": 0.0,
+        }
+    except HTTPException as exc:
+        if cached and exc.status_code >= 500:
+            return {
+                "config": config,
+                "results_dir": cached.get("dir"),
+                "runs": cached.get("runs", []),
+                "source": "cache",
+                "age_seconds": round(now - cached.get("ts", now), 1),
+                "fetch_error": str(exc.detail),
+            }
+        raise
+
+
+@app.get("/health", dependencies=[Depends(require_auth)])
+def health() -> dict:
+    """Diagnostica rapida SENZA ssh: DB, età snapshot, pausa, ultimo errore.
+
+    Serve al client per mostrare uno stato onesto quando il cluster non
+    risponde: il servizio può essere sano anche a cluster giù (il DB cache
+    mantiene l'ultimo stato noto).
+    """
+    db_ok = True
+    try:
+        with _DB_LOCK:
+            _db_conn().execute("SELECT 1").fetchone()
+    except sqlite3.Error:
+        db_ok = False
+    last_tick = _kv_get("last_tick_at")
+    snapshot_age = None
+    if last_tick:
+        try:
+            snapshot_age = round(
+                (datetime.now() - datetime.fromisoformat(last_tick)).total_seconds(),
+                1,
+            )
+        except ValueError:
+            snapshot_age = None
+    return {
+        "ok": db_ok,
+        "db_ok": db_ok,
+        "cluster_reachable": _kv_get("cluster_reachable", "0") == "1",
+        "paused": _kv_get("stopped", "0") == "1",
+        "last_tick_at": last_tick,
+        "snapshot_age_seconds": snapshot_age,
+        "last_error": _last_error_event(),
+        "time": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+@app.get("/configs", dependencies=[Depends(require_auth)])
+def list_configs() -> dict:
+    """Mappa dei config noti (nome → path): fonte UNICA per i client.
+
+    Debito dichiarato: la stessa mappa è duplicata in remote/tui.py,
+    cluster/run_all.sh e cluster/aliases.sh (fuori scope qui) — i client
+    possono da ora leggerla da questo endpoint e rimuovere la copia locale.
+    """
+    return {
+        "configs": [
+            {"name": name, "path": path} for name, path in sorted(CONFIG_MAP.items())
+        ]
+    }
 
 
 if __name__ == "__main__":

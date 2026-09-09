@@ -33,17 +33,27 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
+# Ri-esportata per retrocompatibilità del path ``src.analysis.rule_baseline``.
+from src.utils.metrics import non_copy_token_accuracy
+
 # Defaults reproduce the audited configuration (see docs/RECOVERY_REPORT.md).
-#
-# Threshold provenance, because it matters for the leakage question: the grid
-# {min_count 10,20,30,50} x {threshold 0.55,0.70,0.85,0.95} was scored on a
-# train-INTERNAL 90/10 dev slice (seed 1234), never on test. The dev-selected
-# optimum was min_count=10, threshold=0.85. Refitting on full train with either
-# min_count 10 or 30 gives the SAME held-out test result (EM 0.5912, non-copy
-# 0.9428), so 30 is kept as the audited value and the choice is not
-# outcome-sensitive. The threshold 0.85 is the dev-selected one.
+# Threshold provenance (leakage question): the grid {min_count 10,20,30,50} x
+# {threshold 0.55,0.70,0.85,0.95} was scored on a train-INTERNAL 90/10 dev
+# slice (seed 1234), never on test; dev optimum min_count=10, threshold=0.85.
+# Refitting on full train with min_count 10 or 30 gives the SAME held-out test
+# result (EM 0.5912, non-copy 0.9428), so 30 is kept and the choice is not
+# outcome-sensitive.
 DEFAULT_MIN_COUNT = 30
 DEFAULT_DELETION_THRESHOLD = 0.85
+
+__all__ = [
+    "DEFAULT_DELETION_THRESHOLD",
+    "DEFAULT_MIN_COUNT",
+    "RuleBaseline",
+    "fit",
+    "fit_from_split",
+    "non_copy_token_accuracy",
+]
 
 
 @dataclass(frozen=True)
@@ -136,53 +146,3 @@ def fit_from_split(
         min_count=min_count,
         deletion_threshold=deletion_threshold,
     )
-
-
-def non_copy_token_accuracy(
-    predictions: Sequence[str],
-    sources: Sequence[str],
-    references: Sequence[str],
-) -> tuple[float, int, int]:
-    """Accuracy restricted to reference tokens that are not source copies.
-
-    Rationale
-    ---------
-    On ASLG-PC12 roughly 62% of gloss tokens are the uppercased source token, and
-    the project's ROUGE-L is both case-insensitive and splits on non-alphanumeric
-    characters (``rouge_score`` turns ``DESC-GOOD`` into ``['desc', 'good']``, so
-    ``DESC-GOOD`` vs ``DESC-BAD`` scores 0.5). A model that merely echoes the
-    English source therefore collects a large, misleading score.
-
-    This metric scores only the reference tokens that cannot be obtained by
-    uppercasing a source token, and it is case-sensitive. It is the metric that
-    separates "learned to copy English" from "learned the transduction". Measured
-    values on the project's evaluation prompts: rule 0.9424, SFT 0.9660,
-    GRPO-only 0.4641, zero-shot+Trie 0.0432, zero-shot without constraints
-    0.0006 — i.e. it reverses the apparent ROUGE-L conclusion that constrained
-    decoding hurts.
-
-    Matching is multiset-based (a reference token occurring twice must be
-    produced twice), which keeps the score insensitive to word order; order is
-    already covered by exact match.
-
-    Returns:
-        ``(accuracy, hits, total)``. ``accuracy`` is 0.0 when ``total`` is 0.
-    """
-    if not (len(predictions) == len(sources) == len(references)):
-        raise ValueError(
-            f"length mismatch: predictions={len(predictions)}, "
-            f"sources={len(sources)}, references={len(references)}"
-        )
-    hits = 0
-    total = 0
-    for prediction, source, reference in zip(predictions, sources, references):
-        copyable = {word.upper() for word in str(source).split()}
-        available = Counter(str(prediction).split())
-        for token in str(reference).split():
-            if token in copyable:
-                continue
-            total += 1
-            if available[token] > 0:
-                available[token] -= 1
-                hits += 1
-    return (hits / total if total else 0.0), hits, total

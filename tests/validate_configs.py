@@ -15,10 +15,12 @@ Regole di validazione:
     - Sezioni obbligatorie per tipo
     - Chiavi nidificate obbligatorie
     - Vincoli di tipo (bool, int, float, list)
+    - Sezione `evaluation`: solo chiavi note (rifiuto dei typo, che altrimenti
+      passerebbero silenziosamente), tipi, valori ammessi per `prompting` e
+      coerenza `prompting: few-shot` ⇒ max_prompt_length >= 512
     - Coerenza cross-sezione (knob RL validi, peso OOV nel regime sicuro,
       max_prompt_length adeguato col few-shot attivo)
     - Somma dei reward weights = 1.0 (±1e-9)
-    - Assenza di chiavi morte (PDA/grammarllm/Viterbi rimossi dal codice)
     - Assenza di ``extends`` residuo nel dict fuso
     - Ogni config YAML referenziato da cluster/run_all.sh esiste
 """
@@ -42,22 +44,6 @@ from src.utils.config import resolve_config
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _CONFIG_GLOB = "experiments/configs/**/*.yaml"
 _CLUSTER_RUN_ALL = _PROJECT_ROOT / "cluster" / "run_all.sh"
-
-# Chiavi morte: rimosse dal codice. Un config che le imposta e'
-# silenziosamente inefficace, quindi il validator lo blocca.
-DEAD_KEYS = {
-    "verifier_gamma",
-    "verifier_temperature",
-    "use_grammarllm",
-    "use_grammarllm_pda",
-    "pda_temperature",
-    "token_lookahead",
-    "track_score_history",
-    "viterbi_diversity",
-    "weight_structure",
-    "weight_viterbi",
-    "weight_soft_viterbi",
-}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -85,6 +71,41 @@ REQUIRED_KEYS: dict[str, set[str]] = {
 
 # Exclusive-or: training must have EITHER max_steps OR num_train_epochs
 TRAINING_STEPS_KEYS = {"max_steps", "num_train_epochs"}
+
+# Chiavi ammesse nella sezione `evaluation`. Una chiave fuori da questo set è
+# un typo (o un knob rimosso): eval_t2g la ignorerebbe silenziosamente e la
+# cella misurerebbe altro senza alcun errore — il validator la blocca.
+ALLOWED_EVALUATION_KEYS = {
+    "batch_size",
+    "max_samples",
+    "num_samples",
+    "best_of_n",
+    "plot",
+    "compare",
+    "eval_baseline_only",
+    "force_baseline_eval",
+    "dual_prompting",
+    "prompting",
+    "output",
+    "baseline_pass_at1",
+    "baseline_json",
+}
+
+# Chiavi (qualunque sezione) che ammettono esplicitamente null: il type check
+# standard rifiuterebbe None anche dove il codice lo tratta come "non
+# impostato" (es. compare: null = deduzione automatica).
+NULLABLE_TYPE_KEYS = {
+    "evaluation.max_samples",
+    "evaluation.compare",
+    "evaluation.eval_baseline_only",
+    "evaluation.output",
+    "evaluation.baseline_json",
+    "evaluation.baseline_pass_at1",
+}
+
+# Valori ammessi per evaluation.prompting (stessa scelta di eval_t2g.py):
+# "config" deriva la modalità da retrieval.enabled, gli altri due la forzano.
+ALLOWED_PROMPTING_MODES = {"config", "zero-shot", "few-shot"}
 
 # Type constraints: section.key → expected type
 TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
@@ -114,8 +135,19 @@ TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
     "generation.max_prompt_length": int,
     "generation.temperature": (int, float),
     "grammar.enabled": bool,
-    "curriculum.enabled": bool,
     "evaluation.batch_size": int,
+    "evaluation.max_samples": int,
+    "evaluation.num_samples": int,
+    "evaluation.best_of_n": bool,
+    "evaluation.plot": bool,
+    "evaluation.compare": bool,
+    "evaluation.eval_baseline_only": bool,
+    "evaluation.force_baseline_eval": bool,
+    "evaluation.dual_prompting": bool,
+    "evaluation.prompting": str,
+    "evaluation.output": str,
+    "evaluation.baseline_json": str,
+    "evaluation.baseline_pass_at1": (int, float),
     "lora.r": int,
     "lora.lora_alpha": int,
     "lora.lora_dropout": (int, float),
@@ -144,18 +176,28 @@ TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
 def _detect_kind(cfg: dict[str, Any]) -> str:
     """Detect the config kind: 'grpo', 'sft', or 'eval-only'.
 
-    Un config è ``eval-only`` se non dichiara alcun training attivo:
-    niente ``training.trainer`` e nessuna chiave di step (``max_steps`` /
-    ``num_train_epochs``) — può comunque ereditare una sezione ``training``
-    parziale e un blocco ``grpo`` da ``base.yaml``.
+    Un config è ``eval-only`` se non dichiara ``training.output_dir``: senza
+    una directory di destinazione non c'è nulla da addestrare né da salvare.
+
+    WHY output_dir e non le chiavi di step: ``max_steps`` e
+    ``num_train_epochs`` vivono in ``base.yaml`` perché sono comuni a tutte
+    le celle addestrabili, quindi vengono EREDITATE anche dalle celle
+    eval-only. La loro presenza non distingue più nulla. ``output_dir``
+    invece è per-cella per costruzione (ogni cella scrive in una directory
+    propria) e la sua assenza è il segnale che il resto del sistema già usa:
+    ``src/training/eval_t2g.py`` deduce da lì ``eval_baseline_only`` e
+    ``compare``, e la guardia in ``src/training/__main__.py`` rifiuta con
+    exit 2 una cella senza ``output_dir`` lanciata come training.
+
+    Allineare il validatore a quel segnale elimina una seconda definizione
+    divergente di "cella addestrabile".
     """
     trainer = cfg.get("training", {}).get("trainer", "grpo")
     if trainer == "sft":
         return "sft"
-    training = cfg.get("training", {})
-    if training and (TRAINING_STEPS_KEYS & set(training.keys())):
-        return "grpo"
-    return "eval-only"
+    if not cfg.get("training", {}).get("output_dir"):
+        return "eval-only"
+    return "grpo"
 
 
 def _get_nested(cfg: dict[str, Any], dotted_key: str) -> Any:
@@ -186,6 +228,8 @@ def _validate_type(
     value = _get_nested(cfg, dotted_key)
     if value is _MISSING:
         return  # missing key is handled by REQUIRED_KEYS
+    if value is None and dotted_key in NULLABLE_TYPE_KEYS:
+        return  # null = "non impostato" (es. compare: null = deduzione automatica)
     if not isinstance(value, expected):
         type_name = (
             " | ".join(t.__name__ for t in expected)  # type: ignore[union-attr]
@@ -197,21 +241,6 @@ def _validate_type(
             f"{path}: {dotted_key} deve essere {type_name}, "
             f"trovato {actual} ({value!r})"
         )
-
-
-def _iter_dead_keys(
-    obj: Any, prefix: str = "", found: list[str] | None = None
-) -> list[str]:
-    """Collect any occurrence of a DEAD_KEYS key in a (nested) dict."""
-    if found is None:
-        found = []
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            dotted = f"{prefix}.{k}" if prefix else k
-            if k in DEAD_KEYS:
-                found.append(dotted)
-            _iter_dead_keys(v, dotted, found)
-    return found
 
 
 def _validate_reward_weights(cfg: dict[str, Any], errors: list[str], path: str) -> None:
@@ -303,6 +332,54 @@ def _validate_cross_section(cfg: dict[str, Any], errors: list[str], path: str) -
             errors.append(f"{path}: GRPO config deve avere grpo.beta")
 
 
+def _validate_evaluation_section(
+    cfg: dict[str, Any], errors: list[str], path: str
+) -> None:
+    """Validate the `evaluation` section: chiavi note, valori ammessi,
+    coerenza col budget di prompt.
+
+    eval_t2g.py legge i knob comportamentali SOLO da questa sezione (niente
+    flag CLI oltre a --config/--checkpoint): una chiave sconosciuta sarebbe
+    ignorata silenziosamente dal trainer — qui diventa un errore loud.
+    """
+    evaluation = cfg.get("evaluation")
+    if evaluation is None:
+        return  # assente: nessun knob dichiarato (tutti i default)
+    if not isinstance(evaluation, dict):
+        # il messaggio di tipo lo emette già il REQUIRED_KEYS/type check
+        return
+
+    # ── Chiavi sconosciute = typo (intercettate, non ignorate) ──────────
+    for key in sorted(set(evaluation) - ALLOWED_EVALUATION_KEYS):
+        errors.append(
+            f"{path}: evaluation.{key} non riconosciuta (chiavi ammesse: "
+            f"{', '.join(sorted(ALLOWED_EVALUATION_KEYS))})"
+        )
+
+    # ── Valori ammessi per prompting ────────────────────────────────────
+    prompting = evaluation.get("prompting")
+    if prompting is not None and prompting not in ALLOWED_PROMPTING_MODES:
+        errors.append(
+            f"{path}: evaluation.prompting={prompting!r} non valido "
+            f"(attesi: {', '.join(sorted(ALLOWED_PROMPTING_MODES))})"
+        )
+
+    # ── prompting: few-shot ⇒ budget di prompt adeguato ─────────────────
+    # Replica il fail-loud runtime di eval_t2g.py: forzare few-shot con
+    # max_prompt_length < 512 troncherebbe gli esempi few-shot rendendo la
+    # cella indistinguibile dallo zero-shot.
+    if prompting == "few-shot":
+        max_prompt = cfg.get("grpo", {}).get("max_prompt_length") or cfg.get(
+            "generation", {}
+        ).get("max_prompt_length")
+        if max_prompt is None or int(max_prompt) < 512:
+            errors.append(
+                f"{path}: evaluation.prompting='few-shot' ma max_prompt_length="
+                f"{max_prompt} (serve >= 512, in grpo o generation): gli esempi "
+                f"few-shot verrebbero troncati"
+            )
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Main validator
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -357,10 +434,6 @@ def validate_config(config_path: Path, verbose: bool = False) -> list[str]:
         else:
             print(f"  [{kind}] {path}")
 
-    # ── Chiavi morte (verifier_gamma / verifier_temperature) ───────────
-    for dotted in _iter_dead_keys(cfg):
-        errors.append(f"{path}: chiave morta '{dotted}' (rimossa dal codice)")
-
     # ── Required top-level sections ──────────────────────────────────────
     required = set(REQUIRED_SECTIONS["_all"])
     for extra in (kind,):
@@ -395,6 +468,9 @@ def validate_config(config_path: Path, verbose: bool = False) -> list[str]:
     # ── Reward weights consistency ───────────────────────────────────────
     if "reward" in cfg:
         _validate_reward_weights(cfg, errors, path)
+
+    # ── Evaluation section (knob dell'eval, ex flag CLI / env var) ───────
+    _validate_evaluation_section(cfg, errors, path)
 
     # ── Cross-section consistency ────────────────────────────────────────
     _validate_cross_section(cfg, errors, path)

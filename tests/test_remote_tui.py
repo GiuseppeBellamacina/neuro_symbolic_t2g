@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 import httpx
 import pytest
@@ -75,6 +76,58 @@ JOBS_BODY = [
         "extra": None,
     }
 ]
+
+# Serie per-step (contratto GET /timeseries): loss decrescente, reward
+# crescente, 10 punti ciascuna (il tag deriva da last_job: "…:run1:0").
+TIMESERIES_LOSS_BODY = {
+    "tag": "run1",
+    "metric": "loss",
+    "points": [{"step": 10 * i, "value": round(0.9 - 0.05 * i, 4)} for i in range(10)],
+    "total_steps": 200,
+    "current_step": 100,
+    "source": "live",
+    "age_seconds": 0.0,
+}
+
+TIMESERIES_REWARD_BODY = {
+    "tag": "run1",
+    "metric": "reward",
+    "points": [{"step": 10 * i, "value": round(0.1 + 0.04 * i, 4)} for i in range(10)],
+    "total_steps": 200,
+    "current_step": 100,
+    "source": "live",
+    "age_seconds": 0.0,
+}
+
+# Risultati eval (contratto GET /results): una run con reward breakdown
+# completo (7 componenti, format/repetition sature come nei run reali).
+RESULTS_BODY = {
+    "config": "sft-grpo-few-shot",
+    "results_dir": "experiments/results/qwen25-05b-sft-grpo",
+    "runs": [
+        {
+            "run_id": "run_20260904_000559",
+            "metrics": {
+                "rouge_l_mean": 0.4231,
+                "exact_match": 0.112,
+                "validity_rate": 0.971,
+                "pass_at_1": 0.132,
+                "gloss_f1_micro": 0.381,
+                "reward_breakdown": {
+                    "translation_quality_reward": 0.421,
+                    "bleu_reward": 0.315,
+                    "gold_structure_reward": 0.552,
+                    "gloss_order_reward": 0.233,
+                    "verifier_scaled_reward": 0.181,
+                    "gloss_format_reward": 0.99,
+                    "gloss_repetition_reward": 0.99,
+                },
+            },
+        }
+    ],
+    "source": "live",
+    "age_seconds": 0.0,
+}
 
 
 class _Recorder:
@@ -643,7 +696,8 @@ def test_batch_start_screen_submits_selected_configs():
 
 
 def test_monitor_shows_phase_and_queue():
-    """Monitor: job_detail con phase → badge fase; coda con 5+ entry visibili."""
+    """Monitor: job_detail con phase → badge fase; coda completa nella
+    DataTable (7 righe, niente cap a 5 entry)."""
 
     async def _run() -> None:
         body = dict(MONITOR_BODY)
@@ -674,9 +728,12 @@ def test_monitor_shows_phase_and_queue():
                 await pilot.pause()
             job_text = app.screen.query_one("#job-panel", tui.Static).render().plain
             assert "SFT" in job_text  # badge fase (sft_eval)
-            queue_text = app.screen.query_one("#queue-panel", tui.Static).render().plain
-            assert "7 job" in queue_text
-            assert "altri 2" in queue_text  # 5 mostrati + 2 extra
+            # La coda è una DataTable: TUTTE le 7 entry visibili (il
+            # vecchio Static ne mostrava 5 con "… e altri 2").
+            queue_table = app.screen.query_one("#queue-table", tui.DataTable)
+            assert queue_table.row_count == 7
+            queue_panel = app.screen.query_one("#queue-panel", tui.Vertical)
+            assert "7 job" in str(queue_panel.border_title)
 
     asyncio.run(_run())
 
@@ -733,5 +790,259 @@ def test_q_binding_quits():
             await pilot.press("q")
             await pilot.pause()
             assert not app.is_running
+
+    asyncio.run(_run())
+
+
+# ── Grafici e freschezza (nuovi endpoint, con degrado) ──────────────────────
+
+
+def test_dashboard_renders_sparklines_progress_and_eta():
+    """Sparkline loss/reward da GET /timeseries + ProgressBar al % corretto
+    + ETA dal ritmo osservato (osservazione seedata: 20 step in 60s)."""
+
+    async def _run() -> None:
+        def handler(request):
+            if request.url.path == "/timeseries":
+                metric = request.url.params.get("metric")
+                body = (
+                    TIMESERIES_LOSS_BODY if metric == "loss" else TIMESERIES_REWARD_BODY
+                )
+                return httpx.Response(200, json=body)
+            return _default_handler(request)
+
+        client, _ = _client(handler=handler)
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.refresh_monitor()
+            for _ in range(20):
+                if app.timeseries:
+                    break
+                await pilot.pause()
+            loss_spark = app.screen.query_one("#loss-spark", tui.Sparkline)
+            assert len(loss_spark.data) == 10
+            reward_spark = app.screen.query_one("#reward-spark", tui.Sparkline)
+            assert len(reward_spark.data) == 10
+            loss_stats = app.screen.query_one("#loss-stats", tui.Static)
+            stats_text = loss_stats.render().plain
+            assert "min" in stats_text and "max" in stats_text
+            assert "10 punti" in stats_text
+            # ProgressBar: step 100/200 → 50%
+            bar = app.screen.query_one("#job-progress", tui.ProgressBar)
+            assert bar.progress == 50.0
+            # ETA deterministico: osservazione seedata 60s fa a step 80
+            # (il job attivo è 12345:train-grpo, step attuale 100 → 20 step/min).
+            screen = app.screen
+            screen._step_obs = [(time.monotonic() - 60.0, 80.0)]
+            screen._step_job_key = "12345:train-grpo"
+            await app.refresh_monitor()
+            await pilot.pause()
+            eta_text = screen.query_one("#eta-hint", tui.Static).render().plain
+            assert "step/min" in eta_text
+            assert "stimati" in eta_text
+
+    asyncio.run(_run())
+
+
+def test_stale_cache_snapshot_shows_banner_and_freshness():
+    """source=cache con age > 5 min → banner DATI NON FRECHI + età dichiarata
+    nell'header del job (P3: mai numeri vecchi spacciati per live)."""
+
+    async def _run() -> None:
+        body = {
+            **MONITOR_BODY,
+            "source": "cache",
+            "age_seconds": 600.0,
+        }
+
+        def handler(request):
+            return httpx.Response(200, json=body)
+
+        client, _ = _client(handler=handler)
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.refresh_monitor()
+            for _ in range(20):
+                if app.monitor_snapshot is not None:
+                    break
+                await pilot.pause()
+            banner = app.screen.query_one("#banner", tui.Static)
+            assert banner.display is True
+            banner_text = banner.render().plain
+            assert "NON FRECHI" in banner_text
+            assert "10 min" in banner_text
+            job_text = app.screen.query_one("#job-panel", tui.Static).render().plain
+            assert "cache · 10 min fa" in job_text
+
+    asyncio.run(_run())
+
+
+def test_tail_log_appends_only_new_lines():
+    """Il log tail appende SOLO le righe nuove: niente ricostruzione a ogni
+    poll (niente sfarfallio, la storia e lo scroll non si perdono)."""
+
+    async def _run() -> None:
+        # Il tail cambia SOLO quando il test lo decide: così il refresh di
+        # mount e quello esplicito sono indistinguibili (entrambi vedono
+        # lo stesso tail, il secondo non appende nulla).
+        state = {"tail": ["riga 1", "riga 2", "riga 3"]}
+
+        def handler(request):
+            if request.url.path == "/monitor":
+                return httpx.Response(
+                    200, json={**MONITOR_BODY, "log_tail": state["tail"]}
+                )
+            return _default_handler(request)
+
+        client, _ = _client(handler=handler)
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.refresh_monitor()
+            tail_log = app.screen.query_one("#tail-log", tui.RichLog)
+            for _ in range(20):
+                if "riga 3" in _richlog_text(tail_log):
+                    break
+                await pilot.pause()
+            await pilot.pause()
+            first = _richlog_text(tail_log)
+            assert "riga 1" in first
+            assert "riga 4" not in first
+            # la finestra slitta di una riga → solo il delta viene appeso
+            state["tail"] = ["riga 2", "riga 3", "riga 4 nuova"]
+            await app.refresh_monitor()
+            for _ in range(20):
+                if "riga 4" in _richlog_text(tail_log):
+                    break
+                await pilot.pause()
+            second = _richlog_text(tail_log)
+            assert "riga 4 nuova" in second
+            assert "riga 1" in second  # la storia resta
+            assert second.count("riga 2") == 1  # append, non ricostruzione
+
+    asyncio.run(_run())
+
+
+def test_new_endpoints_404_tui_degrades_but_stays_usable():
+    """/timeseries, /results e /configs rispondono 404 (handler di default):
+    la TUI resta pienamente usabile con fallback espliciti, mai crash."""
+
+    async def _run() -> None:
+        client, recorder = _client()  # 404 sui tre nuovi endpoint
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.refresh_monitor()
+            for _ in range(20):
+                if app.monitor_snapshot is not None:
+                    break
+                await pilot.pause()
+
+            def _ts_count() -> int:
+                return len(
+                    [r for r in recorder.requests if r.url.path == "/timeseries"]
+                )
+
+            # Dashboard funzionante con i soliti dati
+            job_text = app.screen.query_one("#job-panel", tui.Static).render().plain
+            assert "train-grpo" in job_text
+            assert "100/200" in job_text
+            # Sparkline: fallback esplicito, non un crash
+            for stats_id in ("#loss-stats", "#reward-stats"):
+                stats = app.screen.query_one(stats_id, tui.Static).render().plain
+                assert "non disponibile" in stats
+            # Dopo il 404 la TUI smette di chiedere /timeseries (sessione)
+            for _ in range(20):
+                if _ts_count() >= 1:
+                    break
+                await pilot.pause()
+            first_count = _ts_count()
+            assert first_count >= 1
+            assert app.timeseries_available is False
+            await app.refresh_monitor()
+            await pilot.pause()
+            assert _ts_count() == first_count  # nessun retry
+            # /configs 404 → si resta sulla copia locale
+            for _ in range(20):
+                if any(r.url.path == "/configs" for r in recorder.requests):
+                    break
+                await pilot.pause()
+            await pilot.pause()
+            assert app.available_configs == list(tui.CONFIG_NAMES)
+            # Risultati: schermata con messaggio esplicito, mai errore criptico
+            await pilot.press("v")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ResultsScreen)
+            summary = ""
+            for _ in range(30):
+                summary = (
+                    app.screen.query_one("#results-summary", tui.Static).render().plain
+                )
+                if "Nessun risultato" in summary:
+                    break
+                await pilot.pause()
+            assert "Nessun risultato" in summary
+            assert "404" in summary
+            # Esc torna alla dashboard: l'app resta viva e navigabile
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.DashboardScreen)
+
+    asyncio.run(_run())
+
+
+def test_results_screen_renders_metrics_and_reward_bars():
+    """'v' → ResultsScreen: discovery + tabella run + barre del reward
+    breakdown (7 componenti) dell'ultima run."""
+
+    async def _run() -> None:
+        def handler(request):
+            if request.url.path == "/results":
+                if request.url.params.get("config"):
+                    return httpx.Response(200, json=RESULTS_BODY)
+                return httpx.Response(200, json={"results_dirs": ["sft-grpo-few-shot"]})
+            return _default_handler(request)
+
+        client, _ = _client(handler=handler)
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("v")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ResultsScreen)
+            summary = ""
+            for _ in range(30):
+                summary = (
+                    app.screen.query_one("#results-summary", tui.Static).render().plain
+                )
+                if "1 run" in summary:
+                    break
+                await pilot.pause()
+            assert "1 run" in summary
+            assert "live" in summary
+            table = app.screen.query_one("#runs-table", tui.DataTable)
+            assert table.row_count == 1
+            bars = app.screen.query_one("#reward-bars", tui.Static).render().plain
+            assert "format" in bars
+            assert "0.990" in bars  # componente satura (come nei run reali)
+            assert "translation" in bars
+            assert "█" in bars and "░" in bars
 
     asyncio.run(_run())

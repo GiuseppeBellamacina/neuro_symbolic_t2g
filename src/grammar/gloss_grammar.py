@@ -64,18 +64,14 @@ class GlossVocabularyMask:
         _no_single_token_glosses = 0
 
         # WHY phase: 3-5 chiamate tokenizer per gloss su ~15k gloss = minuti
-        # al primo run, con un gap completamente muto fra l'annuncio del
-        # chiamante ("Using lightweight GlossVocabularyMask...") e
-        # "Vocabulary mask ready". L'annuncio esce PRIMA del lavoro; la barra
-        # tqdm segue il pattern di src/datasets/aslg_dataset.py (con fallback
-        # per i container senza tqdm).
+        # al primo run, con un gap completamente muto nell'output. L'annuncio
+        # esce PRIMA del lavoro; la barra tqdm segue il pattern di
+        # aslg_dataset (fallback per i container senza tqdm).
         with phase("Building gloss vocabulary mask", detail=f"{len(vocab)} glosses"):
             for token in tqdm(vocab, desc="Building vocabulary mask"):
                 # ── Filter the whole gloss entry first ────────────────────
-                # Skip glosses that are purely numeric (dates, codes, etc.)
-                # or contain digits mixed with other chars (e.g. "T04931944").
-                # These leak digit token IDs into the mask and let the model
-                # generate long numeric garbage strings.
+                # Skip glossi numerici/pure-digit (es. "T04931944"): leakano
+                # token ID di cifre nella maschera → garbage numerico lungo.
                 stripped = token.strip()
                 if any(c.isdigit() for c in stripped) and stripped not in {
                     "<BOS>",
@@ -95,10 +91,8 @@ class GlossVocabularyMask:
                 if isinstance(tid_space, int) and tid_space != tokenizer.unk_token_id:
                     self.token_ids.add(tid_space)
 
-                # WHY: se né la forma nuda né quella con prefisso spazio
-                # esistono come token unico, il gloss non è emettibile in un
-                # solo token: il suo "primo token" è bloccato e passa solo
-                # attraverso le subword filtrate sotto.
+                # WHY: nessuna forma a token unico → "primo token" bloccato,
+                # il gloss passa solo attraverso le subword filtrate sotto.
                 if not (
                     (isinstance(tid, int) and tid != tokenizer.unk_token_id)
                     or (
@@ -108,10 +102,9 @@ class GlossVocabularyMask:
                 ):
                     _no_single_token_glosses += 1
 
-                # Add subword token IDs for both representations, but filter noisy ones aggressively.
-                # Without filtering, individual character subwords (digits,
-                # punctuation, lowercase letters) let the model generate garbage
-                # like "c010500040005" or "-1-1-1-1-2-2".
+                # Add subword token IDs for both representations, filtrando
+                # aggressivamente i subword rumorosi: senza filtro i subword
+                # di caratteri generano garbage tipo "c010500040005".
                 for token_variant in [token, " " + token]:
                     sub_tokens = tokenizer.tokenize(token_variant)
                     for st in sub_tokens:

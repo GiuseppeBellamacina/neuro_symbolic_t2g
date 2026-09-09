@@ -70,6 +70,12 @@ dataset:
 
 # --- Training (comune) ---
 # max_steps, learning_rate, warmup_steps, output_dir e log_dir sono per-cella.
+# save_steps: con job GRPO da 5000 passi (vedi i config delle celle), la
+# cadenza storica a 100 avrebbe prodotto ~50 salvataggi su NFS per run
+# (centinaia di MB di adapter+optimizer state ciascuno, decine di secondi
+# l'uno): 500 riduce l'overhead I/O di 5x mantenendo una granularità di resume
+# di ~36 min di compute. save_total_limit: 3 conserva gli ultimi 3 checkpoint
+# (~1500 passi di storia), sufficienti al resume dopo un TIMEOUT.
 training:
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 8
@@ -80,8 +86,34 @@ training:
   bf16: true
   gradient_checkpointing: true
   logging_steps: 5
-  save_steps: 100
+  save_steps: 500
   save_total_limit: 3
+
+  # --- Durata dell'addestramento (comune a tutte le celle) ---
+  #
+  # max_steps governa il GRPO: 1 PROMPT PER PASSO, non 8.
+  # Misurato sul log di un run a 2000 passi: epoch=0.02740514, cioe'
+  # esattamente 2000/72979. In TRL 0.24 steps_per_generation = grad_accum,
+  # quindi gli 8 micro-batch di accumulo producono 8 rollout DELLO STESSO
+  # prompt (num_generations: 8), non 8 prompt distinti.
+  #
+  #   epoca completa  = 72979 passi (~118 h a 5,84 s/step misurati)
+  #   max_steps: 5000 = 5000 prompt = 6,9% del train (0,069 epoche), ~8,1 h
+  #
+  # Una epoca completa e' FUORI PORTATA: il walltime della QoS gpu-xlarge e'
+  # 12 h, che a 5,84 s/step copre ~7200 passi (9,9% del train). Il valore
+  # 5000 sta in una singola finestra con margine per la fase SFT delle celle
+  # sft-grpo (+2,3 h). Aumentare batch o accum NON aumenta i prompt per
+  # passo: servono piu' max_steps, oppure meno num_generations.
+  max_steps: 5000
+
+  # num_train_epochs governa l'SFT (che ignora max_steps: SFTConfig riceve
+  # solo questo). 3 epoche = ~211.000 esempi = 2,95 passate sul train
+  # post-holdout (71.519 righe). Verificato sul log: step=13200 con
+  # epoch=2.953, cioe' 4470 passi/epoca x batch effettivo 16 = 71.520
+  # esempi per epoca. Il 2,95 invece di 3,00 e' l'arresto anticipato
+  # (patience 3 sull'holdout del 2%), non un limite di esposizione.
+  num_train_epochs: 3
 
 # --- GRPO ---
 # I knob dell'obiettivo RL (loss_type, scale_rewards,
@@ -93,7 +125,25 @@ training:
 grpo:
   num_generations: 8
   max_completion_length: 128
-  max_prompt_length: 256
+
+  # max_prompt_length 768 (era 256) per DUE ragioni.
+  #
+  # 1. Il few-shot con k=3 esempi supera i 256 token: a 256 gli esempi
+  #    vengono troncati IN SILENZIO e la cella few-shot diventa
+  #    indistinguibile da una zero-shot. Le celle few-shot dovevano quindi
+  #    ridichiarare 768 ognuna: un valore comune ripetuto nei figli.
+  #
+  # 2. La valutazione doppia (evaluation.dual_prompting) valuta ogni cella
+  #    anche nella modalita' complementare. Con 256 la passata few-shot di
+  #    una cella zero-shot FALLISCE (exit 2, per la guardia che impedisce il
+  #    troncamento silenzioso): la config dichiarava una capacita' che non
+  #    aveva.
+  #
+  # Il valore NON cambia il comportamento zero-shot: un prompt senza esempi
+  # non arriva a 768 token, quindi il tetto non viene mai raggiunto. E' un
+  # limite superiore, non una lunghezza imposta.
+  max_prompt_length: 768
+
   beta: 0.04
   temperature: 0.7
 
@@ -106,13 +156,13 @@ grpo:
 # e `repetition` a 0.966, cioè già inerti come segnale di gradiente; mentre
 # `gloss_order` stava a 0.085. Vedi docs/RECOVERY_REPORT.md §5.
 reward:
-  weight_translation: 0.20      # ROUGE-L vs gold
-  weight_bleu: 0.20             # BLEU-4 vs gold
-  weight_gold_structure: 0.20   # bigram score ancorato al gold
-  weight_gloss_order: 0.10      # edit-distance word-level vs gold
-  weight_verifier_scaled: 0.10  # ROUGE-L × confidenza strutturale
-  weight_format: 0.10           # solo token glossa
-  weight_repetition: 0.10       # penalizza loop degeneri
+  weight_translation: 0.20 # ROUGE-L vs gold
+  weight_bleu: 0.20 # BLEU-4 vs gold
+  weight_gold_structure: 0.20 # bigram score ancorato al gold
+  weight_gloss_order: 0.10 # edit-distance word-level vs gold
+  weight_verifier_scaled: 0.10 # ROUGE-L × confidenza strutturale
+  weight_format: 0.10 # solo token glossa
+  weight_repetition: 0.10 # penalizza loop degeneri
 
 # --- Constrained decoding ---
 # Trie dual-root sul vocabolario glossa: è l'unico path di decoding vincolato.
@@ -132,11 +182,13 @@ grammar:
   # in docs/NEW_OBJECTIVES_SPEC.md.
   track_diagnostics: false
 
-# --- Curriculum learning ---
-curriculum:
-  enabled: false
-
 # --- Evaluation ---
+#
+# TUTTI i knob comportamentali dell'eval vivono QUI. L'invocazione è
+#   python -m src.training.eval_t2g --config <file> [--checkpoint <path>]
+# e basta: nessun flag CLI comportamentale, nessuna variabile d'ambiente
+# (chi cercava MAX_SAMPLES=500 / PROMPTING=zero-shot / DUAL_EVAL=1 /
+# BEST_OF_N=1 li imposta ora in questa sezione).
 #
 # max_samples fissa il numero di PROMPT valutati (sottocampionati dal test set
 # di 8109 righe con seed 42 deterministico, vedi utils/metrics.py
@@ -150,9 +202,56 @@ curriculum:
 # ma le tabelle dei risultati gia' pubblicate no.
 evaluation:
   batch_size: 8
-  max_samples: 5000
+  max_samples: 3000
   num_samples: 5
+  # Best-of-N ORACOLO (usa il gold per scegliere la migliore completion):
+  # blocco separato oracle_best_of_n, MAI metrica primaria. Richiede
+  # num_samples > 1.
   best_of_n: true
+  # Figure plotnine (11-12 per eval): eval.sh le generava sempre, quindi il
+  # default cluster è true. Un eval rapido senza figure lo sovrascrive in una
+  # config di variante.
+  plot: true
+  # null = DEDUZIONE AUTOMATICA (storico di cluster/eval.sh):
+  #   compare → true se la cella dichiara training.output_dir (celle di
+  #             training: baseline base-model cachata + checkpoint),
+  #             false sulle celle eval-only;
+  #   eval_baseline_only → true SOLO senza checkpoint E senza output_dir
+  #             (celle baseline/*: eval del solo base model, niente compare).
+  # true/false espliciti vincono sulla deduzione. La deduzione NON va dichiarata
+  # per far funzionare le celle baseline/*.
+  compare: null
+  eval_baseline_only: null
+  # Ricalcola la baseline del base model anche se una eval_baseline.json
+  # compatibile è in cache (default false: riuso, ~25 min GPU risparmiati
+  # per ogni eval ripetuta della stessa cella).
+  force_baseline_eval: false
+  # DUAL PROMPTING: eval della cella in ENTRAMBE le modalità di prompting
+  # (quella della config + la complementare): misura se il modello ha
+  # interiorizzato la mappatura o se dipende dal prompt come stampella.
+  # COSTO (raddoppia): a 5000 prompt ~25 min per passata (~50 min per cella);
+  # al PRIMO giro la passata complementare valuta anche la SUA baseline del
+  # base model (~25 min extra, poi cachata con fingerprint separato).
+  # Le celle baseline/* lo disattivano: sono già una griglia esplicita di
+  # prompting (zero-shot / zero-shot-no-grammar / few-shot) e il dual le
+  # duplicherebbe. NB la passata complementare few-shot NON è soggetta al
+  # vincolo max_prompt_length >= 512 (vale solo per evaluation.prompting): a
+  # eval time i prompt non vengono troncati, ed è la misura deliberata del
+  # cross-prompting (sempre marcata source: config-dual e con suffisso
+  # __<mode> sui file).
+  dual_prompting: true
+  # Modalità di prompting della eval: "config" (default storico) deriva da
+  # retrieval.enabled; "zero-shot"/"few-shot" la forza per questa eval sola
+  # (few-shot richiede max_prompt_length >= 512, altrimenti l'eval abortisce).
+  prompting: "config"
+  # Override opzionali (un tempo flag --output / --baseline / --baseline-json).
+  # output: path esplicito del results JSON (default: nome derivato dal
+  #   checkpoint). baseline_pass_at1: Pass@1 del baseline per il plot
+  #   baseline_vs_grpo. baseline_json: JSON di baseline per i confronti (la
+  #   cache automatica lo rende superfluo nella pipeline standard).
+  output: null
+  baseline_pass_at1: null
+  baseline_json: null
 
 # --- Few-shot retrieval ---
 # Recupera k esempi text→gloss dal TRAIN e li inietta nel prompt.

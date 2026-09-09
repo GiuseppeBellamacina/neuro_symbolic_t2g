@@ -1,6 +1,6 @@
 # Protocollo di Valutazione — neuro_symbolic_t2g
 
-Versione: 1.2 (2026-09-08). Questo documento definisce il protocollo con cui
+Versione: 1.3 (2026-09-09). Questo documento definisce il protocollo con cui
 vengono prodotti e confrontati i numeri del progetto. **Dichiarare e mantenere
 questo protocollo è prerequisito per ogni claim sul target BLEU 0.80** — i numeri
 sono comparabili solo dentro lo stesso protocollo. La gerarchia delle metriche
@@ -26,15 +26,14 @@ solo per confrontabilità (vedi §2b per le fonti).
 
 Tutte le metriche primarie sono calcolate su **tutte le completions** generate
 per ogni prompt (no selezione oracolo). Implementazioni: `src/utils/metrics.py`
-(sacrebleu per BLEU/chrF) e `src/analysis/rule_baseline.py`
-(`non_copy_token_accuracy`). L'ordine della tabella è la **gerarchia di
-rilevanza** usata nel log dell'eval, nel metrics_dashboard e nelle tabelle
-della tesi.
+(sacrebleu per BLEU/chrF, `non_copy_token_accuracy`). L'ordine della tabella è
+la **gerarchia di rilevanza** usata nel log dell'eval, nel metrics_dashboard e
+nelle tabelle della tesi.
 
 | # | Metrica | Definizione | Scala | Ruolo |
 |---|---|---|---|---|
 | 1 | **Exact match** | uguaglianza stringa normalizzata | [0,1] | **Headline** — separa la transduzione dalla copia dell'inglese |
-| 2 | **Non-copy token accuracy** | accuratezza sui token del reference non ottenibili uppercaseando il source (case-sensitive, `src/analysis/rule_baseline.py`) | [0,1] | **Headline** — separa la transduzione dalla copia dell'inglese |
+| 2 | **Non-copy token accuracy** | accuratezza sui token del reference non ottenibili uppercaseando il source (case-sensitive, `src/utils/metrics.py`) | [0,1] | **Headline** — separa la transduzione dalla copia dell'inglese (dettagli e denominatore: §2d) |
 | 3 | **BLEU-4 (corpus)** | sacreBLEU corpus, refs flat allineate (v2 `metrics_version`); sentence mean riportato accanto | [0,1] | Comparabilità — standard della letteratura T2G, saturo su questo corpus |
 | 4 | **chrF2 (corpus)** | sacrebleu CHRF2 (char F-score, β=2) | [0,100] | Comparabilità — indipendente dalla tokenizzazione |
 | 5 | **ROUGE-L** | F1 LCS (rouge_score, stemmer off), sentence mean | [0,1] | Comparabilità — satura e difettosa (v. nota sotto); sempre accanto alla baseline a regole |
@@ -122,54 +121,148 @@ euristica del training: ≤5 token gold = simple, ≤15 = medium, >15 = hard).
 Alimenta il grafico `difficulty_breakdown.png` e risponde "dove il modello
 fa fatica" (monitor per-difficulty).
 
+### 2d. Non-copy token accuracy — definizione, denominatore e caso degenere
+
+**Definizione** (`src/utils/metrics.py`, dichiarata in `PRIMARY_METRICS`):
+accuratezza ristretta ai token del reference che NON sono ottenibili
+uppercaseando un token del testo sorgente inglese. Per ogni esempio:
+
+1. `copyable = {token_source.upper()}` sull'intero testo sorgente;
+2. si scorrono i token del reference: i token in `copyable` NON contano
+   (né come giudicati né come errore);
+3. ogni token non copiabile è una **posizione non banale** (denominatore);
+   è un hit se il token è disponibile tra quelli prodotti dalla completion,
+   a **multinsieme** (un token richiesto due volte va prodotto due volte) e
+   **case-sensitive** (l'echo lowercase inglese NON prende credito).
+
+Il matching a multinsieme lo rende insensibile all'ordine: l'ordine è già
+coperto da exact match. `rule_baseline.py` ri-esporta la stessa funzione
+(una sola definizione viva, testata dall'equivalenza in
+`tests/test_non_copy_token_accuracy.py`).
+
+**Perché è primaria su questo corpus**: il gloss ASLG-PC12 è per il ~62% il
+token inglese maiuscolizzato e le metriche di overlap (ROUGE-L, BLEU, chrF,
+gloss F1) premiano la copia. Questa è l'unica metrica che valuta SOLO ciò che
+la copia non può produrre. Valori storici sui prompt di eval (2000 prompt,
+**9350 posizioni non banali**):
+
+| sistema | ROUGE-L | non-copy |
+|---|---|---|
+| base zero-shot senza Trie | 0,3648 | **0,0006** |
+| base zero-shot con Trie | 0,1373 | **0,0432** |
+| GRPO da base | 0,5998 | 0,4641 |
+| baseline a regole | 0,9685 | 0,9424 |
+| SFT | 0,9749 | 0,9660 |
+
+Le prime due righe sono il punto: su ROUGE-L il vincolo simbolico "peggiora",
+sulla non-copy il vincolo migliora di ~70x.
+
+**Denominatore obbligatorio**: l'eval serializza tre chiavi nel blocco
+primario del JSON (`eval_*.json`) — `non_copy_token_accuracy` (valore),
+`non_copy_token_hits` e `non_copy_token_total` (denominatore: numero di
+posizioni non banali). Il valore non è giudicabile senza il denominatore: su
+quante posizioni si basa determina la sua stabilità. Ogni tabella della tesi
+che cita la metrica riporta anche il denominatore.
+
+**Caso degenere (insieme non banale vuoto)**: se NESSUN token del reference è
+non copiabile (es. gloss identico al source maiuscolizzato), la funzione
+restituisce `(accuracy=0.0, hits=0, total=0)`. La scelta documentata è
+accuracy 0.0 (valore neutro, nessuna posizione valutabile): il chiamante deve
+leggere `total` per distinguere "nessuna posizione valutabile" da "nessuna
+posizione corretta". Non accade mai sui dati reali del progetto (il gloss
+contiene sempre simboli non-inglesi come IX, fs-JOHN, DESC-*).
+
+**Dove viene calcolata**: in `eval_t2g._compute_primary_metrics`, sul blocco
+primario onesto (tutte le completions per prompt), con il testo sorgente
+preso dalla colonna `text` del dataset (`flat_sources`); è stampata nel log
+e nell'output dell'eval accanto a exact match, e va anche nel blocco
+`oracle_best_of_n` quando presente. Non entra in `comparison.json`
+(compare_keys): le baseline cachate pre-esistenti non hanno la chiave e un
+confronto con 0.0 lato baseline sarebbe fuorviante.
+
 ## 3. Decodifica in evaluation
 
+- **Invocazione**: `python -m src.training.eval_t2g --config <file.yaml>`
+  (sul cluster: `CONFIG=<file.yaml> sbatch cluster/eval.sh`, con
+  `CHECKPOINT=<path>` opzionale per forzare un checkpoint specifico).
+  **Tutti i knob comportamentali vivono nella sezione `evaluation:` del
+  config** — niente flag CLI oltre a `--config`/`--checkpoint` (che
+  identificano COSA valutare), niente variabili d'ambiente. La tabella dei
+  knob è commentata in `experiments/configs/qwen25-05b/base.yaml`.
 - Generazione con lo **stesso constrained decoding** del training (Trie dual-root,
   l'unico path di decoding vincolato).
 - **Sampling**: `num_samples` completions per prompt a temperatura 0.7
   (greedy se `num_samples=1`). Baseline e checkpoint usano **la stessa
-  decodifica** in `--compare` (niente più greedy-vs-best-of-5).
+  decodifica** in compare mode (niente più greedy-vs-best-of-5).
 - **Few-shot**: se `retrieval.enabled`, il prompt eval include gli stessi k
   esempi recuperati dal train (stesso retriever, stesso anti-leakage) —
   coerenza train/inference obbligatoria.
 
-### 3a. Override della modalità di prompting (opt-in) e dual eval
+### 3a. Modalità di prompting, dual eval e deduzione delle modalità
 
 La modalità di prompting viene dalla `retrieval.enabled` della config
-(comportamento di default, invariato). Per l'eval sola esiste un override
-esplicito **disattivato per default**:
+(comportamento di default, invariato). L'override esplicito e il dual eval
+sono knob del config (sezione `evaluation:`):
 
-- **CLI**: `--prompting {config,zero-shot,few-shot}` (default `config`).
-  `zero-shot` forza il retriever a None; `few-shot` lo forza attivo e
-  **abortisce** se `max_prompt_length < 512` nella config (grpo o
-  generation): con un budget più corto gli esempi few-shot verrebbero
-  troncati e la cella sarebbe indistinguibile dallo zero-shot. Fail loud,
-  non warning. Un override ridondante (few-shot su config già few-shot) è
-  equivalente al default: nessun effetto su nomi file o cache.
-- **Shell**: `PROMPTING=zero-shot sbatch cluster/eval.sh` (stesso modello di
-  `MAX_SAMPLES`; default: nessun flag).
+- **Override**: `evaluation.prompting: config|zero-shot|few-shot`
+  (default `config` — deriva da `retrieval.enabled`). `zero-shot` forza il
+  retriever a None; `few-shot` lo forza attivo e **abortisce** se
+  `max_prompt_length < 512` nella config (grpo o generation): con un budget
+  più corto gli esempi few-shot verrebbero troncati e la cella sarebbe
+  indistinguibile dallo zero-shot. Fail loud, non warning. Un override
+  ridondante (few-shot su config già few-shot) è equivalente al default:
+  nessun effetto su nomi file o cache. La validazione
+  `prompting: few-shot ⇒ max_prompt_length >= 512` è replicata in
+  `tests/validate_configs.py`.
+- **Deduzione delle modalità eval** (storico di cluster/eval.sh, ora in
+  `eval_t2g.py`): `compare` (baseline base-model + checkpoint) si deduce da
+  `training.output_dir`; le celle eval-only (`baseline/*`, senza output_dir e
+  senza checkpoint) valutano solo il base model **senza dichiarare nulla**.
+  `evaluation.compare` / `evaluation.eval_baseline_only` (default `null`)
+  sovrascrivono la deduzione quando dichiarati.
 - **Provenienza e distinguibilità**: la modalità effettiva e la sua
-  provenienza (`config`/`cli`) sono stampate nel log, stampate nel JSON
-  (`results["prompting"] = {mode, source}`) e usate nel nome dei file: un
-  override che cambia modalità suffissa l'output (`eval_final__zero-shot.json`,
+  provenienza sono stampate nel log, stampate nel JSON
+  (`results["prompting"] = {mode, source}` con source `config` (derivata),
+  `config-override` (forzata) o `config-dual` (passata complementare)) e
+  usate nel nome dei file: una passata con modalità diversa da quella
+  implicita nella config suffissa l'output (`eval_final__zero-shot.json`,
   `generations_final__zero-shot.json`, `eval_baseline__zero-shot.json`),
   così due eval della stessa cella in modalità diverse non si sovrascrivono.
-- **Cache della baseline**: il fingerprint del contesto prompt include
-  l'override SOLO quando cambia la modalità — le run di default mantengono
-  fingerprint byte-identici a quelli pre-esistenti (cache valide), un
-  override cambiante invalida la cache e forza la ricomputo. È la correzione
-  del bug latente per cui una baseline calcolata in una modalità poteva
-  essere riusata nell'altra.
-- **DUAL eval (opt-in esplicito)**: valutare la stessa cella in ENTRAMBE le
-  modalità misura se il modello ha interiorizzato la mappatura o se dipende
-  dal prompt come stampella (cfr. celle "train few-shot / eval zero-shot").
-  Attivazione: `DUAL_EVAL=1 sbatch cluster/eval.sh` o `DUAL_EVAL=1` prima di
-  `run_all.sh` (la seconda passata con la modalità complementare parte DOPO
-  quella primaria nello stesso job; i file hanno il suffisso `__<mode>`).
-  NON è attivo nella catena di default: la matrice di celle e i tempi sono
-  invariati. Nota sulla propagazione: per i tick di catena via hook bashrc la
-  variabile deve essere presente anche nell'ambiente che esegue il tick
-  (`export DUAL_EVAL=1`).
+- **Cache della baseline**: il fingerprint del contesto prompt include la
+  modalità SOLO quando differisce da quella implicita nella config — le run
+  di default mantengono fingerprint byte-identici a quelli pre-esistenti
+  (cache valide), un cambio di modalità (override o dual) invalida la cache
+  e forza la ricomputo, e ogni modalità ha il suo file
+  `eval_baseline__<mode>.json`. È la correzione del bug latente per cui una
+  baseline calcolata in una modalità poteva essere riusata nell'altra.
+- **DUAL prompting — ATTIVO DI DEFAULT sulle celle addestrabili**
+  (`evaluation.dual_prompting: true` in base.yaml): la cella è valutata in
+  ENTRAMBE le modalità (quella della config + la complementare), per misurare
+  se il modello ha interiorizzato la mappatura o se dipende dal prompt come
+  stampella (celle "train few-shot / eval zero-shot" e viceversa). La seconda
+  passata parte DOPO quella primaria nello stesso processo; i file hanno il
+  suffisso `__<mode>` e la cache baseline della modalità complementare è
+  separata. **Nessun artefatto della passata primaria viene riscritto**: il
+  suffisso copre anche `comparison.json` (`comparison__<mode>.json` — così
+  `ablation-summary` continua a leggere i delta della modalità della cella)
+  e un eventuale `evaluation.output` esplicito; le figure vanno in una
+  **sottodirectory per modalità** (`figures/<model>/<run>/<mode>/`). La
+  passata primaria non cambia alcun nome file. **Costo: l'eval raddoppia**
+  (~25 min per passata a 5000 prompt;
+  al primo giro la passata complementare valuta anche la SUA baseline del
+  base model, poi cachata). Le celle `baseline/*` lo disattivano
+  (`dual_prompting: false`): sono già una griglia esplicita di prompting
+  (`zero-shot` / `zero-shot-no-grammar` / `few-shot`) e il dual le
+  duplicherebbe. NOTA: la passata complementare few-shot NON è soggetta al
+  vincolo `max_prompt_length >= 512` (vale solo per `evaluation.prompting`):
+  a eval time i prompt non vengono troncati (`max_prompt_length` è un knob di
+  TRAINING) e la misura del cross-prompting è deliberata — sempre marcata
+  `source: config-dual` e con suffisso `__<mode>`.
+- **Checkpoint incompleto**: `final` viene scritto solo a training
+  completato. Se l'eval usa un `checkpoint-<step>` intermedio (training
+  interrotto/TIMEOUT/in corso), il JSON dei risultati porta
+  `checkpoint_incomplete: true` + `checkpoint_step` — un eval su modello
+  parziale non è mai indistinguibile da uno su modello completo (§7).
 
 ## 4. Selezione dei sample
 
@@ -222,14 +315,25 @@ esplicito **disattivato per default**:
 ## 7. File di output e figure
 
 Per ogni eval (in `experiments/results/<model>/<run_id>/`):
-- `eval_<ckpt>.json` — metriche primarie + `oracle_best_of_n` + reward
+- `eval_<ckpt>.json` — metriche primarie (incluse `non_copy_token_accuracy`,
+  `non_copy_token_hits`, `non_copy_token_total`, §2d) + `oracle_best_of_n` +
+  reward
   breakdown + `difficulty_breakdown` + stamp `prompting` (modalità e
-  provenienza)
+  provenienza) + eventuale stamp di incompletezza: un eval su un checkpoint
+  intermedio `checkpoint-<step>` (invece di `final`) porta
+  `checkpoint_incomplete: true` e `checkpoint_step`, così il risultato di una
+  cella interrotta non è mai indistinguibile da quello di un modello completo
+  (§3a)
 - `generations_<ckpt>.json` — completions grezze con valid/rouge per sample
-- `comparison.json` (solo `--compare`) — baseline vs checkpoint + delta
-- Con un override `--prompting` che cambia modalità, i file portano il
+- `comparison.json` (solo compare mode) — baseline vs checkpoint + delta;
+  con modalità di prompting effettiva diversa da quella della config la
+  passata dual scrive `comparison__<mode>.json` e non tocca il file della
+  primaria (§3a)
+- Con una passata in modalità diversa da quella implicita nella config
+  (override `evaluation.prompting` o dual prompting), i file portano il
   suffisso `__<mode>` (es. `eval_final__zero-shot.json`) così le due
-  modalità non si sovrascrivono (§3a)
+  modalità non si sovrascrivono (§3a); le figure vanno in
+  `experiments/figures/<model>/<run_id>/<mode>/`
 
 Figure (in `experiments/figures/<model>/<run_id>/`), in ordine di
 rilevanza:
@@ -246,3 +350,39 @@ rilevanza:
 
 Ablation cross-config: `ablation-summary` aggrega `eval_final.json` di ogni run
 (preferisce `eval_final.json`; esclude `eval_baseline.json`).
+
+### 7a. Campaign report — confronti appaiati cross-fattore
+
+`python -m src.analysis.campaign_report` (alias `campaign-report`) è
+complementare ad `ablation-summary`: mentre quello produce la tabella piatta
+per config, questo appaia i run che differiscono per **un solo fattore
+sperimentale** (metodo di addestramento, prompting, decodifica vincolata) e
+riporta il delta di ogni metrica — le righe che servono per compilare la
+matrice di ablazione. Da lanciare a fine campagna o quando il cluster termina
+una chain; gira senza GPU sui file locali. Output in `experiments/figures/`:
+`campaign_report.json`, `campaign_report.md`,
+`campaign_pairwise_deltas.png`, `campaign_matrix.png`.
+
+Regole dichiarate (riprodotte in ogni report generato):
+- **Selezione dei run**: per ogni *tipologia* (combinazione dei fattori
+  dedotti, non il nome della directory) viene preso il run più recente;
+  eval_final prevale sui checkpoint intermedi; `eval_baseline.json` è un run
+  `method=baseline` (modello senza checkpoint nel contesto della cella).
+- **Deduzione dei fattori**: dal percorso, dallo stamp `prompting` del JSON e
+  dal suffisso `__<mode>` dei file (dual/override). `reward_stack` e
+  `rl_objective` NON sono deducibili (vivono nel config risolto, non nel
+  payload): restano `unknown` e appaiono come caveat su ogni coppia — mai
+  assunti uguali in silenzio.
+- **Confronto più importante**: la stessa cella valutata in entrambe le
+  modalità (dual, stesso checkpoint) — misura se il modello ha interiorizzato
+  o dipende dal prompt come stampella; marcato 🔴 nel report.
+- **Avvertenze obbligatorie**: `num_samples_evaluated` e `metrics_version` di
+  ogni run con avviso esplicito se discordanti; data di ogni run (dalla run
+  dir, fallback mtime dichiarato); JSON malformati/parziali segnalati senza
+  sollevare; run con `checkpoint_incomplete: true` esclusi e listati.
+- **Soglia di rumore 0.02** (metriche in scala [0,1]): la dispersione fra due
+  esecuzioni della stessa cella arriva a 0.0161 ROUGE-L contro un CI di
+  ±0.0044, quindi i delta sotto 0.02 sono marcati NOISE e non vanno
+  interpretati. Un delta di 0.003 non è un risultato.
+- **Nessuna metrica ricalcolata**: il modulo legge; una chiave assente nel
+  JSON produce un delta assente, non un'euristica.

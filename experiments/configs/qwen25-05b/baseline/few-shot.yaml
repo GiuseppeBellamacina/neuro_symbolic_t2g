@@ -28,6 +28,10 @@ grpo:
 
 evaluation:
   best_of_n: true
+  # Dual DISATTIVO di proposito: questa cella è già un punto della griglia
+  # esplicita di prompting (baseline/{zero-shot, zero-shot-no-grammar,
+  # few-shot}) — il dual la valuterebbe due volte nella stessa modalità.
+  dual_prompting: false
 
 wandb:
   run_name: "qwen25-05b-baseline-few-shot"

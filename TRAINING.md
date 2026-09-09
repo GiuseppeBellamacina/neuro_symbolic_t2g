@@ -23,7 +23,7 @@ Il progetto addestra **Qwen2.5-0.5B-Instruct** a tradurre frasi inglesi in **glo
 ```
 
 1. **Dataset**: ASLG-PC12 (87K frasi inglesi → glosse ASL) da HuggingFace
-2. **Modello**: Qwen2.5-0.5B-Instruct con LoRA (r=16) e quantizzazione 4-bit (QLoRA)
+2. **Modello**: Qwen2.5-0.5B-Instruct con LoRA (r=32) e quantizzazione 4-bit (QLoRA)
 3. **Constrained Decoding**: un `LogitsProcessor` forza ogni token generato a
    appartenere al vocabolario gloss ASL (15K token). Il modello NON può generare
    parole inglesi.
@@ -31,7 +31,7 @@ Il progetto addestra **Qwen2.5-0.5B-Instruct** a tradurre frasi inglesi in **glo
 5. **8 Reward Functions**: guidano l'apprendimento senza supervisione umana
 6. **GRPO Training**: il modello genera G=8 completions per prompt, riceve reward,
    e aggiorna i pesi LoRA per massimizzare la reward attesa
-7. **Salvataggio**: checkpoint ogni 100 step, modello finale in `experiments/checkpoints/qwen25-05b/sft-grpo/few-shot/run_<timestamp>/final/`
+7. **Salvataggio**: checkpoint ogni `training.save_steps` (500 in base.yaml), modello finale in `experiments/checkpoints/qwen25-05b/sft-grpo/few-shot/run_<timestamp>/final/`
 
 ### Le reward function
 
@@ -74,7 +74,7 @@ simmetrico [-1, 1]. Vedi `docs/REWARDS.md` per dettagli completi.
 - Translation reward ~0.5-0.7
 - Il modello impara pattern gloss tipici dell'ASL
 
-**Durata**: ~2-3 ore per 2000 step su L40S con batch_size=1, grad_accum=8, G=8, gradient_checkpointing=true.
+**Durata**: ~8 ore per 5000 step (il `training.max_steps` di base.yaml) su L40S con batch_size=1, grad_accum=8, G=8, gradient_checkpointing=true (~5,8 s/step misurati). NB: 1 PROMPT per passo, non 8 — in TRL 0.24 `steps_per_generation = grad_accum`, quindi l'accumulo genera rollout dello stesso prompt.
 
 ### Cosa NON aspettarsi
 
@@ -87,8 +87,6 @@ simmetrico [-1, 1]. Vedi `docs/REWARDS.md` per dettagli completi.
 - **gradient_checkpointing**: attivo in tutti i config — ricomputa le attivazioni
   del forward nel backward pass, riducendo peak VRAM del ~30% a costo di ~20% più lento.
   Essenziale per G=8 su GPU 22GB (cluster).
-- **Curriculum learning**: 3-stage (simple→medium→hard) abilitato nelle celle
-  few-shot (`grpo/few-shot` e `sft-grpo/few-shot`). Calibrato sulla distribuzione reale di ASLG-PC12.
 
 ### Monitorare il training
 
@@ -111,10 +109,10 @@ t2g-gpu
 
 ```
 experiments/checkpoints/qwen25-05b/sft-grpo/few-shot/run_<timestamp>/
-├── checkpoint-100/      # Dopo 100 step
-├── checkpoint-200/      # Dopo 200 step
-├── ...                  # Ogni 100 step
-└── final/               # Modello finale (step 2000)
+├── checkpoint-500/        # Dopo 500 step (training.save_steps)
+├── checkpoint-1000/       # Dopo 1000 step
+├── ...                    # Ogni save_steps
+└── final/                 # Modello finale (step 5000)
 
 logs/
 ├── slurm-train-<ID>.log # Log completo training
@@ -145,13 +143,14 @@ ablation-summary            # tabella + grafico cross-config post-pipeline
 
 Modifica `experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml` per:
 
-- **Durata**: `training.max_steps` (default 2000)
+- **Durata**: `training.max_steps` (default 5000 in base.yaml; governa SOLO il
+  GRPO — l'SFT è governato da `num_train_epochs` e ignora `max_steps`).
+  NB: 1 prompt per passo, non 8.
 - **Velocità**: `grpo.num_generations` (default 8, riduci a 4 per GPU piccole)
 - **GPU piccole (K80)**: `model.quantization: null`, `model.use_unsloth: false`
 - **Quality/speed tradeoff**: `grpo.temperature` (default 0.7 nella base, più alto = più esplorazione)
 - **OOM**: `training.gradient_checkpointing: true` (già attivo di default)
 - **Ablation**: `grammar.enabled: false` per GRPO senza constrained decoding
-- **Curriculum**: `curriculum.enabled: true/false`
 - **Obiettivo RL** (`grpo:`): `loss_type` (`grpo`|`bnpo`|`dr_grpo`|`dapo`),
   `scale_rewards` (`group`|`batch`|`none`), `mask_truncated_completions`,
   `epsilon`, `epsilon_high`. Se assenti valgono i default di TRL 0.24.0

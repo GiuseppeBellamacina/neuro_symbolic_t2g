@@ -5,12 +5,82 @@ Tutti i numeri di questo capitolo seguono il protocollo fissato nel
 Capitolo~\ref{cap:metriche}: $2\,000$ prompt del test set, $N=5$ generazioni per
 prompt, campionamento a temperatura $0{,}7$, metriche versione $2$.
 
+\section{Statuto dei risultati: valori provvisori}
+\label{sec:statuto-provvisorio}
+
+Questo avvertimento precede la tabella perché ne condiziona la lettura, e
+ometterlo renderebbe il capitolo fuorviante.
+
+\textbf{I valori riportati provengono da esecuzioni che precedono le revisioni
+del codice descritte in questa relazione.} Nell'intervallo fra la loro
+produzione e la stesura di questo testo la pipeline è cambiata in modi che
+influiscono su ciò che si misura, non soltanto su come lo si misura:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Parametro & Quando i numeri furono prodotti & Configurazione corrente \\
+\midrule
+Passi di ottimizzazione (GRPO) & $2\,000$ & $5\,000$ \\
+Prompt valutati & $2\,000$ & $5\,000$ \\
+Modalità di valutazione & singola & doppia (entrambi i prompting) \\
+Curriculum per difficoltà & attivo sulle celle few-shot & rimosso \\
+Retrieval few-shot & implementazione originale & riscritta (equivalente) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le prime tre voci cambiano il numero. Passare da $2\,000$ a $5\,000$ passi
+significa che il modello vede $40\,000$ prompt invece di $16\,000$, cioè il
+$54{,}8\%$ del training set invece del $21{,}9\%$: le celle addestrate con
+reinforcement learning \textbf{non sono le stesse}. Passare a $5\,000$ prompt di
+valutazione restringe gli intervalli di confidenza ma rende i valori non
+direttamente confrontabili con quelli qui riportati.
+
+La quarta voce, la rimozione del curriculum, non dovrebbe cambiare nulla,
+perché quel componente era inerte; ma la sua inerzia è stata stabilita dopo che
+questi numeri erano già stati prodotti.
+
+La quinta è l'unica per cui esiste una garanzia forte: la riscrittura del
+retrieval è stata verificata equivalente elemento per elemento su migliaia di
+interrogazioni, quindi non altera i risultati.
+
+\subsection{Che cosa resta valido}
+
+La conclusione centrale della relazione \textbf{non} dipende da questi numeri
+nel dettaglio, e questo è il motivo per cui vale la pena pubblicarli comunque.
+Le affermazioni che sopravvivono a una loro revisione sono:
+
+\begin{itemize}
+  \item la baseline a regole ottiene ROUGE-L $\approx 0{,}97$, ed è un
+        riferimento indipendente da qualunque addestramento
+        (sezione~\ref{sec:baseline-regole});
+  \item nessuna cella con reinforcement learning si avvicina a quel valore, e
+        il divario è di ordine $0{,}35$, cioè cento volte l'incertezza
+        sperimentale;
+  \item la trasformazione banale $\mathrm{uppercase}(\text{text})$ ottiene
+        $0{,}6454$, e per superare quel valore un metodo di rinforzo dovrebbe
+        migliorare di una quantità molto maggiore di qualunque variazione
+        plausibile fra run;
+  \item il meccanismo del risultato negativo --- il collasso del supporto,
+        misurato sui rollout (sezione~\ref{sec:supporto}) --- è una proprietà
+        del substrato e della reward, non di un particolare numero di passi.
+\end{itemize}
+
+Va invece considerato \textbf{provvisorio} tutto ciò che dipende da differenze
+piccole: il confronto fra celle vicine (per esempio le ablazioni, che
+differiscono di qualche millesimo), e ogni valore riportato alla quarta cifra
+decimale. La sezione~\ref{sec:dispersione-run} mostra del resto che la
+dispersione fra due esecuzioni della stessa cella può superare l'intervallo di
+confidenza: la precisione apparente di queste tabelle è già oggi superiore alla
+loro accuratezza.
+
 \section{Provenienza dei numeri}
 \label{sec:provenienza}
 
-Prima della tabella va dichiarato da dove vengono i valori, perché una
-precedente stesura di questo capitolo mescolava versioni diverse del codice di
-valutazione e va evitato che l'errore si ripeta.
+Stabilito lo statuto, va dichiarata la provenienza, perché una precedente
+stesura di questo capitolo mescolava versioni diverse del codice di valutazione
+e va evitato che l'errore si ripeta.
 
 Ogni riga della tabella principale è letta da \emph{un solo} file
 \texttt{eval\_*.json} prodotto dalla pipeline di valutazione, e per ogni cella è
@@ -29,14 +99,13 @@ versioni nella stessa tabella produce quindi incoerenze in entrambe le
 direzioni, ed è esattamente ciò che va evitato.
 
 Una nota separata riguarda la \emph{non-copy-token accuracy}. Il
-Capitolo~\ref{cap:metriche} la promuove a metrica primaria, e nel codice compare
-nella costante \texttt{PRIMARY\_METRICS} di \texttt{src/utils/metrics.py}. La sua
-implementazione, però, vive in \texttt{src/analysis/rule\_baseline.py} e
-\textbf{non} è calcolata dalla pipeline di valutazione: i suoi valori provengono
-da un percorso di analisi separato, eseguito sulle generazioni salvate. Ne segue
-un limite pratico da dichiarare: per una cella nuova quella metrica non è
-disponibile automaticamente, e va calcolata a posteriori. È un difetto di
-integrazione, non di definizione.
+Capitolo~\ref{cap:metriche} la promuove a metrica primaria, ma nelle esecuzioni
+da cui provengono queste tabelle essa \textbf{non} era calcolata dalla pipeline
+di valutazione: la sua implementazione viveva in un percorso di analisi
+separato, eseguito a posteriori sulle generazioni salvate. I valori riportati
+provengono da lì. La metrica è stata in seguito integrata nella pipeline, quindi
+le esecuzioni future la produrranno insieme alle altre; per le celle di queste
+tabelle resta un valore ricostruito.
 
 \section{La tabella principale}
 

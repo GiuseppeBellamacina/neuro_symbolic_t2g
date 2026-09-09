@@ -7,9 +7,7 @@ Uses standard HuggingFace backend (transformers + peft + bitsandbytes).
 from __future__ import annotations
 
 import logging
-import time
-from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any
 
@@ -27,33 +25,37 @@ from transformers import (
 )
 
 from src.utils.distributed import is_main_process
-from src.utils.phase_timing import format_duration
+from src.utils.phase_timing import phase
 
 logger = logging.getLogger(__name__)
 
 
-@contextmanager
-def _phase_log(label: str, *, detail: str = "") -> Iterator[None]:
-    """Replica logger-based di ``phase()`` (``src/utils/phase_timing.py``).
+def _phase_log(label: str, *, detail: str = "") -> AbstractContextManager[None]:
+    """Cronometra una fase emettendo via ``logger``, non via ``print``.
 
-    WHY: questo modulo emette tutto via ``logger.info``; usare ``phase()``
-    (che fa ``print``) introdurrebbe un secondo sink nello stesso percorso.
-    Il pattern è lo stesso: annuncio PRIMA del lavoro, durata DOPO — un
-    messaggio a posteriori non dice nulla mentre il processo è fermo.
+    Sottile adattatore su ``phase()``: questo modulo emette tutto attraverso
+    ``logger.info``, e usare il sink predefinito di ``phase()`` (``print``)
+    introdurrebbe un secondo canale di output nello stesso percorso,
+    alterando il formato dei log. Il parametro ``sink`` di ``phase()`` esiste
+    proprio per questo, quindi qui non si duplica la logica: si configura.
+
+    ``indent=""`` perche' il logger ha gia' il proprio prefisso, e
+    ``enabled`` sopprime l'output sui processi non principali.
 
     Args:
         label: Nome della fase.
         detail: Informazione dimensionale opzionale (modello, quantizzazione).
+
+    Returns:
+        Il gestore di contesto che delimita la fase.
     """
-    suffix = f" ({detail})" if detail else ""
-    if is_main_process():
-        logger.info("%s%s...", label, suffix)
-    start = time.perf_counter()
-    try:
-        yield
-    finally:
-        if is_main_process():
-            logger.info("%s: %s", label, format_duration(time.perf_counter() - start))
+    return phase(
+        label,
+        detail=detail,
+        indent="",
+        sink=logger.info,
+        enabled=is_main_process(),
+    )
 
 
 # ---------------------------------------------------------------------------

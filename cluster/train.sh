@@ -19,6 +19,17 @@
 #SBATCH --account=thesis-course
 #SBATCH --partition=thesis-course
 #SBATCH --qos=gpu-xlarge
+# Walltime esplicito (prima valeva il default della partizione: un job poteva
+# essere ucciso a metà). QoS gpu-xlarge = 12h MAX (CLUSTER.md §"Vincoli del
+# cluster"): oltre, sbatch RIFIUTA il job alla sottomissione. Calcolo:
+#   GRPO: 5000 passi × ~4,3 s/step ≈ 6h, più setup (model load, prepare_data)
+#   e salvataggi → ~6,5h con margine. 11:45:00 lascia ~15 min sotto il cap
+#   QoS per il salvataggio finale.
+#   NB celle sft-grpo SENZA adapter SFT riusabile (fingerprint): la Phase 0
+#   SFT (3 epoche ≈ 13.700 passi) si somma e può sfiorare il cap — in quel
+#   caso addestrare prima sft/zero-shot (adapter riusato) o contare su
+#   --resume dopo un eventuale TIMEOUT (save_steps: 500 nel config).
+#SBATCH --time=11:45:00
 #SBATCH --mem=48G
 #SBATCH --cpus-per-task=8
 #SBATCH --gres=gpu:1 --gres=shard:22528

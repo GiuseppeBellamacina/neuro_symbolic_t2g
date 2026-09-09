@@ -50,12 +50,20 @@ def test_eval_only_cells_declare_no_output_dir(rel):
 
     Se questo test inizia a fallire, la cella e' diventata addestrabile e va
     spostata fuori da `baseline/`.
+
+    WHY solo output_dir/log_dir e non le chiavi di step: `max_steps` e
+    `num_train_epochs` vivono in `base.yaml` perche' sono comuni a tutte le
+    celle addestrabili, quindi le celle eval-only le EREDITANO e la loro
+    presenza non distingue piu' nulla. Il segnale e' `output_dir`, che e'
+    per-cella per costruzione (ogni cella scrive in una directory propria) e
+    che il resto del sistema usa gia': `eval_t2g.py` ne deduce
+    `eval_baseline_only` e `compare`, la guardia in `src/training/__main__.py`
+    rifiuta con exit 2 una cella senza `output_dir` lanciata come training, e
+    `tests/validate_configs.py::_detect_kind` classifica allo stesso modo.
     """
     training = _resolve(rel).get("training", {})
     assert "output_dir" not in training
     assert "log_dir" not in training
-    # E non dichiara nemmeno step di training.
-    assert not ({"max_steps", "num_train_epochs"} & set(training))
 
 
 @pytest.mark.parametrize("rel", TRAINABLE)

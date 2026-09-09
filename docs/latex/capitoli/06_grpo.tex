@@ -297,31 +297,3 @@ Questo è il \emph{meccanismo} del risultato negativo. Non si tratta di dire ``i
 GRPO non ha funzionato''; si tratta di mostrare, con numeri, che sull'$84{,}8\%$
 dei gruppi il gradiente era esattamente zero dopo l'SFT, e sul $73{,}9\%$ era
 esattamente zero prima di qualunque addestramento senza vincolo.
-
-\section{Il curriculum e il suo generatore di numeri casuali}
-\label{sec:curriculum}
-
-Una delle mitigazioni tentate è un \emph{curriculum}: filtrare gli esempi per
-difficoltà crescente lungo l'addestramento, in modo che la policy affronti prima
-i casi in cui è probabile che produca almeno un candidato buono. È implementato
-dalla classe \texttt{CurriculumFilteredDataset}.
-
-L'implementazione originale usava il generatore di numeri casuali
-\emph{globale} del modulo \texttt{random}. Questo introduce un difetto di
-riproducibilità sottile: lo stato del generatore globale dipende da quante volte
-è stato consumato altrove nel processo (dal caricamento del modello, dal
-campionamento, da qualunque componente che usi \texttt{random}). Il risultato è
-che gli esempi selezionati dal curriculum cambiano se cambia il consumo del
-generatore in una parte del tutto indipendente del codice.
-
-La correzione applicata è di dotare il curriculum di un generatore dedicato,
-derivato deterministicamente dal seed e dallo stadio:
-\begin{equation}
-  \texttt{rng} \;=\; \texttt{random.Random}(\texttt{seed} \times 1000 + \texttt{stage}).
-\end{equation}
-Il seed viene passato dal punto di chiamata in
-\texttt{src/training/grpo\_t2g\_train.py}. In questo modo la sequenza di esempi
-di ogni stadio è funzione soltanto di $(\texttt{seed}, \texttt{stage})$.
-
-Questo tipo di correzione non cambia i risultati riportati, ma cambia il loro
-statuto: prima erano non riproducibili in modo non dichiarato, ora lo sono.

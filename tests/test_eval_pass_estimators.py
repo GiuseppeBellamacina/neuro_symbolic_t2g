@@ -104,7 +104,13 @@ def _run_primary_metrics(nested, n_bootstrap=20):
     primary = _import_eval_helpers()[0]
     flat = [c for comps in nested for c in comps]
     refs = [_REF] * len(nested)
-    flat_refs = [r for _ in nested for r in refs]
+    # Espansione per-completion (una ref/sorgente per ogni completion):
+    # allineata a flat. La forma precedente [r for _ in nested for r in refs]
+    # produceva len(nested)^2 elementi e funzionava solo perché zip tronca
+    # silenziosamente; non_copy_token_accuracy fallisce loud sul
+    # disallineamento e ha reso il difetto visibile.
+    flat_refs = [refs[i] for i, comps in enumerate(nested) for _ in comps]
+    flat_sources = ["pass" for i, comps in enumerate(nested) for _ in comps]
     results, *_rest = primary(
         flat,
         flat_refs,
@@ -113,6 +119,7 @@ def _run_primary_metrics(nested, n_bootstrap=20):
         token_to_idx={},
         bigram=None,
         reward_weights={},
+        flat_sources=flat_sources,
         n_bootstrap=n_bootstrap,
     )
     return results

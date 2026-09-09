@@ -116,6 +116,38 @@ dell'esperimento confonde:
         ausiliari del Capitolo~\ref{cap:ausiliari}.
 \end{itemize}
 
+\subsection{Le celle appaiate e il loro isolamento}
+\label{sec:celle-non-isolate}
+
+L'intenzione dichiarata della matrice è che le celle \texttt{zero-shot} e
+\texttt{few-shot} differiscano soltanto per la modalità di prompting. Un
+confronto sistematico delle configurazioni \emph{risolte} mostra due
+differenze:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Parametro & zero-shot & few-shot \\
+\midrule
+\texttt{retrieval.enabled} & \texttt{false} & \texttt{true} (con $k=3$) \\
+\texttt{max\_prompt\_length} & $256$ & $768$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le due sono però solidali, non indipendenti: gli esempi recuperati allungano il
+prompt, quindi attivare il retrieval \emph{richiede} di alzare la lunghezza
+massima. Se non si alzasse, gli esempi verrebbero troncati in silenzio e la
+cella few-shot diventerebbe indistinguibile da una zero-shot. È precisamente il
+vincolo che il validatore verifica (si veda oltre). Le celle sono dunque
+isolate sul fattore prompting, inteso come il suo effetto complessivo.
+
+La lezione operativa che vale la pena estrarre riguarda il \emph{metodo} con cui
+questo è stato accertato: confrontando meccanicamente le configurazioni risolte,
+non leggendo la descrizione delle celle. Una differenza di configurazione può
+entrare in una matrice sperimentale senza essere dichiarata, e in quel caso
+nessun test la segnala.
+
 \section{La validazione delle configurazioni}
 
 Il file \texttt{tests/validate\_configs.py} è il punto in cui le invarianti
@@ -130,7 +162,7 @@ Controllo & Motivazione \\
 presenza delle sezioni attese & un errore di struttura deve fallire subito \\
 tipi dei valori & impedisce coercizioni silenziose \\
 somma dei pesi di reward $= 1{,}0$ & la scala della reward non deve variare fra celle \\
-chiavi morte rifiutate & impedisce configurazioni che sembrano attive e non lo sono \\
+chiavi non previste rifiutate & impedisce configurazioni che sembrano attive e non lo sono \\
 knob dell'obiettivo RL validi & rende esplicita la variante ottimizzata \\
 peso del termine fuori vocabolario in $[0;\,0{,}6]$ & sopra $0{,}6$ esiste un attacco dimostrato \\
 \texttt{max\_prompt\_length} $\ge 512$ con retrieval & un prompt troncato annulla il few-shot \\
@@ -217,7 +249,8 @@ costruiti a mano.
 
 \section{La suite di test}
 
-Lo stato corrente è di $409$ test. La loro distribuzione riflette la strategia
+Lo stato corrente è di $476$ test, tutti verdi (con una sola esclusione
+dichiarata dal codice stesso). La loro distribuzione riflette la strategia
 adottata: la maggior parte verifica componenti eseguibili senza GPU.
 
 \begin{description}
@@ -237,21 +270,34 @@ adottata: la maggior parte verifica componenti eseguibili senza GPU.
         inversa.
 \end{description}
 
-\subsection{Un test rosso dichiarato}
+\subsection{Una diagnosi sbagliata, e la sua correzione}
+\label{sec:test-ssh-ritrattazione}
 
-Un test risulta fallito nella suite corrente:
-\texttt{tests/test\_remote\_app.py::test\_ssh\_alias\_no\_user\_no\_port}.
+Una precedente stesura di questa sezione dichiarava un test permanentemente
+rosso, \texttt{test\_ssh\_alias\_no\_user\_no\_port}, attribuendone il
+fallimento a una connessione SSH reale verso il cluster e quindi a una
+dipendenza dalla rete.
 
-Il fallimento è stato verificato presente anche sul codice non modificato:
-non è una regressione introdotta dal lavoro descritto in questa relazione. La
-causa è che il test effettua una connessione SSH reale verso il cluster, quindi
-il suo esito dipende dalla disponibilità della rete e dalla configurazione
-dell'ambiente di esecuzione, non dal codice.
+\textbf{La diagnosi era sbagliata}, e va corretta qui perché l'errore è
+istruttivo. Il test non apre alcuna connessione: sostituisce il meccanismo di
+esecuzione con un oggetto che \emph{cattura} il comando costruito e ne verifica
+la forma (che il bersaglio sia l'alias di configurazione, senza utente
+esplicito né porta). È un test puramente locale e deterministico.
 
-È riportato qui, invece di essere silenziato, perché lo stato della suite fa
-parte dei risultati: dichiarare ``409 test, tutti verdi'' quando uno è rosso
-sarebbe una piccola falsificazione, e un test che dipende dalla rete è un difetto
-di disegno del test da correggere separatamente, non da nascondere.
+L'errore di diagnosi era stato commesso osservando un fallimento e inferendone
+la causa dal nome del test invece di leggerne il corpo. È lo stesso schema che
+il Capitolo~\ref{cap:infrastruttura} documenta nei sei guasti
+infrastrutturali: una spiegazione plausibile, adottata senza verifica, che
+sopravvive perché nessuno controlla.
+
+La suite è dunque interamente verde. Il numero corrente è di $476$ test, dopo
+la rimozione dei test di componenti eliminati e
+l'aggiunta di quelli introdotti dai lavori descritti in questo capitolo:
+equivalenza del retrieval ottimizzato, stimatori di pass@$k$, superficie di
+configurazione dell'eval, cache e round-trip del servizio remoto.
+
+L'unico elemento non eseguito è un test dichiarato come tale dal codice
+stesso, non un fallimento silenzioso.
 
 \section{La pulizia del codice}
 

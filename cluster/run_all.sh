@@ -19,7 +19,6 @@
 #   bash cluster/run_all.sh --ablation               # ablation study completo
 #   bash cluster/run_all.sh --eval-only              # solo evaluation
 #   bash cluster/run_all.sh --train-only             # solo training
-#   DUAL_EVAL=1 bash cluster/run_all.sh              # + passata eval col prompting complementare (opt-in)
 #   bash cluster/run_all.sh --resume                 # riparte dalla coda esistente
 #   bash cluster/run_all.sh --append                 # aggiungi job alla coda attiva
 #   bash cluster/run_all.sh --remove                 # svuota la coda
@@ -115,20 +114,11 @@ for arg in "$@"; do
     esac
 done
 
-# ── Dual eval opt-in (DUAL_EVAL=1) ────────────────────────────────────────────
-# Con DUAL_EVAL=1 ogni job eval (cluster/eval.sh) esegue, DOPO la passata
-# primaria, una seconda passata con la modalità di prompting complementare
-# (vedi blocco "Dual eval" in eval.sh). DEFAULT: disattivato — la matrice di
-# celle e i tempi della catena NON cambiano.
-# NB propagazione: run_all esporta la variabile, quindi arriva al job
-# sottomesso dal tick immediato di _launch_pipeline; per i tick successivi
-# (hook bashrc / server) la variabile deve essere presente anche nell'ambiente
-# che li esegue — es. `export DUAL_EVAL=1` nella shell di login prima di
-# chain-start. Senza export esterno vale solo per il primo job eval.
-if [ "${DUAL_EVAL:-0}" = "1" ]; then
-    export DUAL_EVAL=1
-    echo "⚙️  DUAL_EVAL=1: ogni job eval farà anche la passata col prompting complementare (opt-in, tempi ~2x per le celle eval)."
-fi
+# ── Dual eval ─────────────────────────────────────────────────────────────────
+# NON è più una variabile d'ambiente (il vecchio DUAL_EVAL=1): il dual
+# prompting è un knob del config (evaluation.dual_prompting, default true su
+# base.yaml, disattivo sulle celle baseline/*). Ogni job eval lo onora da
+# solo, niente propagazione di env var attraverso i tick della catena.
 
 # ── Modelli T2G ───────────────────────────────────────────────────────────────
 if [ "$ABLATION" -eq 1 ]; then

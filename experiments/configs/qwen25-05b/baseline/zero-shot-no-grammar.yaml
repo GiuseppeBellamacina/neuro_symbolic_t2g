@@ -23,6 +23,12 @@ grammar:
 
 evaluation:
   best_of_n: true
+  # Dual DISATTIVO di proposito: questa cella è già un punto della griglia
+  # esplicita di prompting (baseline/{zero-shot, zero-shot-no-grammar,
+  # few-shot}) — il dual la valuterebbe due volte nella stessa modalità.
+  # Dichiarato anche se ereditato da zero-shot.yaml: il punto della griglia
+  # va leggibile senza risolvere l'extends.
+  dual_prompting: false
 
 wandb:
   run_name: "qwen25-05b-baseline-zero-shot-no-grammar"

@@ -256,10 +256,9 @@ def gold_structure_reward(
     llm_vocab_len = len(llm_text.split()) - llm_oov
     gold_vocab_len = len(gold_text.split()) - gold_oov
 
-    # Anti-hacking guard: fewer than 2 in-vocab tokens → hard failure.
-    # Such a sequence cannot carry a meaningful structural comparison; with
-    # 0 or 1 in-vocab tokens the path degenerates to BOS→EOS / BOS→tok→EOS
-    # whose near-uniform probabilities would give garbage free credit.
+    # Anti-hacking guard: <2 token in-vocab → hard failure. Con 0-1 token
+    # il path degenera a BOS→EOS, le cui probabilita' quasi uniformi
+    # darebbero credito gratuito.
     if llm_vocab_len < 2:
         return -1.0
 
@@ -706,32 +705,24 @@ def gloss_repetition_reward(completion: str) -> float:
 # ---------------------------------------------------------------------------
 
 #: Module-level cache for sacrebleu availability check.
-#  None  = not yet checked
-#  True  = sacrebleu imported successfully
-#  False = import failed (do NOT retry — see _get_sacrebleu_metric which
-#          raises ImportError loudly instead of silently caching -1.0)
+#  None = not yet checked · True = imported ok · False = import failed
+#  (do NOT retry — _get_sacrebleu_metric raises ImportError loudly).
 _SACREBLEU_AVAILABLE: bool | None = None
 
 #: Reusable BLEU metric instance (configured once at first use).
-#  effective_order=True lets BLEU score sequences shorter than 4 tokens
-#  (BLEU-4 normally requires 4-grams → returns 0 → maps to -1.0 for every
-#  short sequence, killing the gradient signal on common short glosses).
-#  smooth_method="floor" prevents the geometric mean from collapsing to
-#  exactly 0 when one n-gram order has zero matches, giving a smoother
-#  gradient for near-miss completions.
+#  effective_order=True: senza, le sequenze < 4 token farebbero BLEU 0 → -1.0,
+#  uccidendo il gradiente sui gloss corti. smooth_method="floor" evita che la
+#  media geometrica crolli a 0 quando un ordine di n-gram ha zero match.
 _SACREBLEU_METRIC: Any = None
 
 
 def _check_sacrebleu_available() -> None:
     """Verify sacrebleu is importable; raise ImportError with actionable message.
 
-    Called eagerly from ``build_t2g_reward_functions`` when
-    ``weight_bleu > 0`` so a missing dependency crashes training at config
-    time — before any reward is computed — with a clear message, rather than
-    silently returning -1.0 for every sample during the entire run (which
-    previously left 20% of the reward signal dead with no visible warning
-    in output.log, since the logger.warning went to stderr, not the tee'd
-    stdout).
+    Called eagerly from ``build_t2g_reward_functions`` when ``weight_bleu > 0``:
+    a missing dependency crashes at config time instead of silently returning
+    -1.0 per tutto il run (in precedenza: 20% del segnale reward morto, e il
+    logger.warning andava su stderr, non sul tee'd output.log).
 
     Raises:
         ImportError: If sacrebleu is not installed.
@@ -825,11 +816,8 @@ def bleu_reward(completion: str, gold_gloss: str) -> float:
         # Normalize to [0, 1] then map to [-1, 1]
         return _to_symmetric(float(bleu_score) / 100.0)
     except ImportError:
-        # Should never reach here — _check_sacrebleu_available() is called
-        # eagerly in build_t2g_reward_functions() when weight_bleu > 0, so a
-        # missing sacrebleu crashes training at config time with a clear
-        # message BEFORE any reward is computed.  If we reach here, the caller
-        # bypassed the init check — re-raise to surface the misconfiguration.
+        # Mai raggiunto: _check_sacrebleu_available() crasha a config time.
+        # Se si arriva qui il chiamante ha bypassato il check → re-raise.
         raise
     except Exception:
         logger.warning("BLEU computation failed; returning -1.0", exc_info=True)
@@ -975,12 +963,8 @@ def build_t2g_reward_functions(
     # BLEU-4 reward (needs gold gloss)
     w = reward_config.get("weight_bleu", 0.0)
     if w > 0:
-        # Eagerly verify sacrebleu is importable so a missing dependency
-        # crashes here (before training starts) with a clear message,
-        # rather than silently returning -1.0 for every sample during the
-        # entire run — which previously left 20% of the reward signal dead
-        # with no visible warning (the logger.warning went to stderr, not
-        # the tee'd output.log, so it was invisible on the cluster).
+        # Eagerly verify sacrebleu: crash a config time invece di -1.0
+        # silenziosi per tutto il run (vedi _check_sacrebleu_available).
         _check_sacrebleu_available()
         funcs.append(_make_gloss_reward_fn(bleu_reward, needs_gold_gloss=True))
         weights.append(w)
@@ -1009,14 +993,13 @@ def build_t2g_reward_functions(
         funcs.append(_make_gloss_reward_fn(gloss_order_reward, needs_gold_gloss=True))
         weights.append(w)
 
-    # Edit-validity reward: edit similarity with a GRADED in-vocabulary term.
-    # This is the repaired successor of the `edit-validity` reward from the
-    # `edit-rewards` branch (which used a hard -1 gate). Default weight 0.0, so
-    # every historical config keeps its exact reward stack.
-    # NOTE: where validity ~= 1 (i.e. under the Trie) this reduces to
-    # 0.5 * gloss_order_reward + 0.5, so under scale_rewards='none' it halves
-    # the advantage magnitude. See the function docstring before combining it
-    # with `weight_gloss_order`, which carries the same underlying signal.
+    # Edit-validity reward: edit similarity con un termine GRADED in-vocab
+    # (successore riparato del vecchio hard -1 gate del ramo edit-rewards).
+    # Default weight 0.0 cosi' ogni config storica conserva il suo reward
+    # stack esatto. NOTE: con validity ~= 1 (sotto Trie) riduce a
+    # 0.5 * gloss_order_reward + 0.5, quindi sotto scale_rewards='none'
+    # dimezza il modulo dell'advantage: vedere la docstring della funzione
+    # prima di combinarlo con `weight_gloss_order` (stesso segnale).
     w = reward_config.get("weight_edit_validity", 0.0)
     if w > 0:
         oov_weight = float(reward_config.get("edit_validity_oov_weight", 0.5))

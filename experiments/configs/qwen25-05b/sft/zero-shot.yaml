@@ -41,9 +41,16 @@ training:
   log_dir: "experiments/logs/qwen25-05b/sft/zero-shot"
 
 # SFT non fa rollout: la generazione serve solo alla valutazione periodica.
+#
+# max_prompt_length 768 e NON 256: eval_t2g.py preferisce questa sezione a
+# `grpo` (`config.get("generation", config.get("grpo", {}))`), quindi un 256
+# qui vincerebbe sul 768 di base.yaml e la passata few-shot della valutazione
+# doppia fallirebbe con exit 2 (guardia contro il troncamento silenzioso
+# degli esempi recuperati). Il valore e' un limite superiore: un prompt
+# zero-shot non lo raggiunge, quindi non cambia il comportamento nativo.
 generation:
   max_completion_length: 256
-  max_prompt_length: 256
+  max_prompt_length: 768
   temperature: 0.7
 
 # Le reward NON addestrano l'SFT: qui pesano solo come metriche riportate.

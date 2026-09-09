@@ -23,12 +23,9 @@ from __future__ import annotations
 import argparse
 import gc
 
-# ── Workaround: _is_package_available in transformers 5.3.0 restituisce  ─
-# una TUPLA (bool, str) invece di un bool.  In Python, una tupla non vuota
-# è sempre truthy → (False, None) è True → trl prova a importare mergekit e
-# llm_blender anche quando non sono installati.
-# Fix: usiamo importlib per caricare trl.import_utils bypassando il pigro
-# __getattr__, correggiamo le variabili a False, poi importiamo GRPOTrainer.
+# ── Workaround: _is_package_available in transformers 5.3.0 restituisce
+# una TUPLA (bool, str) invece di un bool: (False, None) e' truthy → trl
+# prova a importare mergekit/llm_blender assenti. Fix piu' sotto.
 import importlib
 import logging
 import os
@@ -51,9 +48,8 @@ except ImportError:
 
 
 # ── Silence noisy transformers FutureWarnings ──────────────────────────
-# transformers 5.3.0 prints 5 FutureWarning lines per generate() call about
-# the deprecated AttentionMaskConverter API. These are internal to transformers
-# and will be fixed in v5.10. Suppress them to keep the training log clean.
+# transformers 5.3.0: 5 FutureWarning per generate() su AttentionMaskConverter
+# (API interna, fix atteso in v5.10). Soppressi per tenere pulito il log.
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
 warnings.filterwarnings(
     "ignore",
@@ -79,13 +75,7 @@ for _optional_flag in (
 import wandb
 from dotenv import load_dotenv
 from transformers.integrations.integration_utils import WandbCallback
-from transformers.trainer_callback import (
-    ProgressCallback,
-    TrainerCallback,
-    TrainerControl,
-    TrainerState,
-)
-from transformers.training_args import TrainingArguments
+from transformers.trainer_callback import ProgressCallback
 from trl import GRPOConfig, GRPOTrainer  # type: ignore[import]
 
 from datasets import Dataset
@@ -177,11 +167,9 @@ def _build_grpo_config(
         weight_decay=training_cfg.get("weight_decay", 0.1),
         max_grad_norm=training_cfg.get("max_grad_norm", 0.1),
         bf16=training_cfg.get("bf16", True),
-        # Gradient checkpointing: recompute forward activations during backward
-        # to trade ~20% compute for substantial VRAM savings. Essential for
-        # num_generations=8 on 22GB GPUs (cluster). Reads from
-        # training.gradient_checkpointing in YAML; defaults to False to preserve
-        # behavior of other configs that don't set it.
+        # Gradient checkpointing: ~20% di compute in cambio di VRAM
+        # (necessario per num_generations=8 su GPU 22GB). Default False per
+        # non cambiare il comportamento delle config che non lo impostano.
         gradient_checkpointing=training_cfg.get("gradient_checkpointing", False),
         logging_steps=training_cfg.get("logging_steps", 5),
         save_steps=training_cfg.get("save_steps", 100),
@@ -194,27 +182,13 @@ def _build_grpo_config(
         temperature=grpo_cfg.get("temperature", 0.7),
         reward_weights=reward_weights,
         report_to="wandb",
-        # ── RL objective knobs (config pass-through) ────────────────────────
-        # Historically these were never passed, so TRL 0.24.0 defaults applied:
-        # loss_type='dapo', scale_rewards='group', mask_truncated_completions=False.
-        # Every stored result was produced under those defaults, so they remain
-        # the defaults here and no historical run changes meaning.
-        #
-        # Exposing them is what makes a one-factor Dr-GRPO arm runnable:
-        #   loss_type: 'dapo'    -> denominator = total completion tokens in the
-        #                           global batch (TRL default).
-        #   loss_type: 'dr_grpo' -> denominator = B * max_completion_length, the
-        #                           constant used by Dr-GRPO (arXiv:2503.20783)
-        #                           to remove GRPO's differential length bias.
-        #   scale_rewards: 'group' divides the advantage by its group std;
-        #                  'none'  keeps A = R - mean(R), the unbiased advantage
-        #                          Dr-GRPO prescribes. NOTE: 'none' preserves
-        #                          reward scale, so a reward that is an affine
-        #                          contraction of another changes the effective
-        #                          step size (see edit_validity_reward).
-        # Caveat that matters for experiment design: TRL 0.24.0 does NOT
-        # implement DAPO's dynamic sampling (it only logs frac_reward_zero_std),
-        # and clip-higher requires setting epsilon_high explicitly.
+        # ── RL objective knobs (config pass-through, vedi _grpo_objective_kwargs) ──
+        # loss_type='dr_grpo' divide per B * max_completion_length (Dr-GRPO,
+        # arXiv:2503.20783); scale_rewards='none' mantiene A = R - mean(R) MA
+        # preserva la scala del reward, quindi un reward che e' una contrazione
+        # affine di un altro cambia l'effective step size (vedi
+        # edit_validity_reward). TRL 0.24.0 NON implementa il dynamic sampling
+        # di DAPO e clip-higher richiede epsilon_high esplicito.
         **_grpo_objective_kwargs(grpo_cfg),
     )
 
@@ -362,12 +336,10 @@ def _prepare_t2g_dataset(
                 examples=examples_batch[i] if examples_batch is not None else None,
             )
 
-            # Keep every column produced by build_t2g_dataset.  In particular
-            # ``gold_gloss`` must survive to the GRPOTrainer dataset so TRL
-            # forwards it to the reward functions as a kwarg (see
-            # ``t2g_rewards._make_gloss_reward_fn``). ``sample_id`` already
-            # encodes normalized text + gold gloss (collision-safe), so it no
-            # longer needs to be recomputed here.
+            # Keep every column produced by build_t2g_dataset: ``gold_gloss``
+            # deve arrivare al GRPOTrainer perche' TRL la forwarda alle reward
+            # fn come kwarg (t2g_rewards._make_gloss_reward_fn); ``sample_id``
+            # codifica gia' text+gold gloss, non va ricalcolato.
             formatted.append(
                 {
                     "prompt": prompt,
@@ -484,226 +456,6 @@ def _build_generation_kwargs(
 
 
 # ---------------------------------------------------------------------------
-# Curriculum Learning (difficulty-scheduled sampling)
-#
-# NOTE: previously attributed to "G²RPO-A (ACL 2026)" — that attribution was
-# wrong. The real G²RPO (arXiv:2508.13023) is Guided GRPO (ground-truth
-# reasoning injection), not a difficulty curriculum. This implementation is
-# a project-original 3-stage schedule; related evidence: FSA-GRPO
-# (arXiv:2606.02615) and G²RPO both target small/weak models with
-# stronger supervision signals. See docs/SOURCES.md.
-# ---------------------------------------------------------------------------
-
-
-class CurriculumSchedule:
-    """Progressive difficulty curriculum for GRPO training.
-
-    Project-original 3-stage curriculum: sorting training data by
-    difficulty keeps small models from getting stuck on hard examples
-    early in training (schedule calibrated on the post-dedup ASLG-PC12
-    difficulty distribution).
-
-    Stage 1 (0-33% steps): 10% simple, 65% medium, 25% hard
-    Stage 2 (33-66% steps): 5% simple, 40% medium, 55% hard
-    Stage 3 (66-100% steps): 3% simple, 30% medium, 67% hard
-    """
-
-    _STAGES: list[dict[str, float]] = [
-        # Stage 1: 10% simple target (post-dedup availability ~4.9%, capped),
-        # 65% medium, 25% hard
-        {"simple": 0.10, "medium": 0.65, "hard": 0.25},
-        # Stage 2: 5% simple, 40% medium, 55% hard
-        {"simple": 0.05, "medium": 0.40, "hard": 0.55},
-        # Stage 3: 3% simple, 30% medium, 67% hard
-        {"simple": 0.03, "medium": 0.30, "hard": 0.67},
-    ]
-
-    def __init__(self, max_steps: int) -> None:
-        self._max_steps = max(max_steps, 1)
-        self._stage_size = max(self._max_steps // 3, 1)
-
-    def get_stage(self, step: int) -> int:
-        """Return current curriculum stage (0, 1, or 2)."""
-        return min(step // self._stage_size, len(self._STAGES) - 1)
-
-    def get_distribution(self, step: int) -> dict[str, float]:
-        """Return difficulty distribution for the current step."""
-        return self._STAGES[self.get_stage(step)]
-
-    @property
-    def stage_size(self) -> int:
-        return self._stage_size
-
-
-class CurriculumFilteredDataset:
-    """Mutable dataset wrapper that filters by curriculum difficulty distribution.
-
-    Wraps a Hugging Face ``Dataset`` and maintains a shuffled index list
-    matching the current stage's target difficulty proportions.  The
-    dataset length is kept constant (padded/truncated) so DataLoader
-    samplers never go out of bounds on stage transitions.
-
-    The underlying data is NOT copied — only the index list is rebuilt.
-
-    Reproducibility: the index list is drawn from a DEDICATED RNG seeded by
-    ``(seed, stage)``, not from the global ``random`` module. Using the global
-    module made the sampled curriculum depend on how much of the global RNG
-    stream other code had already consumed, so two runs with the same seed
-    could train on different data — and the same wrapper built twice in one
-    process produced different distributions. Deriving the seed from the stage
-    keeps each stage's draw distinct while remaining a pure function of the
-    configured seed.
-    """
-
-    def __init__(
-        self,
-        dataset: Dataset,
-        schedule: CurriculumSchedule,
-        stage: int,
-        seed: int = 42,
-    ) -> None:
-        self._full_dataset = dataset
-        self._schedule = schedule
-        self._stage = stage
-        self._seed = int(seed)
-        self._indices: list[int] = []
-        self.column_names = dataset.column_names
-        self._rebuild()
-
-    def _rng(self) -> random.Random:
-        """Deterministic per-stage RNG, independent of global random state.
-
-        The seed is combined arithmetically (not via ``hash``) so it does not
-        depend on interpreter hash behaviour.
-        """
-        return random.Random(self._seed * 1000 + self._stage)
-
-    def _rebuild(self) -> None:
-        """Rebuild index list to match the current stage's difficulty distribution."""
-        # WHY phase: iterare ~73k campioni per raggruppare per difficoltà è
-        # muto, e la stessa operazione ricorre anche a metà training alle
-        # transizioni di stage — dove una pausa silenziosa è indistinguibile
-        # da un hang del job.
-        with phase(
-            "Rebuilding curriculum difficulty index",
-            detail=f"stage {self._stage + 1}/3, {len(self._full_dataset)} samples",
-        ):
-            distribution = self._schedule._STAGES[self._stage]
-
-            # Group indices by difficulty label
-            by_diff: dict[str, list[int]] = {"simple": [], "medium": [], "hard": []}
-            for i, row in enumerate(self._full_dataset):
-                diff = row.get("difficulty", "medium")
-                if diff not in by_diff:
-                    diff = "medium"
-                by_diff[diff].append(i)
-
-            total = len(self._full_dataset)
-            rng = self._rng()
-            indices: list[int] = []
-            for diff, target_pct in distribution.items():
-                count = min(int(total * target_pct), len(by_diff[diff]))
-                if count > 0 and by_diff[diff]:
-                    indices.extend(rng.sample(by_diff[diff], count))
-
-            if not indices:
-                indices = list(range(total))
-
-            # Shuffle so items are mixed, not grouped by difficulty
-            rng.shuffle(indices)
-
-            # Pad/truncate to maintain constant length
-            # (prevents DataLoader sampler from generating out-of-bounds indices)
-            target_len = len(self._full_dataset)
-            if len(indices) < target_len:
-                indices.extend(rng.choices(indices, k=target_len - len(indices)))
-            elif len(indices) > target_len:
-                indices = indices[:target_len]
-
-            self._indices = indices
-
-    def update_stage(self, stage: int) -> None:
-        """Transition to a new curriculum stage (rebuilds index list)."""
-        if stage != self._stage:
-            self._stage = stage
-            self._rebuild()
-
-    def __len__(self) -> int:
-        return len(self._indices)
-
-    def __getitem__(self, idx: int) -> dict[str, Any]:
-        return self._full_dataset[self._indices[idx]]
-
-    def __getattr__(self, name: str) -> Any:
-        # Forward attribute access to the underlying Dataset when
-        # the attribute isn't defined on the wrapper itself.
-        if name.startswith("_"):
-            raise AttributeError(name)
-        return getattr(self._full_dataset, name)
-
-
-class CurriculumCallback(TrainerCallback):
-    """TrainerCallback that drives curriculum stage transitions during GRPO.
-
-    On each step, checks whether the global step has crossed a stage
-    boundary.  When a new stage begins, triggers a dataset rebuild and
-    logs the transition to stdout and wandb.
-    """
-
-    def __init__(
-        self,
-        schedule: CurriculumSchedule,
-        curriculum_dataset: CurriculumFilteredDataset,
-    ) -> None:
-        self._schedule = schedule
-        self._dataset = curriculum_dataset
-        self._last_stage = 0
-
-    def on_step_end(
-        self,
-        args: TrainingArguments,
-        state: TrainerState,
-        control: TrainerControl,
-        **kwargs: Any,
-    ) -> None:
-        current_stage = self._schedule.get_stage(state.global_step)
-
-        if current_stage != self._last_stage:
-            self._last_stage = current_stage
-
-            # Rebuild the dataset index list for the new difficulty distribution
-            self._dataset.update_stage(current_stage)
-
-            distribution = self._schedule._STAGES[current_stage]
-
-            # Stage transition banner for stdout (parsed by chain_monitor)
-            print(f"\n{'=' * 60}")
-            print(f"  CURRICULUM STAGE {current_stage + 1}/3")
-            print(
-                f"  Distribution: simple={distribution['simple']:.0%} "
-                f"medium={distribution['medium']:.0%} "
-                f"hard={distribution['hard']:.0%}"
-            )
-            print(f"{'=' * 60}\n")
-
-            # Log curriculum metrics to wandb (no explicit step= — auto-step:
-            # explicit steps get rejected/dropped when unsloth's profiler
-            # races the run's internal counter, see callbacks.py)
-            try:
-                import wandb
-
-                if wandb.run:
-                    wandb.log(
-                        {
-                            "curriculum/stage": float(current_stage + 1),
-                            "curriculum/difficulty_distribution": distribution,
-                        },
-                    )
-            except Exception:
-                logger.debug("Failed to log curriculum metrics to wandb", exc_info=True)
-
-
-# ---------------------------------------------------------------------------
 # Main training entry point
 # ---------------------------------------------------------------------------
 
@@ -746,12 +498,9 @@ def main() -> None:
 
     training_cfg = config.get("training", {})
 
-    # Le celle eval-only (baseline/*) NON dichiarano output_dir/log_dir perche'
-    # non addestrano nulla: ereditano solo la sezione `training` parziale da
-    # base.yaml. Lanciarle con cluster/train.sh e' un errore d'uso, non un bug
-    # di configurazione, quindi va detto in modo esplicito: prima questo punto
-    # sollevava `KeyError: 'output_dir'` dopo aver gia' caricato Unsloth e il
-    # modello, cioe' un messaggio incomprensibile a minuti dall'avvio del job.
+    # Le celle eval-only (baseline/*) NON dichiarano output_dir/log_dir:
+    # lanciarle con cluster/train.sh e' errore d'uso. Prima qui partiva un
+    # KeyError: 'output_dir' dopo il caricamento di Unsloth/modello (minuti).
     missing = [key for key in ("output_dir", "log_dir") if key not in training_cfg]
     if missing:
         has_steps = bool({"max_steps", "num_train_epochs"} & set(training_cfg))
@@ -832,18 +581,16 @@ def main() -> None:
     log_step(1, "Data Preparation")
 
     # Download dataset
-    # WHY phase: load_dataset + dedup di ~80k righe + split 90/10 impiegano
-    # 10-60s emettendo solo i logger.info interni di aslg_dataset (senza
-    # durata): al primo avvio il job sembra appeso.
+    # WHY phase: load_dataset + dedup di ~80k righe + split 90/10: 10-60s in
+    # silenzio, al primo avvio il job sembra appeso.
     with phase("Loading ASLG-PC12 dataset", detail="cache + dedup + 90/10 split"):
         dataset = download_aslg_dataset(
             cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
         )
 
-    # Caches are keyed by (seed, train_size): if either changes (e.g. a new
-    # seed, or dataset dedup changing the split composition), the vocab and
-    # bigram artifacts must be regenerated.  Legacy caches without a sidecar
-    # are never trusted (see _cache_is_current).
+    # Cache keyed by (seed, train_size): se cambia uno dei due (nuovo seed,
+    # dedup che cambia la composizione dello split) vocab e bigram vanno
+    # rigenerati. Cache legacy senza sidecar mai fidata (vedi _cache_is_current).
     train_size = len(dataset["train"])
 
     # Extract vocabulary (or load from cache if still current)
@@ -913,15 +660,14 @@ def main() -> None:
         }
 
         # ── SFT adapter reuse ──────────────────────────────────────────
-        # If a previous run already produced an SFT adapter trained with the
-        # SAME SFT configuration (same fingerprint of model/lora/dataset/
-        # system prompt/SFT hyperparams — see compute_sft_fingerprint),
-        # retraining SFT is wasteful: reuse it.  Reuse only skips Step 1.5;
-        # GRPO still trains (or resumes) from its OWN checkpoints, so
-        # `--resume` behaviour is unaffected.
-        #   - sft_pretrain.reuse_adapter: false → always retrain
-        #   - sft_pretrain.adapter_path: <dir>  → explicit adapter (no search)
-        #   - --force-sft                        → always retrain (CLI override)
+        # Se un run precedente ha gia' prodotto un adapter SFT con lo STESSO
+        # fingerprint (model/lora/dataset/system prompt/iperparametri — vedi
+        # compute_sft_fingerprint) riaddestrare SFT e' spreco: riusalo. Il
+        # riuso salta solo lo Step 1.5; GRPO prosegue dai SUOI checkpoint,
+        # quindi `--resume` resta invariato.
+        #   - sft_pretrain.reuse_adapter: false → riaddestra sempre
+        #   - sft_pretrain.adapter_path: <dir>  → adapter esplicito (no search)
+        #   - --force-sft                        → riaddestra sempre (CLI)
         explicit_adapter = sft_pretrain_cfg.get("adapter_path")
         reuse_adapter = sft_pretrain_cfg.get("reuse_adapter", True)
         reused_adapter: str | None = None
@@ -939,13 +685,11 @@ def main() -> None:
             fingerprint = compute_sft_fingerprint(sft_config)
             # Search order: (1) sibling runs of the SAME tag, e.g.
             # experiments/checkpoints/qwen25-05b-sft-grpo/run_*/sft_pretrain/final;
-            # (2) ANY other tag under experiments/checkpoints/ — a new tag
-            # config with an IDENTICAL sft_pretrain section (e.g.
-            # sft-grpo-all-rewards) trains a bit-identical SFT, so we reuse
-            # the existing adapter and skip the ~1h retrain (the fingerprint
-            # is tag-independent: model/lora/dataset/hyperparams/system prompt).
-            # Cross-tag matches are COPIED into this run's sft_pretrain/final
-            # so the run stays self-contained.
+            # (2) ANY other tag sotto experiments/checkpoints/ con sezione
+            # sft_pretrain IDENTICA (il fingerprint e' tag-independent), cosi'
+            # un nuovo tag salta il ~1h di retrain SFT. I match cross-tag
+            # vengono COPIATI in sft_pretrain/final di questo run perche'
+            # resti self-contained.
             model_root = Path(config["training"]["output_dir"]).parent
             found = find_reusable_sft_adapter(model_root, fingerprint)
             if found is not None:
@@ -1068,11 +812,9 @@ def main() -> None:
         retrieval_cfg=retrieval_cfg,
     )
 
-    # NOTE: no gold-gloss registry anymore.  The ``gold_gloss`` column is
-    # preserved on the dataset and TRL 0.24 forwards it to the reward
-    # functions as a kwarg (see t2g_rewards._make_gloss_reward_fn), which
-    # eliminates the SHA256-of-text-only collision problem of the old
-    # registry (duplicate English sentences mapped to the wrong gold gloss).
+    # NOTE: niente piu' registry gold-gloss: la colonna ``gold_gloss`` e'
+    # forwardata da TRL alle reward fn come kwarg (vedi _prepare_t2g_dataset),
+    # senza il problema di collisione SHA256 del vecchio registry.
 
     # ── Step 5: Reward functions ─────────────────────────────────────────
     log_step(5, "Reward Functions")
@@ -1103,43 +845,6 @@ def main() -> None:
         logits_processor=logits_processor_for_gen,
     )
 
-    # ── Curriculum Learning setup ────────────────────────────────────────
-    curriculum_cfg = config.get("curriculum", {})
-    curriculum_callback: CurriculumCallback | None = None
-
-    if curriculum_cfg.get("enabled", False):
-        print(f"\n{'─' * 60}")
-        print("CURRICULUM LEARNING: ENABLED")
-        print("  3-stage progressive difficulty curriculum (project-original)")
-
-        max_steps = config["training"].get("max_steps", 1500)
-        curriculum_schedule = CurriculumSchedule(max_steps)
-
-        # Wrap the training dataset with curriculum filtering (Stage 1).
-        # Il seed viene passato esplicitamente: il campionamento del curriculum
-        # usa un RNG dedicato, non quello globale, altrimenti i dati di training
-        # dipenderebbero da quanto del flusso RNG globale è già stato consumato.
-        t2g_dataset = CurriculumFilteredDataset(
-            t2g_dataset,
-            curriculum_schedule,
-            stage=0,
-            seed=config["dataset"].get("seed", 42),
-        )
-
-        dist = curriculum_schedule.get_distribution(0)
-        print(
-            f"  Stage 1/3 — Distribution: simple={dist['simple']:.0%} "
-            f"medium={dist['medium']:.0%} hard={dist['hard']:.0%}"
-        )
-        print(
-            f"  Stage size: {curriculum_schedule.stage_size} steps × 3 "
-            f"= {curriculum_schedule.stage_size * 3}"
-        )
-        print(f"  Effective samples: {len(t2g_dataset)}")
-        print(f"{'─' * 60}")
-
-        curriculum_callback = CurriculumCallback(curriculum_schedule, t2g_dataset)
-
     # ── Step 6: GRPO configuration ───────────────────────────────────────
     log_step(6, "GRPO Configuration")
 
@@ -1161,34 +866,15 @@ def main() -> None:
     )
 
     # ── Workaround: unsloth-zoo autocast dtype defaults to float16 ───────
-    # `unsloth_zoo.rl_replacements.grpo_accumulated_loss` (materialized as
-    # unsloth_compiled_cache/UnslothGRPOTrainer.py on the cluster) lazily
-    # initializes `trainer._autocast_dtype` on the FIRST training step via:
-    #
-    #   trainer._autocast_dtype = (
-    #       torch.float16
-    #       if os.environ.get('ACCELERATE_MIXED_PRECISION', 'fp16') == 'fp16'
-    #       else torch.bfloat16
-    #   )
-    #
-    # This reads the RAW `ACCELERATE_MIXED_PRECISION` env var directly,
-    # bypassing HF Accelerate's own `AcceleratorState().mixed_precision`
-    # bookkeeping entirely. `GRPOConfig(bf16=True)` sets
-    # `TrainingArguments.mixed_precision = "bf16"` as a *Python attribute*
-    # and forwards it straight into `Accelerator(mixed_precision="bf16")`
-    # — this never touches `os.environ`. The env var is only ever set by
-    # the `accelerate launch` CLI or DeepSpeed, neither of which this
-    # project uses (script is run directly via `python -m src.training`).
-    # Result: the env var is unset → unsloth-zoo defaults to 'fp16' →
-    # `trainer._autocast_dtype = torch.float16`, wrapping GRPO's forward
-    # pass in a FLOAT16 autocast context that conflicts with the model's
-    # actual bfloat16 weights/LoRA adapters, causing:
-    #   RuntimeError: self and mat2 must have the same dtype, but got
-    #   Half and Float  (in unsloth/kernels/utils.py:matmul_lora)
-    #
-    # Fix: explicitly set the env var to match `grpo_config.bf16` BEFORE
-    # `GRPOTrainer` is constructed / trained, so unsloth-zoo's lazy check
-    # picks up the correct dtype on its first (and only) evaluation.
+    # `unsloth_zoo.rl_replacements.grpo_accumulated_loss` inizializza lazy
+    # `trainer._autocast_dtype` dal RAW env var ACCELERATE_MIXED_PRECISION,
+    # bypassando lo stato di Accelerate. GRPOConfig(bf16=True) NON tocca
+    # os.environ (solo `accelerate launch`/DeepSpeed lo fanno; qui si lancia
+    # via `python -m src.training`), quindi l'env var resta unset → fp16 →
+    # autocast float16 su pesi bfloat16:
+    #   RuntimeError: self and mat2 must have the same dtype (Half vs Float).
+    # Fix: impostare l'env var da grpo_config.bf16 PRIMA di costruire
+    # GRPOTrainer, cosi' il lazy check raccoglie il dtype giusto.
     os.environ["ACCELERATE_MIXED_PRECISION"] = "bf16" if grpo_config.bf16 else "fp16"
 
     # ── Resume logic ─────────────────────────────────────────────────────
@@ -1223,16 +909,12 @@ def main() -> None:
             dir=log_dir,
             mode="offline",
             # ── Fix: output.log missing on Files tab ──────────────────
-            # Without console_multipart, W&B buffers the ENTIRE stdout/
-            # stderr in memory and only writes/uploads output.log when
-            # wandb.finish() completes successfully.  On a SLURM cluster,
-            # jobs are frequently killed by OOM/timeout/SIGKILL before
-            # reaching finish() — losing the whole log.  With
-            # console_multipart=True, W&B writes timestamped chunks under
-            # wandb/run-*/files/logs/ incrementally, so partial logs
-            # survive a crash. See:
-            # https://docs.wandb.ai/models/app/console-logs (Multipart
-            # console logging).
+            # Senza console_multipart W&B bufferizza TUTTO stdout/stderr e
+            # scrive output.log solo a wandb.finish() riuscito: su SLURM un
+            # job ucciso da OOM/timeout/SIGKILL perde l'intero log. Con
+            # multipart scrive chunk incrementali in wandb/run-*/files/logs/,
+            # quindi il log parziale sopravvive al crash.
+            # https://docs.wandb.ai/models/app/console-logs
             settings=wandb.Settings(
                 console_multipart=True,
                 console_chunk_max_bytes=1_000_000,
@@ -1241,9 +923,8 @@ def main() -> None:
         )
 
     # ── Tee stdout → output.log (sync_cluster download) ─────────────────
-    # console_multipart salva i log in chunk sotto wandb/run-*/files/logs/
-    # ma sync_cluster.ps1 si aspetta un singolo output.log.  Teeiamo stdout
-    # così abbiamo entrambi: crash safety (multipart) + comodità (file singolo).
+    # console_multipart scrive chunk sotto wandb/run-*/files/logs/ ma
+    # sync_cluster.ps1 si aspetta un singolo output.log: teniamo entrambi.
     _output_log_path = os.path.join(log_dir, "output.log")
     _sys_stdout = sys.stdout
     _output_log_fh = open(_output_log_path, "a", buffering=1)
@@ -1274,12 +955,10 @@ def main() -> None:
         model.warnings_issued = {}
 
     # ── Generation kwargs for vocabulary-constrained rollout generation ──
-    # In trl 0.24.0, generation_kwargs goes into GRPOConfig (args), NOT
-    # directly into GRPOTrainer.__init__().
-    # NOTE: logits_processor CANNOT be in generation_kwargs because trl
-    # 0.24.0 does GenerationConfig(**generation_kwargs) and transformers
-    # 5.3.0 rejects logits_processor in GenerationConfig.
-    # Workaround: monkey-patch model.generate() to inject the processor.
+    # trl 0.24.0: generation_kwargs va in GRPOConfig (args), NON in
+    # GRPOTrainer.__init__(). NOTE: logits_processor NON puo' stare in
+    # generation_kwargs (trl fa GenerationConfig(**generation_kwargs) e
+    # transformers 5.3.0 lo rifiuta): serve il monkey-patch di generate().
     gen_kwargs = _build_generation_kwargs(config)
     grpo_config.generation_kwargs = gen_kwargs
 
@@ -1289,38 +968,24 @@ def main() -> None:
         train_dataset=t2g_dataset,
         reward_funcs=wrapped_reward_fns,
         processing_class=tokenizer,
-        callbacks=(
-            [sample_callback]
-            if curriculum_callback is None
-            else [sample_callback, curriculum_callback]
-        ),
+        callbacks=[sample_callback],
     )
 
-    # ── Defensive: force unsloth-zoo's internal autocast dtype directly ──
-    # Belt-and-suspenders alongside the `ACCELERATE_MIXED_PRECISION` env
-    # var fix above: pre-set `trainer._autocast_dtype` on the trainer
-    # instance itself so `grpo_accumulated_loss`'s
-    # `if not hasattr(trainer, '_autocast_dtype')` lazy-init check is a
-    # no-op regardless of env var propagation timing/caching quirks.
+    # ── Defensive: pre-set unsloth-zoo's internal autocast dtype ─────────
+    # Belt-and-suspenders accanto al fix env var sopra: rende no-op il lazy
+    # init di grpo_accumulated_loss a prescindere da tempi/caching dell'env var.
     trainer._autocast_dtype = torch.bfloat16 if grpo_config.bf16 else torch.float16
 
     # ── Monkey-patch model.generate() AFTER trainer init ────────────────
-    # IMPORTANT: The patch must be applied AFTER GRPOTrainer.__init__()
-    # because the trainer may wrap/store the model differently than the
-    # object we passed in.  We patch `trainer.model` directly to ensure
-    # TRL's internal rollout generation calls our patched method.
-    #
-    # Two things this patch does:
-    #   1. AUTOCAST: model.generate() during GRPO rollouts runs OUTSIDE the
-    #      trainer's autocast context.  With 4-bit quantization + LoRA,
-    #      prepare_model_for_kbit_training() upcasts LoRA adapters to float32,
-    #      but lm_head stays in bfloat16 (from dtype=bfloat16 at load time).
-    #      Without autocast, lm_head receives float32 hidden states → crash:
-    #        RuntimeError: expected scalar type BFloat16 but found Float
-    #      Wrapping generate() in autocast harmonizes all dtypes.
-    #   2. LOGITS PROCESSOR: transformers 5.3.0 GenerationConfig rejects
-    #      logits_processor as a kwarg, but model.generate() accepts it.
-    #      Inject the vocabulary mask here when grammar is enabled.
+    # Patch su trainer.model, non sul modello passato: il trainer puo'
+    # wrapparlo diversamente e i rollout TRL usano trainer.model. Due funzioni:
+    #   1. AUTOCAST: generate() nei rollout gira FUORI dall'autocast del
+    #      trainer. Con 4-bit + LoRA, lm_head resta bfloat16 ma riceve hidden
+    #      states float32 → crash "expected scalar type BFloat16 but found
+    #      Float"; l'autocast armonizza i dtype.
+    #   2. LOGITS PROCESSOR: transformers 5.3.0 GenerationConfig rifiuta
+    #      logits_processor come kwarg, ma model.generate() lo accetta:
+    #      qui si inietta la maschera vocabolario se la grammar e' attiva.
     _generation_model = trainer.model
     _orig_generate = _generation_model.generate
     _autocast_dtype = torch.bfloat16 if grpo_config.bf16 else torch.float16
@@ -1330,11 +995,10 @@ def main() -> None:
         nonlocal _lp_called
         if logits_processor_for_gen is not None:
             # CRITICAL: reset the processor's prompt_len cache before each
-            # generate() call. TRL generates completions for different prompts
-            # in sequence — if prompt_len is stale from a previous rollout,
-            # the Trie traces from the wrong offset in input_ids, producing
-            # garbage allowed-token sets. This was the root cause of the
-            # DEBUTRECHT/HOWEVERY garbage tokens in the 2026-07-08 run.
+            # generate(): TRL genera i completions per prompt diversi in
+            # sequenza e un prompt_len stantio fa tracciare il Trie
+            # dall'offset sbagliato (root cause dei garbage token
+            # DEBUTRECHT/HOWEVERY nel run 2026-07-08).
             logits_processor_for_gen.reset()
             _kwargs["logits_processor"] = [logits_processor_for_gen] + _kwargs.get(
                 "logits_processor", []
@@ -1369,18 +1033,15 @@ def main() -> None:
         pass
 
     # ── Fix: guarantee wandb.finish() even on crash/exception ───────────
-    # Previously, if trainer.train() raised (OOM, CUDA error, SLURM kill
-    # signal caught as exception, etc.), wandb.finish() was never reached,
-    # so the run stayed "crashed"/unfinished and output.log never made it
-    # to the Files tab.  Wrapping in try/finally ensures the run is always
-    # finalized and whatever log chunks were written get flushed.
+    # Senza try/finally un'eccezione in trainer.train() (OOM, CUDA error,
+    # kill SLURM) lascia il run wandb "crashed"/unfinished e il log
+    # non flushed.
     try:
         print("\n[grpo] Starting GRPO training...")
         trainer.train(resume_from_checkpoint=resume_from)
 
         # ── Save final model ─────────────────────────────────────────────
-        # WHY phase: save_model su NFS scrive GB di pesi in silenzio; il
-        # vecchio print annunciava la scrittura ma non riferiva la fine.
+        # WHY phase: save_model su NFS scrive GB di pesi in silenzio.
         final_path = Path(grpo_config.output_dir) / "final"
         with phase("Saving final model", detail=str(final_path)):
             trainer.save_model(str(final_path))
@@ -1392,15 +1053,14 @@ def main() -> None:
         if last_ckpt.exists():
             import shutil
 
-            # WHY phase: rmtree di GB di optimizer state su NFS può richiedere
-            # minuti; il vecchio print annunciava ma non riferiva la fine.
+            # WHY phase: rmtree di GB di optimizer state su NFS puo'
+            # richiedere minuti.
             with phase("Removing duplicate final checkpoint", detail=str(last_ckpt)):
                 shutil.rmtree(last_ckpt, ignore_errors=True)
     finally:
         # ── Cleanup ───────────────────────────────────────────────────────
-        # WHY phase: anche la chiusura è muta ma costosa — wandb.finish()
-        # flussha il run offline su NFS (con WANDB_SILENT=true non stampa
-        # nulla) e il rilascio può bloccarsi su gc/empty_cache.
+        # WHY phase: wandb.finish() flussha il run offline su NFS (muta con
+        # WANDB_SILENT=true); il rilascio puo' bloccarsi su gc/empty_cache.
         if wandb.run:
             with phase("Finalizing wandb run"):
                 wandb.finish()

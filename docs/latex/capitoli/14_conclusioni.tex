@@ -142,7 +142,24 @@ parte del contributo.
         intervalli (sezione~\ref{sec:dispersione-run}): il delta su ROUGE-L
         ($+0{,}0064$) non è distinguibile dal rumore, mentre quello su exact
         match ($+0{,}2252$) resta robusto.
+  \item Un meccanismo di \textbf{curriculum} per difficoltà, presente in una
+        fase intermedia del progetto, è stato \textbf{rimosso} dopo aver
+        dimostrato che era inerte: i suoi stadi risultavano indistinguibili
+        sulla classe di difficoltà che intendevano graduare, perché i target
+        dichiarati eccedevano la disponibilità del corpus e il codice troncava
+        in silenzio al massimo disponibile. In aggiunta introduceva una
+        frazione elevata di esempi ripetuti negli stadi avanzati.
 \end{enumerate}
+
+Sull'ultimo punto vale la pena estrarre una lezione trasferibile, perché il
+modo in cui il difetto è rimasto nascosto è più interessante del difetto stesso.
+Quel componente aveva test che passavano e un'implementazione priva di errori di
+programmazione. Ciò che mancava era una verifica che il meccanismo producesse
+l'effetto \emph{dichiarato} sui dati \emph{reali}: i test misuravano le
+proporzioni su campioni di poche centinaia di righe, dove il limite di
+disponibilità non si manifesta. La domanda ``questo componente fa quello che
+dice?'' non era mai stata posta in una forma verificabile alla scala di
+produzione.
 
 Alla stessa categoria appartiene una correzione di coerenza interna. Una
 precedente stesura della tabella principale mescolava valori prodotti da due
@@ -154,9 +171,20 @@ segnalato perché la sua correzione ha spostato la validity della cella senza
 vincolo da $0{,}1043$ a $0{,}0370$, cioè ha \emph{rafforzato} il risultato
 sul vincolo simbolico portando il fattore di miglioramento da circa $9$ a $24$.
 
-Va dichiarato infine lo stato della suite di test: un test dipende da una
-connessione di rete verso il cluster e il suo esito varia con l'ambiente di
-esecuzione, non con il codice (Capitolo~\ref{cap:codebase}).
+Alla stessa categoria appartiene una quinta correzione, la più imbarazzante
+perché riguarda una diagnosi e non una misura. Una precedente stesura dichiarava
+un test permanentemente rosso e ne attribuiva il fallimento a una dipendenza
+dalla rete. Leggendo il corpo del test si è visto che non apre alcuna
+connessione: sostituisce il meccanismo di esecuzione con un oggetto che cattura
+il comando costruito e ne verifica la forma
+(sezione~\ref{sec:test-ssh-ritrattazione}). La causa era stata inferita dal
+\emph{nome} del test invece che dal suo contenuto. La suite è interamente verde,
+e conta $476$ test.
+
+L'errore è dello stesso tipo dei cinque guasti infrastrutturali del
+Capitolo~\ref{cap:infrastruttura}: una spiegazione plausibile adottata senza
+verifica. Che si sia insinuato nel documento che quei guasti descrive è la
+migliore illustrazione di quanto il meccanismo sia difficile da evitare.
 
 \section{Lavoro futuro}
 
