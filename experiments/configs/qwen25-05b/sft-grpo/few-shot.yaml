@@ -1,0 +1,54 @@
+# ============================================================================
+# SFT→GRPO — pipeline completa, few-shot. Phase 0 = SFT, poi GRPO.
+#
+# È la cella che storicamente DEGRADA: ROUGE-L 0.5114 partendo da un SFT che
+# sta a 0.9752. L'RL peggiora una soluzione già corretta.
+#
+# Causa misurata, non ipotizzata: sotto la reward, i rollout della policy SFT
+# hanno l'84.8% di gruppi a varianza zero. Con advantage group-relative un
+# gruppo a reward costante dà gradiente esattamente zero, quindi l'update è
+# guidato da una minoranza di outlier più rumore — e il rumore su una policy
+# già corretta può solo distruggere. Meccanismi in letteratura: saturazione
+# della reward (DAPO §3.2), alignment tax (InstructGPT arXiv:2203.02155),
+# entropy collapse (DAPO §3.1).
+#
+# Il riuso dell'adapter SFT è ATTIVO: se esiste già un adapter con la stessa
+# fingerprint (stessa config SFT) viene riusato senza ricalcolare la Phase 0.
+# `--force-sft` forza il retrain.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../base.yaml
+
+# --- Phase 0: SFT pre-training ---
+# Iperparametri IDENTICI a sft/zero-shot.yaml, così la fingerprint combacia e
+# l'adapter è condiviso tra le due celle.
+sft_pretrain:
+  enabled: true
+  reuse_adapter: true
+  training:
+    num_train_epochs: 3
+    per_device_train_batch_size: 4
+    gradient_accumulation_steps: 4
+    learning_rate: 2.0e-5
+    warmup_steps: 50
+    max_seq_length: 768
+    eval_fraction: 0.02
+    early_stopping_patience: 3
+
+# --- Phase 1: GRPO ---
+training:
+  learning_rate: 3.0e-6
+  warmup_steps: 200
+  output_dir: "experiments/checkpoints/qwen25-05b/sft-grpo/few-shot"
+  log_dir: "experiments/logs/qwen25-05b/sft-grpo/few-shot"
+
+retrieval:
+  enabled: true
+  top_k: 3
+
+wandb:
+  run_name: "qwen25-05b-sft-grpo-few-shot"
+  tags: ["T2G", "sft-grpo", "few-shot", "retrieval", "trie"]

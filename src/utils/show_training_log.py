@@ -1,10 +1,10 @@
 """Display training log from trainer_state.json as a formatted table or plot.
 
 Usage:
-    python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/checkpoint-500
-    python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/ --last
-    python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/ --plot
-    python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/ --plot --deg 5
+    python -m src.utils.show_training_log experiments/checkpoints/qwen25-05b/sft/zero-shot/checkpoint-500
+    python -m src.utils.show_training_log experiments/checkpoints/qwen25-05b/sft/zero-shot/ --last
+    python -m src.utils.show_training_log experiments/checkpoints/qwen25-05b/sft/zero-shot/ --plot
+    python -m src.utils.show_training_log experiments/checkpoints/qwen25-05b/sft/zero-shot/ --plot --deg 5
 """
 
 from __future__ import annotations
@@ -23,9 +23,6 @@ _DEFAULT_COLS = [
     "rewards/translation_quality_reward/mean",
     "rewards/bleu_reward/mean",
     "rewards/gold_structure_reward/mean",
-    "rewards/structural_dense_reward/mean",
-    "rewards/viterbi_distance_reward/mean",
-    "rewards/soft_viterbi_distance_reward/mean",
     "rewards/verifier_scaled_reward/mean",
     "rewards/gloss_order_reward/mean",
     "rewards/gloss_format_reward/mean",
@@ -39,9 +36,6 @@ _SHORT_NAMES = {
     "rewards/translation_quality_reward/mean": "translation",
     "rewards/bleu_reward/mean": "bleu",
     "rewards/gold_structure_reward/mean": "gold_struct",
-    "rewards/structural_dense_reward/mean": "structure",
-    "rewards/viterbi_distance_reward/mean": "viterbi",
-    "rewards/soft_viterbi_distance_reward/mean": "soft_viterbi",
     "rewards/verifier_scaled_reward/mean": "verifier",
     "rewards/gloss_order_reward/mean": "order",
     "rewards/gloss_format_reward/mean": "format",

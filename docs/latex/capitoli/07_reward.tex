@@ -1,0 +1,259 @@
+\chapter{Il disegno delle reward}
+\label{cap:reward}
+
+\section{Il problema di progettazione}
+
+Nell'addestramento supervisionato l'obiettivo è dato: la~\eqref{eq:ce} non
+richiede scelte. Nel reinforcement learning invece la funzione di reward
+\emph{è} il progetto: definisce che cosa il modello considererà buono, e ogni sua
+imperfezione verrà sfruttata dall'ottimizzazione. È il fenomeno del
+\emph{reward hacking}~\cite{amodei2016concrete,gao2022overoptimization}, di cui
+la deriva verso risposte più lunghe è l'esempio più documentato
+\cite{singhal2023length}.
+
+La convenzione adottata in questo progetto è che ogni componente di reward
+produca un valore in $[0,1]$, che viene poi mappato in $[-1,1]$ tramite
+\begin{equation}
+  \label{eq:reward-map}
+  R \;=\; 2s - 1, \qquad s \in [0,1].
+\end{equation}
+La ragione della mappatura è che il vantaggio~\eqref{eq:grpo-adv} è invariante
+per traslazione, ma un intervallo centrato rende più leggibile la telemetria: un
+valore negativo indica ``sotto la metà della qualità massima''.
+
+L'implementazione è raccolta in \texttt{src/rewards/t2g\_rewards.py}.
+
+\section{Lo stack di sette componenti}
+
+La reward complessiva è una combinazione convessa di sette componenti, con pesi
+che sommano esattamente a $1{,}0$. La somma unitaria non è un vezzo: è verificata
+automaticamente da \texttt{tests/validate\_configs.py}, che rifiuta qualunque
+configurazione in cui i pesi non sommino a uno, per evitare che la scala della
+reward cambi silenziosamente fra celle sperimentali.
+
+\begin{center}
+\begin{tabular}{llr}
+\toprule
+Componente & Che cosa misura & Peso \\
+\midrule
+\texttt{translation}     & somiglianza con il gloss di riferimento & $0{,}20$ \\
+\texttt{bleu}            & sovrapposizione di $n$-grammi & $0{,}20$ \\
+\texttt{gold\_structure} & aderenza alla struttura del riferimento & $0{,}20$ \\
+\texttt{gloss\_order}    & correttezza dell'ordine dei gloss & $0{,}10$ \\
+\texttt{verifier\_scaled} & esito di un verificatore esterno & $0{,}10$ \\
+\texttt{format}          & conformità al formato di uscita & $0{,}10$ \\
+\texttt{repetition}      & assenza di ripetizioni degeneri & $0{,}10$ \\
+\midrule
+& \textbf{Totale} & $\mathbf{1{,}00}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{La telemetria: quali componenti portano informazione}
+
+Durante l'addestramento GRPO (cella a partire dal modello base) è stato
+registrato il valore medio di ciascuna componente. I valori sono nella scala
+$[-1,1]$ della~\eqref{eq:reward-map}.
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Componente & Valore medio osservato \\
+\midrule
+\texttt{translation}      & $+0{,}215$ \\
+\texttt{bleu}             & $-0{,}359$ \\
+\texttt{gold\_structure}  & $+0{,}086$ \\
+\texttt{gloss\_order}     & $+0{,}085$ \\
+\texttt{verifier\_scaled} & $-0{,}291$ \\
+\texttt{format}           & $+0{,}998$ \\
+\texttt{repetition}       & $+0{,}966$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le ultime due righe sono il punto. Con valori $+0{,}998$ e $+0{,}966$ su una
+scala il cui massimo è $+1$, le componenti \texttt{format} e \texttt{repetition}
+sono \textbf{sature}: praticamente ogni candidato le soddisfa.
+
+La conseguenza è meccanica e segue dalla~\eqref{eq:grpo-adv}. Una componente
+satura ha varianza quasi nulla \emph{all'interno del gruppo}, dunque contribuisce
+al vantaggio di ogni candidato in misura quasi identica, dunque il suo contributo
+si cancella nella sottrazione della media. Il $20\%$ del peso complessivo della
+reward non produce alcun segnale di apprendimento: agisce come una costante
+additiva.
+
+Questa non è una critica al disegno originale, che aveva senso come rete di
+sicurezza (impedire che il modello degeneri in ripetizioni o violi il formato).
+È un'osservazione sull'\emph{allocazione dell'informazione}: se il $20\%$ del
+budget di reward è speso su vincoli che non vengono mai violati, il segnale
+effettivo viene dalle altre cinque componenti.
+
+\section{Tre componenti rimosse, e perché}
+\label{sec:reward-rimosse}
+
+Lo stack storico conteneva tre componenti aggiuntive, che sono state rimosse
+dopo averne dimostrato la ridondanza. La rimozione è documentata qui perché il
+\emph{modo} in cui è stata giustificata è metodologicamente il contributo più
+solido di questo capitolo.
+
+Le componenti erano \texttt{structural\_dense}, \texttt{viterbi\_distance} e
+\texttt{soft\_viterbi\_distance}. Tutte tre miravano a misurare la plausibilità
+strutturale della sequenza generata rispetto a un modello di transizione fra
+gloss.
+
+\subsection{Argomento algebrico}
+
+Le tre componenti sono definite come normalizzazioni di una quantità di
+``energia'' del percorso rispetto a un limite superiore che dipende dalla
+lunghezza della sequenza. Quando generato e riferimento hanno la \emph{stessa
+lunghezza}, quel limite compare sia al numeratore sia al denominatore e si
+cancella algebricamente. Le tre formule collassano allora sullo stesso segnale:
+non sono tre misure indipendenti, ma tre riparametrizzazioni della medesima.
+
+\subsection{Verifica empirica}
+
+L'argomento algebrico vale a lunghezza uguale, che sul corpus copre soltanto il
+$27{,}5\%$ delle righe (sezione~\ref{sec:artefatti}). Serviva dunque una verifica
+empirica. È stata eseguita una valutazione di controllo: tutte le configurazioni
+con e senza le tre componenti sono rimaste entro $\pm 0{,}006$ dal valore di
+controllo $0{,}5114$.
+
+Cioè: aggiungere o togliere tre componenti di reward non sposta la metrica oltre
+il rumore. Le componenti sono state quindi rimosse, insieme a circa
+$8\,774$ righe di codice relative all'infrastruttura che le supportava
+(implementazione di automi a stack, calcolo di percorsi di Viterbi, macchinari
+di supporto).
+
+Va segnalato che il calcolo dei percorsi di Viterbi \emph{sopravvive} nel
+progetto, ma con statuto diverso: come strumento
+\emph{diagnostico} in \texttt{src/analysis/markov\_diagnostics.py}, non come
+reward. È una distinzione importante: una quantità può essere informativa da
+ispezionare e inutile da ottimizzare.
+
+\section{Una componente nuova: \texttt{edit\_validity}}
+
+Al posto delle tre rimosse è stata progettata una singola componente, con
+l'obiettivo di catturare due proprietà con una sola misura: la vicinanza al
+riferimento e l'appartenenza al vocabolario ammesso.
+
+\subsection{Definizione}
+
+\begin{align}
+  \label{eq:edit-sim}
+  \texttt{edit\_sim} &= 1 - \frac{\mathrm{lev}(g, r)}{\max(|g|, |r|)}, \\
+  \label{eq:edit-mix}
+  s &= (1 - w)\cdot \texttt{edit\_sim} \;+\; w \cdot \texttt{frac\_in\_vocab}, \\
+  \label{eq:edit-reward}
+  R &= 2s - 1,
+\end{align}
+dove $\mathrm{lev}$ è la distanza di Levenshtein a livello di token fra generato
+$g$ e riferimento $r$, \texttt{frac\_in\_vocab} è la frazione di token generati
+appartenenti al vocabolario gloss, e $w \in [0,1]$ è un peso con valore
+predefinito $0{,}5$.
+
+La normalizzazione per $\max(|g|,|r|)$ nella~\eqref{eq:edit-sim} è la scelta che
+rende la misura ben definita anche quando le lunghezze differiscono, ed è
+esattamente il punto su cui è stata condotta l'analisi avversaria che segue.
+
+\subsection{Test avversario 1: la reward premia la verbosità?}
+
+L'ipotesi da escludere è la più classica: che il modello possa aumentare la
+reward allungando l'uscita~\cite{singhal2023length}. La verifica è analitica.
+Supponiamo che il generato coincida con il riferimento e vi si appendano $k$
+token spuri. Allora $\mathrm{lev} = k$, $|g| = G + k$ con $G = |r|$, e dunque
+\begin{equation}
+  \label{eq:append-k}
+  \texttt{edit\_sim} \;=\; 1 - \frac{k}{G + k},
+\end{equation}
+che è \emph{strettamente decrescente} in $k$. La misura empirica conferma una
+perdita di circa $-0{,}13$ per token appeso.
+
+L'ipotesi è dunque refutata. Va detto esplicitamente che questa era l'ipotesi di
+partenza dell'analisi, formulata come sospetto prima della verifica: la
+verbosità non è un canale di attacco per questa reward. Documentare la
+ritrattazione, e non solo la conclusione, è parte del contributo.
+
+\subsection{Test avversario 2: la calibrazione di $w$}
+
+Il peso $w$ nella~\eqref{eq:edit-mix} bilancia due obiettivi che possono entrare
+in conflitto. Se $w$ è troppo alto, la reward premia l'uso di token in
+vocabolario indipendentemente dal fatto che formino una sequenza sensata. Il test
+costruisce tre candidati avversari e verifica l'\emph{ordinamento} che la reward
+induce fra loro.
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Candidato & $R$ con $w=0{,}5$ & $R$ con $w=0{,}75$ \\
+\midrule
+Sequenza priva di senso (\emph{garbage}) & $0{,}000$ & --- \\
+Ripetizione degenere di token in vocabolario & $+0{,}125$ & $+0{,}563$ \\
+Quasi corretto, con un token fuori vocabolario & $+0{,}500$ & $+0{,}500$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Con $w = 0{,}5$ l'ordinamento è corretto: il candidato quasi corretto
+($+0{,}500$) batte la ripetizione degenere ($+0{,}125$).
+
+Con $w = 0{,}75$ l'ordinamento \textbf{si inverte}: la ripetizione degenere
+($+0{,}563$) supera il candidato quasi corretto ($+0{,}500$). A quel valore di $w$
+la reward premia esplicitamente la produzione di token legali ripetuti rispetto
+a una traduzione quasi giusta con una parola sconosciuta.
+
+Il valore predefinito è quindi fissato a $w = 0{,}5$, e
+\texttt{tests/validate\_configs.py} impone che il peso della componente fuori
+vocabolario resti nell'intervallo $[0,\; 0{,}6]$: al di sopra di quella soglia
+esiste un attacco dimostrato.
+
+Questo è il tipo di verifica che si può fare \emph{prima} di consumare tempo di
+GPU: non richiede addestramento, solo la valutazione della reward su candidati
+costruiti a mano. Ha costo trascurabile e previene una classe di guasti che
+altrimenti si scoprirebbe solo osservando uscite degenerate dopo migliaia di
+passi.
+
+\subsection{Test avversario 3: quanto pesa il gate sul vocabolario}
+
+Un'altra preoccupazione legittima è che il termine \texttt{frac\_in\_vocab}
+diventi il fattore dominante, azzerando la reward di candidati che sarebbero
+altrimenti informativi. È stato quindi contato, sui gruppi valutati in
+condizione zero-shot con vincolo di decodifica, quanti dei valori di reward pari
+al minimo ($-1$) fossero attribuibili al gate sul vocabolario.
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Causa del valore minimo & Occorrenze & Frazione \\
+\midrule
+Gate sul vocabolario (token fuori vocabolario) & $131 / 10\,000$ & $2{,}43\%$ \\
+\emph{Floor} legittimo (candidato effettivamente cattivo) & --- & $97{,}57\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il gate non è la causa del collasso del supporto documentato nella
+sezione~\ref{sec:supporto}: contribuisce per il $2{,}43\%$. Il restante
+$97{,}57\%$ dei valori minimi corrisponde a candidati genuinamente cattivi. È una
+verifica necessaria, perché se il gate fosse stato la causa dominante la lettura
+del risultato negativo sarebbe stata diversa: non ``il compito non offre
+segnale'' ma ``la nostra reward lo distrugge''.
+
+\section{Riepilogo del metodo}
+
+La procedura seguita per ogni componente di reward è la seguente, e vale come
+raccomandazione generale:
+
+\begin{enumerate}
+  \item definire la componente in forma chiusa;
+  \item derivare analiticamente il suo comportamento sotto le manipolazioni
+        ovvie (allungare, ripetere, riempire con token legali);
+  \item costruire a mano tre o quattro candidati avversari e verificare
+        l'\emph{ordinamento} indotto, non il valore assoluto;
+  \item cercare la soglia di iperparametro a cui l'ordinamento si rompe, e
+        fissare il valore predefinito con margine da quella soglia;
+  \item codificare il vincolo in un test di validazione delle configurazioni,
+        così che non possa essere violato per distrazione.
+\end{enumerate}
+
+I punti 3 e 4 sono quelli che hanno effettivamente trovato difetti in questo
+progetto. Il punto 5 è quello che impedisce che i difetti tornino.

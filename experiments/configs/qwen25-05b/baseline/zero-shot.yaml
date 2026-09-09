@@ -1,0 +1,29 @@
+# ============================================================================
+# BASELINE — base model, zero-shot, Trie attivo. NESSUN training.
+#
+# Riferimento inferiore della matrice: cosa sa fare Qwen2.5-0.5B senza aver
+# mai visto il task, con il solo vincolo simbolico.
+#
+# Questa è la cella con cui vanno confrontati i run GRPO zero-shot: non la
+# cella few-shot. Confrontare un run zero-shot con un run few-shot attraversa
+# il fattore con l'effetto più grande dell'intero esperimento.
+#
+# Valore storico misurato: ROUGE-L 0.1373, EM 0.0015, validity 0.9006,
+# non-copy-token accuracy 0.0432.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/baseline/zero-shot.yaml sbatch cluster/eval.sh
+# ============================================================================
+
+extends: ../base.yaml
+
+evaluation:
+  best_of_n: true
+  # Dual DISATTIVO di proposito: questa cella è già un punto della griglia
+  # esplicita di prompting (baseline/{zero-shot, zero-shot-no-grammar,
+  # few-shot}) — il dual la valuterebbe due volte nella stessa modalità.
+  dual_prompting: false
+
+wandb:
+  run_name: "qwen25-05b-baseline-zero-shot"
+  tags: ["T2G", "baseline", "zero-shot", "trie", "eval-only"]

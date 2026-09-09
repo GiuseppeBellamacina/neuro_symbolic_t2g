@@ -1,0 +1,332 @@
+\chapter{Organizzazione del codice}
+\label{cap:codebase}
+
+Questo capitolo descrive la struttura del codice e i meccanismi che ne
+garantiscono la coerenza. Serve come mappa per chi voglia riprodurre o estendere
+il lavoro, e documenta le scelte organizzative che hanno effettivamente
+prevenuto guasti.
+
+\section{Struttura dei moduli}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Percorso & Responsabilità \\
+\midrule
+\texttt{src/datasets/} & caricamento, suddivisione, retrieval, transizioni \\
+\texttt{src/models/} & caricamento del modello, teste aggiuntive \\
+\texttt{src/grammar/} & Trie, maschera, processore di logits \\
+\texttt{src/rewards/t2g\_rewards.py} & le componenti di reward \\
+\texttt{src/training/} & punti di ingresso e trainer (SFT, GRPO, ausiliari) \\
+\texttt{src/analysis/} & baseline a regole, diagnostiche \\
+\texttt{src/utils/} & metriche, configurazione, monitoraggio \\
+\texttt{cluster/} & script SLURM e libreria di shell \\
+\texttt{remote/} & servizio FastAPI e interfaccia testuale \\
+\texttt{tests/} & suite di test ($409$ test) \\
+\texttt{experiments/configs/qwen25-05b/} & configurazioni delle celle \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Due note sulla separazione delle responsabilità.
+
+La prima: \texttt{src/grammar/} è indipendente dal modello. Il Trie e la
+maschera sono strutture dati pure, e tutti i test che ne verificano la
+correttezza girano senza GPU. Questo ha reso possibile sviluppare e verificare
+il vincolo di decodifica sulla macchina locale, dove l'addestramento non è
+eseguibile.
+
+La seconda: \texttt{src/analysis/} contiene codice che non partecipa
+all'addestramento ma è essenziale all'interpretazione. La baseline a regole vive
+qui, non fra i modelli, perché non è un modello: è uno strumento di misura.
+
+\section{Il sistema di configurazione}
+
+Ogni cella sperimentale è descritta da un file YAML. Il meccanismo di
+composizione è la chiave \texttt{extends}, risolta da
+\texttt{src/utils/config.py}, funzione \texttt{resolve\_config}, che esegue una
+\emph{fusione profonda ricorsiva}: i dizionari annidati vengono fusi chiave per
+chiave, invece di essere sostituiti in blocco.
+
+La distinzione importa. Con una sostituzione in blocco, una cella che volesse
+cambiare un solo iperparametro dell'ottimizzatore dovrebbe ridichiarare tutta la
+sezione, e ogni modifica al file di base non si propagherebbe. Con la fusione
+profonda, una cella dichiara solo le differenze.
+
+Un dettaglio di igiene: la chiave \texttt{extends} viene rimossa dalla
+configurazione risolta e non raggiunge i trainer. Questi ricevono una
+configurazione già completa e piatta, e non hanno modo di sapere da quale
+gerarchia provenga. È una separazione voluta: la logica di composizione sta in un
+solo posto.
+
+\section{La matrice sperimentale}
+
+Il progetto definisce \textbf{15 celle}, articolate in \textbf{27 voci} di
+esecuzione (una cella di addestramento genera tipicamente una voce di
+addestramento e una di valutazione).
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Gruppo & Cella & Tipo \\
+\midrule
+\texttt{baseline} & \texttt{zero-shot} & sola valutazione \\
+                  & \texttt{zero-shot-no-grammar} & sola valutazione \\
+                  & \texttt{few-shot} & sola valutazione \\
+\midrule
+\texttt{sft} & \texttt{zero-shot} & addestramento \\
+\midrule
+\texttt{grpo} & \texttt{zero-shot} & addestramento \\
+              & \texttt{few-shot} & addestramento \\
+\midrule
+\texttt{sft-grpo} & \texttt{zero-shot} & addestramento \\
+                  & \texttt{few-shot} & addestramento \\
+\midrule
+\texttt{ablations/rewards} & \texttt{edit-validity} & addestramento \\
+                           & \texttt{historical-stack} & addestramento \\
+\texttt{ablations/loss} & \texttt{dr-grpo} & addestramento \\
+\texttt{ablations/decoding} & \texttt{no-grammar} & addestramento \\
+                            & \texttt{hot-rollout} & addestramento \\
+\texttt{ablations/objectives} & \texttt{sft-allowed-mass} & addestramento \\
+                              & \texttt{sft-structured} & addestramento \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le tre celle \texttt{baseline} sono di sola valutazione: misurano il modello non
+addestrato. Le loro configurazioni non contengono la sezione di addestramento, ed
+è precisamente questa asimmetria che ha prodotto il guasto documentato nella
+sezione~\ref{sec:bug-evalonly}.
+
+Le cinque celle di ablazione sono le più interessanti dal punto di vista
+metodologico, perché ciascuna isola un fattore che la parte principale
+dell'esperimento confonde:
+\begin{itemize}
+  \item \texttt{edit-validity} contro \texttt{historical-stack} isola l'effetto
+        della revisione dello stack di reward (Capitolo~\ref{cap:reward});
+  \item \texttt{dr-grpo} attiva esplicitamente la variante di denominatore che
+        nessuna configurazione storica selezionava
+        (sezione~\ref{sec:denominatori});
+  \item \texttt{no-grammar} isola il contributo del vincolo simbolico
+        (Capitolo~\ref{cap:decoding});
+  \item \texttt{hot-rollout} varia la temperatura di generazione dei candidati,
+        cioè il parametro che governa direttamente il supporto dei rollout
+        (sezione~\ref{sec:supporto});
+  \item le due celle in \texttt{objectives} corrispondono ai due obiettivi
+        ausiliari del Capitolo~\ref{cap:ausiliari}.
+\end{itemize}
+
+\subsection{Le celle appaiate e il loro isolamento}
+\label{sec:celle-non-isolate}
+
+L'intenzione dichiarata della matrice è che le celle \texttt{zero-shot} e
+\texttt{few-shot} differiscano soltanto per la modalità di prompting. Un
+confronto sistematico delle configurazioni \emph{risolte} mostra due
+differenze:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Parametro & zero-shot & few-shot \\
+\midrule
+\texttt{retrieval.enabled} & \texttt{false} & \texttt{true} (con $k=3$) \\
+\texttt{max\_prompt\_length} & $256$ & $768$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le due sono però solidali, non indipendenti: gli esempi recuperati allungano il
+prompt, quindi attivare il retrieval \emph{richiede} di alzare la lunghezza
+massima. Se non si alzasse, gli esempi verrebbero troncati in silenzio e la
+cella few-shot diventerebbe indistinguibile da una zero-shot. È precisamente il
+vincolo che il validatore verifica (si veda oltre). Le celle sono dunque
+isolate sul fattore prompting, inteso come il suo effetto complessivo.
+
+La lezione operativa che vale la pena estrarre riguarda il \emph{metodo} con cui
+questo è stato accertato: confrontando meccanicamente le configurazioni risolte,
+non leggendo la descrizione delle celle. Una differenza di configurazione può
+entrare in una matrice sperimentale senza essere dichiarata, e in quel caso
+nessun test la segnala.
+
+\section{La validazione delle configurazioni}
+
+Il file \texttt{tests/validate\_configs.py} è il punto in cui le invarianti
+scoperte durante il progetto sono codificate. Non è un test di stile: ogni
+controllo corrisponde a un guasto reale o a un attacco dimostrato.
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Controllo & Motivazione \\
+\midrule
+presenza delle sezioni attese & un errore di struttura deve fallire subito \\
+tipi dei valori & impedisce coercizioni silenziose \\
+somma dei pesi di reward $= 1{,}0$ & la scala della reward non deve variare fra celle \\
+chiavi non previste rifiutate & impedisce configurazioni che sembrano attive e non lo sono \\
+knob dell'obiettivo RL validi & rende esplicita la variante ottimizzata \\
+peso del termine fuori vocabolario in $[0;\,0{,}6]$ & sopra $0{,}6$ esiste un attacco dimostrato \\
+\texttt{max\_prompt\_length} $\ge 512$ con retrieval & un prompt troncato annulla il few-shot \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Vale la pena soffermarsi su due voci.
+
+\subsection{Le chiavi morte}
+
+Durante la pulizia del progetto sono state rimosse tre componenti di reward
+(sezione~\ref{sec:reward-rimosse}) e diversi percorsi legacy. Il rischio, dopo
+una rimozione, è che una configurazione continui a impostare una chiave che non
+esiste più: il file appare configurato in un certo modo, il codice ignora la
+chiave, e l'esperimento gira con impostazioni diverse da quelle dichiarate.
+
+Il validatore rifiuta esplicitamente le chiavi rimosse. È una forma di
+protezione contro la classe di guasto più costosa in un contesto sperimentale:
+la discrepanza fra configurazione dichiarata e comportamento effettivo.
+
+\subsection{Il vincolo sulla lunghezza del prompt}
+
+Il controllo \texttt{max\_prompt\_length} $\ge 512$ in presenza di retrieval
+merita una nota, perché protegge da un fallimento perfettamente silenzioso. Se
+il prompt viene troncato, gli esempi recuperati vengono eliminati, e la cella
+few-shot diventa indistinguibile da una cella zero-shot. Nessun errore, nessun
+avviso: solo numeri che sembrano dire che il few-shot non serve.
+
+Dato che il fattore prompting è, secondo la
+sezione~\ref{sec:decomposizione}, l'effetto più grande misurato in tutto il
+progetto, un guasto che lo annullasse silenziosamente sarebbe particolarmente
+grave.
+
+\section{Le diagnostiche di Markov}
+
+Il modulo \texttt{src/analysis/markov\_diagnostics.py} implementa strumenti di
+ispezione sui percorsi di transizione fra gloss:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Funzione & Ruolo \\
+\midrule
+\texttt{path\_log\_energy} & punteggio logaritmico di un percorso \\
+\texttt{hard\_viterbi\_diagnostic} & percorso di massima verosimiglianza \\
+\texttt{soft\_viterbi\_diagnostic} & versione smussata (somma-log-esponenziale) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Due scelte implementative vanno segnalate.
+
+La prima: le funzioni sono validate contro un calcolo a forza bruta su istanze
+piccole. Un algoritmo di programmazione dinamica come Viterbi è facile da
+implementare in modo sottilmente sbagliato (un indice fuori posto produce
+risultati plausibili), e il confronto con l'enumerazione esaustiva su casi di
+dimensione ridotta è la verifica che coglie quel tipo di errore.
+
+La seconda: esiste una guardia che rifiuta spazi di stato superiori a $256$
+elementi. È un limite deliberato, non un difetto: queste funzioni servono a
+ispezionare casi specifici, e permetterne l'uso su spazi grandi le trasformerebbe
+in un collo di bottiglia computazionale mascherato da strumento di analisi.
+
+Il punto più importante è lo \emph{statuto} di questo modulo. Le quantità di
+Viterbi sono state \textbf{rimosse dalle reward}
+(sezione~\ref{sec:reward-rimosse}) perché a lunghezza uguale collassano su un
+segnale già presente. Sono invece state \textbf{conservate come diagnostica}. La
+distinzione è sostanziale: una quantità può essere informativa da ispezionare e
+inutile, o addirittura dannosa, da ottimizzare.
+
+\section{Il servizio remoto}
+
+La directory \texttt{remote/} contiene un servizio FastAPI e un'interfaccia
+testuale per interagire con il cluster: sottomettere celle, ispezionare la coda,
+recuperare risultati.
+
+La sua ragione d'essere è il vincolo descritto nel
+Capitolo~\ref{cap:infrastruttura}: la macchina di sviluppo non può eseguire
+l'addestramento, e il nodo di login non ha il runtime del progetto. Ogni
+operazione sperimentale passa dunque per una connessione remota, e avere
+un'interfaccia unica riduce la superficie di errore rispetto a comandi
+costruiti a mano.
+
+\section{La suite di test}
+
+Lo stato corrente è di $476$ test, tutti verdi (con una sola esclusione
+dichiarata dal codice stesso). La loro distribuzione riflette la strategia
+adottata: la maggior parte verifica componenti eseguibili senza GPU.
+
+\begin{description}
+  \item[Strutture simboliche.] Il Trie, la maschera, il calcolo dell'insieme
+        ammesso. Nessuna dipendenza dal modello.
+  \item[Reward.] Ogni componente valutata su candidati costruiti a mano,
+        compresi quelli avversari del Capitolo~\ref{cap:reward}.
+  \item[Metriche.] Compresi i casi che documentano i difetti di ROUGE-L
+        (sezione~\ref{sec:difetto-rouge}): quei valori sono asseriti nei test, in
+        modo che il difetto sia registrato e non possa essere ``corretto'' per
+        distrazione rendendo i numeri non confrontabili.
+  \item[Contratti degli obiettivi ausiliari.] L'inerzia esatta a peso nullo e i
+        rifiuti espliciti delle configurazioni incompatibili
+        (sezione~\ref{sec:contratto-ausiliari}).
+  \item[Guardie dei punti di ingresso.] I dieci test della
+        sezione~\ref{sec:bug-evalonly}, con l'invariante diretta e quella
+        inversa.
+\end{description}
+
+\subsection{Una diagnosi sbagliata, e la sua correzione}
+\label{sec:test-ssh-ritrattazione}
+
+Una precedente stesura di questa sezione dichiarava un test permanentemente
+rosso, \texttt{test\_ssh\_alias\_no\_user\_no\_port}, attribuendone il
+fallimento a una connessione SSH reale verso il cluster e quindi a una
+dipendenza dalla rete.
+
+\textbf{La diagnosi era sbagliata}, e va corretta qui perché l'errore è
+istruttivo. Il test non apre alcuna connessione: sostituisce il meccanismo di
+esecuzione con un oggetto che \emph{cattura} il comando costruito e ne verifica
+la forma (che il bersaglio sia l'alias di configurazione, senza utente
+esplicito né porta). È un test puramente locale e deterministico.
+
+L'errore di diagnosi era stato commesso osservando un fallimento e inferendone
+la causa dal nome del test invece di leggerne il corpo. È lo stesso schema che
+il Capitolo~\ref{cap:infrastruttura} documenta nei sei guasti
+infrastrutturali: una spiegazione plausibile, adottata senza verifica, che
+sopravvive perché nessuno controlla.
+
+La suite è dunque interamente verde. Il numero corrente è di $476$ test, dopo
+la rimozione dei test di componenti eliminati e
+l'aggiunta di quelli introdotti dai lavori descritti in questo capitolo:
+equivalenza del retrieval ottimizzato, stimatori di pass@$k$, superficie di
+configurazione dell'eval, cache e round-trip del servizio remoto.
+
+L'unico elemento non eseguito è un test dichiarato come tale dal codice
+stesso, non un fallimento silenzioso.
+
+\section{La pulizia del codice}
+
+Una parte sostanziale del lavoro è consistita nella rimozione di codice. Le voci
+principali:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Elemento rimosso & Note \\
+\midrule
+Automa a stack e grammatica LL(1) & mai eseguito, sovradimensionato (sez.~\ref{sec:pda-scartato}) \\
+Tre componenti di reward basate su Viterbi & ridondanti (sez.~\ref{sec:reward-rimosse}) \\
+Infrastruttura di supporto & circa $8\,774$ righe complessive \\
+Percorsi di checkpoint legacy & puntavano a directory non più prodotte \\
+Configurazioni obsolete & sostituite dalla matrice corrente \\
+Sei documenti di progetto & superati o contraddittori \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La rimozione di codice funzionante richiede giustificazione, e in ciascun caso è
+stata fornita: l'automa a stack non era mai stato eseguito e aveva un conflitto
+di parsing irrisolto; le reward basate su Viterbi erano dimostrabilmente
+ridondanti sia algebricamente sia empiricamente (entro $\pm 0{,}006$ dal
+controllo); i percorsi legacy puntavano a directory che nessuna cella corrente
+produce.
+
+Il criterio applicato è che il codice non eseguito è un costo senza
+contropartita: va mantenuto solo se esiste un piano concreto per eseguirlo. Gli
+obiettivi ausiliari del Capitolo~\ref{cap:ausiliari} sono l'eccezione
+deliberata, e per questo sono accompagnati da criteri di promozione espliciti.

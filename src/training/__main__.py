@@ -2,7 +2,7 @@
 Bootstrap entry point for T2G training scripts.
 
 Usage:
-    python -m src.training --config experiments/configs/t2g/sft-grpo.yaml [--resume] [--prepare-data]
+    python -m src.training --config experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml [--resume] [--prepare-data]
 
 Loads the config YAML and routes to the correct trainer (GRPO or SFT).
 """
@@ -10,12 +10,11 @@ Loads the config YAML and routes to the correct trainer (GRPO or SFT).
 import argparse
 import sys as _sys
 
-# ── Workaround for trl 0.24.0 bug ────────────────────────────────────
-# trl/extras/vllm_client.py unconditionally imports vllm_ascend (Huawei
-# Ascend NPU support). On NVIDIA GPUs this package does not exist and
-# the import fails with ModuleNotFoundError, crashing the training.
-# We inject a dummy module with a valid ModuleSpec into sys.modules
-# before trl is imported to satisfy Python's importlib.util.find_spec.
+# ── Workaround per bug trl 0.24.0 ────────────────────────────────────
+# trl/extras/vllm_client.py importa vllm_ascend (Huawei Ascend NPU) senza
+# condizioni: su NVIDIA il package non esiste e il ModuleNotFoundError
+# crasha il training. Dummy module con __spec__ valido in sys.modules
+# prima di importare trl.
 if "vllm_ascend" not in _sys.modules:
     import importlib.machinery
     import types
@@ -60,6 +59,34 @@ _parser.add_argument("--prepare-data", action="store_true", default=False)
 _early_args, _remaining = _parser.parse_known_args()
 
 _cfg = _peek_config(_early_args.config) if _early_args.config else {}
+
+# ── Guardia eval-only: PRIMA di caricare Unsloth ────────────────────────────
+# Le celle `baseline/*` non addestrano: ereditano una sezione `training`
+# parziale da base.yaml e non dichiarano output_dir/log_dir. La guardia sta
+# QUI perche' l'import di Unsloth (sotto) costa minuti su un nodo GPU: il
+# job 7294 falliva con KeyError: 'output_dir' solo DOPO modello e dataset.
+if _early_args.config and not _early_args.prepare_data:
+    _training = _cfg.get("training", {})
+    if _training.get("trainer", "grpo") != "sft":
+        _missing = [k for k in ("output_dir", "log_dir") if k not in _training]
+        if _missing:
+            _has_steps = bool({"max_steps", "num_train_epochs"} & set(_training))
+            _sys.stderr.write(
+                f"\n[bootstrap] Config non addestrabile: {_early_args.config}\n"
+                f"            Chiavi mancanti in `training`: "
+                f"{', '.join(_missing)}.\n"
+                + (
+                    "            Questa e' una cella EVAL-ONLY: usa "
+                    "cluster/eval.sh, non cluster/train.sh.\n"
+                    f"              CONFIG={_early_args.config} "
+                    "sbatch cluster/eval.sh\n"
+                    if not _has_steps
+                    else "            La cella dichiara step di training ma "
+                    "non le directory di output: aggiungi training.output_dir "
+                    "e training.log_dir.\n"
+                )
+            )
+            raise SystemExit(2)
 
 # Auto-disable Unsloth when using multiple GPUs
 _num_gpus = _cfg.get("model", {}).get("num_gpus", 1)

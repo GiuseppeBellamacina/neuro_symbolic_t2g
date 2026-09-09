@@ -1,0 +1,262 @@
+\chapter{Obiettivi ausiliari}
+\label{cap:ausiliari}
+
+Il Capitolo~\ref{cap:grpo} ha mostrato che il reinforcement learning su questo
+compito è schiacciato fra gruppi morti e gruppi a varianza nulla. Una risposta
+possibile è cercare segnale altrove: non in una reward su sequenze generate, ma
+in obiettivi ausiliari calcolabili in modalità \emph{teacher-forced}, cioè sui
+riferimenti noti.
+
+Sono stati implementati due obiettivi. Entrambi sono documentati qui insieme ai
+criteri che ne governano la promozione a esperimento vero, perché il punto
+metodologico del capitolo è proprio questo: \textbf{qualificare un obiettivo
+prima di addestrarlo}.
+
+\section{Obiettivo 1: la massa ammessa}
+
+\subsection{Formulazione}
+
+L'idea è di premiare il modello per la probabilità che assegna \emph{all'insieme}
+dei token legali, invece che al singolo token corretto. È esattamente la
+formulazione~\eqref{eq:allowed-mass} introdotta nei fondamenti:
+\begin{equation}
+  \label{eq:am-repeat}
+  \mathcal{L}_{\text{AM}}
+  \;=\;
+  -\log \sum_{v \in \allowed_t} \policy(v \mid x, y_{<t}),
+\end{equation}
+dove $\allowed_t$ è fornito dal Trie del Capitolo~\ref{cap:decoding} tramite il
+metodo \texttt{allowed\_mask\_for\_prefixes} e i prefissi $y_{<t}$ sono quelli
+del riferimento.
+
+Questo è apprendimento a etichette parziali~\cite{cour2011partial}, equivalente
+alla massimizzazione della verosimiglianza marginale~\cite{guu2017mml}. Va
+segnalato che nel caso profondo la formulazione ingenua della~\eqref{eq:am-repeat}
+è, contrariamente all'intuizione, un punto di partenza competitivo e non un
+ripiego~\cite{seohuh2020naive}: è la ragione per cui non è stata introdotta
+alcuna variante più elaborata. La loss totale diventa
+\begin{equation}
+  \mathcal{L} \;=\; \mathcal{L}_{\text{SFT}} \;+\; \lambda\, \mathcal{L}_{\text{AM}}
+\end{equation}
+con $\lambda$ configurabile.
+
+L'implementazione è in \texttt{src/training/allowed\_mass\_loss.py}, integrata
+nel percorso di addestramento tramite
+\texttt{src/training/auxiliary\_sft\_trainer.py}.
+
+\subsection{Nota numerica}
+
+Il termine $\log \sum \exp$ implicito nella~\eqref{eq:am-repeat} è calcolato in
+precisione a 32 bit, anche quando il resto del passaggio in avanti gira in
+precisione ridotta. La ragione è che la somma è su un insieme di migliaia di
+elementi con logits di ampiezza variabile, e in precisione dimezzata la perdita
+di cifre significative è sufficiente a produrre gradienti sbagliati. È il tipo
+di dettaglio che non si nota fino a quando l'addestramento diverge senza motivo
+apparente.
+
+\subsection{Che cosa questo obiettivo può e non può fare}
+
+Qui va ripetuta con forza l'osservazione della sezione sui fondamenti: la
+~\eqref{eq:am-repeat} è \textbf{piatta} sull'insieme ammesso. Qualunque
+ridistribuzione di massa \emph{interna} ad $\allowed_t$ lascia la loss
+invariata.
+
+Ne segue una previsione precisa, che è anche il criterio con cui l'obiettivo va
+valutato:
+\begin{itemize}
+  \item l'obiettivo può migliorare la \textbf{calibrazione}: quanta probabilità
+        il modello colloca su token legali, e quindi quanta massa il vincolo di
+        decodifica deve rimuovere;
+  \item l'obiettivo \textbf{non può}, da solo, migliorare l'exact match, perché
+        non fornisce alcuna preferenza fra i token legali.
+\end{itemize}
+
+Chiunque si aspettasse un miglioramento dell'exact match da questo obiettivo
+avrebbe un modello mentale sbagliato della sua forma funzionale. Dichiararlo in
+anticipo evita di interpretare un risultato nullo sull'exact match come un
+fallimento dell'implementazione.
+
+\section{Obiettivo 2: la loss strutturata}
+
+\subsection{Formulazione}
+
+Il secondo obiettivo introduce un termine che modella le \emph{transizioni} fra
+gloss consecutivi, nello spirito dei campi aleatori condizionali (\emph{CRF}) e
+delle loro varianti applicate a compiti di etichettatura strutturata
+\cite{goyal2019global,huang2021global,zaratiana2023semicrf}.
+
+Il modello è un CRF \emph{sparso a lunghezza esatta}: si assume che la sequenza
+di gloss abbia la stessa lunghezza della sequenza sorgente (che è il caso nel
+$27{,}5\%$ del corpus, sezione~\ref{sec:artefatti}) e si assegna un punteggio
+alle transizioni fra stati consecutivi.
+
+Lo spazio degli stati è ridotto a $513$ elementi: i $512$ gloss più frequenti
+più uno stato aggregato \texttt{OTHER} che raccoglie tutti gli altri. Le
+transizioni sono stimate esclusivamente dal training set \emph{dopo} la
+suddivisione, per evitare contaminazione.
+
+I file coinvolti sono:
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+File & Ruolo \\
+\midrule
+\texttt{src/datasets/structured\_transitions.py} & stima delle transizioni dal training \\
+\texttt{src/models/structured\_gloss\_head.py} & la testa strutturata \\
+\texttt{src/training/structured\_sft.py} & integrazione nella loss \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Vincolo di memoria}
+
+Un CRF ingenuo richiederebbe un tensore di punteggi di forma
+$[B, T, |\vocab|]$, con $B$ dimensione del batch, $T$ lunghezza e $|\vocab|$
+dimensione del vocabolario. Su un vocabolario di decine di migliaia di elementi
+questo è proibitivo.
+
+L'implementazione evita completamente quel tensore usando accumulazione sparsa
+(\texttt{scatter\_add}) in precisione a 32 bit: si aggregano i contributi
+soltanto per gli indici effettivamente coinvolti. Il requisito di memoria
+diventa proporzionale al numero di transizioni osservate, non al prodotto delle
+dimensioni.
+
+\subsection{Qualificazione: quanto informa realmente il gloss precedente?}
+\label{sec:qualificazione-strutturale}
+
+Prima di spendere tempo di GPU su questo obiettivo, è stata posta la domanda
+diretta: \emph{sapere il gloss precedente aggiunge informazione, dato che si
+conosce già il token sorgente?}
+
+La domanda è formulabile in modo esatto con l'entropia
+condizionale~\eqref{eq:cond-entropy}. La stima è stata condotta su $21\,917$
+token esclusi dall'addestramento, con una strategia di \emph{backoff} a tre
+livelli
+\begin{equation}
+  (\texttt{prev}, \texttt{src}) \;\to\; \texttt{src} \;\to\; \text{unigramma}
+\end{equation}
+per gestire le combinazioni non osservate.
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Quantità & Valore \\
+\midrule
+$H(\text{gloss} \mid \text{src})$ & $0{,}8560$ bit \\
+$H(\text{gloss} \mid \text{src}, \text{prev})$ & $0{,}8116$ bit \\
+\midrule
+Guadagno & $+0{,}0444$ bit \\
+Frazione dell'incertezza residua rimossa & $5{,}19\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il gloss precedente aggiunge $0{,}0444$ bit, cioè rimuove circa il $5\%$
+dell'incertezza che resta dopo aver visto il token sorgente. Non è zero: esiste
+un prior strutturale reale. Ma è piccolo, e fissa un limite superiore realistico
+a quanto un termine di transizione possa contribuire.
+
+\subsection{Il caveat, dichiarato}
+
+La stima soffre di una limitazione che va esposta e non nascosta: è calcolata
+solo sulle coppie \emph{allineate}, cioè sul $27{,}5\%$ del corpus in cui testo e
+gloss hanno la stessa lunghezza.
+
+Questo è problematico in modo specifico. Il fenomeno linguistico più rilevante
+identificato nell'analisi dell'SFT (sezione~\ref{sec:sft-vs-regola-analisi}) è la
+cancellazione contestuale della copula \texttt{BE}, responsabile del $65\%$ dei
+casi in cui l'SFT batte la baseline a regole. Ma una cancellazione \emph{cambia
+la lunghezza}: quei casi stanno per costruzione fuori dal sottoinsieme allineato.
+
+Il valore $+0{,}0444$ bit è dunque una stima ottenuta dove il fenomeno di
+interesse non c'è. Potrebbe sottostimare o sovrastimare il vero contributo. È una
+limitazione del metodo di stima, non un difetto dell'implementazione, e la sua
+risoluzione richiederebbe un allineamento non monotono fra le due sequenze.
+
+\subsection{Onestà sulle ritrattazioni}
+
+Questa stima è stata corretta due volte prima di arrivare al valore riportato.
+Le versioni precedenti erano affette da contaminazione fra training e valutazione
+e da un backoff mal specificato che assorbiva parte del guadagno apparente. Il
+valore $+0{,}0444$ bit è quello sopravvissuto alla verifica.
+
+Segnalarlo non è autodenigrazione: è la condizione perché il numero sia
+credibile. Un guadagno di $0{,}0444$ bit è abbastanza piccolo da poter essere
+prodotto interamente da un errore di metodo, e chi legge deve sapere che
+l'errore è stato cercato.
+
+\section{Il contratto di non regressione}
+\label{sec:contratto-ausiliari}
+
+Aggiungere termini alla loss di addestramento è una modifica invasiva: rischia
+di alterare il comportamento anche quando è disattivata. Il progetto adotta
+quindi un \emph{contratto} verificato da test, il cui contenuto è il seguente.
+
+\begin{description}
+  \item[Inerzia esatta a peso nullo.] Con peso $0$ il percorso di addestramento
+        deve essere \textbf{bit-identico} a quello del \texttt{SFTTrainer}
+        originale. Non ``approssimativamente uguale'': identico. La verifica è
+        automatica, e serve a garantire che tutte le celle sperimentali che non
+        usano gli obiettivi ausiliari non ne siano influenzate.
+  \item[Validazione prima del modello.] La funzione
+        \texttt{resolve\_auxiliary\_config} valida la configurazione
+        \emph{prima} che il modello venga caricato. Un errore di configurazione
+        deve costare secondi, non minuti (si veda la
+        sezione~\ref{sec:bug-evalonly} per il caso reale in cui questa regola era
+        violata).
+  \item[Incompatibilità rifiutate esplicitamente.] Le opzioni di
+        \emph{packing} (concatenazione di più esempi in una sequenza) e
+        \emph{padding-free} sono rifiutate, perché entrambe distruggono la
+        corrispondenza fra posizione nel tensore e posizione nella sequenza
+        originale, da cui gli obiettivi ausiliari dipendono. Rifiutare è
+        preferibile a produrre silenziosamente risultati sbagliati.
+  \item[Un solo processo.] La funzione \texttt{require\_single\_process}
+        rifiuta l'esecuzione con più di un processo. La ragione è che
+        l'aggregazione delle statistiche strutturate non è stata verificata in
+        regime distribuito; piuttosto che dedurre un comportamento non testato,
+        l'esecuzione viene bloccata.
+  \item[Marcatura delle righe ineleggibili.] Il collatore
+        \texttt{CompletionSpanCollator} marca come non eleggibili le righe
+        troncate o in cui lo span della completion non è contiguo. Su quelle
+        righe gli obiettivi ausiliari non vengono applicati, invece di essere
+        applicati a posizioni sbagliate.
+\end{description}
+
+Il filo comune è: \emph{fallire in modo rumoroso e presto}, invece di produrre
+numeri plausibili e sbagliati. È la lezione ricorrente di questo progetto, e il
+Capitolo~\ref{cap:infrastruttura} ne raccoglie cinque casi concreti.
+
+\section{I criteri di promozione}
+
+Entrambi gli obiettivi sono implementati e verificati, ma \textbf{non sono stati
+addestrati}. Non per mancanza di tempo, ma perché sono stati definiti in
+anticipo dei criteri che devono essere soddisfatti prima di spendere tempo di
+GPU.
+
+\begin{description}
+  \item[Criterio 1 (massa ammessa).] Una sonda in inferenza deve mostrare una
+        riduzione misurabile della \emph{massa rimossa} dal vincolo di
+        decodifica. Cioè: il modello addestrato con l'obiettivo deve collocare
+        più probabilità su token legali, e quindi il Trie deve dover intervenire
+        meno. Questa è la previsione che segue dalla forma funzionale
+        dell'obiettivo, e se non si verifica l'obiettivo non sta facendo ciò che
+        si crede.
+  \item[Criterio 2 (loss strutturata).] Un confronto controllato fra la testa
+        strutturata addestrata con le transizioni \emph{vere} e la stessa testa
+        addestrata con transizioni \emph{mescolate casualmente}. Se le due
+        condizioni danno lo stesso risultato, il guadagno non viene
+        dall'informazione strutturale ma dalla capacità aggiuntiva della testa, e
+        l'obiettivo va abbandonato.
+\end{description}
+
+Il secondo criterio è un controllo ablativo classico, e ha una proprietà utile:
+è \emph{poco costoso} rispetto all'addestramento completo, perché richiede solo
+la testa e non la messa a punto dell'intero modello.
+
+L'impostazione generale è che un obiettivo ausiliario non va promosso perché è
+implementato e i test passano. Va promosso quando esiste una previsione
+quantitativa derivata dalla sua forma funzionale, e quella previsione è
+verificata su un esperimento di controllo. Su questo progetto, il valore
+$+0{,}0444$ bit della sezione~\ref{sec:qualificazione-strutturale} suggerisce che
+il margine disponibile sia modesto: è un'informazione che vale la pena avere
+\emph{prima} di allocare il calcolo, non dopo.

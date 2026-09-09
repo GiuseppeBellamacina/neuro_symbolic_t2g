@@ -1,0 +1,58 @@
+# ============================================================================
+# ABLATION REWARD — edit-validity graduata come UNICA reward
+#
+# Fattore unico rispetto a grpo/few-shot.yaml: cambia SOLO lo stack di reward.
+#
+# Cos'è: `edit_validity_reward`, cioè la similarità di edit word-level con un
+# termine di validità CONTINUO (frazione di token in vocabolario), al posto del
+# gate binario a -1 usato dal branch `edit-rewards`.
+#
+# Perché il gate originale era un problema: collassava su un unico valore ogni
+# completamento con un solo token OOV, distruggendo il credit assignment fra i
+# fallimenti. Ma attenzione a non sovrastimare il fix — misurato sui rollout
+# zero-shot+Trie: dei reward a -1, solo il 2.43% viene dal gate (131 OOV su
+# 10000), il 97.57% è similarità di edit nulla, cioè un floor legittimo. Il Trie
+# forza l'output in vocabolario (frazione 0.9996), quindi un gate sull'OOV non
+# può scattare spesso. Effetto sui gruppi: morti 19.90%→19.00%, varianza zero
+# 21.45%→20.55%.
+#
+# ATTENZIONE ALLA SCALA (importante per confrontare i risultati): dove la
+# validità è ~1 — cioè sotto il Trie, sempre — questa reward si riduce
+# esattamente a `0.5 * gloss_order + 0.5`. L'advantage GRPO sottrae la media di
+# gruppo, quindi l'offset si cancella ma il fattore 0.5 no:
+#   scale_rewards='group' (default TRL, usato qui) → il fattore si cancella
+#   scale_rewards='none'  (Dr-GRPO)               → advantage DIMEZZATO
+# Questo config NON imposta scale_rewards, quindi vale il default e il confronto
+# con grpo/few-shot resta a fattore unico. Per la scala storica esatta usare
+# edit_validity_oov_weight: 0.0.
+#
+# Nota sul peso: 0.5 è nel regime sicuro (spazzatura in vocabolario 0.000 e
+# ripetizione degenere +0.125 restano sotto un quasi-corretto con 1 OOV a
+# +0.500). A 0.75 l'ordinamento SI INVERTE. Vedi tests/test_edit_validity_reward.py.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/ablations/rewards/edit-validity.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../../grpo/few-shot.yaml
+
+reward:
+  weight_edit_validity: 1.0
+  edit_validity_oov_weight: 0.5
+  # Stack storico azzerato esplicitamente: così il diff è un fattore unico e
+  # niente viene ereditato implicitamente da base.yaml.
+  weight_translation: 0.0
+  weight_bleu: 0.0
+  weight_gold_structure: 0.0
+  weight_gloss_order: 0.0
+  weight_verifier_scaled: 0.0
+  weight_format: 0.0
+  weight_repetition: 0.0
+
+training:
+  output_dir: "experiments/checkpoints/qwen25-05b/ablations/rewards/edit-validity"
+  log_dir: "experiments/logs/qwen25-05b/ablations/rewards/edit-validity"
+
+wandb:
+  run_name: "qwen25-05b-abl-reward-edit-validity"
+  tags: ["T2G", "ablation", "reward", "edit-validity", "few-shot"]

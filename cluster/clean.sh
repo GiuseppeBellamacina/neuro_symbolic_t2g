@@ -46,7 +46,7 @@ echo ""
 # PRESERVATA INTERAMENTE di default: su un cluster senza web il dataset HF
 # non è riscaricabile dai compute node (DNS assente) e vocab/bigram/retriever
 # costano minuti di calcolo. Solo --all-cache azzera data/.
-echo "[1/10] data/ — cache dati PRESERVATA di default (dataset, vocab, bigram, retriever)"
+echo "[1/9] data/ — cache dati PRESERVATA di default (dataset, vocab, bigram, retriever)"
 if [ -d "data" ]; then
     if [ "$ALL_CACHE" -eq 1 ]; then
         $CMD data/*
@@ -56,13 +56,13 @@ if [ -d "data" ]; then
 fi
 
 # ── 2. Checkpoints ────────────────────────────────────────────────────────
-echo "[2/10] experiments/checkpoints/"
+echo "[2/9] experiments/checkpoints/"
 if [ -d "experiments/checkpoints" ]; then
     $CMD experiments/checkpoints/*
 fi
 
 # ── 3. Logs SLURM + experiments/logs/ ──────────────────────────────────────
-echo "[3/10] logs/ (SLURM) + experiments/logs/ (training+eval)"
+echo "[3/9] logs/ (SLURM) + experiments/logs/ (training+eval)"
 if [ -d "logs" ]; then
     $CMD logs/*
 fi
@@ -71,43 +71,37 @@ if [ -d "experiments/logs" ]; then
 fi
 
 # ── 4. Results (eval JSON: eval_*.json, comparison.json, generations) ───
-echo "[4/10] experiments/results/ (eval JSON + comparison)"
+echo "[4/9] experiments/results/ (eval JSON + comparison)"
 if [ -d "experiments/results" ]; then
     $CMD experiments/results/*
 fi
 
 # ── 5. Figures (plot, chart, ablation summary) ───────────────────────────
-echo "[5/10] experiments/figures/ (plot + ablation_summary)"
+echo "[5/9] experiments/figures/ (plot + ablation_summary)"
 if [ -d "experiments/figures" ]; then
     $CMD experiments/figures/*
 fi
 
 # ── 6. Cache Python __pycache__ ───────────────────────────────────────────
-echo "[6/10] __pycache__/ (Python bytecode)"
+echo "[6/9] __pycache__/ (Python bytecode)"
 find . -type d -name "__pycache__" -print 2>/dev/null | while read -r p; do
     [ -d "$p" ] && $CMD "$p"
 done
 
 # ── 7. Artifact LoRA del GRPOTrainer ──────────────────────────────────────
-echo "[7/10] grpo_trainer_lora_model_*/"
+echo "[7/9] grpo_trainer_lora_model_*/"
 for d in grpo_trainer_lora_model_*; do
     [ -d "$d" ] && $CMD "$d"
 done
 
 # ── 8. Unsloth compiled cache ─────────────────────────────────────────────
-echo "[8/10] unsloth_compiled_cache/"
+echo "[8/9] unsloth_compiled_cache/"
 if [ -d "unsloth_compiled_cache" ]; then
     $CMD unsloth_compiled_cache
 fi
 
-# ── 9. grammarllm temp (parsing tables, debug logs) ──────────────────────
-echo "[9/10] grammarllm/temp/ (parsing tables + debug logs)"
-if [ -d "grammarllm/temp" ]; then
-    $CMD grammarllm/temp
-fi
-
 # ── 10. Stato pipeline + wandb local + egg-info ──────────────────────────
-echo "[10/10] .chain_state/ + wandb/ + *.egg-info/"
+echo "[9/9] .chain_state/ + wandb/ + *.egg-info/"
 [ -d ".chain_state" ] && $CMD .chain_state
 [ -d "wandb" ] && $CMD wandb
 for d in *.egg-info; do

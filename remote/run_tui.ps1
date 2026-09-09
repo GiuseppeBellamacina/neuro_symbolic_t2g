@@ -7,8 +7,11 @@
 #     .\remote\run_tui.ps1 -Token $myToken
 #
 # Resolution order:
-#   URL:   -Url param > $env:T2G_SERVICE_URL > default (Render manager /t2g)
-#   Token: -Token param > $env:T2G_AUTH_TOKEN > error + exit
+#   URL:   -Url param > $env:T2G_SERVICE_URL > TUI config screen
+#          (NO implicit production default: without a URL the TUI opens
+#          its own config screen and saves the values to .env)
+#   Token: -Token param > $env:T2G_AUTH_TOKEN > none
+#          (optional: the local service runs without auth)
 #
 # The token is NEVER hardcoded here and is never printed: it comes from
 # .env (repo root, gitignored), the process environment, or -Token.
@@ -43,30 +46,32 @@ try {
             }
         }
     } else {
-        Write-Host "[run_tui] No .env found (ok if T2G_AUTH_TOKEN is set elsewhere)" -ForegroundColor DarkGray
+        Write-Host "[run_tui] No .env found (ok if T2G_* vars are set elsewhere)" -ForegroundColor DarkGray
     }
 
-    # ── Resolve URL: param > env > default ─────────────────────────────────
+    # ── Resolve URL: param > env (nessun default di produzione) ───────────
     if (-not $Url) { $Url = $Env:T2G_SERVICE_URL }
-    if (-not $Url) { $Url = "https://render-multi-service-manager.onrender.com/t2g" }
 
-    # ── Resolve token: param > env > error ─────────────────────────────────
+    # ── Resolve token: param > env > nessuno (opzionale in locale) ────────
     if (-not $Token) { $Token = $Env:T2G_AUTH_TOKEN }
-    if (-not $Token) {
-        Write-Host "[run_tui] ERROR: no auth token found. Set T2G_AUTH_TOKEN in .env, env var, or pass -Token" -ForegroundColor Red
-        exit 1
-    }
+
+    # Senza URL la TUI apre la sua schermata di configurazione (che salva
+    # URL+token nel .env): meglio quella di un default implicito che punta
+    # alla produzione. Senza token si parte senza auth (servizio locale).
+    $tuiArgs = @()
+    if ($Url)   { $tuiArgs += "--url";   $tuiArgs += $Url }
+    if ($Token) { $tuiArgs += "--token"; $tuiArgs += $Token }
 
     Write-Host ""
     Write-Host "========================================================" -ForegroundColor Cyan
     Write-Host "  t2g TUI" -ForegroundColor Cyan
     Write-Host "========================================================" -ForegroundColor Cyan
-    Write-Host "  URL:   $Url"
-    Write-Host "  Auth:  token loaded (X-Auth-Token header, never printed)"
+    Write-Host "  URL:   $(if ($Url) { $Url } else { '(da configurare: la TUI apre la schermata di setup)' })"
+    Write-Host "  Auth:  $(if ($Token) { 'token loaded (X-Auth-Token header, never printed)' } else { 'no token (ok per il servizio locale senza auth)' })"
     Write-Host "========================================================"
     Write-Host ""
 
-    uv run --extra tui python remote/tui.py --url $Url --token $Token
+    uv run --extra tui python remote/tui.py @tuiArgs
 } finally {
     Pop-Location
 }

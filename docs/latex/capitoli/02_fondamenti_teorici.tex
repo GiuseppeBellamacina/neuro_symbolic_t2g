@@ -1,0 +1,493 @@
+\chapter{Fondamenti teorici}
+\label{cap:fondamenti}
+
+Questo capitolo introduce da zero le nozioni necessarie a leggere il resto della
+relazione. Chi ha già familiarità con modelli linguistici autoregressivi,
+adattamento a rango basso e gradiente di policy può passare direttamente al
+Capitolo~\ref{cap:dataset}.
+
+L'ordine è quello delle dipendenze logiche: prima come si rappresenta il testo
+(tokenizzazione), poi che cosa è un modello linguistico e come si addestra
+(entropia incrociata), poi come si adatta un modello grande con poche risorse
+(LoRA e quantizzazione), poi come si genera testo (decodifica), infine come si
+addestra con un segnale di qualità invece che con un riferimento
+(reinforcement learning e gradiente di policy).
+
+\section{Tokenizzazione: il testo come sequenza di simboli}
+
+Un modello linguistico non lavora su caratteri né su parole, ma su \emph{token}:
+elementi di un vocabolario finito $\vocab$ costruito una volta per tutte a
+partire da un grande corpus. Un token può essere una parola intera, un
+frammento di parola, un segno di punteggiatura o uno spazio.
+
+Formalmente, il tokenizzatore è una funzione
+\begin{equation}
+  \mathrm{tok}: \Sigma^* \longrightarrow \vocab^*
+\end{equation}
+dove $\Sigma$ è l'alfabeto dei caratteri e $\vocab^*$ l'insieme delle sequenze
+finite di token. Si richiede che $\mathrm{tok}$ sia invertibile
+(\emph{lossless}): esiste $\mathrm{detok}$ tale che
+$\mathrm{detok}(\mathrm{tok}(s)) = s$ per ogni stringa $s$.
+
+Questo dettaglio, apparentemente pedante, è centrale in questo progetto. La
+parola gloss \texttt{DESC-NOT} non è un token: viene spezzata in più token, per
+esempio \texttt{DESC}, \texttt{-}, \texttt{NOT}. Ne segue che un vincolo
+espresso a livello di \emph{parola} (``emetti solo gloss appartenenti al
+vocabolario'') deve essere tradotto in un vincolo a livello di \emph{token}
+(``emetti solo token che siano prefisso valido di almeno un gloss''). È
+esattamente il problema che il Trie del Capitolo~\ref{cap:decoding} risolve.
+
+Un secondo dettaglio: molti tokenizzatori moderni codificano lo spazio come
+parte del token successivo. Il token che rappresenta \texttt{"HOUSE"} a inizio
+frase e quello che rappresenta \texttt{"~HOUSE"} in mezzo a una frase sono
+identificatori \emph{diversi}. Anche questo ha una conseguenza diretta
+(la doppia radice del Trie, sezione~\ref{sec:trie-dual-root}).
+
+\section{Modelli linguistici autoregressivi}
+
+Sia $y = (y_1, \dots, y_T)$ una sequenza di token. Un modello linguistico
+\emph{autoregressivo} fattorizza la probabilità congiunta della sequenza usando
+la regola della catena:
+\begin{equation}
+  p_\theta(y) \;=\; \prod_{t=1}^{T} p_\theta(y_t \mid y_{<t}),
+  \qquad y_{<t} = (y_1, \dots, y_{t-1}).
+\end{equation}
+
+Nel caso condizionale che ci interessa (dato un ingresso $x$, l'inglese,
+produrre un'uscita $y$, il gloss) la fattorizzazione diventa
+\begin{equation}
+  \label{eq:ar-cond}
+  p_\theta(y \mid x) \;=\; \prod_{t=1}^{T} p_\theta(y_t \mid x, y_{<t}).
+\end{equation}
+
+Il modello calcola, a ogni passo $t$, un vettore di \emph{logits}
+$z_t \in \mathbb{R}^{|\vocab|}$, cioè un punteggio non normalizzato per ogni
+token del vocabolario. La distribuzione di probabilità si ottiene applicando la
+funzione softmax:
+\begin{equation}
+  \label{eq:softmax}
+  p_\theta(y_t = v \mid x, y_{<t})
+  \;=\;
+  \frac{\exp(z_{t,v})}{\sum_{u \in \vocab} \exp(z_{t,u})}.
+\end{equation}
+
+Il denominatore, detto \emph{funzione di partizione}, garantisce che le
+probabilità sommino a uno. Il fatto che la somma sia su \emph{tutto} il
+vocabolario è ciò che rende non banale imporre un vincolo: se si vietano alcuni
+token, il denominatore va ricalcolato sull'insieme ammesso.
+
+\subsection{Architettura: Transformer, in breve}
+
+L'architettura impiegata (Qwen2.5, si veda il Capitolo~\ref{cap:modello}) è un
+Transformer \emph{decoder-only}. Non è necessario, per leggere questa relazione,
+conoscerne i dettagli; bastano tre fatti.
+
+\begin{enumerate}
+  \item Ogni token viene trasformato in un vettore (\emph{embedding}) e passa
+        attraverso una pila di blocchi identici nella struttura.
+  \item Ogni blocco contiene un modulo di \emph{attenzione}, che mette in
+        relazione la posizione corrente con tutte le posizioni precedenti, e un
+        modulo \emph{feed-forward} (una rete densa a due strati con non
+        linearità). I moduli dell'attenzione sono chiamati per convenzione
+        \texttt{q\_proj}, \texttt{k\_proj}, \texttt{v\_proj}, \texttt{o\_proj};
+        quelli feed-forward \texttt{gate\_proj}, \texttt{up\_proj},
+        \texttt{down\_proj}. Sono esattamente i sette moduli su cui agisce
+        l'adattamento LoRA descritto più avanti.
+  \item L'attenzione è \emph{causale}: la posizione $t$ non può guardare le
+        posizioni $> t$. È questa mascheratura che rende valida la
+        fattorizzazione~\eqref{eq:ar-cond} e che permette di calcolare, in un
+        unico passaggio, le probabilità di tutti i token di una sequenza nota.
+\end{enumerate}
+
+\section{Addestramento supervisionato: entropia incrociata}
+
+Dato un insieme di esempi $\mathcal{D} = \{(x^{(i)}, y^{(i)})\}_{i=1}^N$,
+l'obiettivo dell'addestramento supervisionato è massimizzare la
+log-verosimiglianza dei riferimenti, ossia minimizzare la \emph{loss} di
+entropia incrociata:
+\begin{equation}
+  \label{eq:ce}
+  \mathcal{L}_{\text{CE}}(\theta)
+  \;=\;
+  -\frac{1}{N}\sum_{i=1}^{N} \sum_{t=1}^{T_i}
+  \log p_\theta\!\left(y^{(i)}_t \,\middle|\, x^{(i)}, y^{(i)}_{<t}\right).
+\end{equation}
+
+Interpretazione: per ogni posizione si guarda quale probabilità il modello
+assegna al token \emph{corretto} e si penalizza il logaritmo negativo di quella
+probabilità. Se il modello assegna probabilità $1$ al token corretto il
+contributo è $0$; se assegna probabilità prossima a $0$ il contributo diverge.
+
+Due proprietà rilevanti nel seguito:
+
+\begin{description}
+  \item[Teacher forcing.] Nella~\eqref{eq:ce} il condizionamento è sul
+        \emph{prefisso di riferimento} $y^{(i)}_{<t}$, non su quanto il modello
+        avrebbe generato. Questo rende l'addestramento parallelizzabile su tutte
+        le posizioni, ma crea una discrepanza fra addestramento e generazione
+        (\emph{exposure bias}): in generazione il modello condiziona sui propri
+        errori.
+  \item[Mascheratura del prompt.] Nel nostro caso interessa solo che il modello
+        impari a produrre il gloss, non a riprodurre l'inglese di ingresso. Le
+        posizioni corrispondenti al prompt vengono quindi \emph{escluse} dalla
+        somma. Nella pratica implementativa si assegna a quelle posizioni
+        l'etichetta convenzionale $-100$, che le librerie usate interpretano come
+        ``ignora'' (si veda il Capitolo~\ref{cap:sft}).
+\end{description}
+
+\subsection{Un obiettivo più debole: le etichette parziali}
+\label{sec:partial-label}
+
+Esiste una variante utile quando non si conosce il token corretto, ma si conosce
+un \emph{insieme} $\allowed_t \subseteq \vocab$ che lo contiene. In quel caso si
+può massimizzare la probabilità che il modello assegni all'insieme, invece che a
+un singolo elemento:
+\begin{equation}
+  \label{eq:allowed-mass}
+  \mathcal{L}_{\text{AM}}(\theta)
+  \;=\;
+  -\log \sum_{v \in \allowed_t} p_\theta(v \mid x, y_{<t}).
+\end{equation}
+
+Questa è la formulazione classica dell'apprendimento a etichette parziali
+(\emph{partial-label learning}, \cite{cour2011partial}) e coincide con la
+massimizzazione della verosimiglianza marginale (\emph{maximum marginal
+likelihood}, \cite{guu2017mml}). Va sottolineata una proprietà che sarà decisiva
+nel Capitolo~\ref{cap:ausiliari}: la~\eqref{eq:allowed-mass} è \emph{piatta}
+sull'insieme ammesso. Qualunque ridistribuzione della massa \emph{interna} ad
+$\allowed_t$ lascia la loss invariata. Ne segue che questo obiettivo può
+migliorare la \emph{calibrazione} (quanta probabilità va sui token legali) ma non
+può, da solo, migliorare l'exact match.
+
+\section{Adattamento efficiente: LoRA e quantizzazione}
+
+Aggiornare tutti i parametri di un modello linguistico richiede memoria per i
+pesi, per i gradienti e per gli stati dell'ottimizzatore. Due tecniche riducono
+drasticamente questo costo.
+
+\subsection{LoRA: adattamento a rango basso}
+
+L'idea di LoRA (\emph{Low-Rank Adaptation}, \cite{hu2021lora}) è che
+l'aggiornamento necessario per adattare un modello pre-addestrato a un compito
+specifico abbia \emph{rango intrinseco basso}. Invece di aggiornare una matrice
+di pesi $W_0 \in \mathbb{R}^{d \times k}$, si congela $W_0$ e si apprende un
+aggiornamento fattorizzato:
+\begin{equation}
+  \label{eq:lora}
+  W \;=\; W_0 \;+\; \Delta W,
+  \qquad
+  \Delta W \;=\; \frac{\alpha}{r}\, B A,
+\end{equation}
+con $A \in \mathbb{R}^{r \times k}$, $B \in \mathbb{R}^{d \times r}$ e
+$r \ll \min(d,k)$. Il numero di parametri addestrabili passa da $dk$ a
+$r(d+k)$.
+
+I due iperparametri hanno un significato preciso:
+\begin{itemize}
+  \item $r$ (\emph{rango}) fissa la capacità dell'adattamento;
+  \item $\alpha$ (\emph{alpha}) è un fattore di scala; il rapporto $\alpha/r$
+        nella~\eqref{eq:lora} serve a rendere l'ampiezza dell'aggiornamento
+        indipendente dalla scelta di $r$, così che cambiare $r$ non richieda di
+        ritarare il learning rate.
+\end{itemize}
+All'inizializzazione $B = 0$, quindi $\Delta W = 0$ e il modello adattato
+coincide esattamente con quello di partenza.
+
+\subsection{QLoRA: pesi quantizzati}
+
+La quantizzazione riduce la precisione numerica con cui i pesi congelati sono
+memorizzati. In QLoRA~\cite{dettmers2023qlora} i pesi base $W_0$ sono
+memorizzati a 4 bit, mentre gli adattatori $A, B$ restano in precisione più
+alta e sono gli unici a ricevere gradiente. Il risultato è che un modello che in
+precisione a 16 bit non entrerebbe in memoria diventa addestrabile su una sola
+GPU.
+
+Il costo è un rumore di quantizzazione sui pesi base. Per il presente lavoro la
+conseguenza operativa è che i risultati non sono bit-per-bit riproducibili
+cambiando backend di quantizzazione, mentre lo sono a parità di backend e seed.
+
+\section{Generazione: strategie di decodifica}
+
+Data la distribuzione~\eqref{eq:softmax}, produrre una sequenza richiede una
+regola di scelta. Le opzioni rilevanti qui sono tre.
+
+\begin{description}
+  \item[Greedy.] Si prende a ogni passo il token più probabile,
+        $y_t = \arg\max_v p_\theta(v \mid x, y_{<t})$. È deterministico ma tende
+        a produrre testo ripetitivo~\cite{holtzman2019,welleck2020unlikelihood}.
+  \item[Campionamento con temperatura.] Si campiona da una distribuzione
+        riscalata:
+        \begin{equation}
+          \label{eq:temperature}
+          p^{(\tau)}_\theta(v) \;\propto\; \exp\!\left(\frac{z_{t,v}}{\tau}\right).
+        \end{equation}
+        Per $\tau \to 0$ si recupera il greedy; per $\tau = 1$ la distribuzione
+        del modello; per $\tau > 1$ una distribuzione più piatta, quindi più
+        varia. La temperatura è il principale strumento per controllare la
+        diversità dei candidati, e nel reinforcement learning è ciò che
+        determina se il gruppo di candidati contiene o no differenze su cui
+        apprendere.
+  \item[Decodifica vincolata.] Si azzera la probabilità dei token non ammessi
+        prima della normalizzazione. Operativamente si pone
+        $z_{t,v} \leftarrow -\infty$ per $v \notin \allowed_t$, cosicché
+        \begin{equation}
+          \label{eq:constrained}
+          p_\theta(v \mid x, y_{<t}, \allowed_t)
+          =
+          \begin{cases}
+            \dfrac{\exp(z_{t,v})}{\sum_{u \in \allowed_t}\exp(z_{t,u})}
+              & v \in \allowed_t,\\[2ex]
+            0 & \text{altrimenti.}
+          \end{cases}
+        \end{equation}
+        Questa è la forma di generazione con \emph{lessico chiuso} adottata nel
+        Capitolo~\ref{cap:decoding}, ed è imparentata con la decodifica
+        grammaticalmente vincolata~\cite{geng2023gcd,park2024gad} e con la
+        decodifica a vincoli lessicali~\cite{hokamp2017,post2018}.
+\end{description}
+
+Va osservato che la~\eqref{eq:constrained} \emph{non} è una semplice
+riparametrizzazione: sposta massa di probabilità dai token vietati a quelli
+ammessi in proporzione ai logits originali. Il modello non ``sa'' di essere
+vincolato, dunque il vincolo può produrre sequenze che il modello non avrebbe
+mai generato liberamente. È il motivo per cui il vincolo può \emph{peggiorare}
+una metrica di sovrapposizione e contemporaneamente \emph{migliorare} la
+validità strutturale.
+
+\section{Strutture dati simboliche: il Trie}
+
+Un \emph{Trie} (o albero dei prefissi) è un albero in cui ogni nodo rappresenta
+un prefisso e ogni arco è etichettato con un simbolo. Dato un vocabolario finito
+di stringhe $G$ (nel nostro caso: l'insieme dei gloss ammessi), il Trie
+costruito su $G$ permette di rispondere in tempo proporzionale alla lunghezza
+del prefisso alla domanda:
+\begin{quote}
+  ``dato il prefisso di token $s$, quali token possono seguire senza rendere
+  impossibile il completamento in un elemento di $G$?''
+\end{quote}
+
+Formalmente, detto $\mathrm{Pref}(G)$ l'insieme dei prefissi di token degli
+elementi di $G$, l'insieme ammesso è
+\begin{equation}
+  \label{eq:trie-allowed}
+  \allowed(s) \;=\; \{\, v \in \vocab \;:\; s \cdot v \in \mathrm{Pref}(G) \,\}
+\end{equation}
+dove $\cdot$ denota la concatenazione. Il Trie è precisamente la struttura che
+materializza $\mathrm{Pref}(G)$ in modo che la~\eqref{eq:trie-allowed} sia
+calcolabile con un accesso a un dizionario.
+
+Un Trie riconosce il linguaggio $G$, che è finito e quindi regolare. Un
+automa a stack (\emph{pushdown automaton}) riconosce linguaggi context-free,
+strettamente più espressivi. La scelta fra i due, nel
+Capitolo~\ref{cap:decoding}, è motivata dal fatto che il linguaggio target di
+questo progetto è \texttt{gloss*}, cioè una semplice chiusura di Kleene su un
+insieme finito: un Trie è sufficiente, e un automa a stack sarebbe
+sovradimensionato.
+
+\section{Apprendimento per rinforzo: impostazione}
+
+Nell'addestramento supervisionato si dispone del riferimento $y^{(i)}$. Nel
+reinforcement learning si dispone invece di un \emph{segnale di qualità}, la
+\emph{reward}, che valuta un'uscita prodotta dal modello stesso.
+
+Si modella la generazione come un processo decisionale:
+\begin{itemize}
+  \item lo \emph{stato} al passo $t$ è il prefisso $(x, y_{<t})$;
+  \item l'\emph{azione} è la scelta del token $y_t$;
+  \item la \emph{policy} è il modello stesso, $\policy(y_t \mid x, y_{<t})$;
+  \item la \emph{reward} $R(x, y) \in \mathbb{R}$ è assegnata alla sequenza
+        completa (\emph{reward terminale}).
+\end{itemize}
+
+L'obiettivo è massimizzare la reward attesa:
+\begin{equation}
+  \label{eq:rl-objective}
+  J(\theta) \;=\; \mathbb{E}_{x \sim \mathcal{D}}\;
+                  \mathbb{E}_{y \sim \policy(\cdot \mid x)}
+                  \big[ R(x, y) \big].
+\end{equation}
+
+\subsection{Il gradiente di policy}
+
+Il problema tecnico è che la variabile rispetto a cui si deriva, $\theta$,
+compare nella distribuzione su cui si prende l'aspettazione. La soluzione
+classica è l'identità del \emph{likelihood ratio}: poiché
+$\nabla_\theta \policy(y) = \policy(y)\, \nabla_\theta \log \policy(y)$, si
+ottiene
+\begin{equation}
+  \label{eq:pg}
+  \nabla_\theta J(\theta)
+  \;=\;
+  \mathbb{E}_{y \sim \policy}\big[ R(x,y)\, \nabla_\theta \log \policy(y \mid x) \big].
+\end{equation}
+Questo è il teorema del gradiente di policy, alla base di REINFORCE
+\cite{williams1992reinforce}. Il significato è diretto: si aumenta la
+log-probabilità delle sequenze con reward alta e si diminuisce quella delle
+sequenze con reward bassa.
+
+\subsection{Baseline e vantaggio}
+
+La stima~\eqref{eq:pg} è corretta ma ha varianza elevata. Si dimostra che
+sottrarre una qualunque quantità $b$ indipendente dall'azione lascia il
+gradiente inalterato in aspettazione, poiché
+$\mathbb{E}_{y \sim \policy}[\nabla_\theta \log \policy(y)] = 0$. Si definisce
+allora il \emph{vantaggio}
+\begin{equation}
+  \label{eq:advantage}
+  A(x,y) \;=\; R(x,y) - b(x)
+\end{equation}
+e si sostituisce $R$ con $A$ nella~\eqref{eq:pg}. La scelta di $b(x)$ è ciò che
+distingue gli algoritmi fra loro: PPO~\cite{schulman2017ppo}, impiegato anche
+nella messa a punto di modelli linguistici con feedback
+umano~\cite{ouyang2022instructgpt}, apprende una rete
+separata (il \emph{critic}) che stima $b(x)$; GRPO~\cite{shao2024grpo} usa
+invece la media delle reward di un gruppo di candidati generati per lo stesso
+$x$, eliminando il critic. Il dettaglio è nel Capitolo~\ref{cap:grpo}.
+
+Da~\eqref{eq:advantage} segue un fatto che ricorrerà come chiave interpretativa
+di tutta la parte sperimentale: se \emph{tutti} i candidati per un dato $x$
+ricevono la stessa reward, allora $A = 0$ per ciascuno e il gradiente è nullo.
+Quel prompt non contribuisce all'apprendimento. Chiameremo \emph{gruppo morto}
+un gruppo in questa condizione, e \emph{supporto} la frazione di gruppi che
+producono un gradiente non nullo.
+
+\subsection{Vincolo di prossimità e regolarizzazione KL}
+
+Aggiornamenti troppo grandi degradano la policy in modo irreversibile. Si
+introduce quindi un termine che penalizza l'allontanamento da una policy di
+riferimento $\reference$ (tipicamente il modello prima
+dell'addestramento per rinforzo):
+\begin{equation}
+  \label{eq:kl}
+  J_{\beta}(\theta)
+  \;=\;
+  \mathbb{E}\big[A(x,y)\big]
+  \;-\;
+  \beta \, D_{\mathrm{KL}}\!\left(\policy \,\|\, \reference\right),
+\end{equation}
+dove $D_{\mathrm{KL}}(p\|q) = \sum_v p(v) \log \frac{p(v)}{q(v)} \ge 0$ è la
+divergenza di Kullback-Leibler, nulla se e solo se $p = q$. Il coefficiente
+$\beta$ regola quanto la policy è libera di allontanarsi dal riferimento.
+
+\subsection{Perché la reward va progettata con sospetto}
+
+Ottimizzare una reward imperfetta produce comportamenti che massimizzano la
+misura senza migliorare l'obiettivo reale. È il fenomeno noto come
+\emph{reward hacking} o \emph{specification gaming}
+\cite{amodei2016concrete,gao2022overoptimization}; un caso documentato e
+pertinente è la deriva verso risposte più lunghe quando la reward correla con la
+lunghezza~\cite{singhal2023length}. La teoria classica del \emph{reward shaping}
+\cite{ng1999shaping} caratterizza quali trasformazioni della reward preservano
+la politica ottima; nella pratica di questo progetto la contromisura adottata è
+diversa e più diretta: ogni componente di reward viene sottoposta a test
+avversari costruiti a mano (Capitolo~\ref{cap:reward}).
+
+\section{Nozioni di teoria dell'informazione}
+
+Due quantità servono nel seguito per misurare quanta incertezza esista in un
+compito.
+
+L'\emph{entropia} di una variabile discreta $Y$ misura l'incertezza media, in
+bit:
+\begin{equation}
+  \label{eq:entropy}
+  H(Y) \;=\; -\sum_{y} p(y) \log_2 p(y).
+\end{equation}
+
+L'\emph{entropia condizionale} misura l'incertezza residua su $Y$ una volta noto
+$X$:
+\begin{equation}
+  \label{eq:cond-entropy}
+  H(Y \mid X) \;=\; -\sum_{x,y} p(x,y) \log_2 p(y \mid x).
+\end{equation}
+
+La differenza $H(Y) - H(Y \mid X) = I(X;Y)$ è l'informazione mutua: quanta
+incertezza su $Y$ viene rimossa dall'osservazione di $X$. Nel
+Capitolo~\ref{cap:dataset} queste quantità vengono stimate empiricamente sul
+corpus per rispondere a una domanda concreta: quanta incertezza resta sul gloss
+una volta noto il token inglese corrispondente? La risposta ($0{,}856$ bit su
+$8{,}578$) quantifica in che senso il compito sia quasi deterministico.
+
+\section{Metriche di valutazione: definizioni}
+
+Le metriche usate nel seguito vanno definite qui, perché la loro forma esatta
+determina l'interpretazione dei risultati.
+
+\begin{description}
+  \item[Exact match (EM).] Frazione di uscite identiche al riferimento dopo
+        normalizzazione. È una metrica binaria e severa, ma non manipolabile.
+  \item[ROUGE-L.] Basata sulla più lunga sottosequenza comune
+        (\emph{longest common subsequence}, LCS) fra generato $g$ e riferimento
+        $r$~\cite{lin2004rouge}. Con
+        $P = \mathrm{LCS}(g,r)/|g|$ e $R = \mathrm{LCS}(g,r)/|r|$, la misura
+        $F$ è
+        \begin{equation}
+          \label{eq:rouge}
+          F_1 \;=\; \frac{2PR}{P+R}.
+        \end{equation}
+        Essendo una sottosequenza (non una sottostringa), l'ordine conta ma non
+        la contiguità.
+  \item[BLEU.] Media geometrica delle precisioni su $n$-grammi, con una
+        penalità per uscite troppo brevi~\cite{papineni2002bleu}. Va distinta la
+        variante \emph{a frase} (mediata sulle frasi) da quella \emph{a corpus}
+        (con conteggi aggregati): danno numeri diversi e vanno riportate
+        separatamente.
+  \item[chrF.] Analoga a BLEU ma su $n$-grammi di \emph{caratteri}
+        \cite{popovic2015chrf}; più robusta alla morfologia.
+  \item[Pass@$k$.] Frazione di prompt per cui almeno una fra $k$ generazioni
+        supera una soglia di correttezza. Detti $g^{(i)}_1, \dots, g^{(i)}_N$ le
+        $N$ generazioni per il prompt $i$, $r^{(i)}$ il riferimento, $\theta$ la
+        soglia e $\mathbb{1}[\cdot]$ la funzione indicatrice, la definizione
+        adottata in questo lavoro è
+        \begin{equation}
+          \label{eq:passk}
+          \mathrm{pass@}k
+          \;=\;
+          \frac{1}{M}\sum_{i=1}^{M}
+          \mathbb{1}\!\left[\;\exists\, j \le k :\;
+            \mathrm{ROUGE\text{-}L}\!\left(g^{(i)}_j, r^{(i)}\right) \ge \theta
+          \right],
+        \end{equation}
+        dove $M$ è il numero di prompt. Si tratta di una \emph{media empirica}
+        sulle prime $k$ generazioni di ciascun prompt, con $\theta = 0{,}3$.
+
+        Va segnalato, perché è fonte di confusione, che questa \textbf{non} è la
+        forma combinatoria $1 - \binom{n-c}{k} / \binom{n}{k}$ diffusa in
+        letteratura, la quale stima senza distorsione la probabilità di successo
+        su $k$ estrazioni a partire da $n > k$ campioni osservati. Quella forma
+        non è impiegata qui. La differenza è discussa nel
+        Capitolo~\ref{cap:metriche}, insieme a un secondo stimatore empirico
+        della stessa quantità che il codice riporta accanto al primo.
+\end{description}
+
+Un avvertimento che il Capitolo~\ref{cap:metriche} svilupperà in dettaglio:
+tutte le metriche di questa lista, tranne l'exact match, sono metriche di
+\emph{sovrapposizione}. Su un compito in cui l'uscita corretta è in larga parte
+una copia dell'ingresso, esse assegnano punteggi alti a sistemi che non hanno
+imparato nulla. Per questo il progetto introduce una metrica complementare, la
+\emph{non-copy-token accuracy}, che valuta solo le posizioni in cui il gloss
+\emph{differisce} dal testo di partenza.
+
+\section{Riepilogo della notazione}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Simbolo & Significato \\
+\midrule
+$x$ & frase inglese di ingresso (prompt) \\
+$y$ & sequenza di gloss generata \\
+$\vocab$ & vocabolario di token del modello \\
+$\allowed_t$ & insieme dei token ammessi al passo $t$ \\
+$\policy$ & policy corrente (il modello addestrato) \\
+$\reference$ & policy di riferimento (modello prima del RL) \\
+$z_t$ & logits al passo $t$ \\
+$R(x,y)$ & reward della sequenza completa \\
+$A(x,y)$ & vantaggio \\
+$G$ & numero di candidati per gruppo (GRPO) \\
+$r, \alpha$ & rango e scala di LoRA \\
+$\beta$ & coefficiente della penalità KL \\
+$\tau$ & temperatura di campionamento \\
+\bottomrule
+\end{tabular}
+\end{center}

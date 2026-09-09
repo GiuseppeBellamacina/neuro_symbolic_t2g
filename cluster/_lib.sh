@@ -18,10 +18,35 @@
 
 PROJ_DIR="$HOME/neuro_symbolic_t2g"
 
+# --- Offline environment (i nodi compute NON hanno rete) -------------------
+# La cache HF DEVE restare su $HOME/.cache/huggingface: e' la cache NFS
+# storica, visibile ai job compute e popolata dalla fase di setup (l'unico
+# percorso online). Puntarla altrove significa ripartire da una cache vuota su
+# un nodo senza rete, cioe' un fallimento garantito.
+T2G_HF_HOME_DEFAULT="$HOME/.cache/huggingface"
+
+# export_offline_env - va chiamata da OGNI script compute PRIMA della prima
+# invocazione di run_py/python/apptainer: i client hub leggono queste variabili
+# al momento dell'import, quindi esportarle dopo non ha effetto.
+export_offline_env() {
+    export HF_HUB_OFFLINE=1
+    export TRANSFORMERS_OFFLINE=1
+    export HF_DATASETS_OFFLINE=1
+    export WANDB_MODE=offline
+    # wandb 0.25 tenta il login via weave anche in modalita' offline.
+    export WANDB_DISABLE_WEAVE=true
+    export WANDB_SILENT=true
+    export PYTHONUNBUFFERED=1
+    if [ -z "${HF_HOME:-}" ]; then
+        export HF_HOME="$T2G_HF_HOME_DEFAULT"
+    fi
+    mkdir -p "$HF_HOME" 2>/dev/null || true
+    export HF_HUB_CACHE="${HF_HUB_CACHE:-$HF_HOME/hub}"
+}
+
 # ── .chain_state paths (single source of truth) ──────────────────────────────
 STATE_DIR="$PROJ_DIR/.chain_state"
 CHAIN_FILE="$STATE_DIR/job_chain"        # queue: one "type:cfg:tag[:extra]" per line
-FAILED_FILE="$STATE_DIR/chain_failed"    # legacy: last non-resumable failure
 ERRORS_FILE="$STATE_DIR/chain_errors"    # JSONL failure log (read by the monitor)
 LAST_JOB_FILE="$STATE_DIR/last_job"      # "id:type:cfg:tag:retries" of last submission
 STOPPED_FILE="$STATE_DIR/chain_stopped"  # present ⇒ pipeline paused by chain-stop
@@ -384,14 +409,38 @@ monitor_cache_clear() {
 # COMPUTE-node scripts (train.sh/eval.sh/setup.sh jobs) — never from
 # login-node scripts. Set RUN_PY_FORCE_BARE=1 to skip Apptainer (used by
 # setup.sh, which is already inside the container).
+# NOTA CRITICA: per il Python invocato da qui si usa `apptainer exec`, mai
+# `apptainer run`. Con `run`
+# l'ENTRYPOINT del SIF ri-processa gli argomenti e CORROMPE l'argv di
+# `python -c "<codice multi-riga>"` (comportamento verificato in produzione su
+# questo cluster). Tutte le chiamate qui sotto passano codice quotato, quindi
+# `exec` è obbligatorio. Vedi docs/RECOVERY_REPORT.md §7.
+# L'ambiente offline viene passato al container SIA per ereditarietà (grazie a
+# export_offline_env) SIA con --env espliciti, così la garanzia vale
+# indipendentemente da come apptainer gestisce l'ambiente.
 run_py() {
-    if [ "${RUN_PY_FORCE_BARE:-0}" = "1" ]; then
+    if [ -n "${APPTAINER_CONTAINER:-}" ] || [ "${RUN_PY_FORCE_BARE:-0}" = "1" ]; then
         python3 "$@"
         return
     fi
     if command -v apptainer >/dev/null 2>&1 && [ -f /shared/sifs/latest.sif ]; then
-        apptainer run --nv /shared/sifs/latest.sif python3 "$@"
+        apptainer exec --nv \
+            --env "HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}" \
+            --env "TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}" \
+            --env "HF_DATASETS_OFFLINE=${HF_DATASETS_OFFLINE:-1}" \
+            --env "WANDB_MODE=${WANDB_MODE:-offline}" \
+            --env "WANDB_DISABLE_WEAVE=${WANDB_DISABLE_WEAVE:-true}" \
+            --env "WANDB_SILENT=${WANDB_SILENT:-true}" \
+            --env "PYTHONUNBUFFERED=${PYTHONUNBUFFERED:-1}" \
+            --env "HF_HOME=${HF_HOME:-$T2G_HF_HOME_DEFAULT}" \
+            --env "HF_HUB_CACHE=${HF_HUB_CACHE:-${HF_HOME:-$T2G_HF_HOME_DEFAULT}/hub}" \
+            --env "PYTORCH_ALLOC_CONF=${PYTORCH_ALLOC_CONF:-}" \
+            /shared/sifs/latest.sif \
+            python3 "$@"
     else
+        # Fallback conservato dalla versione storica: preferibile a un
+        # hard-fail, perché mantiene funzionanti le invocazioni che già
+        # giravano (es. login node con runtime idoneo, o ambienti di test).
         python3 "$@"
     fi
 }
@@ -401,8 +450,34 @@ run_py() {
 # truth in _lib.sh. Fails loudly (returns 1) so each caller decides:
 #   train.sh/eval.sh (set -e) → abort the job;
 #   setup.sh                   → warn and defer to the first training.
+# Guardia verify-only: se gli artefatti reali sono presenti NON si tenta nulla.
+# Il controllo storico usava "data/aslg_pc12_train", un path che la produzione
+# non crea mai (src/datasets/aslg_dataset.py: DEFAULT_CACHE_DIR="data/aslg_pc12"),
+# quindi era sempre falso e ogni job provava a scaricare: fatale su un nodo
+# compute senza rete. Vedi docs/RECOVERY_REPORT.md §7.
+_t2g_artifacts_present() {
+    [ -d "data/aslg_pc12" ] && [ -n "$(ls -A data/aslg_pc12 2>/dev/null)" ] \
+        && [ -f "data/gloss_vocab.txt" ]
+}
+
 prepare_data() {
-    if [ ! -d "data/aslg_pc12_train" ] || [ ! -f "data/gloss_vocab.txt" ]; then
+    # Il blocco dataset gira SOLO se gli artefatti reali mancano. Il blocco
+    # bigram piu' sotto resta sempre raggiungibile: ogni eval_final.json
+    # storico contiene bigram_log_prob_mean, quindi il produttore del bigram
+    # non va mai saltato (vedi docs/RECOVERY_REPORT.md §9b).
+    if ! _t2g_artifacts_present; then
+        # Nessun artefatto e nodo offline: fallire subito con un messaggio utile
+        # e' meglio che accumulare ~30s di retry HF e morire in modo opaco.
+        # NOTA: qui non esiste un override "scarica comunque". Sarebbe inefficace:
+        # run_py inoltra --env HF_HUB_OFFLINE=1 nel container, quindi il download
+        # fallirebbe comunque all'interno. L'unico percorso online e' setup.sh,
+        # come da policy del cluster.
+        if [ "${HF_HUB_OFFLINE:-0}" = "1" ]; then
+            echo "? Artefatti mancanti e nodo offline (HF_HUB_OFFLINE=1)." >&2
+            echo "   Attesi: data/aslg_pc12/ (cache HF) e data/gloss_vocab.txt" >&2
+            echo "   Eseguire 'setup.sh' sul percorso online per popolarli." >&2
+            return 1
+        fi
         echo "Dataset ASLG-PC12 o vocabolario non trovati, rigenerazione in corso..."
         if ! run_py -c "
 from src.datasets.aslg_dataset import download_aslg_dataset, extract_gloss_vocabulary, save_vocabulary, build_t2g_dataset

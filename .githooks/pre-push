@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================================
-# pre-push hook — sincronizza src/, config/, grammarllm/, e file chiave
+# pre-push hook — sincronizza src/, config/, e file chiave
 # sul cluster DMI solo se i commit in push contengono file modificati
 # in quelle cartelle.
 #
@@ -32,7 +32,6 @@ while read local_ref local_sha remote_ref remote_sha; do
 echo "$CHANGED" | grep -q '^src/' && SYNC_DIRS="$SYNC_DIRS src/"
 echo "$CHANGED" | grep -q '^cluster/' && SYNC_DIRS="$SYNC_DIRS cluster/"
 echo "$CHANGED" | grep -q '^experiments/configs/' && SYNC_DIRS="$SYNC_DIRS experiments/configs/"
-echo "$CHANGED" | grep -q '^grammarllm/' && SYNC_DIRS="$SYNC_DIRS grammarllm/"
     echo "$CHANGED" | grep -q '^pyproject\.toml$' && SYNC_FILES="$SYNC_FILES pyproject.toml"
     echo "$CHANGED" | grep -q '^main\.py$' && SYNC_FILES="$SYNC_FILES main.py"
 

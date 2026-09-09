@@ -5,9 +5,9 @@
 # Rileva automaticamente il tipo di training dal YAML (training.trainer: sft|grpo).
 #
 # Uso:
-#   CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/train.sh
-#   CONFIG=experiments/configs/t2g/sft-only.yaml sbatch cluster/train.sh
-#   CONFIG=experiments/configs/t2g/sft-grpo.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh
+#   CONFIG=experiments/configs/qwen25-05b/sft/zero-shot.yaml sbatch cluster/train.sh
+#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 #
 # Per il primo avvio eseguire prima:  bash cluster/setup.sh
 # ============================================================================
@@ -19,6 +19,17 @@
 #SBATCH --account=thesis-course
 #SBATCH --partition=thesis-course
 #SBATCH --qos=gpu-xlarge
+# Walltime esplicito (prima valeva il default della partizione: un job poteva
+# essere ucciso a metà). QoS gpu-xlarge = 12h MAX (CLUSTER.md §"Vincoli del
+# cluster"): oltre, sbatch RIFIUTA il job alla sottomissione. Calcolo:
+#   GRPO: 5000 passi × ~4,3 s/step ≈ 6h, più setup (model load, prepare_data)
+#   e salvataggi → ~6,5h con margine. 11:45:00 lascia ~15 min sotto il cap
+#   QoS per il salvataggio finale.
+#   NB celle sft-grpo SENZA adapter SFT riusabile (fingerprint): la Phase 0
+#   SFT (3 epoche ≈ 13.700 passi) si somma e può sfiorare il cap — in quel
+#   caso addestrare prima sft/zero-shot (adapter riusato) o contare su
+#   --resume dopo un eventuale TIMEOUT (save_steps: 500 nel config).
+#SBATCH --time=11:45:00
 #SBATCH --mem=48G
 #SBATCH --cpus-per-task=8
 #SBATCH --gres=gpu:1 --gres=shard:22528
@@ -31,7 +42,7 @@ EXTRA_ARGS="${EXTRA_ARGS:-}"
 
 if [ -z "$CONFIG" ]; then
     echo "❌ CONFIG non impostato. Uso:"
-    echo "  CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/train.sh"
+    echo "  CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh"
     exit 1
 fi
 
@@ -63,8 +74,9 @@ echo "============================================"
 
 mkdir -p logs
 
-export WANDB_MODE=offline
-export PYTHONUNBUFFERED=1
+# Ambiente offline centralizzato (_lib.sh): va esportato PRIMA di qualunque
+# python/apptainer, perche i client HF leggono queste variabili all import.
+export_offline_env
 
 # Prepara dataset/vocab/bigram se mancanti (funzione shared da _lib.sh,
 # idempotente — era triplicata tra setup.sh/train.sh/eval.sh).
@@ -79,7 +91,7 @@ prepare_data
 # → model_info → ConnectError, vedi slurm-eval-7077). Con HF_HUB_OFFLINE=1
 # transformers tratta ogni modello come locale e salta i check di rete.
 # DOPO prepare_data: il fallback download al primo avvio conserva la rete.
-export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1
+# (export offline gia effettuato sopra da export_offline_env)
 
 echo ""
 echo "Avvio training..."

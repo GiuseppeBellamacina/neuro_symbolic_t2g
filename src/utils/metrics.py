@@ -11,6 +11,7 @@ from __future__ import annotations
 import random
 import re
 from collections import Counter
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
@@ -18,11 +19,56 @@ from rouge_score import rouge_scorer
 
 from src.utils.text_utils import extract_gloss_text
 
+# tqdm fallback per i container Apptainer del cluster senza tqdm installato
+# (stessa pattern di src/datasets/aslg_dataset.py): la barra del bootstrap è
+# una comodità diagnostica, mai una dipendenza dura dell'eval.
+try:
+    from tqdm import tqdm
+except ImportError:
+
+    def tqdm(iterable=None, **kwargs):
+        """No-op fallback when tqdm is not installed."""
+        return iterable if iterable is not None else iter(())
+
+
 # Version of the metric definitions. Bump whenever a metric formula changes
 # (e.g. v2 = corpus BLEU/chrF reference-format fix). Eval results carry this
 # stamp so cached baselines computed with older definitions are detected and
 # recomputed instead of silently compared against new ones.
 METRICS_VERSION = 2
+
+# WARNING — ROUGE-L NON E' UNA METRICA HEADLINE VALIDA SU QUESTO CORPUS. Due
+# difetti MISURATI su ASLG-PC12 gonfiano i punteggi anche di output che non
+# sono gloss: (1) ``rouge_score`` lowercase e splitta sui non-alfanumerici
+# (rouge("cat sat", "CAT SAT") == 1.00; DESC-GOOD vs DESC-BAD fa 0.5 sul
+# prefisso condiviso ``desc``) e ~62% dei token di gloss e' il token sorgente
+# upppercased, quindi chi copia l'input inglese raccoglie punteggio alto;
+# (2) il lato gloss del corpus e' derivabile da regole, quindi l'overlap e'
+# saturo: una regola lessicale word-level fa ROUGE-L 0.9697 sul test ufficiale
+# completo contro 0.9752 dell'SFT (delta +0.0067). Conseguenza misurata sulle
+# generazioni salvate: con ROUGE-L il decoding vincolato sembra DANNOSO
+# (0.365 -> 0.137), con una metrica copy-insensitive aiuta di ~70x
+# (non-copy-token accuracy 0.0006 -> 0.0432). Metriche primarie: quindi
+# ``exact_match`` e ``non_copy_token_accuracy`` (implementata in QUESTO modulo
+# e ri-esportata da ``src.analysis.rule_baseline`` per retrocompatibilita').
+# ROUGE-L resta per confronto con i numeri pubblicati su ASLG-PC12, mai come
+# headline e sempre accanto alla rule baseline. See docs/RECOVERY_REPORT.md §9.
+#: Metrics that must not be used to rank systems on ASLG-PC12.
+SATURATED_OVERLAP_METRICS = (
+    "rouge_l_mean",
+    "rouge_l_median",
+    "valid_rouge_l_mean",
+    "gloss_f1_micro",
+    "gloss_f1_sentence_mean",
+    "chrf_corpus",
+    "chrf_sentence_mean",
+)
+
+#: Metrics that discriminate between "copied English" and "produced gloss".
+PRIMARY_METRICS = (
+    "exact_match",
+    "non_copy_token_accuracy",
+)
 
 
 def check_gloss_validity(completion: str) -> tuple[bool, str]:
@@ -211,15 +257,6 @@ _FREE_REWARD_COMPONENTS: tuple[str, ...] = (
     "gloss_repetition_reward",
 )
 
-#: Optional structural components that may be removed by refactors of
-#: ``src.rewards`` — looked up defensively so a missing function is
-#: skipped instead of crashing the eval.
-_OPTIONAL_FREE_REWARD_COMPONENTS: tuple[str, ...] = (
-    "structural_dense_reward",
-    "viterbi_distance_reward",
-    "soft_viterbi_distance_reward",
-)
-
 
 def compute_reward_breakdown(
     completions: list[str],
@@ -235,9 +272,7 @@ def compute_reward_breakdown(
 
     Gold-dependent components (translation quality, BLEU, gold
     structure, gloss order, verifier-scaled) are only computed when
-    ``references`` is provided; otherwise they are skipped.  Structural
-    components that no longer exist in the rewards module (e.g. the
-    dense Viterbi proxies) are skipped gracefully via attribute lookup.
+    ``references`` is provided; otherwise they are skipped.
 
     Args:
         completions: Generated gloss sequences.
@@ -258,10 +293,6 @@ def compute_reward_breakdown(
     free_components: dict[str, Any] = {
         name: getattr(rewards_mod, name) for name in _FREE_REWARD_COMPONENTS
     }
-    for name in _OPTIONAL_FREE_REWARD_COMPONENTS:
-        fn = getattr(rewards_mod, name, None)
-        if fn is not None:
-            free_components[name] = fn
 
     has_refs = bool(references) and len(references) == len(completions)
 
@@ -308,6 +339,17 @@ def _get_sacrebleu_bleu() -> Any:
     against the n-gram orders actually present instead of collapsing to
     0) and ``floor`` smoothing, matching the configuration used by
     ``bleu_reward`` in ``src.rewards.t2g_rewards``.
+
+    ``force=True`` sopprime il warning sacrebleu sui dati pre-tokenizzati
+    ("That's 100 lines that end in a tokenized period"). La soppressione è
+    CONSAPEVOLE, non una scorciatoia: il gloss ASL ha la punteggiatura come
+    token separato (``X-Y WILL DESC-NOT FLINCH .``), quindi ogni hyp termina
+    legittimamente con ``.`` e sacrebleu lo scambia per dato dimenticato
+    detokenizzato. Il warning non indica alcun difetto dei nostri dati.
+    Conseguenza documentata (docs/EVALUATION.md §6): i valori ASSOLUTI di
+    BLEU non sono confrontabili con numeri pubblicati calcolati su dato
+    detokenizzato; i confronti fra celle di questo progetto restano validi
+    perché tutte usano lo stesso protocollo.
     """
     global _SACREBLEU_BLEU_METRIC
     if _SACREBLEU_BLEU_METRIC is None:
@@ -317,6 +359,10 @@ def _get_sacrebleu_bleu() -> Any:
             effective_order=True,
             smooth_method="floor",
             smooth_value=0.1,
+            # Dato pre-tokenizzato (il gloss ha "." come token): silenzia il
+            # check "tokenized period" di sacrebleu (<= 2.4.x; il parametro
+            # e' accettato da entrambe le versioni).
+            force=True,
         )
     return _SACREBLEU_BLEU_METRIC
 
@@ -364,13 +410,10 @@ def bleu_corpus(generated: list[str], references: list[str]) -> float:
     if not generated or not references:
         return 0.0
     hyps = [extract_gloss_text(g) for g in generated]
-    # sacrebleu corpus_score expects a list of reference STREAMS, where each
-    # stream is the full corpus translated once: refs = [[r1, r2, ..., rN]].
-    # The previous format [[r1], [r2], ...] (one stream per sentence) made
-    # sacrebleu treat the corpus as N "parallel references" of a single
-    # sentence, degenerating to a near-sentence-level score on a tiny slice
-    # (sys_len/ref_len ≈ one sentence) — e.g. corpus BLEU 0.87 with sentence
-    # mean 0.18. Fixed 2026-08-29.
+    # sacrebleu corpus_score vuole STREAM di reference: refs = [[r1, ..., rN]].
+    # Il formato [[r1], [r2], ...] faceva trattare il corpus come N riferimenti
+    # paralleli di una frase sola (corpus BLEU 0.87 con sentence mean 0.18).
+    # Fixed 2026-08-29.
     refs = [[r.strip() for r in references]]
     return float(_get_sacrebleu_bleu().corpus_score(hyps, refs).score) / 100.0
 
@@ -409,10 +452,9 @@ def corpus_chrf(generated: list[str], references: list[str]) -> float:
     if not generated or not references:
         return 0.0
     hyps = [extract_gloss_text(g) for g in generated]
-    # Same fix as bleu_corpus: single reference STREAM (see comment there).
-    # The previous [[r1],[r2],...] format degenerated to a tiny slice of
-    # the corpus (chrF 96 with sentence mean 44 — impossible for a real
-    # corpus). Fixed 2026-08-29.
+    # Same fix di bleu_corpus: reference come STREAM unico. Il vecchio
+    # [[r1],[r2],...] degenrava su una fetta minuscola del corpus
+    # (chrF 96 con sentence mean 44). Fixed 2026-08-29.
     refs = [[r.strip() for r in references]]
     return float(_get_sacrebleu_chrf().corpus_score(hyps, refs).score)
 
@@ -501,6 +543,72 @@ def corpus_gloss_f1(
     }
 
 
+def non_copy_token_accuracy(
+    predictions: Sequence[str],
+    sources: Sequence[str],
+    references: Sequence[str],
+) -> tuple[float, int, int]:
+    """Accuratezza ristretta ai token del reference che NON sono copie del source.
+
+    Perché è una metrica primaria su questo corpus
+    ----------------------------------------------
+    Su ASLG-PC12 circa il 62% dei token del gloss è il token sorgente
+    maiuscolizzato, e la ROUGE-L di progetto è case-insensitive e splitta sui
+    non-alfanumerici (``rouge_score`` trasforma ``DESC-GOOD`` in
+    ``['desc', 'good']``, quindi ``DESC-GOOD`` vs ``DESC-BAD`` prende 0.5). Un
+    modello che si limita a riecheggiare l'inglese raccoglie così un punteggio
+    di overlap grande e fuorviante.
+
+    Questa metrica valuta SOLO i token del reference che NON si ottengono
+    uppercaseando un token del source, ed è case-sensitive: è l'unica che
+    separa "ha imparato a copiare l'inglese" da "ha imparato la transduzione".
+    Valori storici sui prompt di eval del progetto: rule baseline 0.9424, SFT
+    0.9660, GRPO-only 0.4641, zero-shot+Trie 0.0432, zero-shot senza vincoli
+    0.0006 — ribalta la conclusione apparente di ROUGE-L che il constrained
+    decoding danneggi. L'eval pipeline (``eval_t2g._compute_primary_metrics``)
+    la calcola e la serializza con le chiavi ``non_copy_token_accuracy`` /
+    ``non_copy_token_hits`` / ``non_copy_token_total``.
+
+    Il matching è a multinsieme (un token del reference che compare due volte
+    deve essere prodotto due volte), il che rende il punteggio insensibile
+    all'ordine; l'ordine è già coperto da exact match.
+
+    Args:
+        predictions: Gloss predetti (uno per esempio).
+        sources: Testi inglesi sorgente (stesso ordine e lunghezza).
+        references: Gloss di riferimento (stesso ordine e lunghezza).
+
+    Returns:
+        ``(accuracy, hits, total)`` dove *total* è il denominatore: il numero
+        di posizioni non banali (token di reference non copiabili dal source).
+        Caso degenere definito: con ``total == 0`` (nessun token non copiabile,
+        es. gloss identico al source maiuscolizzato) ``accuracy`` vale ``0.0``
+        — il chiamante deve leggere il denominatore per distinguere "nessuna
+        posizione valutabile" da "nessuna posizione corretta".
+
+    Raises:
+        ValueError: Se le tre sequenze hanno lunghezze diverse.
+    """
+    if not (len(predictions) == len(sources) == len(references)):
+        raise ValueError(
+            f"length mismatch: predictions={len(predictions)}, "
+            f"sources={len(sources)}, references={len(references)}"
+        )
+    hits = 0
+    total = 0
+    for prediction, source, reference in zip(predictions, sources, references):
+        copyable = {word.upper() for word in str(source).split()}
+        available = Counter(str(prediction).split())
+        for token in str(reference).split():
+            if token in copyable:
+                continue
+            total += 1
+            if available[token] > 0:
+                available[token] -= 1
+                hits += 1
+    return (hits / total if total else 0.0), hits, total
+
+
 def seeded_sample_indices(
     total: int,
     n: int | None,
@@ -563,8 +671,19 @@ def bootstrap_confidence_interval(
     n = len(values_arr)
     alpha = 1 - confidence
 
+    # Barra sulle ripetizioni: a 25k completions il bootstrap dura minuti ed
+    # e' la fase piu' lunga dell'eval. Le estrazioni del RandomState non
+    # cambiano (stessa chiamata per iterazione): i valori restano bit-identici.
     bootstrap_means = np.array(
-        [values_arr[rng.randint(0, n, n)].mean() for _ in range(n_bootstrap)]
+        [
+            values_arr[rng.randint(0, n, n)].mean()
+            for _ in tqdm(
+                range(n_bootstrap),
+                desc=f"    Bootstrap CI ({n} values)",
+                unit="resample",
+                leave=False,
+            )
+        ]
     )
 
     lower = float(np.percentile(bootstrap_means, 100 * alpha / 2))
@@ -578,6 +697,10 @@ def compute_evaluation_report(
     completions: list[str],
     references: list[str],
     n_bootstrap: int = 1000,
+    *,
+    corpus_bleu_score: float | None = None,
+    corpus_chrf_score: float | None = None,
+    gloss_f1_micro_score: float | None = None,
 ) -> dict[str, Any]:
     """Compute a comprehensive evaluation report with confidence intervals.
 
@@ -588,7 +711,12 @@ def compute_evaluation_report(
     - BLEU via sacrebleu (corpus + sentence mean with 95% CI, [0, 1])
     - chrF2 via sacrebleu (corpus + sentence mean with 95% CI, 0-100 scale)
     - Token-level gloss F1 (micro + sentence mean with 95% CI, [0, 1])
-    - Pass@1 (with 95% CI)
+    - Pass@1 (with 95% CI) — empirical pass rate over **all** completions
+      (every sampled completion of every prompt), NOT the per-prompt
+      "first completion" pass@1 of :func:`compute_pass_at_k`: the two
+      estimators agree within sampling noise but are not the same number
+      (docs/EVALUATION.md §2a). The bootstrap CI here covers this
+      all-completions mean only.
     - Gloss validity rate
     - Error distribution
 
@@ -600,11 +728,27 @@ def compute_evaluation_report(
         completions: Generated gloss sequences.
         references: Gold reference gloss sequences.
         n_bootstrap: Number of bootstrap resamples for CIs.
+        corpus_bleu_score: Corpus BLEU già calcolato dal chiamante sullo
+            stesso input (l'eval lo produce comunque per il blocco
+            primario). ``None`` lo ricalcola qui. Passarlo elimina la
+            seconda passata corpus — un tempo reale a 25k completions e la
+            seconda emissione del warning sacrebleu sul dato
+            pre-tokenizzato.
+        corpus_chrf_score: Corpus chrF già calcolato, come sopra.
+        gloss_f1_micro_score: Gloss F1 micro già calcolato, come sopra.
 
     Returns:
         Dict with all metrics and confidence intervals.
     """
     total = len(completions)
+
+    # Corpus-level values: riusa quelli passati dal chiamante quando
+    # disponibili — sono la STESSA funzione sullo STESSO input, quindi il
+    # valore non cambia; cambia solo che non viene ricalcolato.
+    if corpus_bleu_score is None:
+        corpus_bleu_score = bleu_corpus(completions, references)
+    if corpus_chrf_score is None:
+        corpus_chrf_score = corpus_chrf(completions, references)
 
     # Per-sample metrics
     rouge_scores = [rouge_l_score(c, r) for c, r in zip(completions, references)]
@@ -618,7 +762,8 @@ def compute_evaluation_report(
     valid_count = sum(1 for is_valid, _ in valid_results if is_valid)
     error_types = Counter(msg for _, msg in valid_results if msg)
 
-    # Bootstrap CIs
+    # Bootstrap CIs — 5 metriche x n_bootstrap ripetizioni: la fase più
+    # lunga dell'eval, la barra tqdm la rende visibile riga per riga.
     rouge_mean, rouge_lo, rouge_hi = bootstrap_confidence_interval(
         rouge_scores, n_bootstrap
     )
@@ -635,7 +780,9 @@ def compute_evaluation_report(
         pass_scores, n_bootstrap
     )
 
-    corpus_f1 = corpus_gloss_f1(completions, references)
+    if gloss_f1_micro_score is None:
+        corpus_f1 = corpus_gloss_f1(completions, references)
+        gloss_f1_micro_score = corpus_f1["micro"]
 
     return {
         "total_samples": total,
@@ -650,17 +797,17 @@ def compute_evaluation_report(
             },
         },
         "bleu": {
-            "corpus": bleu_corpus(completions, references),
+            "corpus": corpus_bleu_score,
             "sentence_mean": bleu_mean,
             "ci_95": [bleu_lo, bleu_hi],
         },
         "chrf": {
-            "corpus": corpus_chrf(completions, references),
+            "corpus": corpus_chrf_score,
             "sentence_mean": chrf_mean,
             "ci_95": [chrf_lo, chrf_hi],
         },
         "gloss_f1": {
-            "micro": corpus_f1["micro"],
+            "micro": gloss_f1_micro_score,
             "sentence_mean": gloss_f1_mean,
             "ci_95": [gloss_f1_lo, gloss_f1_hi],
         },

@@ -2,8 +2,8 @@
 """Live monitor for the neuro-symbolic T2G training pipeline.
 
 Shows the status of every job in the pipeline (completed, failed, running,
-waiting) and, for the active training job, displays the current curriculum
-stage and training step in real time.
+waiting) and, for the active training job, displays the current training step
+in real time.
 
 When the active job finishes, the monitor automatically picks up the next
 job's log.
@@ -75,11 +75,9 @@ _EVAL_PROGRESS_LINE = re.compile(r"Evaluating\s+(\d+)/(\d+)\s+samples")
 # "  Pass@1: 0.1234" (no label) or "  qwen05        Pass@1: 0.8523"
 _EVAL_PASS = re.compile(r"(?:(.+?)\s+)?Pass@1:\s*([\d.]+)")
 _EVAL_COMPLETE = re.compile(r"Evaluation complete")
-# Key eval metric lines printed by eval_t2g.py (lines 1030-1044):
+# Key eval metric lines printed by eval_t2g.py (contratto di formato):
 #   ROUGE-L mean: 0.1234 ± 0.0567
-#   BLEU (sentence mean / corpus): 0.1234 / 0.1234
-#   chrF2 (sentence mean / corpus): 12.34 / 12.34
-#   Gloss F1 (sentence mean / micro): 0.1234 / 0.1234
+#   BLEU / chrF2 / Gloss F1 "(sentence mean / corpus): X / Y"
 #   Validity rate: 0.1234
 _EVAL_ROUGE_L = re.compile(r"ROUGE-L mean:\s*([\d.]+)")
 _EVAL_BLEU = re.compile(r"BLEU \(sentence mean / corpus\):\s*([\d.]+)\s*/\s*([\d.]+)")
@@ -706,14 +704,10 @@ def _parse_training_log(log_path: Path, job: JobInfo) -> None:
         job.completion_samples = samples
 
     # ── SFT phase parsing ───────────────────────────────────────────────
-    # Detect whether the SFT pre-training phase is active by taking the LAST
-    # relevant marker in the tail.  The old code broke on the FIRST match,
-    # which kept sft_active=True whenever "STEP 1.5: SFT Pre-training" was
-    # still inside the 3000-line window while GRPO was already running.
-    # Markers (verified against grpo_t2g_train.py / sft_train.py):
-    #   "STEP 1.5: SFT Pre-training"   -> SFT sub-phase starts (grpo)
-    #   "[sft] step=N/M (...)"         -> SFT training running (SFT callback)
-    #   "STEP 7: GRPO Training"        -> GRPO phase starts (grpo)
+    # LAST relevant marker in the tail, non il primo: matchare il primo
+    # teneva sft_active=True finche' "STEP 1.5: SFT Pre-training" restava
+    # nella finestra di 3000 righe con GRPO gia' attivo. Marker verificati
+    # contro grpo_t2g_train.py / sft_train.py.
     last_marker: tuple[int, str] | None = None
     for i, line in enumerate(tail):
         if _GRPO_PHASE_START.search(line):
@@ -1251,11 +1245,13 @@ def _estimate_eta(job: JobInfo) -> str:
 
 
 def _estimate_total_eta(job: JobInfo) -> str:
-    """Estimate total remaining time including future stages.
+    """Estimate total remaining time for the active job.
 
-    For standard (non-curriculum) T2G training this gives the same
-    result as ``_estimate_eta`` — the ``(job ~...h)`` suffix only
-    appears when curriculum multi-stage training is active.
+    Da quando il curriculum a stadi e' stato rimosso, questa funzione
+    restituisce lo stesso valore di ``_estimate_eta``: non esistono piu'
+    stadi futuri da sommare. E' conservata perche' i chiamatori la usano
+    come stima "di job" distinta da quella "di fase", e perche' il suffisso
+    ``(job ~...h)`` resta utile se in futuro un job tornera' multi-fase.
 
     For train: uses step speed × remaining steps.
     For eval: uses batch speed × remaining batches.
@@ -1447,10 +1443,8 @@ def _display(
                 time_parts += f" {_DIM}(job ~{total_eta}){_RST}"
             print(f"  {bar} {_WHITE}{pct}%{_RST}{time_parts}")
     elif remaining > 0:
-        # Check if a job was recently submitted (within last 2 min).
-        # If so, don't show "Waiting" — the job is probably still
-        # transitioning from PENDING to RUNNING in SLURM. This prevents
-        # the premature "waiting for next job" flash between steps.
+        # Job sottomesso da <2 min: SLURM sta transizionando PENDING→RUNNING,
+        # non mostrare subito "Waiting" (evita il flash tra gli step).
         recently_submitted = False
         if CHAIN_LOG.exists():
             try:
@@ -1547,10 +1541,8 @@ def _display(
             )
         )
 
-        # ── Extra metric columns (C2/C6): populated from eval log lines or
-        #    from the run's eval_*.json when the eval finished. "pass_at_1"
-        #    is intentionally omitted — it is already shown by the "latest"
-        #    stage column. ─────────────────────────────────────────────────
+        # ── Extra metric columns (C2/C6) da eval log o eval_*.json del run;
+        #    "pass_at_1" omessa di proposito: gia' nella colonna stage "latest".
         _METRIC_COLS: list[tuple[str, str]] = [
             ("rouge_l_mean", "Rouge-L"),
             ("bleu_sentence_mean", "BLEU"),

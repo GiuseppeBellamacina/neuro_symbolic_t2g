@@ -58,17 +58,52 @@ ERRORS_TAIL=[...]                       # ultime 5 righe raw come JSON array
 
 **Subcomandi**:
 
-| Comando                     | Effetto                                                                     |
-| --------------------------- | --------------------------------------------------------------------------- |
-| `status` (default)        | stampa lo snapshot completo                                                 |
-| `enqueue <entry>`         | appende`type:cfg:tag[:extra]` a `job_chain`                             |
-| `rewrite_queue <content>` | rimpiazza l'intera coda (entry separate da`\x1f`; stringa vuota = svuota) |
-| `pause`                   | crea`.chain_state/chain_stopped` (soft stop: nessuna nuova sottomissione) |
-| `resume`                  | rimuove`.chain_state/chain_stopped`                                       |
-| `tick`                    | esegue`chain_tick.sh --quiet`                                             |
+| Comando                        | Effeto                                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------ |
+| `status` (default)           | stampa lo snapshot completo                                                                 |
+| `monitor [n]`                | snapshot + `LOG_TAIL_B64` (log tail del job attivo, base64)                                 |
+| `enqueue <entry>`            | appende`type:cfg:tag[:extra]` a `job_chain`                                             |
+| `enqueue_batch <content>`    | appende PIÙ entry (separate da `\x1f`) poi snapshot: N job in **1 sola connessione**    |
+| `start_batch <content>`      | `enqueue_batch` + tick + snapshot **monitor** completo: `/jobs/start` e `/jobs/batch` fanno tutto con 1 sola ssh |
+| `rewrite_queue <content>`    | rimpiazza l'intera coda (entry separate da`\x1f`; stringa vuota = svuota)                 |
+| `pause`                      | crea`.chain_state/chain_stopped` (soft stop: nessuna nuova sottomissione)                 |
+| `resume`                     | rimuove`.chain_state/chain_stopped`                                                       |
+| `tick`                       | esegue`chain_tick.sh --quiet`                                                             |
+| `timeseries <tag>`           | righe KV `step=N loss=...` dell'intero log del job (attivo o ultimo) col tag dato, base64 (`TS_*`) |
+| `results <config>`           | gli `eval_*.json` di ogni `run_*` della dir risultati (preferito `eval_final.json`), base64 (`RUN_*`); token vuoto = elenco dir |
+| `scancel`                    | cancella il job attivo e stampa poi lo snapshot monitor (1 sola ssh)                        |
 
 Dopo ogni mutazione il helper stampa comunque lo snapshot fresco: il driver
-fa **una sola** connessione e riceve esito + stato insieme.
+fa **una sola** connessione e riceve esito + stato insieme. `start_batch` e
+`scancel` stampano da soli lo snapshot monitor completo (log tail incluso).
+
+### Round-trip SSH per operazione (prima → dopo)
+
+| Operazione             | Prima (ssh seriali)      | Dopo                                |
+| ---------------------- | ------------------------ | ----------------------------------- |
+| `POST /tick`         | 1                        | 1 (invariata)                       |
+| `GET /monitor`       | **1 a ogni poll** | **0** dalla cache (TTL), 1 a refresh/stale |
+| `POST /jobs/start`   | **3** (enqueue+tick+monitor) | **1** (`start_batch`)           |
+| `POST /jobs/batch`   | **N+2** (N enqueue+tick+monitor) | **1** (`start_batch`)       |
+| `POST /kill`         | **2** (scancel+monitor)  | **1** (`scancel` + snapshot)        |
+
+---
+
+## 1b. Cache e freschezza (per i client)
+
+- **`GET /monitor`** risponde **dalla cache** quando lo snapshot è fresco
+  (TTL `T2G_MONITOR_CACHE_TTL`, default **15s**: la TUI polla ogni 10s → le
+  ssh reali scendono a ~1 ogni 20s). La risposta include SEMPRE i metadata
+  `source` (`"cache"`/`"live"`), `age_seconds` e `snapshot_ts`: il client
+  sa sempre se sta guardando dati vivi o cached. `?refresh=1` forza l'ssh
+  (tasto "aggiorna"). Se il refresh fallisce ma esiste uno snapshot cached,
+  viene servito quello con `fetch_error` esplicito — mai dati vecchi
+  spacciati per freschi, mai 502 quando dati validi esistono.
+- **`GET /timeseries`**: cache in memoria con TTL
+  `T2G_TIMESERIES_CACHE_TTL` (default **60s**). Le serie dei job FINITI sono
+  immutabili: una volta in cache non scadono finché il tag non torna attivo.
+- **`GET /results`**: i file `eval_*.json` sono immutabili → cache aggressiva
+  su SQLite con TTL `T2G_RESULTS_CACHE_TTL` (default **1h**).
 
 ---
 
@@ -250,6 +285,9 @@ ssh <codice-fiscale>@gcluster.dmi.unict.it \
 | `T2G_DB_PATH`             | no            | `data/t2g_driver.db`    | Path del DB SQLite (cache/diario)                                                                                  |
 | `T2G_DATA_DIR`            | no            | `data/`                 | Directory dati del servizio                                                                                        |
 | `T2G_HELPER_AUTO_INSTALL` | no            | `1`                     | `1` = copia `cluster_helper.sh` sul cluster via scp se manca                                                   |
+| `T2G_MONITOR_CACHE_TTL` | no            | `15`                    | TTL (s) della cache di `GET /monitor` (polling TUI 10s → 15s dimezza le ssh)                        |
+| `T2G_TIMESERIES_CACHE_TTL` | no            | `60`                    | TTL (s) della cache delle serie `GET /timeseries`                                                          |
+| `T2G_RESULTS_CACHE_TTL` | no            | `3600`                  | TTL (s) della cache di `GET /results` (file immutabili → aggressiva)                                       |
 
 (1) **Opzionale** (per il deploy locale NON serve alcuna chiave): imposta
 `T2G_SSH_KEY_CONTENT` (chiave incollata nella UI di Render — su Render free
@@ -299,13 +337,23 @@ Render (`...onrender.com`).
 | Metodo & path          | Descrizione                                                                                                                                                        |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `GET /`              | info servizio (niente auth)                                                                                                                                        |
+| `GET /health`        | diagnostica rapida **senza ssh**: DB, età ultimo snapshot, catena in pausa, ultimo errore                                                                          |
+| `GET /configs`       | mappa dei config noti (nome → path): fonte unica per i client, non duplicarla                                                                                      |
+| `GET /status`        | stato dalla cache DB (mai ssh): funziona anche a cluster giù                                                                                                       |
 | `GET /jobs`          | lista job in coda (dal DB sincronizzato)                                                                                                                           |
 | `POST /jobs`         | accoda`{type: "train"\|"eval", config: "<nome o path>", tag?, mode?}` → 201                                                                                      |
-| `POST /queue`        | rimpiazza la coda:`{jobs: [...]}` oppure `{ablation: true}` (12 config nell'ordine esatto di `run_all.sh`)                                                   |
+| `POST /jobs/start`   | accoda + tick immediato, **1 sola ssh** → 201 + snapshot monitor + `started_now`                                                                                  |
+| `POST /jobs/batch`   | accoda più job (+ tick se `start_now`), **1 sola ssh** → 201 + snapshot + `started_now` + `queued`                                                               |
 | `DELETE /jobs/{tag}` | rimuove tutti i job col tag dato (riscrive`job_chain` filtrato)                                                                                                  |
+| `POST /queue`        | rimpiazza la coda:`{jobs: [...]}` oppure `{ablation: true}` (ordine esatto di `run_all.sh`)                                                                  |
 | `POST /pause`        | crea`chain_stopped` sul cluster                                                                                                                                  |
 | `POST /resume`       | rimuove`chain_stopped` + tick immediato                                                                                                                          |
 | `POST /tick`         | tick manuale (comodo per testare senza cronjob.org)                                                                                                                |
+| `GET /monitor`       | snapshot live dalla **cache con TTL** (`?refresh=1` forza l'ssh): stato + job_detail + samples + log tail + `source`/`age_seconds`/`snapshot_ts` (sezione 1b) |
+| `GET /logs?lines=n`  | ultime n righe del log del job attivo (404 se nessun job attivo)                                                                                                   |
+| `GET /timeseries`    | serie per-step per i grafici:`?tag=<tag>&metric=<loss\|reward\|lr\|kl>&limit=<n>&refresh=` (sezione 6b)                                                       |
+| `GET /results`       | metriche eval dal cluster:`?config=<nome>` (senza config: elenco dir disponibili) (sezione 6c)                                                                |
+| `POST /kill`         | scancel del job attivo, **1 sola ssh** (409 se nessun job attivo)                                                                                                  |
 
 Esempi:
 
@@ -337,13 +385,10 @@ curl -X POST -H "X-Auth-Token: $TOKEN" $BASE/tick
 
 ### Config validi per la coda
 
-Gli 8 nomi noti (l'API accetta anche il path o il solo nome file):
-
-```
-sft-grpo, sft-only, grpo-only, sft-grpo-structure,
-sft-grpo-viterbi, sft-grpo-soft-viterbi,
-sft-grpo-all-rewards, sft-grpo-no-grammar
-```
+La mappa aggiornata nome → path si legge da `GET /configs` (fonte unica —
+debito: `remote/tui.py`, `cluster/run_all.sh` e `cluster/aliases.sh`
+duplicano ancora la lista e vanno allineati). L'API accetta anche il path
+completo o il solo nome file.
 
 Il tag è obbligatorio per distinguere i run e per `DELETE /jobs/{tag}`: se
 non lo passi, viene derivato dal nome del config (`_` → `-`, come `run_all.sh`).
@@ -354,6 +399,62 @@ non lo passi, viene derivato dal nome del config (`_` → `-`, come `run_all.sh`
 attivo continua, semplicemente non vengono sottomessi nuovi job. Il
 `chain-stop` completo (che cancella il job attivo e salva lo stato per
 `chain-start`) resta un'operazione da fare sul cluster con gli alias.
+
+### 6b. `GET /timeseries` — contratto di risposta
+
+```json
+{
+  "tag": "sft-grpo-few-shot",
+  "metric": "loss",
+  "points": [{"step": 10, "value": 0.99}, ...],
+  "total_steps": 9123,
+  "current_step": 998,
+  "source": "cache|live",
+  "age_seconds": 3.2
+}
+```
+
+- `points`: serie per-step (`step` int, `value` float) dal log SLURM del job
+  col tag dato (attivo, altrimenti ultimo sottomesso). Se i punti superano
+  `limit` (default 400, max 2000) vengono **sottocampionati uniformemente
+  con estremi preservati**: il punto più recente è sempre incluso.
+- `total_steps`: dall'ultimo marker `[stage N] steps=M` del log (fallback
+  `max_steps=`), per l'asse X dei grafici.
+- `source`/`age_seconds`: provenienza ed età dei dati (cache TTL 60s).
+  404 se il tag non è noto (né attivo né ultimo) e non c'è cache: nessuna
+  ssh viene sprecata per tag impossibili.
+
+### 6c. `GET /results` — contratto di risposta
+
+Senza `config` (discovery):
+
+```json
+{"results_dirs": ["qwen25-05b-sft-grpo", "t2g-zero-shot", ...]}
+```
+
+Con `config=<nome dir o nome config>`:
+
+```json
+{
+  "config": "qwen25-05b-sft-grpo",
+  "results_dir": "experiments/results/qwen25-05b-sft-grpo",
+  "runs": [{"run_id": "run_20260904_000559", "metrics": {...}}],
+  "source": "cache|live",
+  "age_seconds": 0.0
+}
+```
+
+- Un elemento per ogni `run_*` della dir, con le metriche del file
+  `eval_final.json` (o l'eval più recente): `rouge_l_mean`, `exact_match`,
+  `validity_rate`, `pass_at_1`, `gloss_f1_micro`, `bleu_corpus`,
+  `chrf_corpus`, più `reward_breakdown` (7 componenti), `pass_at_k`
+  (pass@1..5), `error_distribution`, `detailed_metrics.rouge_l_percentiles`,
+  `difficulty_breakdown` e `prompting` (`{mode, source}`) quando presenti
+  nel JSON di valutazione (il JSON viene passato integralmente).
+- Risoluzione tollerante del nome: dir esatta → substring → senza il
+  suffisso prompting (`-zero-shot`/`-few-shot`). 404 se nessuna dir matcha.
+- Cache aggressiva su SQLite (file immutabili, TTL 1h); a cluster giù si
+  risponde con la cache dichiarando `fetch_error`.
 
 ---
 

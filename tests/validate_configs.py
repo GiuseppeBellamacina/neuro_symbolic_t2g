@@ -5,7 +5,7 @@ e chiavi obbligatorie.
 Uso:
     python -m tests.validate_configs
     python -m tests.validate_configs --verbose
-    python -m tests.validate_configs --config experiments/configs/t2g/sft-grpo.yaml
+    python -m tests.validate_configs --config experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml
 
 I config vengono caricati via ``src.utils.config.resolve_config``, quindi le
 catene ``extends`` vengono risolte prima della validazione.
@@ -15,9 +15,12 @@ Regole di validazione:
     - Sezioni obbligatorie per tipo
     - Chiavi nidificate obbligatorie
     - Vincoli di tipo (bool, int, float, list)
-    - Coerenza cross-sezione (es. grammar.use_grammarllm_pda → pda_temperature)
+    - Sezione `evaluation`: solo chiavi note (rifiuto dei typo, che altrimenti
+      passerebbero silenziosamente), tipi, valori ammessi per `prompting` e
+      coerenza `prompting: few-shot` ⇒ max_prompt_length >= 512
+    - Coerenza cross-sezione (knob RL validi, peso OOV nel regime sicuro,
+      max_prompt_length adeguato col few-shot attivo)
     - Somma dei reward weights = 1.0 (±1e-9)
-    - Assenza di chiavi morte (verifier_gamma / verifier_temperature)
     - Assenza di ``extends`` residuo nel dict fuso
     - Ogni config YAML referenziato da cluster/run_all.sh esiste
 """
@@ -41,10 +44,6 @@ from src.utils.config import resolve_config
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _CONFIG_GLOB = "experiments/configs/**/*.yaml"
 _CLUSTER_RUN_ALL = _PROJECT_ROOT / "cluster" / "run_all.sh"
-
-# Chiavi morte: rimosse dal codice (src/rewards/t2g_rewards.py non le legge
-# più — solo i 4 parametri viterbi_diversity reali vengono caricati).
-DEAD_KEYS = {"verifier_gamma", "verifier_temperature"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -72,6 +71,41 @@ REQUIRED_KEYS: dict[str, set[str]] = {
 
 # Exclusive-or: training must have EITHER max_steps OR num_train_epochs
 TRAINING_STEPS_KEYS = {"max_steps", "num_train_epochs"}
+
+# Chiavi ammesse nella sezione `evaluation`. Una chiave fuori da questo set è
+# un typo (o un knob rimosso): eval_t2g la ignorerebbe silenziosamente e la
+# cella misurerebbe altro senza alcun errore — il validator la blocca.
+ALLOWED_EVALUATION_KEYS = {
+    "batch_size",
+    "max_samples",
+    "num_samples",
+    "best_of_n",
+    "plot",
+    "compare",
+    "eval_baseline_only",
+    "force_baseline_eval",
+    "dual_prompting",
+    "prompting",
+    "output",
+    "baseline_pass_at1",
+    "baseline_json",
+}
+
+# Chiavi (qualunque sezione) che ammettono esplicitamente null: il type check
+# standard rifiuterebbe None anche dove il codice lo tratta come "non
+# impostato" (es. compare: null = deduzione automatica).
+NULLABLE_TYPE_KEYS = {
+    "evaluation.max_samples",
+    "evaluation.compare",
+    "evaluation.eval_baseline_only",
+    "evaluation.output",
+    "evaluation.baseline_json",
+    "evaluation.baseline_pass_at1",
+}
+
+# Valori ammessi per evaluation.prompting (stessa scelta di eval_t2g.py):
+# "config" deriva la modalità da retrieval.enabled, gli altri due la forzano.
+ALLOWED_PROMPTING_MODES = {"config", "zero-shot", "few-shot"}
 
 # Type constraints: section.key → expected type
 TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
@@ -101,28 +135,36 @@ TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
     "generation.max_prompt_length": int,
     "generation.temperature": (int, float),
     "grammar.enabled": bool,
-    "grammar.use_grammarllm_pda": bool,
-    "grammar.pda_temperature": (int, float),
-    "grammar.viterbi_diversity.self_loop_penalty": float,
-    "grammar.viterbi_diversity.max_occurrences": int,
-    "grammar.viterbi_diversity.diversity_threshold": float,
-    "grammar.viterbi_diversity.max_iters": int,
-    "curriculum.enabled": bool,
     "evaluation.batch_size": int,
+    "evaluation.max_samples": int,
+    "evaluation.num_samples": int,
+    "evaluation.best_of_n": bool,
+    "evaluation.plot": bool,
+    "evaluation.compare": bool,
+    "evaluation.eval_baseline_only": bool,
+    "evaluation.force_baseline_eval": bool,
+    "evaluation.dual_prompting": bool,
+    "evaluation.prompting": str,
+    "evaluation.output": str,
+    "evaluation.baseline_json": str,
+    "evaluation.baseline_pass_at1": (int, float),
     "lora.r": int,
     "lora.lora_alpha": int,
     "lora.lora_dropout": (int, float),
     "lora.random_state": int,
     "reward.weight_translation": (int, float),
     "reward.weight_gold_structure": (int, float),
-    "reward.weight_structure": (int, float),
-    "reward.weight_viterbi": (int, float),
-    "reward.weight_soft_viterbi": (int, float),
     "reward.weight_verifier_scaled": (int, float),
     "reward.weight_gloss_order": (int, float),
     "reward.weight_format": (int, float),
     "reward.weight_repetition": (int, float),
     "reward.weight_bleu": (int, float),
+    "reward.weight_edit_validity": (int, float),
+    "reward.edit_validity_oov_weight": (int, float),
+    "grammar.track_diagnostics": bool,
+    "grpo.epsilon": (int, float),
+    "grpo.epsilon_high": (int, float),
+    "grpo.mask_truncated_completions": bool,
 }
 
 
@@ -134,22 +176,32 @@ TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
 def _detect_kind(cfg: dict[str, Any]) -> str:
     """Detect the config kind: 'grpo', 'sft', or 'eval-only'.
 
-    Un config è ``eval-only`` se non dichiara alcun training attivo:
-    niente ``training.trainer`` e nessuna chiave di step (``max_steps`` /
-    ``num_train_epochs``) — può comunque ereditare una sezione ``training``
-    parziale e un blocco ``grpo`` da ``base.yaml``.
+    Un config è ``eval-only`` se non dichiara ``training.output_dir``: senza
+    una directory di destinazione non c'è nulla da addestrare né da salvare.
+
+    WHY output_dir e non le chiavi di step: ``max_steps`` e
+    ``num_train_epochs`` vivono in ``base.yaml`` perché sono comuni a tutte
+    le celle addestrabili, quindi vengono EREDITATE anche dalle celle
+    eval-only. La loro presenza non distingue più nulla. ``output_dir``
+    invece è per-cella per costruzione (ogni cella scrive in una directory
+    propria) e la sua assenza è il segnale che il resto del sistema già usa:
+    ``src/training/eval_t2g.py`` deduce da lì ``eval_baseline_only`` e
+    ``compare``, e la guardia in ``src/training/__main__.py`` rifiuta con
+    exit 2 una cella senza ``output_dir`` lanciata come training.
+
+    Allineare il validatore a quel segnale elimina una seconda definizione
+    divergente di "cella addestrabile".
     """
     trainer = cfg.get("training", {}).get("trainer", "grpo")
     if trainer == "sft":
         return "sft"
-    training = cfg.get("training", {})
-    if training and (TRAINING_STEPS_KEYS & set(training.keys())):
-        return "grpo"
-    return "eval-only"
+    if not cfg.get("training", {}).get("output_dir"):
+        return "eval-only"
+    return "grpo"
 
 
 def _get_nested(cfg: dict[str, Any], dotted_key: str) -> Any:
-    """Get a nested value by dotted key, e.g. 'grammar.viterbi_diversity.self_loop_penalty'.
+    """Get a nested value by dotted key, e.g. 'grammar.track_diagnostics'.
 
     Returns a sentinel object if any intermediate key is missing.
     """
@@ -176,6 +228,8 @@ def _validate_type(
     value = _get_nested(cfg, dotted_key)
     if value is _MISSING:
         return  # missing key is handled by REQUIRED_KEYS
+    if value is None and dotted_key in NULLABLE_TYPE_KEYS:
+        return  # null = "non impostato" (es. compare: null = deduzione automatica)
     if not isinstance(value, expected):
         type_name = (
             " | ".join(t.__name__ for t in expected)  # type: ignore[union-attr]
@@ -187,21 +241,6 @@ def _validate_type(
             f"{path}: {dotted_key} deve essere {type_name}, "
             f"trovato {actual} ({value!r})"
         )
-
-
-def _iter_dead_keys(
-    obj: Any, prefix: str = "", found: list[str] | None = None
-) -> list[str]:
-    """Collect any occurrence of a DEAD_KEYS key in a (nested) dict."""
-    if found is None:
-        found = []
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            dotted = f"{prefix}.{k}" if prefix else k
-            if k in DEAD_KEYS:
-                found.append(dotted)
-            _iter_dead_keys(v, dotted, found)
-    return found
 
 
 def _validate_reward_weights(cfg: dict[str, Any], errors: list[str], path: str) -> None:
@@ -224,22 +263,47 @@ def _validate_reward_weights(cfg: dict[str, Any], errors: list[str], path: str) 
 
 def _validate_cross_section(cfg: dict[str, Any], errors: list[str], path: str) -> None:
     """Cross-section consistency checks."""
-    grammar = cfg.get("grammar", {})
+    # I knob dell'obiettivo RL devono avere valori che TRL accetta: un typo qui
+    # addestrerebbe un obiettivo diverso per ore senza alcun errore.
+    grpo_cfg = cfg.get("grpo", {})
+    loss_type = grpo_cfg.get("loss_type")
+    if loss_type is not None and loss_type not in {"grpo", "bnpo", "dr_grpo", "dapo"}:
+        errors.append(
+            f"{path}: grpo.loss_type={loss_type!r} non valido "
+            f"(attesi: grpo, bnpo, dr_grpo, dapo)"
+        )
+    scale_rewards = grpo_cfg.get("scale_rewards")
+    if (
+        scale_rewards is not None
+        and not isinstance(scale_rewards, bool)
+        and scale_rewards not in {"group", "batch", "none"}
+    ):
+        errors.append(
+            f"{path}: grpo.scale_rewards={scale_rewards!r} non valido "
+            f"(attesi: group, batch, none)"
+        )
 
-    # If use_grammarllm_pda is true, pda_temperature should exist
-    if grammar.get("use_grammarllm_pda"):
-        if "pda_temperature" not in grammar:
-            errors.append(
-                f"{path}: grammar.use_grammarllm_pda=true "
-                f"ma grammar.pda_temperature mancante"
-            )
+    # Il peso del termine di validita' deve stare nel regime sicuro: a 0.75 la
+    # validita' domina il contenuto e la spazzatura in vocabolario supera un
+    # quasi-corretto con un OOV (tests/test_edit_validity_reward.py).
+    reward = cfg.get("reward", {})
+    oov_weight = reward.get("edit_validity_oov_weight")
+    if oov_weight is not None and not 0.0 <= float(oov_weight) <= 0.6:
+        errors.append(
+            f"{path}: reward.edit_validity_oov_weight={oov_weight} fuori dal "
+            f"regime sicuro [0.0, 0.6]"
+        )
 
-    # If grammar.enabled is true, viterbi_diversity should exist
-    if grammar.get("enabled", True):
-        if "viterbi_diversity" not in grammar:
+    # Il few-shot allunga il prompt: con retrieval attivo servono piu' token,
+    # altrimenti gli esempi vengono troncati e la cella misura altro.
+    if cfg.get("retrieval", {}).get("enabled"):
+        max_prompt = grpo_cfg.get("max_prompt_length") or cfg.get("generation", {}).get(
+            "max_prompt_length"
+        )
+        if max_prompt is not None and int(max_prompt) < 512:
             errors.append(
-                f"{path}: grammar.enabled=true "
-                f"ma grammar.viterbi_diversity mancante"
+                f"{path}: retrieval.enabled=true ma max_prompt_length="
+                f"{max_prompt} (<512): gli esempi few-shot verrebbero troncati"
             )
 
     # Training configs should have either max_steps or num_train_epochs
@@ -266,6 +330,54 @@ def _validate_cross_section(cfg: dict[str, Any], errors: list[str], path: str) -
             errors.append(f"{path}: GRPO config deve avere grpo.num_generations")
         if "beta" not in grpo:
             errors.append(f"{path}: GRPO config deve avere grpo.beta")
+
+
+def _validate_evaluation_section(
+    cfg: dict[str, Any], errors: list[str], path: str
+) -> None:
+    """Validate the `evaluation` section: chiavi note, valori ammessi,
+    coerenza col budget di prompt.
+
+    eval_t2g.py legge i knob comportamentali SOLO da questa sezione (niente
+    flag CLI oltre a --config/--checkpoint): una chiave sconosciuta sarebbe
+    ignorata silenziosamente dal trainer — qui diventa un errore loud.
+    """
+    evaluation = cfg.get("evaluation")
+    if evaluation is None:
+        return  # assente: nessun knob dichiarato (tutti i default)
+    if not isinstance(evaluation, dict):
+        # il messaggio di tipo lo emette già il REQUIRED_KEYS/type check
+        return
+
+    # ── Chiavi sconosciute = typo (intercettate, non ignorate) ──────────
+    for key in sorted(set(evaluation) - ALLOWED_EVALUATION_KEYS):
+        errors.append(
+            f"{path}: evaluation.{key} non riconosciuta (chiavi ammesse: "
+            f"{', '.join(sorted(ALLOWED_EVALUATION_KEYS))})"
+        )
+
+    # ── Valori ammessi per prompting ────────────────────────────────────
+    prompting = evaluation.get("prompting")
+    if prompting is not None and prompting not in ALLOWED_PROMPTING_MODES:
+        errors.append(
+            f"{path}: evaluation.prompting={prompting!r} non valido "
+            f"(attesi: {', '.join(sorted(ALLOWED_PROMPTING_MODES))})"
+        )
+
+    # ── prompting: few-shot ⇒ budget di prompt adeguato ─────────────────
+    # Replica il fail-loud runtime di eval_t2g.py: forzare few-shot con
+    # max_prompt_length < 512 troncherebbe gli esempi few-shot rendendo la
+    # cella indistinguibile dallo zero-shot.
+    if prompting == "few-shot":
+        max_prompt = cfg.get("grpo", {}).get("max_prompt_length") or cfg.get(
+            "generation", {}
+        ).get("max_prompt_length")
+        if max_prompt is None or int(max_prompt) < 512:
+            errors.append(
+                f"{path}: evaluation.prompting='few-shot' ma max_prompt_length="
+                f"{max_prompt} (serve >= 512, in grpo o generation): gli esempi "
+                f"few-shot verrebbero troncati"
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -322,10 +434,6 @@ def validate_config(config_path: Path, verbose: bool = False) -> list[str]:
         else:
             print(f"  [{kind}] {path}")
 
-    # ── Chiavi morte (verifier_gamma / verifier_temperature) ───────────
-    for dotted in _iter_dead_keys(cfg):
-        errors.append(f"{path}: chiave morta '{dotted}' (rimossa dal codice)")
-
     # ── Required top-level sections ──────────────────────────────────────
     required = set(REQUIRED_SECTIONS["_all"])
     for extra in (kind,):
@@ -360,6 +468,9 @@ def validate_config(config_path: Path, verbose: bool = False) -> list[str]:
     # ── Reward weights consistency ───────────────────────────────────────
     if "reward" in cfg:
         _validate_reward_weights(cfg, errors, path)
+
+    # ── Evaluation section (knob dell'eval, ex flag CLI / env var) ───────
+    _validate_evaluation_section(cfg, errors, path)
 
     # ── Cross-section consistency ────────────────────────────────────────
     _validate_cross_section(cfg, errors, path)

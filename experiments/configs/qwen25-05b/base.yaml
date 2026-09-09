@@ -1,0 +1,277 @@
+# ============================================================================
+# BASE — parti comuni a ogni cella dell'esperimento (ereditata via `extends`)
+#
+# Gerarchia: model / method / prompt-mode
+#   baseline/{zero-shot,few-shot}   → nessun training, solo eval del base model
+#   sft/zero-shot                   → SFT supervisionato
+#   grpo/{zero-shot,few-shot}       → GRPO dal base model
+#   sft-grpo/{zero-shot,few-shot}   → SFT poi GRPO
+#   ablations/{rewards,loss,decoding,objectives}/…
+#
+# Ogni cella sovrascrive SOLO le proprie differenze. Il merge è ricorsivo
+# (src/utils/config.py::resolve_config): i dict annidati vengono fusi, liste e
+# scalari sostituiti. `extends` non arriva mai ai trainer.
+#
+# LEGGERE PRIMA DI CONFRONTARE I RISULTATI
+# ----------------------------------------
+# Su ASLG-PC12 le metriche di overlap sono SATURE: una regola lessicale
+# costruita solo dal train raggiunge ROUGE-L 0.9697 / EM 0.5912 sul test
+# completo (src/analysis/rule_baseline.py). Inoltre ROUGE-L è case-insensitive
+# e splitta sui non-alfanumerici, quindi premia la copia dell'inglese e dà 0.5
+# a `DESC-GOOD` vs `DESC-BAD`.
+#
+# Conseguenza operativa: le metriche primarie sono `exact_match` e
+# `non_copy_token_accuracy`; ROUGE-L va riportata solo per confrontabilità con
+# la letteratura, mai come headline, e sempre accanto alla baseline a regole.
+# Dettagli e misure: docs/RECOVERY_REPORT.md §9.
+# ============================================================================
+
+# --- Modello ---
+model:
+  name: "Qwen/Qwen2.5-0.5B-Instruct"
+  num_gpus: 1
+  quantization: "4bit"
+  dtype: "bfloat16"
+  use_unsloth: true
+  max_seq_length: 1024
+
+# --- LoRA ---
+lora:
+  r: 32
+  lora_alpha: 64
+  lora_dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  task_type: "CAUSAL_LM"
+  random_state: 3407
+
+# --- Dataset ---
+# Lo split è 90/10 deterministico con seed 42 (src/datasets/aslg_dataset.py).
+# NOTA sul corpus: la glossa è generata da regole (Moryossef et al.,
+# arXiv:2105.07476) e ha ~98% di overlap token con l'inglese (Peng et al.,
+# arXiv:2304.10844). Il 10.5% delle righe di train contiene artefatti da
+# stripping di sottostringhe (`therefore→DESC-REFORE`, `these→SE`). Il dato
+# resta COSÌ COM'È di proposito: pulirlo sarebbe un nuovo protocollo dataset.
+dataset:
+  dataset_name: "achrafothman/aslg_pc12"
+  dataset_cache: "data/aslg_pc12"
+  vocab_path: "data/gloss_vocab.txt"
+  bigram_matrix_path: "data/bigram_transition.npy"
+  split: "train"
+  max_samples: null
+  seed: 42
+  thinking: false
+
+# --- Training (comune) ---
+# max_steps, learning_rate, warmup_steps, output_dir e log_dir sono per-cella.
+# save_steps: con job GRPO da 5000 passi (vedi i config delle celle), la
+# cadenza storica a 100 avrebbe prodotto ~50 salvataggi su NFS per run
+# (centinaia di MB di adapter+optimizer state ciascuno, decine di secondi
+# l'uno): 500 riduce l'overhead I/O di 5x mantenendo una granularità di resume
+# di ~36 min di compute. save_total_limit: 3 conserva gli ultimi 3 checkpoint
+# (~1500 passi di storia), sufficienti al resume dopo un TIMEOUT.
+training:
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  lr_scheduler_type: "cosine"
+  optim: "paged_adamw_8bit"
+  weight_decay: 0.1
+  max_grad_norm: 0.1
+  bf16: true
+  gradient_checkpointing: true
+  logging_steps: 5
+  save_steps: 500
+  save_total_limit: 3
+
+  # --- Durata dell'addestramento (comune a tutte le celle) ---
+  #
+  # max_steps governa il GRPO: 1 PROMPT PER PASSO, non 8.
+  # Misurato sul log di un run a 2000 passi: epoch=0.02740514, cioe'
+  # esattamente 2000/72979. In TRL 0.24 steps_per_generation = grad_accum,
+  # quindi gli 8 micro-batch di accumulo producono 8 rollout DELLO STESSO
+  # prompt (num_generations: 8), non 8 prompt distinti.
+  #
+  #   epoca completa  = 72979 passi (~118 h a 5,84 s/step misurati)
+  #   max_steps: 5000 = 5000 prompt = 6,9% del train (0,069 epoche), ~8,1 h
+  #
+  # Una epoca completa e' FUORI PORTATA: il walltime della QoS gpu-xlarge e'
+  # 12 h, che a 5,84 s/step copre ~7200 passi (9,9% del train). Il valore
+  # 5000 sta in una singola finestra con margine per la fase SFT delle celle
+  # sft-grpo (+2,3 h). Aumentare batch o accum NON aumenta i prompt per
+  # passo: servono piu' max_steps, oppure meno num_generations.
+  max_steps: 5000
+
+  # num_train_epochs governa l'SFT (che ignora max_steps: SFTConfig riceve
+  # solo questo). 3 epoche = ~211.000 esempi = 2,95 passate sul train
+  # post-holdout (71.519 righe). Verificato sul log: step=13200 con
+  # epoch=2.953, cioe' 4470 passi/epoca x batch effettivo 16 = 71.520
+  # esempi per epoca. Il 2,95 invece di 3,00 e' l'arresto anticipato
+  # (patience 3 sull'holdout del 2%), non un limite di esposizione.
+  num_train_epochs: 3
+
+# --- GRPO ---
+# I knob dell'obiettivo RL (loss_type, scale_rewards,
+# mask_truncated_completions, epsilon, epsilon_high) sono deliberatamente NON
+# impostati qui: se assenti valgono i default di TRL 0.24.0
+# (loss_type='dapo', scale_rewards='group', mask_truncated_completions=False),
+# che sono quelli sotto cui è stato prodotto ogni risultato storico. Le celle
+# in ablations/loss/ li sovrascrivono per isolare un fattore alla volta.
+grpo:
+  num_generations: 8
+  max_completion_length: 128
+
+  # max_prompt_length 768 (era 256) per DUE ragioni.
+  #
+  # 1. Il few-shot con k=3 esempi supera i 256 token: a 256 gli esempi
+  #    vengono troncati IN SILENZIO e la cella few-shot diventa
+  #    indistinguibile da una zero-shot. Le celle few-shot dovevano quindi
+  #    ridichiarare 768 ognuna: un valore comune ripetuto nei figli.
+  #
+  # 2. La valutazione doppia (evaluation.dual_prompting) valuta ogni cella
+  #    anche nella modalita' complementare. Con 256 la passata few-shot di
+  #    una cella zero-shot FALLISCE (exit 2, per la guardia che impedisce il
+  #    troncamento silenzioso): la config dichiarava una capacita' che non
+  #    aveva.
+  #
+  # Il valore NON cambia il comportamento zero-shot: un prompt senza esempi
+  # non arriva a 768 token, quindi il tetto non viene mai raggiunto. E' un
+  # limite superiore, non una lunghezza imposta.
+  max_prompt_length: 768
+
+  beta: 0.04
+  temperature: 0.7
+
+# --- Reward (stack storico a 7 componenti, somma 1.0) ---
+# È lo stack sotto cui sono stati prodotti tutti i risultati storici, quindi
+# resta il default per non cambiare il significato di nessuna cella esistente.
+# Le alternative stanno in ablations/rewards/.
+#
+# Nota misurata sulle componenti: nei run storici `format` era saturata a 0.998
+# e `repetition` a 0.966, cioè già inerti come segnale di gradiente; mentre
+# `gloss_order` stava a 0.085. Vedi docs/RECOVERY_REPORT.md §5.
+reward:
+  weight_translation: 0.20 # ROUGE-L vs gold
+  weight_bleu: 0.20 # BLEU-4 vs gold
+  weight_gold_structure: 0.20 # bigram score ancorato al gold
+  weight_gloss_order: 0.10 # edit-distance word-level vs gold
+  weight_verifier_scaled: 0.10 # ROUGE-L × confidenza strutturale
+  weight_format: 0.10 # solo token glossa
+  weight_repetition: 0.10 # penalizza loop degeneri
+
+# --- Constrained decoding ---
+# Trie dual-root sul vocabolario glossa: è l'unico path di decoding vincolato.
+# Copertura verificata col tokenizer Qwen reale: solo 4 tipi glossa su 15472
+# hanno il primo token bloccato, e la massa di token di corpus irraggiungibile
+# è 12/897971.
+#
+# Effetto misurato del vincolo (non ovvio): sul base model NON vincolato la
+# non-copy-token accuracy è 0.0006, col Trie sale a 0.0432 — cioè 70x meglio.
+# Sotto ROUGE-L il Trie sembrava dannoso (0.365→0.137), ma quello era un
+# artefatto della metrica case-insensitive che premia la copia dell'inglese.
+grammar:
+  enabled: true
+  # Telemetria della massa mascherata (allowed/removed mass, entropia).
+  # Default false: nei run storici era SEMPRE disattivata, quindi nessuno di
+  # essi ha registrato queste quantità. Attivarla è il prerequisito del GATE 1a
+  # in docs/NEW_OBJECTIVES_SPEC.md.
+  track_diagnostics: false
+
+# --- Evaluation ---
+#
+# TUTTI i knob comportamentali dell'eval vivono QUI. L'invocazione è
+#   python -m src.training.eval_t2g --config <file> [--checkpoint <path>]
+# e basta: nessun flag CLI comportamentale, nessuna variabile d'ambiente
+# (chi cercava MAX_SAMPLES=500 / PROMPTING=zero-shot / DUAL_EVAL=1 /
+# BEST_OF_N=1 li imposta ora in questa sezione).
+#
+# max_samples fissa il numero di PROMPT valutati (sottocampionati dal test set
+# di 8109 righe con seed 42 deterministico, vedi utils/metrics.py
+# seeded_sample_indices). num_samples e' il numero di generazioni per prompt.
+# Il totale di uscite generate e' max_samples * num_samples.
+#
+# ATTENZIONE alla comparabilita': i numeri di una cella valutata con
+# max_samples diverso NON sono confrontabili con quelli di un'altra cella.
+# Cambiando questo valore vanno rivalutate TUTTE le celle. La cache della
+# baseline si autoprotegge (eval_t2g.py: n_eval != max_samples -> no reuse),
+# ma le tabelle dei risultati gia' pubblicate no.
+evaluation:
+  batch_size: 8
+  max_samples: 3000
+  num_samples: 5
+  # Best-of-N ORACOLO (usa il gold per scegliere la migliore completion):
+  # blocco separato oracle_best_of_n, MAI metrica primaria. Richiede
+  # num_samples > 1.
+  best_of_n: true
+  # Figure plotnine (11-12 per eval): eval.sh le generava sempre, quindi il
+  # default cluster è true. Un eval rapido senza figure lo sovrascrive in una
+  # config di variante.
+  plot: true
+  # null = DEDUZIONE AUTOMATICA (storico di cluster/eval.sh):
+  #   compare → true se la cella dichiara training.output_dir (celle di
+  #             training: baseline base-model cachata + checkpoint),
+  #             false sulle celle eval-only;
+  #   eval_baseline_only → true SOLO senza checkpoint E senza output_dir
+  #             (celle baseline/*: eval del solo base model, niente compare).
+  # true/false espliciti vincono sulla deduzione. La deduzione NON va dichiarata
+  # per far funzionare le celle baseline/*.
+  compare: null
+  eval_baseline_only: null
+  # Ricalcola la baseline del base model anche se una eval_baseline.json
+  # compatibile è in cache (default false: riuso, ~25 min GPU risparmiati
+  # per ogni eval ripetuta della stessa cella).
+  force_baseline_eval: false
+  # DUAL PROMPTING: eval della cella in ENTRAMBE le modalità di prompting
+  # (quella della config + la complementare): misura se il modello ha
+  # interiorizzato la mappatura o se dipende dal prompt come stampella.
+  # COSTO (raddoppia): a 5000 prompt ~25 min per passata (~50 min per cella);
+  # al PRIMO giro la passata complementare valuta anche la SUA baseline del
+  # base model (~25 min extra, poi cachata con fingerprint separato).
+  # Le celle baseline/* lo disattivano: sono già una griglia esplicita di
+  # prompting (zero-shot / zero-shot-no-grammar / few-shot) e il dual le
+  # duplicherebbe. NB la passata complementare few-shot NON è soggetta al
+  # vincolo max_prompt_length >= 512 (vale solo per evaluation.prompting): a
+  # eval time i prompt non vengono troncati, ed è la misura deliberata del
+  # cross-prompting (sempre marcata source: config-dual e con suffisso
+  # __<mode> sui file).
+  dual_prompting: true
+  # Modalità di prompting della eval: "config" (default storico) deriva da
+  # retrieval.enabled; "zero-shot"/"few-shot" la forza per questa eval sola
+  # (few-shot richiede max_prompt_length >= 512, altrimenti l'eval abortisce).
+  prompting: "config"
+  # Override opzionali (un tempo flag --output / --baseline / --baseline-json).
+  # output: path esplicito del results JSON (default: nome derivato dal
+  #   checkpoint). baseline_pass_at1: Pass@1 del baseline per il plot
+  #   baseline_vs_grpo. baseline_json: JSON di baseline per i confronti (la
+  #   cache automatica lo rende superfluo nella pipeline standard).
+  output: null
+  baseline_pass_at1: null
+  baseline_json: null
+
+# --- Few-shot retrieval ---
+# Recupera k esempi text→gloss dal TRAIN e li inietta nel prompt.
+# ANTI-LEAKAGE: la query stessa e i near-duplicati (similarità >
+# max_self_similarity) sono sempre esclusi; gli esempi vengono sempre dal train.
+#
+# Il prompting è il fattore con l'effetto misurato più grande di tutti: base
+# few-shot+Trie sta a ROUGE-L 0.466 contro 0.137 dello zero-shot+Trie, cioè
+# 0.33 dei 0.42 del divario headline è PRE-RL. Con few-shot attivo alzare
+# grpo.max_prompt_length a 768 (3 esempi + query superano i 256 di default).
+retrieval:
+  enabled: false
+  backend: "tfidf"
+  model_name: null
+  top_k: 3
+  max_self_similarity: 0.98
+  cache_path: "data/retriever_index"
+
+# --- Weights & Biases ---
+wandb:
+  project: "neuro-symbolic-t2g"
+  run_name: "qwen25-05b"
+  tags: ["T2G", "constrained-decoding", "Qwen2.5-0.5B", "ASL"]

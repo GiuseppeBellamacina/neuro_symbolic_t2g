@@ -1,0 +1,61 @@
+# ============================================================================
+# ABLATION OBJECTIVE — SFT + structured gloss loss (CRF sparsa, source-conditioned)
+#
+# Fattore unico rispetto a sft/zero-shot.yaml: aggiunge una NLL strutturata su
+# uno spazio di stati ridotto (top-512 glosse + OTHER), con transizioni stimate
+# SOLO dalle righe di train post-split.
+#
+# STATO: cella SPERIMENTALE, e il valore atteso su QUESTO corpus è basso.
+# Non è un'opinione, è misurato — qualificazione informativa su 21917 token
+# held-out, con backoff gerarchico corretto (prev,src) → src → unigramma:
+#     H(gloss)                   = 8.578 bit
+#     H(gloss | source)          = 0.856 bit   ← la sorgente spiega il 90%
+#     H(gloss | source, prev)    = 0.812 bit
+#     guadagno del prior strutturale = +0.044 bit, cioè 5.2% del residuo
+# E un decoder autoregressivo modella già gloss_{t-1} tramite il proprio
+# contesto, quindi quel 5.2% è in buona parte già catturato.
+#
+# CAVEAT sulla popolazione (importante, non ometterlo nel report): la stima usa
+# l'allineamento posizionale, quindi vede solo le coppie con
+# len(text)==len(gloss), il 27.5% del corpus. Il residuo strutturale più
+# interessante — la cancellazione contestuale della copula `BE`, che è il 65%
+# del vantaggio di SFT sulla regola — vive proprio nelle coppie NON allineate
+# che questa stima esclude. Quindi +0.044 bit è un lower bound su una
+# sottopopolazione, non un tetto sul corpus.
+#
+# Conferme indipendenti dalla letteratura: normalizzazione globale ≈ locale con
+# encoder forti (Goyal, Dyer & Berg-Kirkpatrick, arXiv:1904.06834); i guadagni
+# strutturati si concentrano sui dataset PICCOLI (Huang et al., arXiv:2106.03376)
+# e qui abbiamo 73K righe. Inoltre top-512+OTHER comprime in un solo stato la
+# coda rara dove stanno gli errori residui, e non è un approssimatore non
+# distorto (a differenza di sampled softmax / NCE).
+#
+# GATE PRIMA DI PROMUOVERLA (docs/NEW_OBJECTIVES_SPEC.md, GATE 2): benchmark
+# solo-testa con CONTROLLO a transizioni shuffled. Se il grafo vero non batte
+# quello shuffled oltre il CI bootstrap appaiato, il prior non contribuisce e la
+# cella si abbandona.
+#
+# Diventa scientificamente interessante su un corpus dove la glossa NON è una
+# funzione superficiale della sorgente (overlap 15.6% invece di 98.2%).
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/ablations/objectives/sft-structured.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../../sft/zero-shot.yaml
+
+auxiliary_objective:
+  structured:
+    weight: 0.1
+    warmup_steps: 200
+    top_k: 512           # stati ordinari; +1 stato OTHER per la coda
+    alpha: 0.1           # smoothing solo sulle transizioni OSSERVATE nel train
+    shuffled_control: false   # true = controllo a transizioni permutate (GATE 2)
+
+training:
+  output_dir: "experiments/checkpoints/qwen25-05b/ablations/objectives/sft-structured"
+  log_dir: "experiments/logs/qwen25-05b/ablations/objectives/sft-structured"
+
+wandb:
+  run_name: "qwen25-05b-abl-obj-structured"
+  tags: ["T2G", "ablation", "objective", "structured", "crf", "sft"]

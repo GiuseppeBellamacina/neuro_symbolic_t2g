@@ -52,11 +52,9 @@ class HighPrecisionLogCallback(TrainerCallback):
     """
 
     def __init__(self) -> None:
-        # Running average of the logged GRPO batch rewards ("reward" key).
-        # Each trl logging event reports the MEAN reward of its batches; with
-        # equal batch sizes the running mean of event-means equals the
-        # overall mean. Restarted/resumed runs restart the average (it is a
-        # live monitoring aid, not a persisted metric).
+        # Running average dei batch reward GRPO (chiave "reward"): con batch
+        # uguali la media delle medie-per-evento eguaglia la media complessiva.
+        # Su resume riparte da zero (aiuto di live monitoring, non metrica).
         self._reward_sum: float = 0.0
         self._reward_count: int = 0
 
@@ -71,20 +69,26 @@ class HighPrecisionLogCallback(TrainerCallback):
         if not state.is_local_process_zero or not logs:
             return
         logs.pop("total_flos", None)
+        # ┌─ CONTRATTO DI FORMATO — non modificare senza aggiornare i consumatori ─┐
+        # Unica sorgente della serie temporale per-step: nessun altro artefatto
+        # la conserva (live_status.json ha solo l'ultimo snapshot; wandb offline).
+        # Formato: "  step=<int>  <k>=<v>  ..." — 2 spazi iniziali, 2 spazi di
+        # separatore, float a 8 decimali. Consumatori, ognuno con la propria
+        # regex: src/utils/chain_monitor.py (_KV_STEP), live_training_table.py,
+        # remote/app.py. Cambiare indentazione/separatore/precisione li rompe
+        # TUTTI in silenzio: una regex che non aggancia non errore, restituisce
+        # zero punti. Consolidare i parser resta un debito aperto.
+        # └────────────────────────────────────────────────────────────────────────┘
         parts = [f"step={state.global_step}"]
         for k, v in logs.items():
             parts.append(f"{k}={v:.8f}" if isinstance(v, float) else f"{k}={v}")
         print("  " + "  ".join(parts))
         # Live status file (logs/live_status.json) for the external monitor —
-        # throttled internally; fail-safe (never breaks training).
-        #
-        # ONLY pass fields that are PRESENT in this log event: a partial log
-        # (e.g. the routine holdout eval emits {'eval_loss': …} with NO
-        # loss/lr/epoch, and some early/edge events carry only lr) must NOT
-        # overwrite the last valid train metrics with None — otherwise the
-        # monitor top bar loses the loss the moment an eval event arrives
-        # (or shows only lr for partial early logs). None in live_status_set
-        # is an explicit reset, so we filter it here.
+        # throttled internally; fail-safe. Passare SOLO i campi presenti in
+        # QUESTO evento di log: un log parziale (l'holdout eval emette
+        # {'eval_loss': …} senza loss/lr/epoch) non deve sovrascrivere le
+        # ultime metriche valide con None (live_status_set tratta None come
+        # reset esplicito).
         fields: dict[str, Any] = {"step": state.global_step}
         for log_key, status_key in (
             ("loss", "loss"),
@@ -282,11 +286,8 @@ class CompletionSampleLogger:
             gloss_order_reward,
             gloss_repetition_reward,
             gold_structure_reward,
-            soft_viterbi_distance_reward,
-            structural_dense_reward,
             translation_quality_reward,
             verifier_scaled_reward,
-            viterbi_distance_reward,
         )
 
         self._component_fns: list[tuple[str, Callable[..., float], dict[str, Any]]] = [
@@ -303,26 +304,6 @@ class CompletionSampleLogger:
             (
                 "gold_structure_reward",
                 gold_structure_reward,
-                {"gold_gloss": "", "normalize": True},
-            ),
-            # v2 gold-anchored components: "gold_gloss" MUST be in kwargs so
-            # that _capture substitutes the per-sample gold — without it the
-            # v2 functions receive no gold and return neutral 0.0 (bug: the
-            # sample display showed +0.00 for perfect completions while the
-            # trainer metrics were correctly ~0.87).
-            (
-                "structural_dense_reward",
-                structural_dense_reward,
-                {"gold_gloss": "", "normalize": True},
-            ),
-            (
-                "viterbi_distance_reward",
-                viterbi_distance_reward,
-                {"gold_gloss": "", "normalize": True},
-            ),
-            (
-                "soft_viterbi_distance_reward",
-                soft_viterbi_distance_reward,
                 {"gold_gloss": "", "normalize": True},
             ),
             (
@@ -342,11 +323,10 @@ class CompletionSampleLogger:
             )
             return
 
-        # Wrap the first reward function to intercept.  TRL 0.24 forwards
-        # every extra dataset column (including ``gold_gloss``) to each
-        # reward function call as a kwarg, so the interceptor reads the
-        # per-batch gold reference straight out of ``**kwargs`` instead of
-        # the removed global registry.
+        # Wrap the first reward function to intercept: TRL 0.24 forwarda ogni
+        # colonna extra del dataset (inclusa ``gold_gloss``) come kwarg, quindi
+        # l'interceptor legge il gold reference da ``**kwargs`` (niente piu'
+        # registry globale).
         original_fn = self._reward_fns[0]
 
         def _interceptor(
@@ -527,9 +507,6 @@ class CompletionSampleCallback(TrainerCallback):
         "translation_quality_reward",
         "bleu_reward",
         "gold_structure_reward",
-        "structural_dense_reward",
-        "viterbi_distance_reward",
-        "soft_viterbi_distance_reward",
         "verifier_scaled_reward",
         "gloss_order_reward",
         "gloss_format_reward",
@@ -614,13 +591,11 @@ class CompletionSampleCallback(TrainerCallback):
                         ent_allowed = stats.get("avg_masked_entropy_allowed", 0.0)
 
                         # NO explicit step=: unsloth's GRPO profiler + trl log
-                        # to wandb ~17x/step WITHOUT step=, racing the run's
-                        # internal step counter ahead of global_step. Our
-                        # explicit-step logs were then REJECTED ("Tried to
-                        # log to step N < current M" — 482 warnings in
-                        # slurm-train-7073) and the panel data DROPPED.
-                        # Auto-step keeps the data (panels use their own
-                        # xs for plots; scalars stay monotonic).
+                        # to wandb ~17x/step WITHOUT step=, facendo correre il
+                        # contatore interno oltre global_step; i log con step
+                        # esplicito venivano REIETI ("Tried to log to step
+                        # N < current M" — 482 warnings in slurm-train-7073)
+                        # e i dati dei panel persi. Auto-step li mantiene.
                         wandb.log(
                             {
                                 "grammar/masked_mass_avg": mass,
@@ -882,9 +857,8 @@ class SFTSampleCallback(TrainerCallback):
                     sample = {"prompt": str(sample), "completion": ""}
 
                 # trl 0.24 conversational format: prompt = [system, user]
-                # message list, completion = [assistant] gold-gloss message.
-                # Graceful fallbacks keep the display working for datasets
-                # still in transition to the new schema.
+                # message list, completion = [assistant] gold-gloss message;
+                # fallback tolleranti per dataset ancora sullo schema vecchio.
                 prompt = sample.get("prompt", "")
                 completion = sample.get("completion", "")
                 user_text = extract_user_text(prompt)

@@ -1,1 +1,1 @@
-"""Constrained decoding via grammarllm PDA for ASL gloss generation."""
+"""Constrained decoding via vocabulary/trie masking for ASL gloss generation."""

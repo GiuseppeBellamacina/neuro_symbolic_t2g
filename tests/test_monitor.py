@@ -39,7 +39,7 @@ def test_completion_sample_extraction():
         "    IX MAN WALK HOUSE",
         "  GOLD:",
         "    IX MAN WALK ENTER HOUSE",
-        "  REWARDS: translation_quality_reward=+0.80  structural_dense_reward=+0.65  gloss_format_reward=+1.00  gloss_repetition_reward=+1.00",
+        "  REWARDS: translation_quality_reward=+0.80  gold_structure_reward=+0.65  gloss_format_reward=+1.00  gloss_repetition_reward=+1.00",
         "  TOTAL:   +0.80",
         "================================================================",
         "step=110 loss=0.004 reward=0.380 ",

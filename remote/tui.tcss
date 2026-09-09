@@ -1,0 +1,211 @@
+/* tui.tcss — stili della TUI del driver T2G (remote/tui.py, CSS_PATH).
+ *
+ * Pannelli della dashboard: job attivo (testo + ProgressBar + sparkline
+ * loss/reward), completion samples, log tail, coda + eventi affiancati
+ * (DataTable). Il file vive accanto a tui.py: Textual lo risolve
+ * relativamente al modulo che dichiara CSS_PATH. */
+
+Screen {
+    background: $surface;
+}
+
+.panel {
+    height: auto;
+    border: round $primary;
+    padding: 0 1;
+    margin: 0 1 1 1;
+}
+
+.hint {
+    height: auto;
+    padding: 0 1;
+    color: $text-muted;
+}
+
+.title {
+    height: auto;
+    padding: 0 1;
+    text-style: bold;
+}
+
+/* Banner di degrado: cluster irraggiungibile oppure dati non freschi. */
+#banner {
+    display: none;
+    height: auto;
+    background: $warning;
+    color: $text;
+    text-style: bold;
+    padding: 0 1;
+    margin: 0 1 1 1;
+}
+
+#loading {
+    display: none;
+    height: 3;
+}
+
+/* ── Job attivo: riepilogo + avanzamento + sparkline per-step ─────────── */
+
+#job-box {
+    height: auto;
+    border: round $primary;
+    padding: 0 1;
+    margin: 0 1 1 1;
+}
+
+#job-panel {
+    height: auto;
+}
+
+#job-progress {
+    height: 1;
+    margin: 0;
+}
+
+#eta-hint {
+    height: auto;
+    color: $text-muted;
+}
+
+#spark-row {
+    height: auto;
+    margin-top: 1;
+}
+
+#loss-box, #reward-box {
+    width: 1fr;
+}
+
+#reward-box {
+    padding-left: 1;
+}
+
+.spark-stats {
+    height: 1;
+    color: $text-muted;
+}
+
+#loss-spark, #reward-spark {
+    width: 1fr;
+    height: 1;
+}
+
+/* ── Samples e log tail del job attivo ────────────────────────────────── */
+
+#samples-panel {
+    height: 1fr;
+    border: round $primary;
+    padding: 0 1;
+    margin: 0 1 1 1;
+}
+
+#tail-panel {
+    height: 1fr;
+    border: round $panel;
+    padding: 0 1;
+    margin: 0 1 1 1;
+}
+
+#samples-panel RichLog, #tail-panel RichLog {
+    height: 1fr;
+}
+
+/* ── Coda + eventi/errori affiancati (DataTable di sola lettura) ──────── */
+
+#bottom-row {
+    height: 11;
+    margin: 0 1 1 1;
+}
+
+#queue-panel, #events-panel {
+    width: 1fr;
+    height: 1fr;
+    border: round $panel;
+}
+
+#events-panel {
+    margin-left: 1;
+}
+
+#queue-panel DataTable, #events-panel DataTable {
+    height: 1fr;
+    margin: 0;
+}
+
+/* ── Log a schermo intero (binding L) ─────────────────────────────────── */
+
+#big-log {
+    height: 1fr;
+    border: round $primary;
+    padding: 0 1;
+    margin: 0 1 1 1;
+}
+
+#log-path {
+    height: auto;
+    padding: 0 1;
+    color: $text-muted;
+}
+
+/* ── Schermata risultati (binding v) ──────────────────────────────────── */
+
+#results-scroll {
+    height: 1fr;
+    margin: 0 1;
+}
+
+#runs-table {
+    height: auto;
+    max-height: 14;
+    margin: 0;
+}
+
+#reward-panel {
+    height: auto;
+    border: round $panel;
+    padding: 0 1;
+    margin-top: 1;
+}
+
+#reward-bars {
+    height: auto;
+}
+
+/* ── Widget comuni ────────────────────────────────────────────────────── */
+
+DataTable {
+    height: 1fr;
+    margin: 0 1;
+}
+
+Select, Input, TextArea, Button {
+    margin: 0 1 0 1;
+}
+
+/* ── Dialogo di conferma Sì/No ────────────────────────────────────────── */
+
+ConfirmScreen {
+    align: center middle;
+}
+
+ConfirmScreen > Vertical {
+    width: 76;
+    height: auto;
+    border: round $error;
+    background: $surface;
+    padding: 1 2;
+}
+
+ConfirmScreen .dialog-prompt {
+    padding-bottom: 1;
+}
+
+ConfirmScreen .dialog-actions {
+    height: auto;
+    align-horizontal: right;
+}
+
+ConfirmScreen .dialog-actions Button {
+    width: auto;
+    margin-left: 1;
+}

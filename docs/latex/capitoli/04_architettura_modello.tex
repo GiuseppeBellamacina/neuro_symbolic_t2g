@@ -1,0 +1,167 @@
+\chapter{Modello e stack software}
+\label{cap:modello}
+
+\section{Il modello base}
+
+Il modello impiegato è \texttt{Qwen2.5-0.5B-Instruct}: un Transformer
+decoder-only da circa $0{,}5$ miliardi di parametri, nella variante già
+sottoposta a istruzione (\emph{instruct}), cioè addestrata a seguire richieste
+formulate in linguaggio naturale.
+
+La scelta di un modello piccolo è motivata da tre ragioni, in ordine di peso:
+
+\begin{enumerate}
+  \item \textbf{Vincolo di risorse.} L'addestramento gira su una singola GPU di
+        un cluster condiviso con una quota di una sola allocazione per volta
+        (Capitolo~\ref{cap:infrastruttura}). Il reinforcement learning richiede
+        di generare $G$ candidati per ogni prompt a ogni passo, quindi il costo
+        di generazione domina; un modello grande renderebbe l'esperimento
+        infattibile.
+  \item \textbf{Adeguatezza al compito.} Come stabilito nel
+        Capitolo~\ref{cap:dataset}, il compito ha meno di un bit di incertezza
+        residua per token. Non è un compito che richiede capacità di
+        ragionamento: richiede di memorizzare una mappa lessicale.
+  \item \textbf{Iterazione.} Un modello piccolo permette cicli di esperimento
+        brevi, che è ciò che serve quando l'oggetto dell'indagine è il
+        \emph{disegno} sperimentale e non la prestazione assoluta.
+\end{enumerate}
+
+La variante \emph{instruct} è preferita alla variante base perché il prompt
+adottato ha forma di istruzione, e perché nella cella \emph{few-shot} gli esempi
+sono inseriti come turni di conversazione.
+
+\section{Adattamento: LoRA e quantizzazione}
+
+Il modello base non viene aggiornato. Si applica l'adattamento a rango basso
+descritto nella~\eqref{eq:lora} con la configurazione seguente.
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Iperparametro & Valore \\
+\midrule
+Rango $r$ & $32$ \\
+Scala $\alpha$ & $64$ \\
+Dropout & $0{,}05$ \\
+Moduli adattati & $7$ \\
+Quantizzazione dei pesi base & 4 bit (QLoRA) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+I sette moduli sono \texttt{q\_proj}, \texttt{k\_proj}, \texttt{v\_proj},
+\texttt{o\_proj} (le quattro proiezioni dell'attenzione) e \texttt{gate\_proj},
+\texttt{up\_proj}, \texttt{down\_proj} (le tre proiezioni del blocco
+feed-forward). Adattare anche il blocco feed-forward, e non solo l'attenzione, è
+la configurazione che la letteratura su QLoRA~\cite{dettmers2023qlora} indica
+come preferibile quando il numero di parametri addestrabili non è il vincolo
+stringente.
+
+Il rapporto $\alpha/r = 2$ è la scelta convenzionale. Il dropout $0{,}05$ agisce
+solo sul ramo dell'adattatore.
+
+Il caricamento è realizzato in \texttt{src/models/model\_loader.py}, che
+incapsula sia la quantizzazione a 4 bit sia l'installazione degli adattatori,
+esponendo una sola funzione di caricamento usata da tutti i punti di ingresso
+(SFT, GRPO, valutazione). Questa centralizzazione è deliberata: garantisce che
+la cella di valutazione carichi il modello esattamente come la cella di
+addestramento, evitando una classe di discrepanze difficile da diagnosticare.
+
+\section{Lo stack software}
+
+La riproducibilità richiede di fissare le versioni. Lo stack è il seguente.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Componente & Versione & Ruolo \\
+\midrule
+PyTorch & \texttt{2.7.1+cu118} & tensori, autograd \\
+CUDA & $11{,}8$ & runtime GPU \\
+Transformers & $5{,}3{,}0$ & modello, tokenizzatore, generazione \\
+TRL & $0{,}24{,}0$ & \texttt{SFTTrainer}, \texttt{GRPOTrainer} \\
+PEFT & $0{,}19{,}1$ & implementazione LoRA \\
+Unsloth & --- & kernel ottimizzati, caricamento 4 bit \\
+torchao & $0{,}17{,}0$ & primitive di quantizzazione \\
+sacrebleu & $2{,}6{,}0$ & BLEU e chrF \\
+sentence-transformers & $5{,}2{,}3$ & retrieval per il few-shot \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Alcune di queste versioni non sono neutrali, e vale la pena segnalarlo qui
+perché il Capitolo~\ref{cap:infrastruttura} documenta i guasti che ne sono
+derivati.
+
+\begin{description}
+  \item[Unsloth.] Fornisce kernel ottimizzati e un percorso di caricamento a 4
+        bit. Il suo import è però costoso e con effetti collaterali globali: va
+        eseguito \emph{dopo} le validazioni di configurazione, non prima. Un bug
+        reale documentato nella sezione~\ref{sec:bug-evalonly} consisteva
+        esattamente in una validazione posta dopo l'import, con il risultato che
+        un errore di configurazione banale si manifestava solo dopo minuti di
+        caricamento.
+  \item[Transformers 5.3.0.] Ha introdotto un cambiamento di firma in una
+        funzione interna di rilevamento dei pacchetti, che ha rotto l'import di
+        \texttt{trl.trainer.grpo\_trainer} (sezione~\ref{sec:bug-weave}).
+  \item[TRL 0.24.0.] I valori predefiniti del \texttt{GRPOTrainer} in questa
+        versione determinano quale variante dell'obiettivo GRPO viene
+        effettivamente ottimizzata. Poiché nessuna configurazione storica del
+        progetto li impostava esplicitamente, gli esperimenti hanno usato i
+        default della libreria per omissione e non per scelta. L'analisi
+        completa è nella sezione~\ref{sec:denominatori}.
+\end{description}
+
+\section{Il formato del prompt}
+
+Il modello riceve un'istruzione e produce il gloss. Sono state usate due
+modalità.
+
+\subsection{Zero-shot}
+
+Il prompt contiene solo l'istruzione e la frase da tradurre. La lunghezza
+massima del prompt è fissata a $256$ token.
+
+\subsection{Few-shot con retrieval}
+
+Il prompt contiene, prima della frase da tradurre, $k=3$ esempi
+\emph{recuperati} dal training set in base alla somiglianza semantica con la
+frase corrente. Il recupero è realizzato con \texttt{sentence-transformers}: le
+frasi di training sono codificate in vettori una volta sola, e a inferenza si
+cercano i tre vicini più prossimi.
+
+La lunghezza massima del prompt in questa modalità è $768$ token, per far posto
+agli esempi. Questo vincolo è verificato automaticamente:
+\texttt{tests/validate\_configs.py} rifiuta qualunque configurazione che attivi
+il retrieval con \texttt{max\_prompt\_length} inferiore a $512$, perché un
+prompt troncato eliminerebbe silenziosamente gli esempi rendendo la cella
+indistinguibile dallo zero-shot.
+
+\subsection{Perché questa distinzione è centrale}
+
+Anticipando il Capitolo~\ref{cap:risultati}: la differenza fra zero-shot e
+few-shot è, numericamente, il fattore \emph{più grande} osservato in tutto
+l'esperimento. Il modello base con vincolo di decodifica passa da ROUGE-L
+$0{,}1373$ (zero-shot) a $0{,}4664$ (few-shot), un salto di $0{,}33$ ottenuto
+\emph{senza aggiornare un solo parametro}. Il totale di variazione fra il punto
+di partenza peggiore e il miglior risultato con reinforcement learning è circa
+$0{,}42$. Ne segue che la maggior parte dell'effetto attribuibile alla
+``pipeline'' è in realtà effetto di prompting.
+
+Questa è una confusione di fattori nel disegno originale: le celle che
+combinavano metodo di addestramento e modalità di prompting non permettevano di
+separare i due contributi. La correzione proposta nel
+Capitolo~\ref{cap:conclusioni} è di rendere l'esperimento primario una griglia
+prompting $\times$ decodifica, con il metodo di addestramento come fattore
+successivo.
+
+\section{Il vocabolario di uscita}
+
+Il modello genera token, ma l'uscita valida è una sequenza di gloss. Il
+collegamento fra i due livelli è il vocabolario gloss di $15\,472$ elementi
+descritto nel Capitolo~\ref{cap:dataset}, tradotto in un insieme di $3\,967$
+identificatori di token ammessi come \emph{primo} token di un gloss.
+
+La costruzione, la doppia radice necessaria per gestire il token con spazio
+iniziale, e le quattro forme gloss che risultano non emettibili sono trattate
+nel Capitolo~\ref{cap:decoding}.

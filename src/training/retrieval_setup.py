@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from src.retrieval import ExampleRetriever, RetrievedExample, normalize_text
+from src.utils.phase_timing import phase
 
 logger = logging.getLogger(__name__)
 
@@ -159,10 +160,13 @@ def retrieve_few_shot_batch(
 ) -> list[list[RetrievedExample]]:
     """Retrieve few-shot examples per query with per-query anti-leakage.
 
-    ``ExampleRetriever.retrieve_batch`` applies a single ``exclude`` set to
-    every query; here each query excludes its OWN normalized text, so the
-    query itself (or any exact in-corpus duplicate) can never appear among
-    its own few-shot demonstrations.
+    ``ExampleRetriever.retrieve_batch`` applica un percorso batch
+    vettorializzato (una sola ``transform``, score a chunk) con lo stesso
+    filtraggio di ``retrieve``; l'argomento ``per_query_exclude`` porta
+    dentro il percorso batch il caso "ogni query esclude la propria
+    versione normalizzata", cosicché la query stessa (o una sua copia
+    esatta nel corpus) non può mai comparire fra le proprie few-shot
+    demonstrations.
 
     Args:
         retriever: The built few-shot retriever (see
@@ -176,12 +180,15 @@ def retrieve_few_shot_batch(
     Returns:
         One list of :class:`RetrievedExample` per query, best first.
     """
-    return [
-        retriever.retrieve(
-            query,
+    if not queries:
+        return []
+    # La fase viene annunciata PRIMA del lavoro: su 72979 query il
+    # retrieval resta l'operazione piu' lunga della preparazione del
+    # dataset e senza la riga di apertura il processo sembra bloccato.
+    with phase("Retrieving few-shot examples", detail=f"{len(queries)} prompt"):
+        return retriever.retrieve_batch(
+            queries,
             top_k,
-            exclude={normalize_text(query)},
             max_self_similarity=max_self_similarity,
+            per_query_exclude=[{normalize_text(query)} for query in queries],
         )
-        for query in queries
-    ]

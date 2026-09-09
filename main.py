@@ -106,7 +106,7 @@ def test_grammar_processor() -> None:
 
     import torch
 
-    from src.grammar.gloss_grammar import GlossVocabularyMask, build_gloss_grammar
+    from src.grammar.gloss_grammar import GlossVocabularyMask
     from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
 
     # We need a tokenizer. Try loading a small one.
@@ -176,12 +176,6 @@ def test_grammar_processor() -> None:
     )
     logger.info(f"✓ After masking: {num_allowed} / {vocab_size} tokens allowed")
 
-    # Test grammar building
-    grammar = build_gloss_grammar(test_vocab, tokenizer)
-    assert "S*" in grammar, "Grammar must have start symbol S*"
-    assert len(grammar["S*"]) > 0, "S* must have productions"
-    logger.info(f"✓ Grammar: S* → {len(grammar['S*'])} alternatives")
-
     logger.info("\n✅ Task 2: ALL TESTS PASSED\n")
 
 
@@ -201,7 +195,6 @@ def test_reward_functions() -> None:
         gloss_format_reward,
         gloss_repetition_reward,
         initialize_rewards,
-        structural_dense_reward,
         translation_quality_reward,
     )
 
@@ -224,11 +217,6 @@ def test_reward_functions() -> None:
     score_bad = translation_quality_reward(generated_bad, gold)
     assert score_bad < score, "Bad match should score lower"
     logger.info(f"✓ Translation quality (bad match): {score_bad:.4f}")
-
-    # Test structural dense reward
-    struct_score = structural_dense_reward("IX MAN WALK")
-    assert -1.0 <= struct_score <= 1.0, f"Score out of range: {struct_score}"
-    logger.info(f"✓ Structural dense reward: {struct_score:.4f}")
 
     # Test format reward
     format_score = gloss_format_reward("IX MAN WALK")

@@ -14,8 +14,8 @@
 # run_all RIFIUTA e chiede chain-resume (o --force per ricominciare).
 #
 # Uso:
-#   bash cluster/run_all.sh                          # train+eval (default: sft-grpo)
-#   bash cluster/run_all.sh sft-grpo              # train+eval con config specifico
+#   bash cluster/run_all.sh                          # train+eval (default: sft-grpo/few-shot)
+#   bash cluster/run_all.sh sft-grpo/few-shot     # train+eval con config specifico
 #   bash cluster/run_all.sh --ablation               # ablation study completo
 #   bash cluster/run_all.sh --eval-only              # solo evaluation
 #   bash cluster/run_all.sh --train-only             # solo training
@@ -24,21 +24,17 @@
 #   bash cluster/run_all.sh --remove                 # svuota la coda
 #   bash cluster/run_all.sh --force                  # azzera lo stato (catena interrotta)
 #
-# Config specifici (passa il nome senza .yaml):
-#   bash cluster/run_all.sh sft-grpo              # config base
-#   bash cluster/run_all.sh sft-grpo             # config ottimale (default)
-#   bash cluster/run_all.sh sft                      # SFT baseline
-#   bash cluster/run_all.sh grpo_no_grammar          # ablation senza grammar
-#   (cerca in experiments/configs/t2g/ e experiments/configs/t2g/)
+# Config specifici (passa il path relativo a qwen25-05b, senza .yaml):
+#   bash cluster/run_all.sh sft-grpo/few-shot       # config base
+#   bash cluster/run_all.sh sft-grpo/few-shot       # config di riferimento (default)
+#   bash cluster/run_all.sh sft/zero-shot           # SFT supervised da solo
+#   bash cluster/run_all.sh ablations/decoding/no-grammar  # ablation senza grammar
+#   (cerca sotto experiments/configs/qwen25-05b/ in modo ricorsivo)
 #
-# Campagna (--ablation): decomposizione + ablation moduli + zero-shot
-#   1. GRPO-only (base, senza SFT)               [train + eval]
-#   2. SFT+GRPO pipeline principale              [train + eval]
-#   3-6. SFT+GRPO + singolo modulo sperimentale  [train + eval]
-#   7. SFT+GRPO + tutti i moduli                 [train + eval]
-#   8. SFT+GRPO senza constrained decoding       [train + eval]
-#   9. Zero-shot base (senza grammar)            [eval only]
-#  10. Zero-shot base + grammar                  [eval only]
+# Campagna (--ablation): matrice completa 3 baseline eval-only + 12 celle train+eval.
+# Ordine massimizza il riuso: le baseline zero-shot (Trie) cachano il --compare
+# per le celle successive; sft/zero-shot addestra l'adapter SFT riusato dalle
+# celle sft-grpo (fingerprint identica); le ablazioni riusano SFT + baseline.
 
 # Interrompere:
 #   chain-stop                               # ferma (preserva stato + tick at)
@@ -74,34 +70,37 @@ for arg in "$@"; do
             echo "Uso: bash cluster/run_all.sh [opzioni] [config_name]"
             echo ""
             echo "Opzioni:"
-            echo "  (nessun argomento)  Default: sft-grpo (train + eval)"
-            echo "  config_name         Nome del config senza .yaml (es. sft-grpo)"
-            echo "  --ablation          Campagna completa (12 celle: 8 pipeline + 2 decomposizione + 2 zero-shot)"
+            echo "  (nessun argomento)  Default: sft-grpo/few-shot (train + eval)"
+            echo "  config_name         Path del config relativo a qwen25-05b, senza .yaml (es. grpo/few-shot)"
+            echo "  --ablation          Campagna completa (15 celle: 3 baseline eval-only + 12 train+eval)"
             echo "  --eval-only         Solo evaluation (skip training)"
             echo "  --train-only        Solo training (skip eval)"
-            echo "  --resume            Riprendi dalla coda esistente (non richiede chain_failed)"
+            echo "  --resume            Riprendi dalla coda esistente"
             echo "  --append            Aggiungi job alla coda attiva"
             echo "  --remove            Svuota la coda"
             echo "  --force             Azzera lo stato anche se ci sono job pendenti"
             echo ""
-            echo "Config disponibili (passa il nome senza .yaml):"
-            echo "  sft-grpo               Pipeline principale SFT+GRPO (default)"
-            echo "  sft-only               SFT supervised da solo (cella decomposizione)"
-            echo "  grpo-only              GRPO dal base, senza SFT (cella decomposizione)"
-            echo "  sft-grpo-structure     SFT+GRPO + structural_dense (ablation moduli)"
-            echo "  sft-grpo-viterbi       SFT+GRPO + viterbi_distance (ablation moduli)"
-            echo "  sft-grpo-soft-viterbi  SFT+GRPO + soft_viterbi (ablation moduli)"
-            echo "  sft-grpo-all-rewards   SFT+GRPO + tutti e 3 i moduli sperimentali"
-            echo "  sft-grpo-no-grammar     SFT+GRPO senza constrained decoding"
-            echo "  sft-grpo-pda            SFT+GRPO con constrained decoding PDA"
-            echo "  sft-grpo-hotrollout     Controllo Finding 1 (rollout T=1.3, riusa SFT)"
-            echo "  zero-shot               Base model senza grammar (solo eval)"
-            echo "  zero-shot-grammar       Base model con grammar (solo eval)"
+            echo "Config disponibili (path relativo a experiments/configs/qwen25-05b, senza .yaml):"
+            echo "  baseline/zero-shot            Base model + Trie (eval-only)"
+            echo "  baseline/zero-shot-no-grammar Base model senza vincolo (eval-only, lower bound)"
+            echo "  baseline/few-shot             Base model + few-shot retrieval (eval-only)"
+            echo "  sft/zero-shot                 SFT supervised da solo"
+            echo "  grpo/zero-shot                GRPO dal base, zero-shot"
+            echo "  grpo/few-shot                 GRPO dal base, few-shot"
+            echo "  sft-grpo/zero-shot            Pipeline SFT→GRPO zero-shot"
+            echo "  sft-grpo/few-shot             Pipeline SFT→GRPO few-shot (default)"
+            echo "  ablations/decoding/no-grammar         GRPO senza vincolo simbolico"
+            echo "  ablations/decoding/hot-rollout        Rollout sampler a T=1.3"
+            echo "  ablations/rewards/edit-validity       Reward edit-validity singola"
+            echo "  ablations/rewards/historical-stack    Stack storico su init zero-shot"
+            echo "  ablations/loss/dr-grpo                Obiettivo Dr-GRPO"
+            echo "  ablations/objectives/sft-allowed-mass SFT + massa ammessa"
+            echo "  ablations/objectives/sft-structured   SFT + loss strutturata"
             echo ""
             echo "Esempi:"
-            echo "  bash cluster/run_all.sh sft-grpo               # train + eval pipeline principale"
-            echo "  bash cluster/run_all.sh sft-grpo --train-only  # solo training"
-            echo "  bash cluster/run_all.sh --ablation             # tutte le 7 celle"
+            echo "  bash cluster/run_all.sh sft-grpo/few-shot               # train + eval pipeline principale"
+            echo "  bash cluster/run_all.sh sft-grpo/few-shot --train-only  # solo training"
+            echo "  bash cluster/run_all.sh --ablation             # tutte le 15 celle"
             exit 0
             ;;
         -*)  # ignora flag non riconosciuti
@@ -115,51 +114,67 @@ for arg in "$@"; do
     esac
 done
 
+# ── Dual eval ─────────────────────────────────────────────────────────────────
+# NON è più una variabile d'ambiente (il vecchio DUAL_EVAL=1): il dual
+# prompting è un knob del config (evaluation.dual_prompting, default true su
+# base.yaml, disattivo sulle celle baseline/*). Ogni job eval lo onora da
+# solo, niente propagazione di env var attraverso i tick della catena.
+
 # ── Modelli T2G ───────────────────────────────────────────────────────────────
 if [ "$ABLATION" -eq 1 ]; then
-    # Campagna di decomposizione + ablation moduli: 7 celle train+eval.
+    # Campagna completa: 3 baseline eval-only + 12 celle train+eval.
     # Ordine ALLINEATO ad app.py:ABLATION_MODELS (il TUI batch usa la stessa
-    # lista). sft-only NON è in coda: la sua cella si valuta con l'adapter
-    # già addestrato della pipeline (CHECKPOINT esplicito, vedi sft-only.yaml).
+    # lista). Le baseline zero-shot (Trie) cachano il --compare per le celle
+    # successive; sft/zero-shot addestra l'adapter SFT riusato dalle celle
+    # sft-grpo (fingerprint identica).
     # Formato: TAG:CONFIG[:MODE]
     # MODE: te=train+eval (default), e=eval-only, t=train-only
     MODELS=(
-        "zero-shot:experiments/configs/t2g/zero-shot.yaml:e"
-        "zero-shot-grammar:experiments/configs/t2g/zero-shot-grammar.yaml:e"
-        "sft-only:experiments/configs/t2g/sft-only.yaml:te"
-        "grpo-only:experiments/configs/t2g/grpo-only.yaml:te"
-        "sft-grpo:experiments/configs/t2g/sft-grpo.yaml:te"
-        "sft-grpo-structure:experiments/configs/t2g/sft-grpo-structure.yaml:te"
-        "sft-grpo-viterbi:experiments/configs/t2g/sft-grpo-viterbi.yaml:te"
-        "sft-grpo-soft-viterbi:experiments/configs/t2g/sft-grpo-soft-viterbi.yaml:te"
-        "sft-grpo-all-rewards:experiments/configs/t2g/sft-grpo-all-rewards.yaml:te"
-        "sft-grpo-no-grammar:experiments/configs/t2g/sft-grpo-no-grammar.yaml:te"
-        "sft-grpo-pda:experiments/configs/t2g/sft-grpo-pda.yaml:te"
-        "sft-grpo-hotrollout:experiments/configs/t2g/sft-grpo-hotrollout.yaml:te"
+        "baseline-zero-shot:experiments/configs/qwen25-05b/baseline/zero-shot.yaml:e"
+        "baseline-zero-shot-no-grammar:experiments/configs/qwen25-05b/baseline/zero-shot-no-grammar.yaml:e"
+        "baseline-few-shot:experiments/configs/qwen25-05b/baseline/few-shot.yaml:e"
+        "sft-zero-shot:experiments/configs/qwen25-05b/sft/zero-shot.yaml:te"
+        "grpo-zero-shot:experiments/configs/qwen25-05b/grpo/zero-shot.yaml:te"
+        "grpo-few-shot:experiments/configs/qwen25-05b/grpo/few-shot.yaml:te"
+        "sft-grpo-zero-shot:experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml:te"
+        "sft-grpo-few-shot:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:te"
+        "ablations-decoding-no-grammar:experiments/configs/qwen25-05b/ablations/decoding/no-grammar.yaml:te"
+        "ablations-decoding-hot-rollout:experiments/configs/qwen25-05b/ablations/decoding/hot-rollout.yaml:te"
+        "ablations-rewards-edit-validity:experiments/configs/qwen25-05b/ablations/rewards/edit-validity.yaml:te"
+        "ablations-rewards-historical-stack:experiments/configs/qwen25-05b/ablations/rewards/historical-stack.yaml:te"
+        "ablations-loss-dr-grpo:experiments/configs/qwen25-05b/ablations/loss/dr-grpo.yaml:te"
+        "ablations-objectives-sft-allowed-mass:experiments/configs/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml:te"
+        "ablations-objectives-sft-structured:experiments/configs/qwen25-05b/ablations/objectives/sft-structured.yaml:te"
     )
 elif [ -n "$CONFIG_NAME" ]; then
-    # Config specifico passato come argomento (es. "sft-grpo")
-    # Cerca in experiments/configs/t2g/
+    # Config specifico passato come argomento (es. "grpo/few-shot").
+    # Cerca sotto experiments/configs/qwen25-05b/ in modo ricorsivo.
     CONFIG_PATH=""
     for ext in ".yaml" ""; do
-        candidate="experiments/configs/t2g/${CONFIG_NAME}${ext}"
+        candidate="experiments/configs/qwen25-05b/${CONFIG_NAME}${ext}"
         if [ -f "$candidate" ]; then
             CONFIG_PATH="$candidate"
             break
         fi
     done
     if [ -z "$CONFIG_PATH" ]; then
+        # Fallback ricorsivo: tollera anche il solo basename (es. "no-grammar"
+        # senza il path relativo completo). `find` è disponibile sul login node.
+        CONFIG_PATH=$(find experiments/configs/qwen25-05b -type f \
+            \( -name "${CONFIG_NAME}.yaml" -o -name "${CONFIG_NAME}" \) 2>/dev/null | head -1)
+    fi
+    if [ -z "$CONFIG_PATH" ]; then
         echo "❌ Config non trovato: $CONFIG_NAME"
-        echo "   Cercato in: experiments/configs/t2g/"
+        echo "   Cercato in: experiments/configs/qwen25-05b/ (ricorsivo)"
         echo "   Usa: bash cluster/run_all.sh --help per la lista dei config"
         exit 1
     fi
-    # Deriva il tag dal nome del config (senza percorso ed estensione)
-    TAG=$(basename "$CONFIG_PATH" .yaml | tr '_' '-')
+    # Deriva il tag dal path relativo a qwen25-05b (slash → trattini).
+    TAG=$(echo "${CONFIG_PATH#experiments/configs/qwen25-05b/}" | sed 's/\.yaml$//' | tr '/_' '--')
     MODELS=("${TAG}:${CONFIG_PATH}")
 else
-    # Default: pipeline principale SFT+GRPO.
-    MODELS=("sft-grpo:experiments/configs/t2g/sft-grpo.yaml")
+    # Default: pipeline principale SFT+GRPO few-shot.
+    MODELS=("sft-grpo-few-shot:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml")
 fi
 
 mkdir -p "$STATE_DIR" logs
@@ -181,9 +196,8 @@ _launch_pipeline() {
     echo "   tail -f logs/chain.log          # log della catena"
     echo "   chain-hook-install              # resilienza: hook bashrc (consigliato)"
 }
-# Riprendi dalla coda ESISTENTE: non richiede più .chain_failed, basta che
-# job_chain sia non vuota (il caso reale: daemon ucciso dal reaper). Legacy:
-# ricostruisce da .chain_failed se la coda è vuota.
+# Riprendi dalla coda ESISTENTE: basta che job_chain sia non vuota
+# (il caso reale: daemon ucciso dal reaper).
 _cmd_resume() {
     echo "============================================"
     echo "  RESUME Pipeline"
@@ -193,28 +207,8 @@ _cmd_resume() {
     if [ -s "$CHAIN_FILE" ]; then
         echo "Coda esistente ($(wc -l < "$CHAIN_FILE") job):"
         cat -n "$CHAIN_FILE"
-    elif [ -f "$FAILED_FILE" ]; then
-        local fjob ftype fcfg ftag fext
-        fjob=$(cat "$FAILED_FILE")
-        ftype=$(echo "$fjob" | cut -d: -f1)
-        fcfg=$(echo "$fjob" | cut -d: -f2)
-        ftag=$(echo "$fjob" | cut -d: -f3)
-        fext=$(echo "$fjob" | cut -d: -f4-)
-        if [ "$ftype" != "train" ] && [ "$ftype" != "eval" ]; then
-            echo "❌ chain_failed malformato: $fjob"
-            exit 1
-        fi
-        if [ "$ftype" = "train" ]; then
-            [ -n "$fext" ] || fext="--resume"
-            printf 'train:%s:%s:%s\neval:%s:%s\n' "$fcfg" "$ftag" "$fext" "$fcfg" "$ftag" > "$CHAIN_FILE"
-            echo "→ Ricostruita da .chain_failed: train $ftag ($fext) + eval"
-        else
-            printf 'eval:%s:%s\n' "$fcfg" "$ftag" > "$CHAIN_FILE"
-            echo "→ Ricostruita da .chain_failed: eval $ftag"
-        fi
-        rm -f "$FAILED_FILE"
     else
-        echo "❌ Nessuna coda da riprendere (job_chain vuoto, nessun chain_failed)."
+        echo "❌ Nessuna coda da riprendere (job_chain vuoto)."
         echo "   Usa: bash cluster/run_all.sh (senza --resume) per una nuova pipeline."
         exit 1
     fi

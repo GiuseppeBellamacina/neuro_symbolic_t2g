@@ -1,0 +1,42 @@
+# ============================================================================
+# ABLATION REWARD — stack storico a 7 componenti su init ZERO-SHOT
+#
+# Fattore unico rispetto a grpo/zero-shot.yaml: nessuno. Questo config è il
+# GEMELLO di controllo di ablations/rewards/edit-validity-zero.yaml: stessa
+# init, stesso prompting, stesso budget, reward diversa.
+#
+# Perché esiste: il confronto "stack storico vs edit-validity" nel branch
+# `edit-rewards` era inutilizzabile, perché cambiava contemporaneamente reward,
+# prompting (few-shot → zero-shot), curriculum e obiettivo RL. Questa coppia di
+# celle isola SOLO la reward, a parità di tutto il resto.
+#
+# Nota misurata sulle componenti di questo stack nei run storici:
+#   format 0.998 e repetition 0.966 → SATURE, quindi già inerti come gradiente
+#   gloss_order 0.085, verifier -0.291, bleu -0.359
+# Cioè lo stack a 7 componenti in pratica ne usava molte meno di 7.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/ablations/rewards/historical-stack.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../../grpo/zero-shot.yaml
+
+# Stack storico esplicito (identico a base.yaml, dichiarato per leggibilità
+# del confronto: chi legge il config vede la reward senza risolvere l'extends).
+reward:
+  weight_translation: 0.20
+  weight_bleu: 0.20
+  weight_gold_structure: 0.20
+  weight_gloss_order: 0.10
+  weight_verifier_scaled: 0.10
+  weight_format: 0.10
+  weight_repetition: 0.10
+  weight_edit_validity: 0.0
+
+training:
+  output_dir: "experiments/checkpoints/qwen25-05b/ablations/rewards/historical-stack"
+  log_dir: "experiments/logs/qwen25-05b/ablations/rewards/historical-stack"
+
+wandb:
+  run_name: "qwen25-05b-abl-reward-historical-zero"
+  tags: ["T2G", "ablation", "reward", "historical-stack", "zero-shot"]

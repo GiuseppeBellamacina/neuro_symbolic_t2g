@@ -1,0 +1,299 @@
+\chapter{GRPO: apprendimento per rinforzo di gruppo}
+\label{cap:grpo}
+
+\section{Dall'attore-critico al gruppo}
+
+Come stabilito nella~\eqref{eq:advantage}, ogni metodo di gradiente di policy
+richiede una \emph{baseline} $b(x)$ per ridurre la varianza. PPO
+\cite{schulman2017ppo} la ottiene addestrando una seconda rete, il \emph{critic},
+che stima il valore atteso della reward a partire dallo stato. Questo raddoppia
+approssimativamente il costo di memoria e introduce un secondo problema di
+ottimizzazione.
+
+GRPO (\emph{Group Relative Policy Optimization},
+\cite{shao2024grpo,guo2025r1}) rimuove il critic con un'idea semplice: se per lo
+stesso prompt $x$ si generano $G$ candidati, la media delle loro reward è già una
+stima della baseline. Formalmente, dati i candidati
+$o_1, \dots, o_G \sim \policy(\cdot \mid x)$ con reward $R_1, \dots, R_G$:
+
+\begin{equation}
+  \label{eq:grpo-adv}
+  A_i \;=\; R_i - \frac{1}{G}\sum_{j=1}^{G} R_j
+  \qquad\text{(opzionalmente diviso per }
+  \mathrm{std}(R_1,\dots,R_G)\text{)}.
+\end{equation}
+
+Il gruppo \emph{è} la baseline. È questa la differenza sostanziale da PPO: non
+c'è nessuna rete di valore da addestrare, e il segnale di apprendimento è
+puramente \emph{relativo} all'interno del gruppo.
+
+L'obiettivo completo, includendo la penalità KL~\eqref{eq:kl}, si scrive
+\begin{equation}
+  \label{eq:grpo-objective}
+  J_{\text{GRPO}}(\theta)
+  \;=\;
+  \mathbb{E}\!\left[
+    \frac{1}{\mathcal{Z}} \sum_{i=1}^{G} \sum_{t=1}^{|o_i|}
+    \rho_{i,t}(\theta)\, A_i
+  \right]
+  \;-\; \beta\, D_{\mathrm{KL}}\!\left(\policy \,\|\, \reference\right),
+\end{equation}
+dove $\rho_{i,t}$ è il rapporto di probabilità fra policy corrente e policy di
+campionamento (con eventuale clipping in stile PPO) e $\mathcal{Z}$ è un
+\emph{denominatore di normalizzazione} la cui scelta, come si vedrà nella
+sezione~\ref{sec:denominatori}, non è affatto un dettaglio.
+
+\subsection{La conseguenza immediata: i gruppi morti}
+\label{sec:gruppi-morti}
+
+Dalla~\eqref{eq:grpo-adv} segue un fatto elementare e decisivo. Se tutti i
+candidati di un gruppo ricevono la stessa reward, allora
+$R_i = \bar{R}$ per ogni $i$, dunque $A_i = 0$ per ogni $i$, dunque il
+contributo di quel prompt al gradiente è \emph{esattamente nullo}.
+
+Chiameremo:
+\begin{description}
+  \item[gruppo a varianza nulla] un gruppo in cui $\mathrm{std}(R) = 0$;
+  \item[gruppo morto] un gruppo in cui tutte le reward sono al valore minimo
+        possibile (tipicamente $-1$), che è un caso particolare del precedente
+        ma qualitativamente peggiore: non solo non c'è segnale, ma la policy non
+        ha nemmeno un candidato parzialmente buono da cui partire;
+  \item[supporto] la frazione di gruppi con $\mathrm{std}(R) > 0$, cioè la
+        frazione di prompt che contribuiscono effettivamente all'apprendimento.
+\end{description}
+
+Il supporto è la grandezza diagnostica più importante per decidere se un
+esperimento di reinforcement learning sia \emph{possibile} prima ancora di
+chiedersi se sia utile. Se il supporto è vicino a zero, l'algoritmo gira, consuma
+tempo di calcolo, produce metriche, ma non apprende. La misura del supporto in
+questo progetto è nella sezione~\ref{sec:supporto}.
+
+\section{Configurazione impiegata}
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Iperparametro & Valore \\
+\midrule
+Candidati per gruppo $G$ & $8$ \\
+Passi di ottimizzazione & $2\,000$ \\
+Learning rate & $3 \cdot 10^{-6}$ \\
+Passi di warmup & $200$ \\
+Coefficiente KL $\beta$ & $0{,}04$ \\
+Temperatura di campionamento $\tau$ & $0{,}7$ \\
+Lunghezza massima della completion & $128$ \\
+Lunghezza massima del prompt (zero-shot) & $256$ \\
+Lunghezza massima del prompt (few-shot) & $768$ \\
+Batch per dispositivo & $1$ \\
+Accumulo del gradiente & $8$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il learning rate è quasi un ordine di grandezza più basso di quello dell'SFT
+($3\cdot 10^{-6}$ contro $2\cdot 10^{-5}$): è la scelta convenzionale nel
+reinforcement learning su modelli linguistici, dove aggiornamenti aggressivi
+degradano rapidamente la policy. I resoconti su sistemi di grande scala
+addestrati con rinforzo~\cite{kimi2025k15} confermano che il regime di
+apprendimento va tenuto conservativo, e che il fattore limitante è tipicamente
+la qualità del segnale piuttosto che la dimensione del passo.
+
+\subsection{Un dato di contesto: l'esposizione ai dati}
+
+$2\,000$ passi con batch $1$ e accumulo $8$ significano circa $16\,000$ prompt
+visti. Su un training set di $72\,979$ esempi corrispondono a
+\begin{equation}
+  \frac{2\,000 \times 1 \times 8}{72\,979} \;\approx\; 0{,}22
+  \quad\text{epoche.}
+\end{equation}
+
+L'SFT vede i dati tre volte; il GRPO circa un quinto di volta. Questo va detto
+esplicitamente perché rende improprio qualunque confronto diretto ``SFT contro
+GRPO'' interpretato come confronto fra metodi: i due bracci non hanno la stessa
+esposizione ai dati. Il GRPO non è stato sotto-addestrato per errore, ma per
+vincolo di budget di calcolo: ogni passo richiede $G=8$ generazioni complete,
+quindi un passo di GRPO costa circa un ordine di grandezza più di un passo di
+SFT.
+
+\section{I denominatori: quale obiettivo si sta ottimizzando}
+\label{sec:denominatori}
+
+Il termine $\mathcal{Z}$ nella~\eqref{eq:grpo-objective} sembra un dettaglio di
+implementazione. Non lo è: determina come le sequenze di lunghezza diversa
+vengono pesate fra loro, e quindi se l'obiettivo introduca o no un bias sulla
+lunghezza. È il punto su cui interviene Dr.~GRPO~\cite{liu2025drgrpo}, che
+identifica precisamente nella normalizzazione per lunghezza una fonte di bias
+sistematico.
+
+TRL~$0{,}24{,}0$ implementa quattro varianti, selezionabili tramite un parametro
+di configurazione. Riportiamo la corrispondenza con il codice sorgente
+(\texttt{trl/trainer/grpo\_trainer.py}) perché è l'unico modo di sapere con
+certezza che cosa sia stato ottimizzato.
+
+\begin{center}
+\begin{tabular}{llr}
+\toprule
+Variante & Denominatore $\mathcal{Z}$ & Righe \\
+\midrule
+\texttt{grpo}    & $|o_i|$, per sequenza & 1730--1731 \\
+\texttt{bnpo}    & numero di token nel batch locale & 1733--1734 \\
+\texttt{dr\_grpo} & costante $B \times \texttt{max\_completion\_length}$ & 1736--1737 \\
+\texttt{dapo}    & numero di token nel batch globale & 1739--1741 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La lettura è la seguente:
+\begin{itemize}
+  \item \texttt{grpo} normalizza ogni sequenza per la propria lunghezza. Una
+        sequenza corta con vantaggio positivo riceve un peso per token maggiore
+        di una lunga: è il bias che Dr.~GRPO critica;
+  \item \texttt{dr\_grpo} usa un denominatore \emph{costante}, quindi tutte le
+        sequenze contribuiscono in proporzione al proprio numero di token e non
+        c'è riscalatura implicita;
+  \item \texttt{bnpo} e \texttt{dapo} normalizzano sul conteggio di token del
+        batch, rispettivamente locale e globale (aggregato fra processi). Con un
+        solo processo le due coincidono numericamente.
+\end{itemize}
+
+\subsection{Che cosa è stato effettivamente eseguito}
+
+I valori predefiniti di TRL~$0{,}24{,}0$ sono:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Parametro & Valore predefinito \\
+\midrule
+Tipo di loss & \texttt{dapo} \\
+Normalizzazione delle reward & \texttt{group} \\
+Scalatura delle reward & \texttt{False} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Nessuna configurazione storica del progetto impostava questi parametri. Segue che
+tutti gli esperimenti di reinforcement learning hanno ottimizzato la variante
+\texttt{dapo} \textbf{per omissione, non per scelta}. Questo è un difetto di
+disegno che va dichiarato: il progetto si proponeva di studiare la variante
+Dr.~GRPO come confronto, ma non l'ha mai attivata, perché il parametro
+corrispondente non era esposto nelle configurazioni.
+
+La correzione consiste nell'esporre esplicitamente questi knob (raccolti nella
+funzione \texttt{\_grpo\_objective\_kwargs} di
+\texttt{src/training/grpo\_t2g\_train.py}) e nel validarli in
+\texttt{tests/validate\_configs.py}, cosicché una cella che intende usare
+\texttt{dr\_grpo} debba dichiararlo e una cella che non lo dichiara documenti il
+default che sta usando.
+
+\subsection{Un dettaglio semantico che si presta a fraintendimenti}
+
+Il parametro di scalatura delle reward ha un nome fuorviante. Impostare
+\texttt{scale\_rewards='none'} \emph{non} disattiva la centratura: la
+sottrazione della media avviene comunque (riga 1493 del sorgente), e ciò che
+viene omesso è soltanto la divisione per la deviazione standard (righe
+1508--1509).
+
+Non è un cavillo. Chi legge \texttt{'none'} come ``lascia le reward grezze''
+sbaglia il modello mentale dell'algoritmo: la centratura per gruppo è la
+\emph{sostanza} del GRPO, non una normalizzazione accessoria, e non è
+disattivabile da quel parametro. Sottrarre la media è precisamente ciò che
+implementa la~\eqref{eq:grpo-adv}.
+
+\subsection{Che cosa TRL 0.24.0 non implementa}
+
+Due meccanismi noti in letteratura non sono disponibili in questa versione, e
+questo delimita ciò che si può affermare.
+
+\begin{description}
+  \item[Dynamic sampling (DAPO).] DAPO~\cite{yu2025dapo} propone di
+        \emph{scartare} i gruppi a varianza nulla e ricampionare, così da
+        mantenere il supporto alto. TRL~$0{,}24{,}0$ non lo implementa: si limita
+        a registrare la metrica \texttt{frac\_reward\_zero\_std}. Il problema dei
+        gruppi morti è quindi \emph{osservabile} ma non \emph{mitigato}.
+  \item[Clip-higher.] La tecnica di asimmetrizzazione della finestra di clipping
+        richiede di impostare un limite superiore distinto
+        (\texttt{epsilon\_high}), che va specificato esplicitamente e non era
+        specificato.
+\end{description}
+
+Chi legge questa relazione deve quindi intendere ``GRPO'' come ``GRPO nella
+variante \texttt{dapo} di normalizzazione, senza dynamic sampling e senza
+clip-higher''. In particolare, nessuna delle mitigazioni che la letteratura
+propone contro il collasso del supporto era attiva.
+
+\section{La misura decisiva: il supporto dei rollout}
+\label{sec:supporto}
+
+Prima di chiedersi se il GRPO migliori le metriche, si può chiedere se abbia
+\emph{materiale} su cui lavorare. La misura è diretta: si generano $G$ candidati
+per un campione di prompt, si calcolano le reward, e si osservano la reward
+media, la frazione di gruppi al valore minimo (\emph{floor}), la frazione a
+varianza nulla e la frazione di gruppi morti.
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+Substrato & Reward media & Floor & Var.\ nulla & Gruppi morti \\
+\midrule
+Base zero-shot, con Trie      & $-0{,}8034$ & $0{,}5387$ & $0{,}2145$ & $0{,}1990$ \\
+Base zero-shot, senza Trie    & $-0{,}9579$ & $0{,}9054$ & $0{,}7460$ & $0{,}7390$ \\
+Base few-shot, con Trie       & $-0{,}3233$ & $0{,}0982$ & $0{,}0780$ & $0{,}0085$ \\
+Policy SFT                    & $+0{,}9462$ & $0{,}0000$ & $0{,}8480$ & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Questa tabella è il cuore analitico della relazione. Va letta riga per riga.
+
+\begin{description}
+  \item[Base zero-shot senza vincolo.] Reward media $-0{,}9579$, quasi il minimo
+        possibile. Il $90{,}5\%$ dei gruppi è interamente al valore minimo e il
+        $73{,}9\%$ è morto. In questa condizione il GRPO \emph{non può
+        funzionare}: tre gruppi su quattro non producono gradiente. Non è una
+        questione di iperparametri o di pazienza: manca il segnale.
+  \item[Base zero-shot con vincolo.] Il Trie porta i gruppi morti dal $73{,}9\%$
+        al $19{,}9\%$. Il vincolo simbolico \emph{crea} il supporto, forzando i
+        candidati dentro la regione in cui la reward è discriminante. Questo è il
+        risultato neuro-simbolico non ovvio annunciato nell'introduzione, ed è
+        approfondito nel Capitolo~\ref{cap:decoding}.
+  \item[Base few-shot con vincolo.] Il substrato migliore: reward media
+        $-0{,}3233$, gruppi morti allo $0{,}85\%$. Combinare prompting e vincolo
+        rende l'esperimento di reinforcement learning tecnicamente sensato.
+  \item[Policy SFT.] Il caso opposto e più istruttivo. La reward media è
+        $+0{,}9462$: la policy è già quasi ottima. Non ci sono gruppi al valore
+        minimo. Ma l'$84{,}8\%$ dei gruppi ha \emph{varianza nulla}, perché tutti
+        gli otto candidati sono corretti e ricevono la stessa reward massima.
+        Il gradiente è nullo per la ragione opposta a prima: non per fallimento,
+        ma per saturazione.
+\end{description}
+
+\subsection{La conclusione meccanica}
+
+Le due estremità della tabella mostrano che il GRPO su questo compito è
+schiacciato fra due fallimenti simmetrici:
+
+\begin{equation}
+  \underbrace{\text{policy troppo debole}}_{\text{gruppi morti: nessun candidato buono}}
+  \quad\Big|\quad
+  \underbrace{\text{policy troppo forte}}_{\text{varianza nulla: tutti i candidati buoni}}
+\end{equation}
+
+Nel primo caso $A_i = 0$ perché $R_i = R_{\min}$ per ogni $i$; nel secondo
+perché $R_i = R_{\max}$ per ogni $i$. La finestra utile, in cui il gruppo
+contiene sia candidati buoni sia cattivi, è stretta e su questo corpus quasi
+inesistente, perché il compito è quasi deterministico
+(sezione~\ref{sec:entropia}).
+
+Vale la pena osservare che la mitigazione apparentemente ovvia --- concentrare
+l'addestramento sugli esempi difficili, dove la varianza dovrebbe essere
+maggiore --- è stata studiata su modelli linguistici piccoli messi a punto con
+GRPO e produce rendimenti decrescenti~\cite{yadav2026limits}. Gli esempi
+difficili tendono a spostarsi dalla finestra utile verso il regime dei gruppi
+morti, dove nessun candidato è buono, invece di restare nella regione in cui i
+candidati differiscono.
+
+Questo è il \emph{meccanismo} del risultato negativo. Non si tratta di dire ``il
+GRPO non ha funzionato''; si tratta di mostrare, con numeri, che sull'$84{,}8\%$
+dei gruppi il gradiente era esattamente zero dopo l'SFT, e sul $73{,}9\%$ era
+esattamente zero prima di qualunque addestramento senza vincolo.

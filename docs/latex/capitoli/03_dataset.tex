@@ -1,0 +1,325 @@
+\chapter{Il corpus: ASLG-PC12}
+\label{cap:dataset}
+
+Questo capitolo è il più importante della relazione. Non perché descriva
+l'ingegneria più complessa, ma perché ogni conclusione dei capitoli successivi
+dipende da un fatto stabilito qui: il corpus impiegato non è stato prodotto da
+annotatori umani, ed è quasi deterministico. Tutte le metriche di
+sovrapposizione lessicale che si possono calcolare su di esso sono, in senso
+tecnico, sature.
+
+\section{Provenienza e struttura}
+
+Il corpus è ASLG-PC12~\cite{othman2012aslgpc12}, ottenuto allineando il corpus
+parlamentare inglese con una versione in gloss ASL. Ogni riga è una coppia:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Campo & Esempio \\
+\midrule
+\texttt{text}  & \texttt{they will not flinch .} \\
+\texttt{gloss} & \texttt{X-Y WILL DESC-NOT FLINCH .} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+I marcatori con prefisso hanno una funzione grammaticale:
+\texttt{X-} indica un pronome (\texttt{X-Y} per \emph{they}, \texttt{X-WE} per
+\emph{we}, \texttt{X-I} per \emph{I}), mentre \texttt{DESC-} indica un
+descrittore, tipicamente un avverbio o una negazione (\texttt{DESC-NOT},
+\texttt{DESC-NEVER}, \texttt{DESC-AGAIN}).
+
+\subsection{Dimensioni e suddivisione}
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Grandezza & Valore \\
+\midrule
+Righe totali (dato grezzo) & $87\,710$ \\
+Suddivisione & $90/10$, seed $42$ \\
+Righe di training & $72\,979$ \\
+Righe di test & $8\,109$ \\
+Vocabolario gloss (token distinti) & $16\,121$ \\
+Vocabolario gloss dopo filtraggio & $15\,472$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le due cifre del vocabolario differiscono perché il filtro scarta forme che non
+possono essere emesse (si veda il Capitolo~\ref{cap:decoding}); l'insieme
+effettivamente usato dal vincolo di decodifica conta $15\,472$ gloss.
+
+Il seed $42$ e la proporzione $90/10$ sono fissati nel codice, non scelti per
+esperimento: ogni numero riportato in questa relazione si riferisce a questa
+suddivisione. Dove è stato necessario riselezionare soglie, è stato usato un
+\emph{secondo} livello di suddivisione interno al solo training set
+($90/10$, seed $1234$), per non contaminare il test.
+
+\section{Il corpus è sintetico}
+\label{sec:sintetico}
+
+Questo è il punto centrale. ASLG-PC12 non è stato annotato da segnanti: è stato
+generato applicando regole all'inglese. La conseguenza è che la relazione fra
+\texttt{text} e \texttt{gloss} è in larga parte una trasformazione meccanica
+invertibile, non una traduzione fra due lingue.
+
+L'evidenza è di due tipi: esterna (letteratura) e interna (misure sul corpus).
+
+\subsection{Evidenza dalla letteratura}
+
+Moryossef et al.~\cite{moryossef2021augmentation} documentano la natura
+sintetica del corpus e il suo uso come dato aumentato piuttosto che come
+riferimento.
+
+Più diretta è l'analisi di Peng et al.~\cite{peng2023monolingual}. Nella loro
+Tabella~7 riportano la sovrapposizione lessicale fra i token del gloss e quelli
+del testo:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Corpus & Sovrapposizione token gloss/testo \\
+\midrule
+ASLG-PC12 & $98{,}23\%$ \\
+PHOENIX-2014T & $15{,}59\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Un fattore sei di differenza. Su ASLG-PC12 il gloss usa quasi esattamente le
+stesse parole del testo; su un corpus annotato da umani (PHOENIX-2014T, lingua
+dei segni tedesca) no.
+
+Nella loro Tabella~3, gli stessi autori mostrano che una \emph{regola scritta a
+mano} ottiene BLEU $96{,}75$ su ASLG-PC12. Un valore di questo ordine su un
+compito di traduzione automatica non significa che il sistema traduca bene:
+significa che non c'è traduzione da fare.
+
+\subsection{Evidenza interna: misure sul corpus}
+
+Sono state effettuate misure indipendenti sul dato in nostro possesso, per
+quantificare esattamente quanto il gloss sia una copia del testo. I risultati:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Misura & Valore \\
+\midrule
+Token gloss identici al token sorgente maiuscolizzato & $61{,}79\%$ \\
+\quad idem, ignorando i prefissi \texttt{DESC-} e \texttt{X-} & $79{,}74\%$ \\
+\quad idem, confrontando i primi 4 caratteri (\emph{stem}) & $90{,}26\%$ \\
+Righe con \texttt{len(text) == len(gloss)} (in token) & $27{,}5\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La lettura della prima colonna è progressiva. Quasi due token su tre sono
+letteralmente la parola inglese in maiuscolo. Se si perdona il prefisso
+grammaticale si arriva a quattro su cinque. Se si perdona la desinenza (usando
+solo la radice di quattro caratteri) si arriva a nove su dieci.
+
+Solo il $27{,}5\%$ delle righe ha la stessa lunghezza in token nelle due
+colonne. Questo dato ha un'importanza tecnica specifica: significa che
+l'allineamento posizionale uno-a-uno fra testo e gloss è disponibile solo su un
+quarto del corpus. Tutte le analisi che richiedono un allineamento (per esempio
+la stima delle transizioni nel Capitolo~\ref{cap:ausiliari}) sono limitate a
+quel sottoinsieme, e questo va tenuto presente come \emph{caveat} nella lettura
+dei risultati.
+
+\subsection{Quanta incertezza resta? Misura entropica}
+\label{sec:entropia}
+
+La domanda si può porre in modo preciso con gli strumenti della
+sezione sui fondamenti di teoria dell'informazione. Sia $Y$ il token gloss e
+$X$ il token sorgente allineato. Le stime empiriche sono:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Quantità & Valore \\
+\midrule
+$H(Y)$, entropia del token gloss & $8{,}578$ bit \\
+$H(Y \mid X)$, entropia condizionata al token sorgente & $0{,}856$ bit \\
+$I(X;Y)$, informazione mutua & $7{,}722$ bit \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Cioè: conoscere il token inglese rimuove circa il $90\%$ dell'incertezza sul
+token gloss. Resta meno di un bit di ambiguità residua per token.
+
+Questa singola riga spiega, da sola, la maggior parte dei risultati
+sperimentali:
+\begin{itemize}
+  \item una tabella di corrispondenze uno-a-uno cattura quasi tutto il segnale
+        (sezione~\ref{sec:baseline-regole});
+  \item l'SFT satura il compito rapidamente (Capitolo~\ref{cap:sft});
+  \item il reinforcement learning non ha spazio per migliorare, perché non c'è
+        una scelta difficile da fare (Capitolo~\ref{cap:grpo}).
+\end{itemize}
+
+\section{Artefatti del generatore}
+\label{sec:artefatti}
+
+Poiché il corpus è generato da regole, ne eredita i difetti. Il più vistoso è
+una rimozione di sottostringa applicata senza vincoli di confine di parola: la
+sequenza di caratteri \texttt{the} viene rimossa \emph{anche quando è interna a
+un'altra parola}.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Parola inglese & Gloss prodotto & Occorrenze (training) \\
+\midrule
+\texttt{therefore} & \texttt{DESC-REFORE} & $1\,875$ \\
+\texttt{these}     & \texttt{SE}          & $2\,847$ \\
+\texttt{there}     & \texttt{DESC-RE}     & $3\,279$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+In totale $7\,641$ righe di training, ossia il $10{,}47\%$, contengono almeno
+una parola corrotta da questo meccanismo. Una riga su dieci del riferimento
+contiene una forma che nessun segnante userebbe.
+
+Un secondo artefatto è la presenza del token \texttt{20the}, residuo evidente di
+una decodifica mancata della sequenza percent-encoded \texttt{\%20the} nell'URL
+o nel file di origine.
+
+Un terzo riguarda la codifica dei caratteri: $147$ righe su $87\,710$
+($0{,}168\%$) contengono caratteri non ASCII, e $72$ token del vocabolario gloss
+sono non ASCII (fra cui una forma che inizia con il carattere di
+\emph{byte order mark}).
+
+\subsection{Perché il dato non è stato pulito}
+
+È una scelta deliberata, e va motivata perché a prima vista appare
+controintuitiva.
+
+Ripulire questi artefatti cambierebbe il compito. I numeri di riferimento
+pubblicati in letteratura su ASLG-PC12 sono calcolati sul dato \emph{così come
+è}; ripulirlo renderebbe i nostri risultati non confrontabili con quelli. Poiché
+il contributo principale di questo lavoro è mostrare che quei numeri pubblicati
+sono saturi, è necessario misurare sullo stesso dato che li ha prodotti.
+
+Gli artefatti sono quindi documentati e conservati. Costituiscono anzi un
+argomento a favore della tesi centrale: un corpus con il $10\%$ di righe
+corrotte da un bug di sostituzione di stringhe non è un riferimento adeguato per
+valutare la qualità di una traduzione.
+
+\section{La baseline a regole}
+\label{sec:baseline-regole}
+
+Se il corpus è quasi deterministico, la domanda naturale è: quanto arriva
+lontano una regola? La risposta è il riferimento più importante di tutta la
+relazione.
+
+\subsection{Costruzione}
+
+L'implementazione è in \texttt{src/analysis/rule\_baseline.py}. Il metodo è
+elementare:
+
+\begin{enumerate}
+  \item si scorre il \emph{solo training set} e, sulle righe in cui testo e
+        gloss hanno la stessa lunghezza in token, si contano le corrispondenze
+        posizionali parola $\to$ gloss;
+  \item per ogni parola inglese si conserva il gloss più frequente, ottenendo un
+        lessico uno-a-uno di $10\,996$ voci;
+  \item si apprendono, con lo stesso conteggio, $13$ \emph{cancellazioni}: parole
+        inglesi che nel gloss non compaiono (fra cui \texttt{the}, \texttt{of} e
+        il già citato \texttt{20the});
+  \item in inferenza si applica il lessico parola per parola, senza guardare il
+        contesto.
+\end{enumerate}
+
+Si noti che la baseline è \emph{context-free}: traduce ogni parola
+indipendentemente dalle altre. Non c'è modello, non c'è addestramento, non ci
+sono parametri oltre alla tabella.
+
+\subsection{Risultati}
+
+Sul test set completo ($8\,109$ righe):
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Metrica & Valore \\
+\midrule
+ROUGE-L & $0{,}9697$ \\
+Exact match & $0{,}5912$ \\
+Non-copy-token accuracy & $0{,}9428$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Sul sottoinsieme di $2\,000$ prompt usato per la valutazione dei modelli (per
+consentire il confronto diretto con le tabelle del
+Capitolo~\ref{cap:risultati}):
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Metrica & Valore \\
+\midrule
+ROUGE-L & $0{,}9685$ \\
+Exact match & $0{,}5865$ \\
+Gloss F1 & $0{,}9665$ \\
+BLEU (a frase) & $0{,}8846$ \\
+BLEU (a corpus) & $0{,}8907$ \\
+chrF & $96{,}47$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le soglie della baseline sono state riselezionate sulla suddivisione interna di
+sviluppo ($90/10$, seed $1234$, ricavata dal solo training set) per escludere che
+il risultato dipenda da una scelta fortunata: il risultato è rimasto invariato.
+
+\subsection{Il controllo minimale: solo maiuscolo}
+
+Per isolare quanto del punteggio derivi dal semplice fatto che il gloss è
+maiuscolo, è stata valutata la trasformazione $\mathrm{uppercase}(\text{text})$
+senza alcun lessico:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Sistema & ROUGE-L \\
+\midrule
+$\mathrm{uppercase}(\text{text})$ & $0{,}6454$ \\
+Baseline a regole & $0{,}9685$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il risultato è duplice. Da un lato, il lessico aggiunge un contributo reale
+($0{,}65 \to 0{,}97$): la baseline non è banale. Dall'altro, e questo è il punto
+scomodo, un ROUGE-L di $0{,}6454$ è ottenibile \emph{senza fare nulla}, e come si
+vedrà nel Capitolo~\ref{cap:risultati} supera il miglior risultato ottenuto con
+reinforcement learning ($0{,}5998$).
+
+\section{Conseguenze per il disegno sperimentale}
+
+Da questo capitolo derivano quattro vincoli metodologici, che sono stati
+applicati a tutte le misure riportate nel seguito.
+
+\begin{enumerate}
+  \item \textbf{Nessuna metrica va riportata senza la baseline a regole
+        accanto.} La baseline è il livello zero: un sistema che non la supera
+        non ha imparato nulla di utile su questo corpus.
+  \item \textbf{Servono metriche insensibili alla copia.} La
+        non-copy-token accuracy, definita nel Capitolo~\ref{cap:metriche},
+        valuta solo le posizioni in cui il gloss differisce dal testo. È l'unica
+        metrica di sovrapposizione che discrimina fra i sistemi in modo
+        interpretabile.
+  \item \textbf{Il confronto con i numeri pubblicati va contestualizzato.} Il
+        miglior ROUGE-L pubblicato su ASLG-PC12 è $95{,}87$
+        \cite{peng2023monolingual}, cioè \emph{sotto} la nostra baseline a
+        regole. Non è un errore degli autori: è una proprietà del corpus.
+  \item \textbf{Le conclusioni non si trasferiscono ad altri corpora.} Su
+        PHOENIX-2014T, dove la sovrapposizione è $15{,}59\%$, i migliori
+        risultati T2G riportati sono intorno a ROUGE-L
+        $55{,}18$~\cite{ouargani2023t2g}. Quello è un compito reale; questo no.
+\end{enumerate}

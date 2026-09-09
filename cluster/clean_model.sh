@@ -12,9 +12,10 @@
 #   logs/slurm-{train,eval}-<JOBID>.log     (mappati via sacct JobName)
 #
 # Mapping tag→cartella reale, shell-only (il login node NON ha python): se il
-# tag corrisponde a un config experiments/configs/t2g/*.yaml, il basename di
-# training.output_dir viene estratto con grep e usato come candidato aggiuntivo
-# (es. clean-model sft-grpo trova experiments/checkpoints/qwen25-05b-sft-grpo).
+# tag corrisponde a un config experiments/configs/qwen25-05b/**/*.yaml, il
+# basename di training.output_dir viene estratto con grep e usato come candidato
+# aggiuntivo (es. clean-model no-grammar trova
+# experiments/checkpoints/qwen25-05b/ablations/decoding/no-grammar).
 #
 # Uso:
 #   bash cluster/clean_model.sh                    # lista tutti i tag
@@ -33,7 +34,7 @@ for arg in "$@"; do
         --help|-h)
             echo "Uso: bash cluster/clean_model.sh <TAG> [--all]"
             echo ""
-            echo "TAG = tag del config (es. sft-grpo, grpo-only, sft-only, ...)"
+            echo "TAG = tag del config (es. no-grammar, edit-validity, few-shot, ...)"
             echo "     oppure nome reale della cartella (es. qwen25-05b-sft-grpo)"
             echo "Senza argomenti: lista tutti i tag trovati"
             exit 0
@@ -54,7 +55,8 @@ done
 model_candidates() {
     local cfg tag dir
     echo "$MODEL"
-    for cfg in experiments/configs/t2g/*.yaml experiments/configs/t2g/*.yaml; do
+    # Config annidati sotto experiments/configs/qwen25-05b/: ricerca ricorsiva.
+    while IFS= read -r cfg; do
         [ -f "$cfg" ] || continue
         tag=$(basename "$cfg" .yaml | tr '_' '-')
         if [ "$tag" = "$MODEL" ]; then
@@ -63,7 +65,7 @@ model_candidates() {
                 echo "$(basename "$dir")"
             fi
         fi
-    done
+    done < <(find experiments/configs/qwen25-05b -type f -name '*.yaml' 2>/dev/null | sort)
 }
 
 # Log SLURM reali per un modello: i file sono logs/slurm-{train,eval}-<JOBID>.log
@@ -88,7 +90,7 @@ emit_targets() {
     local cand d
     for cand in $(model_candidates); do
         [ -n "$cand" ] || continue
-        for d in experiments/checkpoints/*"${cand}"*/ experiments/checkpoints/grpo/t2g/*"${cand}"*/; do
+        for d in experiments/checkpoints/*"${cand}"*/; do
             [ -d "$d" ] && echo "$d"
         done
         for d in experiments/logs/*"${cand}"*/; do
@@ -112,10 +114,15 @@ if [ -z "$MODEL" ]; then
         [ -d "$d" ] || continue
         echo "  $(basename "$d") ($(du -sh "$d" 2>/dev/null | cut -f1))"
     done
-    for d in experiments/checkpoints/grpo/t2g/*/; do
+    # Layout reale: experiments/checkpoints/qwen25-05b/<method>/<prompt-mode>/.
+    # Ricerca ricorsiva (stile `find` già usato in model_candidates): salta la
+    # radice modello (gia' mostrata sopra) e i subdir run_*/checkpoint-*/final.
+    while IFS= read -r d; do
         [ -d "$d" ] || continue
-        echo "  grpo/t2g/$(basename "$d") ($(du -sh "$d" 2>/dev/null | cut -f1))"
-    done
+        echo "  ${d#experiments/checkpoints/} ($(du -sh "$d" 2>/dev/null | cut -f1))"
+    done < <(find experiments/checkpoints -mindepth 3 -maxdepth 5 -type d \
+        ! -name 'run_*' ! -name 'checkpoint-*' ! -name 'final' ! -name 'best_checkpoint' \
+        ! -name 'latest' ! -name 'sft_pretrain' 2>/dev/null | sort)
     if [ -d "experiments/results" ]; then
         for d in experiments/results/*/; do
             [ -d "$d" ] || continue

@@ -3,15 +3,35 @@
 # SLURM batch script — T2G Evaluation sul cluster
 #
 # Uso:
-#   CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/eval.sh
-#   CONFIG=experiments/configs/t2g/sft-grpo.yaml CHECKPOINT="path/to/ckpt" sbatch cluster/eval.sh
-#   CONFIG=experiments/configs/t2g/sft-grpo.yaml CHECKPOINT="path/to/ckpt" BEST_OF_N=1 sbatch cluster/eval.sh
+#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/eval.sh
+#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml CHECKPOINT="path/to/ckpt" sbatch cluster/eval.sh
 #
-# --compare è sempre attivo: valuta baseline (zero-shot) + GRPO e genera
-#   grafici di confronto + comparison.json + wandb con tag dedicati.
-# BEST_OF_N=1 abilita la selezione best-of-N: è un ORACOLO DIAGNOSTICO
-#   (limite superiore: quanto può essere buono il modello scegliendo il
-#   migliore di N campioni), NON la metrica primaria — quella resta Pass@1.
+# TUTTI i knob comportamentali dell'eval vivono nella sezione `evaluation:` del
+# config YAML — qui NON ci sono variabili d'ambiente comportamentali (chi
+# cercava MAX_SAMPLES=500, PROMPTING=zero-shot, DUAL_EVAL=1 o BEST_OF_N=1 ora
+# imposta evaluation.max_samples / evaluation.prompting /
+# evaluation.dual_prompting / evaluation.best_of_n nel config — vedi base.yaml).
+# Di questo script restano solo gli IDENTIFICATORI:
+#   CONFIG      quale config eseguire (obbligatorio)
+#   CHECKPOINT  quale checkpoint valutare (opzionale: auto-rilevato sotto
+#               training.output_dir)
+#
+# Comportamento (dedotto da eval_t2g.py, nessun flag da passare):
+#   - cella di training (training.output_dir + checkpoint): confronto con la
+#     baseline del base model (STESSA config ⇒ stessa modalità di prompting e
+#     decodifica della cella; baseline cachata fra run) + grafici +
+#     comparison.json;
+#   - cella eval-only (baseline/*, senza training.output_dir e senza
+#     checkpoint): solo eval del base model;
+#   - evaluation.dual_prompting: true (default) → seconda passata con la
+#     modalità di prompting complementare, file con suffisso __<mode>
+#     (l'eval raddoppia: ~25 min per passata a 5000 prompt).
+#
+# TERMINOLOGIA (due concetti distinti, non usarli come sinonimi):
+#   - "no-checkpoint / base model": mancano i pesi addestrati (eval del base
+#     model). NON dice nulla sul prompting.
+#   - "zero-shot / few-shot": modalità di PROMPTING (con o senza esempi
+#     few-shot nel prompt, da retrieval.enabled o da evaluation.prompting).
 # ============================================================================
 
 # ┌────────────────────────────────────────────────────────┐
@@ -21,6 +41,22 @@
 #SBATCH --account=thesis-course
 #SBATCH --partition=thesis-course
 #SBATCH --qos=gpu-xlarge
+# --time esplicito: senza questa direttiva vale il default della partizione,
+# e la valutazione doppia (evaluation.dual_prompting) l'ha resa lunga.
+#
+# Misurato su un run reale con vincolo di decodifica attivo (2000 prompt x 5
+# generazioni): eval_baseline 05:19 -> eval_final 06:21 = 62 min, cioe' ~1,86
+# s per prompt. Le celle senza grammatica costano circa un quinto.
+#
+#   3000 prompt              -> ~1,6 h per passata
+#   dual (2 passate)         -> ~3,1 h
+#   dual + 2 baseline        -> ~6,2 h  (solo al primo giro: la baseline e'
+#                               cacheata e riusata dalle celle successive)
+#
+# 8h copre il caso peggiore con margine e resta sotto il cap di 12h della QoS
+# gpu-xlarge (CLUSTER.md). Chi alza evaluation.max_samples oltre 3000 deve
+# ricalcolare: il costo e' lineare nel numero di prompt.
+#SBATCH --time=08:00:00
 #SBATCH --mem=48G
 #SBATCH --cpus-per-task=8
 #SBATCH --gres=gpu:1 --gres=shard:22528
@@ -34,7 +70,7 @@ CHECKPOINT="${CHECKPOINT:-}"
 
 if [ -z "$CONFIG" ]; then
     echo "❌ CONFIG non impostato. Uso:"
-    echo "  CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/eval.sh"
+    echo "  CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/eval.sh"
     exit 1
 fi
 
@@ -53,6 +89,12 @@ fi
 SCRIPT_DIR=$(cd "${_lib_dir}" && pwd)
 # shellcheck source=cluster/_lib.sh
 source "$SCRIPT_DIR/_lib.sh"
+
+# Ambiente offline PRIMA di qualunque python/apptainer: la prima
+# invocazione e resolve_output_dir(), molto piu in alto di prepare_data,
+# e i client HF leggono queste variabili all'import. Esportarle dopo non
+# avrebbe alcun effetto.
+export_offline_env
 cd "$PROJ_DIR"
 
 echo "============================================"
@@ -71,11 +113,12 @@ mkdir -p logs
 # `extends: base.yaml`) — NIENTE yaml.safe_load del solo file figlio.
 # Il python gira DENTRO Apptainer sul compute node (stessa pattern di train.sh).
 #
-# Politica anti-silent-zero-shot:
+# Politica anti-silent-no-checkpoint (qui "zero-shot" NON c'entra: il
+# pericolo è valutare il BASE MODEL senza pesi addestrati):
 #   - config di training (ha training.output_dir) ma NESSUN checkpoint trovato
-#     → FAIL LOUD (exit 1). Un eval in zero-shot su modello non addestrato
-#     produrrebbe numeri senza senso senza alcun errore.
-#   - config SENZA training.output_dir → zero-shot (eval senza checkpoint)
+#     → FAIL LOUD (exit 1). Un eval del base model (senza checkpoint) su una
+#     cella addestrata produrrebbe numeri senza senso senza alcun errore.
+#   - config SENZA training.output_dir → eval senza checkpoint (base model)
 #     legittimo e voluto.
 resolve_output_dir() {
     local out=""
@@ -102,28 +145,60 @@ except Exception:
 # Trova il checkpoint più recente sotto output_dir: run_*/final o
 # run_*/checkpoint-* ; poi output_dir/final o output_dir/checkpoint-*.
 # Stesso ordine del legacy, ma su un output_dir RISOLTO (extends-aware).
+#
+# GUARDIA CHECKPOINT PARZIALE: 'final' viene scritto SOLO a training
+# completato (grpo_t2g_train.py fa save_model su output_dir/final). Se final
+# manca e si ricade su un checkpoint-<step>, il modello è PARZIALE (training
+# interrotto, TIMEOUT o ancora in corso). Il percorso automatico della catena
+# è già protetto (_lib.sh rimuove l'eval dalla coda se il train fallisce),
+# ma un eval manuale o ri-accodato no: si avverte LOUD qui e il JSON dei
+# risultati porta checkpoint_incomplete: true + checkpoint_step (stamp di
+# eval_t2g.py) — un eval su modello parziale NON è mai indistinguibile da uno
+# su modello completo. NON si rifiuta l'eval: valutare un checkpoint
+# intermedio è diagnostica legittima (progresso mid-training, sanity del
+# resume) e il workflow TIMEOUT→resume di CLUSTER.md lo produce di proposito.
+#
+# ORDINAMENTO NUMERICO, non lessicografico: il glob della shell ordina
+# `checkpoint-1000` PRIMA di `checkpoint-500` (confronto carattere per
+# carattere: '1' < '5'), quindi prendere l'ultimo elemento del glob
+# selezionerebbe checkpoint-500, cioe' il modello MENO addestrato. Con
+# save_steps: 500 e max_steps: 5000 i checkpoint arrivano a 4 cifre, quindi
+# il difetto e' sistematico, non un caso limite. `sort -t- -k2 -n` ordina
+# sul numero dopo il trattino.
+_newest_checkpoint_dir() {
+    local parent="$1" c best=""
+    for c in "$parent"/checkpoint-*; do
+        [ -d "$c" ] && printf '%s\n' "$c"
+    done | sort -t- -k2 -n | tail -1
+}
+
 find_newest_checkpoint() {
-    local out_dir="$1" latest_run best="" c
+    local out_dir="$1" latest_run best="" used_partial=0
     latest_run=$(ls -1d "${out_dir}"/run_* 2>/dev/null | tail -1) || true
     if [ -n "$latest_run" ] && [ -d "$latest_run" ]; then
         if [ -d "$latest_run/final" ]; then
             best="$latest_run/final"
         else
-            for c in "$latest_run"/checkpoint-*; do
-                [ -d "$c" ] && best="$c"
-            done
+            best=$(_newest_checkpoint_dir "$latest_run")
+            [ -n "$best" ] && used_partial=1
         fi
     fi
     if [ -z "$best" ]; then
         if [ -d "$out_dir/final" ]; then
             best="$out_dir/final"
         else
-            for c in "$out_dir"/checkpoint-*; do
-                [ -d "$c" ] && best="$c"
-            done
+            best=$(_newest_checkpoint_dir "$out_dir")
+            [ -n "$best" ] && used_partial=1
         fi
     fi
     if [ -n "$best" ]; then
+        if [ "$used_partial" = "1" ]; then
+            # stderr DI PROPOSITO: la funzione è usata in command substitution,
+            # ogni echo su stdout finirebbe nel valore catturato.
+            echo "⚠️  CHECKPOINT PARZIALE: 'final' assente, uso l'ultimo checkpoint intermedio: $best" >&2
+            echo "    Il training potrebbe essere interrotto o ancora in corso: l'eval misura un modello incompleto." >&2
+            echo "    Il JSON dei risultati sarà marcato checkpoint_incomplete: true (con checkpoint_step)." >&2
+        fi
         echo "$best"
         return 0
     fi
@@ -145,8 +220,9 @@ if [ -z "$CHECKPOINT" ]; then
             echo ""
             echo "  La config dichiara training.output_dir ma non esiste"
             echo "  nessun run_*/final|checkpoint-*: il modello NON è stato"
-            echo "  addestrato. Un eval in zero-shot su modello non addestrato"
-            echo "  produrrebbe numeri senza senso SENZA errori — rifiutiamo."
+            echo "  addestrato. Un eval del base model (senza checkpoint) su"
+            echo "  una cella non addestrata produrrebbe numeri senza senso"
+            echo "  SENZA errori — rifiutiamo."
             echo ""
             echo "  Soluzioni:"
             echo "   1. addestra prima (run-all / chain / sbatch cluster/train.sh)"
@@ -157,7 +233,7 @@ if [ -z "$CHECKPOINT" ]; then
             exit 1
         fi
     else
-        echo "Config senza training.output_dir - zero-shot inteso"
+        echo "Config without training.output_dir - no-checkpoint eval intended (base model)"
     fi
 fi
 
@@ -174,50 +250,49 @@ prepare_data
 # e salta il check di rete; datasets usa la cache locale direttamente.
 # Dopo prepare_data (non prima!) così il fallback download al primo avvio
 # conserva la rete.
-export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 PYTHONUNBUFFERED=1
+# (ambiente offline gia esportato subito dopo il source di _lib.sh)
 
-# ── Modalità eval ─────────────────────────────────────────────────────────────
-# - Config di TRAINING (ha output_dir + checkpoint auto/explicito): --compare
-#   (baseline zero-shot cachata/riusata + checkpoint).
-# - Config EVAL-ONLY (zero-shot, SENZA training.output_dir) e nessun
-#   checkpoint esplicito: --eval-baseline-only — singolo eval del base
-#   model. Con --compare il base model verrebbe valutato DUE volte (Step A
-#   baseline + Step B "checkpoint" = entrambi zero-shot).
+# ── Costruzione comando eval ──────────────────────────────────────────────────
+# NIENTE flag comportamentali: eval_t2g.py deduce compare/eval-baseline-only
+# dal config (presenza di training.output_dir e del checkpoint) e legge ogni
+# altro knob (plot, dual_prompting, prompting, max_samples, num_samples,
+# best_of_n, …) dalla sezione evaluation:. Qui passiamo SOLO gli
+# identificatori (config + checkpoint).
+# - Cella di TRAINING (ha output_dir + checkpoint auto/esplicito): l'eval
+#   confronta con la baseline del base model — STESSA config, quindi stessa
+#   modalità di prompting e decodifica della cella; la baseline è cachata
+#   fra run (fingerprint del contesto prompt).
+# - Cella EVAL-ONLY (baseline/*, nessun output_dir): solo eval del base model.
 # NB: OUTPUT_DIR è risolta nel blocco auto-detect sopra (solo quando
 # CHECKPOINT è vuoto — con un checkpoint esplicito il confronto ha senso).
-if [ -z "${CHECKPOINT}" ] && [ -z "${OUTPUT_DIR:-}" ]; then
-    EVAL_ONLY_MODE=1
-fi
-
-if [ "${EVAL_ONLY_MODE:-0}" = "1" ]; then
-    EVAL_ARGS="--config ${CONFIG} --plot --eval-baseline-only"
-    echo "Eval-only config (zero-shot): --eval-baseline-only (niente --compare)"
-else
-    EVAL_ARGS="--config ${CONFIG} --plot --compare"
-fi
-
-# Override opzionale del numero di campioni (default: quello del config,
-# oggi 2000 da base.yaml). Esempio eval rapido: MAX_SAMPLES=500 CONFIG=...
-if [ -n "${MAX_SAMPLES:-}" ]; then
-    EVAL_ARGS="${EVAL_ARGS} --max-samples ${MAX_SAMPLES}"
-    echo "MAX_SAMPLES override: ${MAX_SAMPLES}"
-fi
+EVAL_ARGS="--config ${CONFIG}"
 
 if [ -n "$CHECKPOINT" ]; then
     EVAL_ARGS="${EVAL_ARGS} --checkpoint ${CHECKPOINT}"
 else
-    echo "Zero-shot mode: nessun checkpoint (base model pulito)"
+    echo "No-checkpoint mode: si valuta il base model (celle eval-only come baseline/*)."
+    echo "  Modalità di prompting: quella della config (retrieval.enabled), salvo"
+    echo "  override in evaluation.prompting."
 fi
 
-# Best-of-N selection (opzionale — passa BEST_OF_N=1 per attivare)
-# ORACOLO DIAGNOSTICO: misura il limite superiore della qualità selezionando
-# il miglior completamento tra i N campionati. Non è la metrica primaria
-# (quella resta Pass@1). Richiede evaluation.num_samples>1 nel config.
-if [ "${BEST_OF_N}" = "1" ]; then
-    EVAL_ARGS="${EVAL_ARGS} --best-of-n"
-    echo "Best-of-N selection enabled"
-fi
-
+# Esegue l'eval python nell'ambiente del job (Apptainer se presente).
+# Gli argomenti passano NON quotati di proposito: stesso word-splitting
+# dell'invocazione originale (${EVAL_ARGS}).
+run_eval_python() {
+    if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
+        apptainer run --nv \
+            --env WANDB_MODE=offline \
+            --env PYTHONUNBUFFERED=1 \
+            --env HF_HUB_OFFLINE=1 \
+            --env TRANSFORMERS_OFFLINE=1 \
+            --env HF_DATASETS_OFFLINE=1 \
+            --env PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8 \
+            /shared/sifs/latest.sif \
+            python -m src.training.eval_t2g "$@"
+    else
+        python -m src.training.eval_t2g "$@"
+    fi
+}
 
 echo ""
 echo "Avvio evaluation..."
@@ -225,19 +300,11 @@ echo "  Args: ${EVAL_ARGS}"
 echo ""
 
 # ── Esecuzione ────────────────────────────────────────────────────────────────
-if command -v apptainer &>/dev/null && [ -f /shared/sifs/latest.sif ]; then
-    apptainer run --nv \
-        --env WANDB_MODE=offline \
-        --env PYTHONUNBUFFERED=1 \
-        --env HF_HUB_OFFLINE=1 \
-        --env TRANSFORMERS_OFFLINE=1 \
-        --env HF_DATASETS_OFFLINE=1 \
-        --env PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8 \
-        /shared/sifs/latest.sif \
-        python -m src.training.eval_t2g ${EVAL_ARGS}
-else
-    python -m src.training.eval_t2g ${EVAL_ARGS}
-fi
+# La passata dual (se evaluation.dual_prompting: true nel config) è gestita
+# DENTRO eval_t2g.py: seconda passata con la modalità di prompting
+# complementare nello stesso processo, file con suffisso __<mode> e cache
+# baseline separata. Niente logica dual qui: era il vecchio DUAL_EVAL=1.
+run_eval_python ${EVAL_ARGS}
 
 echo ""
 echo "============================================"

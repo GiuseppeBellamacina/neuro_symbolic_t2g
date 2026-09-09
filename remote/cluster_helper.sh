@@ -28,18 +28,36 @@
 #                              nlines righe del log del job ATTIVO, default 200;
 #                              vuoto se nessun job attivo o log assente)
 #   enqueue <entry>            appende una entry "type:cfg:tag[:extra]" alla coda
+#   enqueue_batch <content>    appende PIU' entry (separate da \x1f) poi snapshot:
+#                              N job con 1 sola connessione invece di N
+#   start_batch <content>      enqueue_batch + tick + snapshot MONITOR completo
+#                              (log tail incluso): POST /jobs/start e /jobs/batch
+#                              fanno enqueue+tick+monitor con 1 SOLA ssh
+#                              (prima: N+2 ssh seriali, fino a ~90s)
 #   rewrite_queue <content>    rimpiazza la coda (entry separate da \x1f;
 #                              stringa vuota = svuota la coda)
 #   pause                      crea .chain_state/chain_stopped (stop soft)
 #   resume                     rimuove .chain_state/chain_stopped
 #   tick                       esegue chain_tick.sh --quiet poi lo snapshot
+#   timeseries <tag>           serie delle righe KV `step=N loss=...` dell'INTERO
+#                              log del job (attivo, altrimenti ultimo) col tag
+#                              dato: TS_* keys, log in base64 (per i grafici)
+#   results <config>           gli eval_*.json (preferito eval_final.json) di
+#                              ogni run_* della dir risultati del config, in
+#                              base64 (RUN_ID_n/RUN_B64_n); token VUOTO = elenco
+#                              delle dir disponibili (RESULTS_DIRS)
 #   scancel                    cancella il job SLURM attivo (exit 1 se nessuno)
+#                              e stampa poi lo snapshot monitor (1 sola ssh)
 #
-# Dopo ogni mutazione (enqueue/rewrite_queue/pause/resume/tick) il helper
-# stampa COMUNQUE lo snapshot fresco: così il driver fa 1 sola connessione
-# e riceve stato + esito insieme.
+# Dopo ogni mutazione (enqueue/rewrite_queue/enqueue_batch/pause/resume/tick)
+# il helper stampa COMUNQUE lo snapshot fresco: così il driver fa 1 sola
+# connessione e riceve stato + esito insieme. start_batch e scancel stampano
+# da soli lo snapshot monitor completo (LOG_TAIL_B64 incluso).
 #
-# Exit codes: 0 ok · 2 usage · 3 chain_tick.sh fallito/mancante.
+# Exit codes: 0 ok · 2 usage · 3 chain_tick.sh fallito/mancante (il tick
+# dentro start_batch NON interrompe l'output: lo snapshot viene stampato
+# comunque e l'exit 3 arriva alla fine, così il driver distingue "enqueue
+# riuscito + tick fallito" e mostra lo stato reale della coda).
 # ============================================================================
 
 set -euo pipefail
@@ -52,7 +70,10 @@ source "$SCRIPT_DIR/_lib.sh"
 dump_status() {
     local active="" last="" queue="" qcount=0 stopped=0
     local errors_count=0 errors_tail="[]"
-    local aid aname astate slurm sep="" e out="" first=1
+    # aid/aname/astate SEMPRE inizializzate: con set -u un reference a una
+    # local solo dichiarata è errore fatale (succedeva su blip di squeue,
+    # quando slurm resta vuoto e aid non viene mai assegnata).
+    local aid="" aname="" astate="" slurm sep="" e out="" first=1
 
     # Job SLURM attivo (la QoS consente max 1): id|name|state
     # Una sola query squeue invece di tre: evita snapshot incoerenti (il job
@@ -115,10 +136,12 @@ dump_status() {
 dump_monitor() {
     local nlines="${1:-200}"
     dump_status
-    local aid aname prefix logpath b64=""
-    aid=$(active_job_id)
+    local aid="" aname="" prefix="" logpath="" b64=""
+    # `|| true`: un blip di squeue NON deve abbattere l'helper (set -e) —
+    # si limita a non stampare il log tail.
+    aid=$(active_job_id) || true
     if [ -n "$aid" ]; then
-        aname=$(active_job_name)
+        aname=$(active_job_name) || true
         case "$aname" in
             eval-*) prefix="eval" ;;
             *)      prefix="train" ;;
@@ -164,6 +187,40 @@ rewrite_queue() {
     echo "OK_REWRITE=1"
 }
 
+# Appende PIU' entry (separate da \x1f, come rewrite_queue) SENZA rimpiazzare
+# la coda esistente: un batch di N job costa 1 connessione invece di N.
+enqueue_many() {
+    local content="$1" sep entry n=0
+    sep=$(printf '\x1f')
+    mkdir -p "$STATE_DIR"
+    # La newline finale da printf è obbligatoria: senza, `read` perderà
+    # l'ultima entry (classico pitfall del while read senza newline finale).
+    while IFS= read -r entry; do
+        [ -n "$entry" ] || continue
+        printf '%s\n' "$entry" >> "$CHAIN_FILE"
+        n=$((n + 1))
+    done < <(printf '%s\n' "$content" | tr "$sep" '\n')
+    log_line "enqueue_batch (driver esterno): $n entry"
+    echo "OK_ENQUEUE_N=$n"
+}
+
+enqueue_batch() {
+    enqueue_many "$1"
+}
+
+# /jobs/start e /jobs/batch in UNA sola connessione: appende le entry, esegue
+# il tick e stampa lo snapshot monitor completo (dump_monitor include già
+# dump_status). Se il tick fallisce lo snapshot viene stampato COMUNQUE e
+# l'exit 3 arriva alla fine: il driver distingue "enqueue riuscito + tick
+# fallito" e mostra lo stato reale della coda invece di un 502 opaco.
+start_batch() {
+    local content="$1" rc=0
+    enqueue_many "$content"
+    _tick_run || rc=$?
+    dump_monitor
+    return "$rc"
+}
+
 pause() {
     mkdir -p "$STATE_DIR"
     touch "$STOPPED_FILE"
@@ -177,10 +234,13 @@ resume() {
     echo "OK_RESUME=1"
 }
 
-tick() {
+# Core del tick SENZA exit: ritorna il rc così start_batch può continuare
+# (stampare lo snapshot) anche quando il tick fallisce, e il driver riceve
+# comunque lo stato della coda aggiornato con l'enqueue.
+_tick_run() {
     if [ ! -f "$SCRIPT_DIR/chain_tick.sh" ]; then
         echo "ERR_TICK=chain_tick.sh mancante" >&2
-        exit 3
+        return 3
     fi
     local rc=0
     bash "$SCRIPT_DIR/chain_tick.sh" --quiet || rc=$?
@@ -193,16 +253,26 @@ tick() {
     fi
     if [ "$rc" -ne 0 ]; then
         echo "ERR_TICK=chain_tick rc=$rc" >&2
-        exit 3
+        return 3
     fi
     echo "OK_TICK=1"
+    return 0
+}
+
+tick() {
+    local rc=0
+    _tick_run || rc=$?
+    exit "$rc"
 }
 
 # Kill del job attivo (per la TUI). Exit 1 + messaggio se nessun job attivo:
 # in quel caso non viene stampato STATUS_OK e il driver risolve in 409.
+# Dopo lo scancel stampa lo snapshot monitor: il driver fa 1 sola ssh invece
+# di due (kill + monitor separati). Il job può risultare ancora RUNNING per
+# qualche secondo prima di passare a CANCELLED — è normale e dichiarato.
 scancel_active() {
     local aid
-    aid=$(active_job_id)
+    aid=$(active_job_id) || true
     if [ -z "$aid" ]; then
         echo "ERR_NO_ACTIVE_JOB=1" >&2
         exit 1
@@ -213,10 +283,152 @@ scancel_active() {
     fi
     log_line "scancel (driver esterno): job $aid cancellato"
     echo "OK_SCANCEL=$aid"
+    dump_monitor
+}
+
+# ── Timeseries: righe KV `step=N ...` dell'intero log del job col tag dato ───
+# Il driver le trasforma in serie per i grafici (sparkline della TUI). Il
+# grep gira sul login node: trasportare SOLO le righe KV (grep) invece del
+# log intero mantiene il payload piccolo; base64 evita problemi di escaping
+# multi-riga nel protocollo KEY=VALUE. Il job viene risolto prima nello
+# squeue (job attivo) e poi in last_job (ultimo sottomesso): i log SLURM sono
+# nominati per JOBID, quindi il mapping tag→jobid esiste solo lì.
+timeseries() {
+    local tag="$1" aid="" aname="" jtype="" logpath="" total="" b64=""
+    local lj_id lj_type lj_cfg lj_tag rest
+    # `|| true`: blip di squeue → job "non attivo", non crash dell'helper.
+    aid=$(active_job_id) || true
+    if [ -n "$aid" ]; then
+        aname=$(active_job_name) || true
+        case "$aname" in
+            "train-$tag") jtype="train" ;;
+            "eval-$tag")  jtype="eval" ;;
+        esac
+    fi
+    if [ -z "$jtype" ] && [ -f "$LAST_JOB_FILE" ]; then
+        # last_job = "id:type:cfg:tag:retries[:extra]": la cfg non contiene
+        # ':', quindi il tag è sempre il 4° campo.
+        IFS=':' read -r lj_id lj_type lj_cfg lj_tag rest < "$LAST_JOB_FILE"
+        if [ "$lj_tag" = "$tag" ]; then
+            jtype="$lj_type"
+            aid="$lj_id"
+        fi
+    fi
+    if [ -n "$jtype" ]; then
+        logpath="$PROJ_DIR/logs/slurm-${jtype}-${aid}.log"
+        if [ -f "$logpath" ]; then
+            # Stesso pattern di _KV_STEP in chain_monitor (righe KV con step+loss):
+            # una sola fonte di verità per cosa è una "riga metrica". Il `|| true`
+            # protegge da set -o pipefail quando grep non trova nulla (log eval).
+            b64=$(grep -E '^[[:space:]]+step=[0-9]+[[:space:]]+loss=' "$logpath" 2>/dev/null | base64 -w 0) || true
+            # total_steps: ultimo marker di stage ([stage N] steps=M, scritto
+            # dal curriculum) oppure max_steps= (fallback SFT/base).
+            total=$(grep -oE '\[stage [0-9]+\] steps=[0-9]+' "$logpath" 2>/dev/null | tail -1 | grep -oE '[0-9]+$') || true
+            if [ -z "$total" ]; then
+                total=$(grep -oE 'max_steps=[0-9]+' "$logpath" 2>/dev/null | tail -1 | grep -oE '[0-9]+$') || true
+            fi
+        fi
+    fi
+    printf 'TS_MATCH=%s\n' "$([ -n "$jtype" ] && echo 1 || echo 0)"
+    printf 'TS_JOB_ID=%s\n' "$aid"
+    printf 'TS_JOB_TYPE=%s\n' "$jtype"
+    printf 'TS_LOG_PATH=%s\n' "$logpath"
+    printf 'TS_TOTAL_STEPS=%s\n' "$total"
+    printf 'TS_LOG_B64=%s\n' "$b64"
+}
+
+# ── Results: eval_*.json della dir risultati del config, in base64 ───────────
+# I JSON di valutazione sono immutabili una volta scritti: il driver li mette
+# in cache in modo aggressivo e non li richiede se freschi. Il parsing JSON
+# avviene nel driver (nessun python sul login node): qui solo cat+base64.
+RESULTS_N=0
+_emit_run() {
+    local rdir="$1" chosen f
+    if [ -f "$rdir/eval_final.json" ]; then
+        # eval_final è LA scelta canonica (stessa convenzione di
+        # src/utils/ablation_summary.py): mai scegliere per mtime se c'è.
+        chosen="$rdir/eval_final.json"
+    else
+        f=$(ls -t "$rdir"eval_*.json 2>/dev/null | grep -v '/eval_baseline\.json$' | head -1) || true
+        if [ -z "$f" ]; then
+            # Solo eval_baseline presente (run eval-only): meglio di niente.
+            f=$(ls -t "$rdir"eval_*.json 2>/dev/null | head -1) || true
+        fi
+        chosen="$f"
+    fi
+    if [ -n "$chosen" ] && [ -f "$chosen" ]; then
+        RESULTS_N=$((RESULTS_N + 1))
+        printf 'RUN_ID_%s=%s\n' "$RESULTS_N" "$(basename "$rdir")"
+        printf 'RUN_B64_%s=%s\n' "$RESULTS_N" "$(base64 -w 0 < "$chosen")"
+    fi
+}
+
+results() {
+    local token="$1" dir=""
+    # Token vuoto = discovery: elenco delle dir con risultati (il client
+    # mostra la lista invece di duplicare la mappa config→dir).
+    if [ -z "$token" ]; then
+        local d list=""
+        if [ -d "$PROJ_DIR/experiments/results" ]; then
+            for d in "$PROJ_DIR/experiments/results"/*/; do
+                if [ -d "$d" ]; then
+                    d=$(basename "$d")
+                    if [ -z "$list" ]; then
+                        list="$d"
+                    else
+                        list="$list$(printf '\x1f')$d"
+                    fi
+                fi
+            done
+        fi
+        printf 'RESULTS_DIRS=%s\n' "$list"
+        return 0
+    fi
+    # Risoluzione tollerante: nome dir esatto → substring glob → senza il
+    # suffisso prompting (-zero-shot/-few-shot: il wandb run_name della cella
+    # non sempre lo contiene). Il primo glob in ordine alfabetico vince.
+    if [ -d "$PROJ_DIR/experiments/results/$token" ]; then
+        dir="$PROJ_DIR/experiments/results/$token"
+    else
+        set -- "$PROJ_DIR"/experiments/results/*"$token"*/
+        if [ -d "$1" ]; then
+            dir="$1"
+        fi
+    fi
+    if [ -z "$dir" ]; then
+        local t
+        for t in "${token%-zero-shot}" "${token%-few-shot}"; do
+            if [ "$t" != "$token" ]; then
+                set -- "$PROJ_DIR"/experiments/results/*"$t"*/
+                if [ -d "$1" ]; then
+                    dir="$1"
+                    break
+                fi
+            fi
+        done
+    fi
+    if [ -z "$dir" ]; then
+        printf 'RESULTS_DIR=\nRESULTS_COUNT=0\n'
+        return 0
+    fi
+    printf 'RESULTS_DIR=%s\n' "$dir"
+    RESULTS_N=0
+    local r has=0
+    for r in "$dir"/run_*/; do
+        if [ -d "$r" ]; then
+            has=1
+            _emit_run "$r"
+        fi
+    done
+    # Nessun run_* subdir: i risultati vivono direttamente nella dir config.
+    if [ "$has" -eq 0 ]; then
+        _emit_run "$dir/"
+    fi
+    printf 'RESULTS_COUNT=%s\n' "$RESULTS_N"
 }
 
 usage() {
-    echo "Uso: bash cluster/cluster_helper.sh [status|monitor [n]|enqueue <entry>|rewrite_queue <content>|pause|resume|tick|scancel]" >&2
+    echo "Uso: bash cluster/cluster_helper.sh [status|monitor [n]|enqueue <entry>|enqueue_batch <content>|start_batch <content>|rewrite_queue <content>|pause|resume|tick|timeseries <tag>|results <config>|scancel]" >&2
     exit 2
 }
 
@@ -226,18 +438,23 @@ case "$CMD" in
     status)          dump_status ;;
     monitor)         dump_monitor "${2:-200}" ;;
     enqueue)         [ $# -ge 2 ] || usage; enqueue "$2" ;;
+    enqueue_batch)   [ $# -ge 2 ] || usage; enqueue_batch "$2" ;;
+    start_batch)     [ $# -ge 2 ] || usage; start_batch "$2" ;;
     rewrite_queue)   [ $# -ge 2 ] || usage; rewrite_queue "$2" ;;
     pause)           pause ;;
     resume)          resume ;;
     tick)            tick ;;
+    timeseries)      [ $# -ge 2 ] || usage; timeseries "$2" ;;
+    results)         [ $# -ge 2 ] || usage; results "$2" ;;
     scancel)         scancel_active ;;
     -h|--help|help)  usage ;;
     *)               usage ;;
 esac
 
 # Dopo una mutazione il driver riceve subito lo snapshot fresco (1 sola ssh).
-# scancel NON ristampa lo snapshot: il job resta RUNNING qualche secondo prima
-# di passare a CANCELLED — il driver farà lo status al prossimo tick.
+# scancel NON ristampa più solo OK_SCANCEL: stampa già lo snapshot monitor
+# dentro scancel_active (vedi sopra). start_batch/timeseries/results stampano
+# da soli il loro output completo: nessun dump aggiuntivo.
 case "$CMD" in
-    enqueue|rewrite_queue|pause|resume|tick) dump_status ;;
+    enqueue|rewrite_queue|enqueue_batch|pause|resume|tick) dump_status ;;
 esac

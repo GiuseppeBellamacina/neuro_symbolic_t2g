@@ -1,0 +1,213 @@
+\chapter{Supervised fine-tuning}
+\label{cap:sft}
+
+\section{L'obiettivo, in concreto}
+
+L'addestramento supervisionato minimizza l'entropia incrociata~\eqref{eq:ce}
+sulle sole posizioni della \emph{completion}, cioè del gloss. Le posizioni del
+prompt sono escluse assegnando loro l'etichetta convenzionale $-100$, che le
+librerie impiegate interpretano come ``non contribuire alla loss''.
+
+Questa distinzione è più importante di quanto sembri. Se il prompt non venisse
+mascherato, il modello dedicherebbe capacità a riprodurre l'inglese di ingresso,
+che è già noto e non serve a nulla. Peggio: su questo corpus, dove il gloss è in
+larga parte una copia maiuscolizzata del testo, addestrare il modello a
+riprodurre il testo rinforzerebbe esattamente la scorciatoia che si vuole
+misurare separatamente.
+
+Formalmente, detto $m_t \in \{0,1\}$ l'indicatore ``la posizione $t$ appartiene
+alla completion'', la loss effettivamente ottimizzata è
+\begin{equation}
+  \label{eq:sft-loss}
+  \mathcal{L}_{\text{SFT}}(\theta)
+  \;=\;
+  -\frac{\sum_{i}\sum_{t} m^{(i)}_t
+         \log \policy\!\left(y^{(i)}_t \mid x^{(i)}, y^{(i)}_{<t}\right)}
+        {\sum_{i}\sum_{t} m^{(i)}_t}.
+\end{equation}
+
+\section{Configurazione}
+
+L'implementazione è in \texttt{src/training/sft\_train.py}, funzione
+\texttt{run\_sft}, che avvolge \texttt{trl.SFTTrainer}.
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Iperparametro & Valore \\
+\midrule
+Epoche & $3$ \\
+Batch per dispositivo & $4$ \\
+Accumulo del gradiente & $4$ \\
+Batch effettivo & $16$ \\
+Learning rate & $2 \cdot 10^{-5}$ \\
+Passi di warmup & $50$ \\
+Lunghezza massima di sequenza & $768$ \\
+Holdout interno per la validazione & $2\%$ \\
+Pazienza per l'arresto anticipato & $3$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il \emph{warmup} porta il learning rate da zero al valore nominale nei primi
+$50$ passi, evitando che i primi aggiornamenti, calcolati su gradienti ancora
+disallineati, danneggino i pesi. L'\emph{holdout} del $2\%$ è ritagliato dal
+training set (non dal test) e serve solo a decidere l'arresto anticipato: se la
+loss di validazione non migliora per $3$ valutazioni consecutive,
+l'addestramento si ferma.
+
+Tre epoche su $72\,979$ esempi con batch effettivo $16$ corrispondono a circa
+$13\,600$ passi di ottimizzazione. Questo numero va tenuto a mente per il
+confronto con il GRPO del capitolo successivo, che ne compie $2\,000$.
+
+\section{Risultati}
+
+Valutazione su $2\,000$ prompt del test set, con campionamento a temperatura
+$0{,}7$ e $N=5$ generazioni per prompt (metriche versione 2, si veda il
+Capitolo~\ref{cap:metriche}).
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Metrica & SFT \\
+\midrule
+ROUGE-L & $0{,}9749$ \\
+Exact match & $0{,}8117$ \\
+Gloss F1 & $0{,}9760$ \\
+BLEU (a corpus) & $0{,}9426$ \\
+chrF (a corpus) & $97{,}27$ \\
+Validity & $0{,}9998$ \\
+Non-copy-token accuracy & $0{,}9660$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Nudi, questi numeri sembrano un successo pieno. Vanno letti accanto alla
+baseline a regole.
+
+\section{Il confronto che conta: SFT contro regola}
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+Metrica & Regola & SFT & Delta \\
+\midrule
+ROUGE-L & $0{,}9685$ & $0{,}9749$ & $+0{,}0064$ \\
+Exact match & $0{,}5865$ & $0{,}8117$ & $+0{,}2252$ \\
+Non-copy-token accuracy & $0{,}9424$ & $0{,}9660$ & $+0{,}0236$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Gli intervalli di confidenza al $95\%$, ottenuti con bootstrap clusterizzato per
+prompt (si veda il Capitolo~\ref{cap:metriche}), sono:
+
+\begin{center}
+\begin{tabular}{lc}
+\toprule
+Delta & Intervallo di confidenza $95\%$ \\
+\midrule
+ROUGE-L: $+0{,}0064$ & $[+0{,}0038,\; +0{,}0098]$ \\
+Exact match: $+0{,}2252$ & $[+0{,}2025,\; +0{,}2510]$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Entrambi gli intervalli escludono lo zero. Va però anticipato subito un
+\textbf{caveat che li ridimensiona}, sviluppato nella
+sezione~\ref{sec:dispersione-run}: il bootstrap ricampiona i prompt di
+valutazione e quindi stima soltanto l'incertezza dovuta al campione di test, non
+quella dovuta all'addestramento. La cella SFT, eseguita due volte, varia da sola
+di $0{,}0036$ su ROUGE-L e di $0{,}0304$ su exact match. Ne segue che
+l'intervallo su ROUGE-L è ottimistico e il delta corrispondente non è
+distinguibile dal rumore di addestramento.
+
+Con questa avvertenza, la \emph{grandezza} del vantaggio dipende radicalmente
+dalla metrica:
+
+\begin{itemize}
+  \item su ROUGE-L il guadagno è $+0{,}0064$, cioè lo $0{,}6\%$ assoluto, dello
+        stesso ordine della dispersione fra due run della stessa cella
+        ($0{,}0036$). Un modello addestrato su $73$ mila esempi guadagna, su
+        questa metrica, quanto il rumore del proprio addestramento;
+  \item su exact match il guadagno è $+0{,}2252$, cioè un abbattimento del tasso
+        di errore dal $41{,}4\%$ al $18{,}8\%$. In termini di errore relativo è
+        una riduzione di circa il $54\%$, ed è circa sette volte la dispersione
+        osservata: questo delta regge.
+\end{itemize}
+
+Questa discrepanza è la prima manifestazione concreta della saturazione:
+ROUGE-L, essendo una metrica di sovrapposizione, non ha risoluzione residua per
+distinguere i due sistemi, mentre l'exact match sì. È un argomento operativo per
+promuovere l'exact match e la non-copy-token accuracy a metriche primarie
+(Capitolo~\ref{cap:metriche}).
+
+\section{Che cosa impara l'SFT che la regola non sa}
+\label{sec:sft-vs-regola-analisi}
+
+Il confronto aggregato dice \emph{quanto}, non \emph{che cosa}. È stata quindi
+fatta un'analisi caso per caso sui $2\,000$ prompt.
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Esito & Casi \\
+\midrule
+SFT corretto, regola sbagliata & $586$ \quad ($29{,}3\%$) \\
+\quad di cui: cancellazione contestuale della copula \texttt{BE} & $382$ \quad ($65\%$ dei 586) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Cioè: due terzi del vantaggio dell'SFT sull'exact match si riducono a una sola
+regolarità linguistica. La copula inglese (\emph{is}, \emph{are}, \emph{be})
+talvolta compare nel gloss come \texttt{BE} e talvolta viene omessa, e
+l'omissione dipende dal contesto. La baseline, essendo context-free, deve
+scegliere una volta per tutte e sbaglia sistematicamente sull'altro caso.
+
+\subsection{Il controllo: estendere la regola non funziona}
+
+L'ipotesi naturale è che si possa recuperare quel vantaggio estendendo la
+baseline al contesto locale, cioè apprendendo una tabella su bigrammi invece che
+su parole singole. È stato provato:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Baseline & Exact match \\
+\midrule
+Lessico su unigrammi (originale) & $0{,}5865$ \\
+Lessico esteso ai bigrammi & $0{,}5235$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il risultato \emph{peggiora} di $0{,}063$. La spiegazione è la sparsità: passando
+ai bigrammi, molte coppie osservate nel test non compaiono nel training, e la
+tabella deve ricadere su un valore di riserva più spesso di quanto guadagni in
+precisione contestuale.
+
+Questo controllo è metodologicamente importante perché delimita il contributo
+dell'SFT in modo non banale: l'SFT non sta solo memorizzando una tabella più
+grande, sta generalizzando una dipendenza contestuale che un conteggio diretto
+sui bigrammi non riesce a stimare con i dati disponibili. È il guadagno reale
+dell'apprendimento su questo corpus, ed è piccolo ma identificabile.
+
+\section{L'SFT è al tetto del corpus}
+
+Il ROUGE-L dell'SFT è $0{,}9749$. Il miglior valore pubblicato in letteratura su
+ASLG-PC12 è $95{,}87$~\cite{peng2023monolingual}, cioè $0{,}9587$.
+
+Segue che l'SFT di un modello da $0{,}5$ miliardi di parametri con adattatori
+LoRA \emph{supera} lo stato dell'arte pubblicato su questo corpus. Questo non è
+un risultato di cui vantarsi: è la prova più chiara che la metrica non misura
+ciò che si crede misuri. Un modello piccolo, addestrato per tre epoche su una
+singola GPU, non batte anni di ricerca; batte una metrica satura.
+
+Ne segue anche la conseguenza operativa più importante per il resto della
+relazione: \textbf{non c'è spazio di miglioramento residuo che il reinforcement
+learning possa colmare}. Con exact match $0{,}8117$ e validity $0{,}9998$, un
+metodo di rinforzo partirebbe da una policy già quasi ottima rispetto alla
+reward disponibile, in una regione dove i gruppi di candidati tendono a essere
+omogenei e quindi il vantaggio~\eqref{eq:advantage} tende a annullarsi. È
+esattamente ciò che si osserva, ed è quantificato nel capitolo successivo.

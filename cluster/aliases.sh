@@ -12,6 +12,29 @@
 # shellcheck source=cluster/_lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_lib.sh"
 
+# Elenca le celle sperimentali leggendole dal filesystem.
+#
+# Perche' derivarle invece di elencarle: la stessa lista era ricopiata a mano
+# in quattro punti del progetto (questo file, cluster/run_all.sh, remote/app.py
+# e remote/tui.py). Una lista statica non segnala mai di essere incompleta:
+# aggiungendo una cella si ottiene un aiuto in linea che mente. Derivandola,
+# l'aiuto e' corretto per costruzione.
+#
+# base.yaml e' escluso: e' il file ereditato via `extends`, non una cella
+# eseguibile.
+_t2g_list_configs() {
+    local root="${PROJ_DIR:-$HOME/neuro_symbolic_t2g}/experiments/configs/qwen25-05b"
+    if [ ! -d "$root" ]; then
+        echo "     (directory dei config non trovata: $root)"
+        return 1
+    fi
+    # -print evita la dipendenza da find -printf, assente in alcune immagini.
+    find "$root" -name '*.yaml' -not -name 'base.yaml' -print 2>/dev/null \
+        | sed -e "s|^${root}/||" -e 's|\.yaml$||' \
+        | sort \
+        | sed 's|^|     |'
+}
+
 # ── Job management ───────────────────────────────────────────────────────────
 
 # Controlla i miei job attivi
@@ -139,7 +162,7 @@ ckpts() {
 
 # Lancia training (uso: train [--config PATH] [extra args...])
 train() {
-    local config="experiments/configs/t2g/sft-grpo.yaml"
+    local config="experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml"
     local extra_args=""
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -152,7 +175,7 @@ train() {
 
 # Lancia eval (uso: run-eval [--config PATH] [--checkpoint PATH])
 run-eval() {
-    local config="experiments/configs/t2g/sft-grpo.yaml"
+    local config="experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml"
     local checkpoint=""
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -171,13 +194,6 @@ run-all() {
 
 # Controlla lo stato della pipeline (job attivo / coda)
 chain-status() {
-    if [ -f "$STATE_DIR/chain_failed" ]; then
-        local failed
-        failed=$(cat "$STATE_DIR/chain_failed")
-        echo "❌ Pipeline FALLITA - job: $failed"
-        echo "   Per riprendere: chain-resume"
-        return 1
-    fi
     if [ -f "$STATE_DIR/chain_stopped" ]; then
         local info st_type st_tag
         info=$(cat "$STATE_DIR/chain_stopped")
@@ -274,7 +290,6 @@ chain-stop() {
     fi
     [ -n "$st_type" ] || st_type="none"
     echo "${st_type}:${st_cfg}:${st_tag}:0:${active_id}" > "$STATE_DIR/chain_stopped"
-    rm -f "$STATE_DIR/chain_failed"
     echo "Pipeline fermata (config letto dallo stato: ${st_type}/${st_tag})."
     echo "Per riprendere: chain-start"
 }
@@ -309,12 +324,16 @@ _chain_resume_impl() {
 
         case "$st_type" in
             train)
-                rebuild_chain "train:${st_cfg}:${st_tag}:--resume"
-                # Evita eval duplicato se già in testa alla coda originale
+                # rebuild_chain fa PREPEND: per ottenere la coda [train, eval]
+                # va inserito prima eval e poi train. L'ordine inverso
+                # produceva [eval, train], cioe' l'eval PRIMA del training da
+                # cui dipende. Vedi docs/RECOVERY_REPORT.md §7.
+                # Evita eval duplicato se gia' in testa alla coda originale.
                 if [ "$(echo "$head" | cut -d: -f1)" != "eval" ] || [ "$(echo "$head" | cut -d: -f3)" != "$st_tag" ]; then
                     rebuild_chain "eval:${st_cfg}:${st_tag}"
                 fi
-                echo "→ Training $st_tag verrà ripreso dall'ultimo checkpoint"
+                rebuild_chain "train:${st_cfg}:${st_tag}:--resume"
+                echo " Training $st_tag verra' ripreso dall'ultimo checkpoint"
                 ;;
             eval)
                 rebuild_chain "eval:${st_cfg}:${st_tag}"
@@ -355,7 +374,7 @@ chain-start() {
 
 # Riprendi una catena interrotta (uso: chain-resume)
 # Es. daemon ucciso dal reaper: job_chain non vuota, nessun job attivo.
-# Non richiede .chain_failed: la coda stessa è lo stato.
+# La coda stessa è lo stato: riprende direttamente da job_chain.
 chain-resume() {
     _chain_resume_impl
 }
@@ -448,11 +467,21 @@ alias t2g-chain-resume='chain-resume'
 alias t2g-clean='clean'
 alias t2g-gpu='gpu'
 alias t2g-trainlog='trainlog'
-alias t2g-help='diego'
+alias t2g-help='claudio'
 
 # Genera tabella + grafico cross-config dopo l'ablation (uso: ablation-summary)
 ablation-summary() {
     cd "$PROJ_DIR" && python3 -u -m src.utils.ablation_summary "$@"
+}
+
+# Confronti strutturati cross-fattore per la matrice di ablazione
+# (uso: campaign-report). Complementare ad ablation-summary: appaia i run
+# che differiscono per UN solo fattore sperimentale (metodo, prompting,
+# grammar) e riporta i delta con le avvertenze obbligatorie (campioni
+# discordanti, metrics_version, soglia di rumore). Da lanciare a fine
+# campagna o quando il cluster termina una chain.
+campaign-report() {
+    cd "$PROJ_DIR" && python3 -u -m src.analysis.campaign_report "$@"
 }
 
 # ── Pip / Environment ────────────────────────────────────────────────────────
@@ -480,10 +509,10 @@ pip-reset() {
 
 # ── Meta ─────────────────────────────────────────────────────────────────────
 
-_DIEGO_ALIASES="myjobs jobinfo killjob killalljobs trainlog evallog lastlog tree gpu quota proj ckpts train run-eval run-all chain-status clean clean-model chain-add chain-remove chain-stop chain-start chain-resume chain-show chain-hook-install chain-hook-uninstall monitor ablation-summary pip-clean pip-setup pip-reset unload-aliases install-aliases uninstall-aliases t2g-train t2g-eval t2g-run-all t2g-monitor t2g-chain-show t2g-chain-stop t2g-chain-start t2g-chain-resume t2g-clean t2g-gpu t2g-trainlog t2g-help"
+_CLAUDIO_ALIASES="myjobs jobinfo killjob killalljobs trainlog evallog lastlog tree gpu quota proj ckpts train run-eval run-all chain-status clean clean-model chain-add chain-remove chain-stop chain-start chain-resume chain-show chain-hook-install chain-hook-uninstall monitor ablation-summary campaign-report pip-clean pip-setup pip-reset unload-aliases install-aliases uninstall-aliases t2g-train t2g-eval t2g-run-all t2g-monitor t2g-chain-show t2g-chain-stop t2g-chain-start t2g-chain-resume t2g-clean t2g-gpu t2g-trainlog t2g-help"
 
 # Mostra i comandi disponibili
-diego() {
+claudio() {
     echo "Comandi disponibili:"
     echo ""
     echo "── Job management ──"
@@ -499,24 +528,18 @@ diego() {
     echo ""
     echo "── Training & eval ──"
     echo "   train [--config PATH] [extra args...]"
-    echo "                     — lancia training (default: experiments/configs/t2g/sft-grpo.yaml)"
+    echo "                     — lancia training (default: experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml)"
     echo "   run-eval [--config PATH] [--checkpoint PATH]"
     echo "                     — lancia evaluation"
     echo "   run-all [config_name] [--ablation|--train-only|--eval-only|--resume|--append|--force]"
     echo "                     — lancia pipeline train+eval (tick + avanza via hook/server)"
     echo ""
-    echo "   Config disponibili (passa il nome senza .yaml):"
-    echo "     sft-grpo               pipeline principale SFT+GRPO (default)"
-    echo "     sft-only               SFT supervised da solo (decomposizione)"
-    echo "     grpo-only              GRPO senza SFT (decomposizione)"
-    echo "     sft-grpo-structure     SFT+GRPO + structural_dense (ablation)"
-    echo "     sft-grpo-viterbi       SFT+GRPO + viterbi_distance (ablation)"
-    echo "     sft-grpo-soft-viterbi  SFT+GRPO + soft_viterbi (ablation)"
-    echo "     sft-grpo-all-rewards   SFT+GRPO + tutti i moduli sperimentali"
-    echo "     sft-grpo-no-grammar    SFT+GRPO senza constrained decoding"
-    echo "     sft-grpo-pda           SFT+GRPO con PDA grammarllm (confronto Trie)"
-    echo "     zero-shot              Base model senza grammar (solo eval)"
-    echo "     zero-shot-grammar      Base model con grammar (solo eval)"
+    echo "   Config disponibili (path relativo a experiments/configs/qwen25-05b, senza .yaml):"
+    # Derivati dal filesystem invece di essere elencati a mano: una lista
+    # hardcoded divergerebbe silenziosamente appena si aggiunge una cella, e
+    # in questo repo la stessa lista era duplicata in quattro punti.
+    # base.yaml e' escluso perche' non e' una cella eseguibile.
+    _t2g_list_configs
     echo ""
     echo "── Pipeline (tick-based) ──"
     echo "   chain-show   — mostra stato pipeline + job in coda"
@@ -532,6 +555,7 @@ diego() {
     echo "   monitor [--poll N] [--tab] [--samples [N]] [--metrics] [--all [N]]"
     echo "                    — monitor live della pipeline"
     echo "   ablation-summary  — genera tabella + grafico cross-config dopo l'ablation"
+    echo "   campaign-report   — confronti appaiati cross-fattore per la matrice di ablazione"
     echo ""
     echo "── Utilità ──"
     echo "   proj         — cd al progetto"
@@ -553,7 +577,7 @@ diego() {
     echo "   t2g-chain-show / t2g-chain-stop / t2g-chain-start / t2g-chain-resume"
     echo ""
     echo "── Meta ──"
-    echo "   diego          — mostra questo messaggio"
+    echo "   claudio          — mostra questo messaggio"
     echo "   unload-aliases — rimuovi alias (sessione corrente)"
     echo "   install-aliases  — aggiungi alias al .bashrc (permanente)"
     echo "   uninstall-aliases — rimuovi alias dal .bashrc"
@@ -561,11 +585,11 @@ diego() {
 
 # Rimuovi tutti gli alias e funzioni custom (solo sessione corrente)
 unload-aliases() {
-    for cmd in $_DIEGO_ALIASES; do
+    for cmd in $_CLAUDIO_ALIASES; do
         unalias "$cmd" 2>/dev/null
         unset -f "$cmd" 2>/dev/null
     done
-    unset _DIEGO_ALIASES PROJ_DIR
+    unset _CLAUDIO_ALIASES PROJ_DIR
     echo "✅ Alias rimossi (sessione corrente)."
 }
 
@@ -603,4 +627,4 @@ uninstall-aliases() {
     unload-aliases
 }
 
-echo "✅ Alias caricati. Digita 'diego' per la lista comandi."
+echo "✅ Alias caricati. Digita 'claudio' per la lista comandi."

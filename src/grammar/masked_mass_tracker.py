@@ -2,7 +2,7 @@
 MaskedMassTracker — shared diagnostics mixin for logits processors.
 
 Provides masked probability mass, entropy, and allowed-token entropy tracking
-for both ``GlossVocabularyLogitsProcessor`` and ``GrammarPDALogitsProcessor``.
+for ``GlossVocabularyLogitsProcessor``.
 
 Usage in subclasses::
 

@@ -72,14 +72,6 @@ def reward_setup():
     initialize_rewards(
         bigram,
         vocab,
-        viterbi_diversity={
-            "self_loop_penalty": 0.5,
-            "max_occurrences": 2,
-            "diversity_threshold": 0.3,
-            "max_iters": 3,
-            "verifier_gamma": 1.5,
-            "verifier_temperature": 5.0,
-        },
     )
     return vocab, bigram, token_to_idx
 

@@ -29,7 +29,7 @@ Traduzione English → ASL Glosses (T2G) con:
 
 - **Modello**: Qwen2.5-0.5B-Instruct (~1 GB)
 - **Constrained Decoding**: LogitsProcessor che forza l'output a sole glosse ASL
-- **GRPO Training**: RLHF con 9 reward deterministiche (translation quality, gold-structure, structural dense, gloss-order, verifier-scaled, soft-viterbi, viterbi, format, repetition)
+- **GRPO Training**: RLHF con reward deterministiche (translation quality, BLEU, gold-structure, gloss-order, verifier-scaled, gloss-format, gloss-repetition, edit-validity)
 - **LoRA/QLoRA**: Training iper-efficiente via Unsloth (o PEFT standard)
 
 ### Vincoli del cluster (verificati)
@@ -101,7 +101,7 @@ Lo script (rilancia se stesso dentro srun + Apptainer):
 
 - Installa le dipendenze da `pyproject.toml`
   (`pip install --user -e ".[retrieval]"`): core **include scikit-learn**
-  (backend retrieval tfidf, default in `sft-grpo.yaml`) + extra
+  (backend retrieval tfidf, default in `sft-grpo/few-shot.yaml`) + extra
   `retrieval` (sentence-transformers); l'extra `dev` (formattazione/test) è
   escluso di proposito
 - Scarica il dataset ASLG-PC12 (~50 MB), estrae il vocabolario gloss (15K
@@ -143,7 +143,7 @@ Apri `cluster/train.sh` e imposta i tuoi parametri:
 
 ### 4.2. Adatta il config YAML alla GPU
 
-I config T2G ereditano da `experiments/configs/t2g/base.yaml` via la chiave
+I config T2G ereditano da `experiments/configs/qwen25-05b/base.yaml` via la chiave
 `extends:` (risolta da `src/utils/config.py::resolve_config`). Per GPU diverse
 da L40S:
 
@@ -183,7 +183,7 @@ grpo:
 ```bash
 cd ~/neuro_symbolic_t2g
 mkdir -p logs
-CONFIG=experiments/configs/t2g/sft-grpo.yaml sbatch cluster/train.sh
+CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh
 ```
 
 Il checkpoint viene salvato in `experiments/checkpoints/<model>/run_<timestamp>/`
@@ -192,7 +192,7 @@ Il checkpoint viene salvato in `experiments/checkpoints/<model>/run_<timestamp>/
 ### 5.2. Evaluation su checkpoint
 
 ```bash
-CONFIG=experiments/configs/t2g/sft-grpo.yaml CHECKPOINT=experiments/checkpoints/qwen25-05b/run_20260403_120000/final sbatch cluster/eval.sh
+CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml CHECKPOINT=experiments/checkpoints/qwen25-05b/sft-grpo/few-shot/run_20260403_120000/final sbatch cluster/eval.sh
 ```
 
 Senza `CHECKPOINT`, `eval.sh` **auto-detecta** il checkpoint con
@@ -206,7 +206,7 @@ La valutazione zero-shot legittima è la baseline del `--compare`
 ### 5.3. Riprendere da un checkpoint
 
 ```bash
-CONFIG=experiments/configs/t2g/sft-grpo.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 ```
 
 ---
@@ -214,7 +214,7 @@ CONFIG=experiments/configs/t2g/sft-grpo.yaml EXTRA_ARGS="--resume" sbatch cluste
 ## 6. Chain / Pipeline orchestration
 
 > **Questa è la parte centrale.** La catena è un file `~/.chain_state/job_chain`
-> (una entry `type:config:tag[:extra]` per riga, es. `train:experiments/configs/t2g/sft-grpo.yaml:sft-grpo`).
+> (una entry `type:config:tag[:extra]` per riga, es. `train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:sft-grpo-few-shot`).
 > Un **tick one-shot idempotente** (`cluster/chain_tick.sh`) la fa avanzare di
 > un passo per invocazione e NON esiste più un daemon long-lived da tenere vivo.
 
@@ -352,11 +352,11 @@ l'hook bashrc come fallback; se vuoi l'unico driver = Render, rimuovilo con
 # Carica gli alias (una volta per sessione)
 source ~/neuro_symbolic_t2g/cluster/aliases.sh
 
-# Avvia pipeline train+eval (default: sft-grpo)
+# Avvia pipeline train+eval (default: sft-grpo/few-shot)
 run-all            # alias per: bash cluster/run_all.sh
 
 # Oppure con un config specifico / ablation:
-run-all sft-grpo
+run-all sft-grpo/few-shot
 run-all --ablation
 ```
 
@@ -365,6 +365,13 @@ automatico (su gcluster `at` NON esiste) e stampa in evidenza il comando per
 installare l'HOME hook (`chain-hook-install`), la resilienza raccomandata. Se
 un giorno `at` comparisse sul login node, verrebbe rilevato e usato
 automaticamente dal tick (`--schedule`, dedup ≤1 pending).
+
+La campagna `run-all --ablation` esegue l'intera matrice: **15 celle**
+(3 baseline eval-only + 12 celle train+eval, pari a **27 entry** nella coda).
+Le 3 baseline (`baseline/{zero-shot,zero-shot-no-grammar,few-shot}`) sono
+eval-only; le 12 celle train+eval sono `sft/zero-shot`, `grpo/{zero-shot,few-shot}`,
+`sft-grpo/{zero-shot,few-shot}` e le ablazioni in
+`ablations/{rewards,loss,decoding,objectives}/`.
 
 ### 7.2. Comandi rapidi (con alias caricati)
 
@@ -452,20 +459,21 @@ t2g-gpu   # nvidia-smi sul nodo del job attivo
 
 ### Dove vengono salvati
 
-Layout **flat** (i config v2+ scrivono `training.output_dir` direttamente
-sotto `experiments/checkpoints/`):
+Layout (i config scrivono `training.output_dir` sotto `experiments/checkpoints/`,
+es. `experiments/checkpoints/qwen25-05b/sft-grpo/few-shot`; a runtime viene
+creato il sottodir `run_<timestamp>`):
 
 ```
 ~/neuro_symbolic_t2g/
 ├── experiments/checkpoints/
-│   ├── qwen25-05b/
-│   │   ├── run_20260403_120000/
-│   │   │   ├── checkpoint-100/
-│   │   │   ├── checkpoint-200/
-│   │   │   └── final/
-│   │   └── latest -> run_20260403_120000
-│   └── qwen25-05b-sft-grpo/
-│       └── ...
+│   └── qwen25-05b/
+│       ├── sft-grpo/few-shot/
+│       │   ├── run_20260403_120000/
+│       │   │   ├── checkpoint-100/
+│       │   │   ├── checkpoint-200/
+│       │   │   └── final/
+│       │   └── latest -> run_20260403_120000
+│       └── (analoghi per sft/zero-shot, grpo/few-shot, ablations/…)
 ├── experiments/results/<model>/<run_id>/    (eval JSON)
 ├── experiments/figures/<model>/<run_id>/    (plot)
 └── logs/
@@ -482,7 +490,7 @@ La catena reinserisce automaticamente il training con `EXTRA_ARGS="--resume"`
 (max 2 tentativi). Manualmente:
 
 ```bash
-CONFIG=experiments/configs/t2g/sft-grpo.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 ```
 
 ### Resume di una catena interrotta
@@ -651,8 +659,8 @@ rm data/bigram_transition.npy data/bigram_transition.npy.meta.json
 clean                     # dry-run
 clean --force             # cancella (PRESERVA data/retriever_index* e *.meta.json)
 clean --force --all-cache # cancella anche le cache costose (rebuild TF-IDF ~minuti)
-clean-model sft-grpo  # dry-run per un modello (accetta tag o nome cartella)
-clean-model sft-grpo --all   # cancella davvero
+clean-model few-shot  # dry-run per un modello (accetta tag o nome cartella)
+clean-model few-shot --all   # cancella davvero
 ```
 
 ---
@@ -671,7 +679,7 @@ install-aliases
 chain-hook-install && source ~/.bashrc                  # PRIMARIO: resilienza della catena
 
 # === OGNI VOLTA ===
-run-all                  # oppure: run-all sft-grpo / run-all --ablation
+run-all                  # oppure: run-all sft-grpo/few-shot / run-all --ablation
 monitor                  # monitor live
 # se la catena si ferma: chain-resume
 .\sync_cluster.ps1 -Action download                     # scarica i risultati

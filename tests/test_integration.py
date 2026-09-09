@@ -35,7 +35,6 @@ def test_grammar_to_rewards_chain(dataset):
     from src.rewards.t2g_rewards import (
         build_t2g_reward_functions,
         initialize_rewards,
-        structural_dense_reward,
     )
 
     vocab = extract_gloss_vocabulary(dataset, split="train")
@@ -53,9 +52,6 @@ def test_grammar_to_rewards_chain(dataset):
         ), f"{fn.__name__} returns {len(completions)} scores"
         for r in results:
             assert isinstance(r, float), f"{fn.__name__} score is float"
-
-    sd = structural_dense_reward("IX MAN WALK", normalize=True)
-    assert -1.0 <= sd <= 1.0, f"Structural dense in [-1,1], got {sd:.4f}"
 
 
 def test_rewards_to_metrics_chain(dataset):
@@ -86,7 +82,7 @@ def test_rewards_to_metrics_chain(dataset):
     assert abs(rl - 1.0) < 0.01, f"ROUGE-L perfect match = 1.0, got {rl:.4f}"
 
     breakdown = compute_reward_breakdown(completions)
-    assert len(breakdown) >= 4, "Breakdown has >=4 keys"
+    assert len(breakdown) >= 2, "Breakdown has the free reward components"
     assert all(np.isfinite(v) for v in breakdown.values()), "All values finite"
 
     detailed = compute_detailed_metrics(completions, references)
@@ -201,9 +197,6 @@ def test_module_imports():
             [
                 "compute_bigram_transitions",
                 "load_transition_matrix",
-                "soft_viterbi_score",
-                "forward_log_probs",
-                "backward_log_probs",
             ],
         ),
         ("src.grammar.gloss_grammar", ["GlossVocabularyMask"]),
@@ -213,7 +206,6 @@ def test_module_imports():
             [
                 "build_t2g_reward_functions",
                 "initialize_rewards",
-                "soft_viterbi_distance_reward",
                 "verifier_scaled_reward",
             ],
         ),

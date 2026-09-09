@@ -1,0 +1,38 @@
+# ============================================================================
+# BASELINE — base model, few-shot (retrieval k=3), Trie attivo. NESSUN training.
+#
+# Isola il contributo del PROMPTING senza alcun addestramento, ed è il
+# riferimento corretto per i run GRPO few-shot.
+#
+# È anche la cella che quantifica il fattore dominante dell'esperimento:
+# few-shot 0.466 vs zero-shot 0.137 di ROUGE-L, cioè 0.33 dei 0.42 del divario
+# headline è PRE-RL. Qualunque conclusione su GRPO che non tenga conto di
+# questo numero è un artefatto.
+#
+# Valore storico misurato: ROUGE-L 0.4664, EM 0.0148, validity 0.9676,
+# non-copy-token accuracy da ricalcolare.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/baseline/few-shot.yaml sbatch cluster/eval.sh
+# ============================================================================
+
+extends: ../base.yaml
+
+retrieval:
+  enabled: true
+  top_k: 3
+
+# 3 esempi (~40-60 token l'uno) + query superano i 256 token di default.
+grpo:
+  max_prompt_length: 768
+
+evaluation:
+  best_of_n: true
+  # Dual DISATTIVO di proposito: questa cella è già un punto della griglia
+  # esplicita di prompting (baseline/{zero-shot, zero-shot-no-grammar,
+  # few-shot}) — il dual la valuterebbe due volte nella stessa modalità.
+  dual_prompting: false
+
+wandb:
+  run_name: "qwen25-05b-baseline-few-shot"
+  tags: ["T2G", "baseline", "few-shot", "retrieval", "trie", "eval-only"]

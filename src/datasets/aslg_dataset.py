@@ -121,14 +121,11 @@ def download_aslg_dataset(
     cache = cache_dir or DEFAULT_CACHE_DIR
     logger.info(f"Loading dataset '{DATASET_NAME}' (cache: {cache})...")
 
-    # NOTE (offline-first): the REAL offline enforcement lives in
-    # cluster/train.sh + cluster/eval.sh (export HF_HUB_OFFLINE=1 +
-    # TRANSFORMERS_OFFLINE=1, set before python starts — huggingface_hub
-    # reads these at import time). The setdefault below is only a
-    # belt-and-braces for old `datasets` stacks: datasets >= 3 ignores
-    # HF_DATASETS_OFFLINE (proven by the HEAD retries in
-    # slurm-train-7073/7077 despite this line), and it must stay
-    # setdefault-only so setup.sh's first download keeps network access.
+    # NOTE (offline-first): real enforcement lives in cluster/train.sh +
+    # cluster/eval.sh (export HF_HUB_OFFLINE=1 + TRANSFORMERS_OFFLINE=1
+    # prima di python: huggingface_hub li legge all'import). datasets >= 3
+    # ignora HF_DATASETS_OFFLINE (HEAD retries in slurm-train-7073/7077);
+    # setdefault-only cosi' il primo download di setup.sh ha rete.
     os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
     try:
@@ -139,9 +136,8 @@ def download_aslg_dataset(
     except Exception as e:
         raise RuntimeError(f"Failed to load dataset '{DATASET_NAME}': {e}") from e
 
-    # Always create a reproducible 90/10 train/test split from the full data.
-    # This ensures consistency across runs, models, and HF dataset versions —
-    # even if the raw dataset changes, the seed guarantees identical splits.
+    # Always create a reproducible 90/10 train/test split from the full data
+    # (seed fisso: split identico fra run e versioni del dataset).
     if "train" in ds:
         logger.info(f"Creating reproducible 90/10 train/test split (seed={seed})...")
         if "test" in ds:
@@ -150,11 +146,9 @@ def download_aslg_dataset(
                 "reproducible split."
             )
 
-        # Deduplicate by normalized English text BEFORE the split. The raw
-        # corpus contains many near-duplicate sentences (biblical text
-        # variations differing only in case/whitespace); splitting without
-        # dedup leaks duplicates into both train and test, inflating eval
-        # metrics via memorized prompts (leakage).
+        # Deduplicate by normalized English text BEFORE the split: il corpus
+        # grezzo ha molte quasi-duplicazioni (varianti bibliche), e split
+        # senza dedup leakage-erebbe duplicate in train e test gonfiando l'eval.
         logger.info("Deduplicating training data by normalized text...")
         train_ds, _ = deduplicate_by_text(ds["train"])
 
