@@ -79,6 +79,7 @@ ALLOWED_EVALUATION_KEYS = {
     "batch_size",
     "max_samples",
     "num_samples",
+    "resume_every",
     "best_of_n",
     "plot",
     "compare",
@@ -138,6 +139,9 @@ TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
     "evaluation.batch_size": int,
     "evaluation.max_samples": int,
     "evaluation.num_samples": int,
+    # Cadenza di salvataggio dello stato parziale (resume da walltime);
+    # <= 0 disattiva il meccanismo.
+    "evaluation.resume_every": int,
     "evaluation.best_of_n": bool,
     "evaluation.plot": bool,
     "evaluation.compare": bool,

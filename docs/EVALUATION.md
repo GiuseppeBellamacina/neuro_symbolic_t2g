@@ -271,6 +271,44 @@ sono knob del config (sezione `evaluation:`):
   (`dataset.seed`), mai "primi N". Il report logga sempre
   `Evaluating N/M samples (seeded sample)`.
 
+## 4-bis. Resume dello stato parziale (walltime-safe)
+
+Su cluster condiviso il ritmo di generazione varia fino a 6x senza preavviso
+(1,86 s/prompt con GPU libera, 11,67 s/prompt con GPU contesa) e il JSON dei
+risultati esiste solo a fine passata: un TIMEOUT azzera ore di lavoro (accaduto
+su sft/zero-shot: kill a 1964/3000 dopo 6,5 h). Il rimedio, attivo di default:
+
+- **Salvataggio periodico**: ogni `evaluation.resume_every` prompt (default
+  100; `<= 0` disattiva il meccanismo) la passata scrive gli accumulatori
+  (completions, references, sample_ids, texts, difficulties — allineati per
+  indice) in `<results_dir>/resume_state_<soggetto>[__<mode>].json`.
+  Scrittura **atomica** (`.tmp` + `os.replace`): un kill durante la scrittura
+  lascia lo stato precedente valido, mai un file corrotto. Formato JSON
+  indentato, pochi MB anche a 2000 prompt × 5 completions — ispezionabile a
+  mano in debug.
+- **Ripresa**: al rilancio lo stato è caricato SOLO se passa TUTTA la
+  validazione: `state_schema_version`, `metrics_version`, `max_samples`,
+  `num_samples` (completions per prompt), modalità di prompting, checkpoint
+  valutato, `prompt_context_fingerprint` (§3a), dimensione del test set e del
+  campione, lunghezze coerenti degli accumulatori, e infine l'**allineamento
+  degli sample_id** con quelli che il campione deterministico (§4) produce per
+  le stesse posizioni. Un qualunque scarto ⇒ ripartenza da zero con avviso
+  che indica il campo non corrispondente: mai riprendere da uno stato di cui
+  non si è certi, perché produrrebbe metriche su un insieme misto di prompt.
+- **Due passate del dual**: uno stato per SOGGETTO (baseline base-model vs
+  checkpoint) e per modalità (`__<mode>` nel nome, stesso contratto degli
+  altri artefatti, §3a) — la seconda passata non può riprendere lo stato
+  della prima.
+- **Pulizia**: a passata completata lo stato è rimosso; la sua presenza deve
+  significare solo "questa passata è incompleta". Il nome non inizia con
+  `eval_`, quindi `ablation_summary` e `campaign_report` non lo raccolgono mai
+  come risultato (§7).
+- **Osservabilità**: all'avvio con ripresa il log dichiara prompt recuperati e
+  rimanenti (`RESUMED partial eval state: N/M ...`); il JSON finale porta
+  `resumed_from: {resumed, resume_count, recovered_prompts}` — una passata
+  prodotta in più rilanci ha le STESSE metriche di una completata in un colpo
+  solo (gli accumulatori sono identici), ma la provenienza è dichiarata.
+
 ## 5. Reporting onesto
 
 - Le metriche primarie NON usano mai il gold per selezionare le completions.
@@ -325,6 +363,10 @@ Per ogni eval (in `experiments/results/<model>/<run_id>/`):
   cella interrotta non è mai indistinguibile da quello di un modello completo
   (§3a)
 - `generations_<ckpt>.json` — completions grezze con valid/rouge per sample
+- `resume_state_<soggetto>[__<mode>].json` — SOLO mentre la passata è in
+  corso o interrotta: stato parziale per il resume da walltime (§4-bis).
+  Rimosso a passata completata; mai raccolto come risultato (il nome non
+  matcha i pattern `eval_*.json` di ablation_summary/campaign_report)
 - `comparison.json` (solo compare mode) — baseline vs checkpoint + delta;
   con modalità di prompting effettiva diversa da quella della config la
   passata dual scrive `comparison__<mode>.json` e non tocca il file della

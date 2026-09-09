@@ -39,7 +39,21 @@ model:
 lora:
   r: 32
   lora_alpha: 64
-  lora_dropout: 0.05
+
+  # lora_dropout 0 e NON 0.05: con dropout > 0 Unsloth rinuncia ai kernel
+  # ottimizzati proprio sulle matrici LoRA, cioe' sui moduli che ricevono il
+  # gradiente. Il log del job 7340 lo dice:
+  #
+  #   "Dropout = 0 is supported for fast patching. You are using dropout =
+  #    0.05. Unsloth will patch all other layers, except LoRA matrices,
+  #    causing a performance hit."
+  #   "patched 24 layers with 0 QKV layers, 0 O layers and 0 MLP layers"
+  #
+  # Zero moduli target patchati su sette: e' il motivo per cui si usa
+  # Unsloth. Il costo in regolarizzazione e' trascurabile in questo regime
+  # (r=32 su 73k esempi, con un run che vede il 6,9% del train set): il
+  # rischio di sovradattamento non e' il fattore limitante, la velocita' si.
+  lora_dropout: 0
   target_modules:
     - q_proj
     - k_proj
@@ -202,8 +216,16 @@ grammar:
 # ma le tabelle dei risultati gia' pubblicate no.
 evaluation:
   batch_size: 8
-  max_samples: 3000
+  max_samples: 2000
   num_samples: 5
+  # Stato parziale per il resume da walltime: ogni `resume_every` prompt
+  # completati la passata scrive i propri accumulatori su disco
+  # (resume_state_*.json, scrittura atomica) e, al rilancio dopo un TIMEOUT,
+  # riprende da dove si era fermata. 100 su 2000 prompt = 20 scritture di
+  # pochi MB ciascuna (secondi in totale su una passata di ore): la perdita
+  # massima in caso di kill è di 99 prompt, il costo di I/O è trascurabile.
+  # Un valore <= 0 disattiva il meccanismo (comportamento storico).
+  resume_every: 100
   # Best-of-N ORACOLO (usa il gold per scegliere la migliore completion):
   # blocco separato oracle_best_of_n, MAI metrica primaria. Richiede
   # num_samples > 1.

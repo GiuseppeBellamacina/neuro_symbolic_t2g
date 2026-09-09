@@ -44,6 +44,15 @@ griglia esplicita di prompting e il dual le duplicherebbe. COSTO: l'eval
 raddoppia (~25 min per passata a 5000 prompt); al primo giro la passata
 complementare valuta anche la SUA baseline del base model.
 
+**Partial-state resume (walltime-safe).** Su cluster condiviso il ritmo varia
+fino a 6x senza preavviso e il JSON dei risultati esiste solo a fine passata:
+un TIMEOUT azzera ore di generazione. Per questo ogni passata salva uno stato
+parziale degli accumulatori (``resume_state_<soggetto>[__<mode>].json``) ogni
+``evaluation.resume_every`` prompt (default 100) e, al rilancio, riprende dai
+prompt già fatti dopo una validazione rigorosa del contesto (fingerprint,
+metrics_version, campione deterministico, checkpoint). A passata completata
+lo stato è rimosso; il JSON finale dichiara le riprese in ``resumed_from``.
+
 Optionally generates plots via ``visualization.py`` (plotnine):
     - Completion length distribution (valid vs invalid)
     - Baseline vs Post-GRPO comparison
@@ -76,6 +85,7 @@ import argparse
 import hashlib
 import json
 import logging
+import os
 import random
 import re
 import warnings
@@ -453,6 +463,457 @@ def _load_cached_baseline(
 
 
 # ---------------------------------------------------------------------------
+# Partial-state resume (walltime-safe eval)
+# ---------------------------------------------------------------------------
+# Su cluster condiviso il ritmo di generazione varia fino a 6x senza preavviso
+# (1,86 s/prompt con GPU libera, 11,67 s/prompt con GPU contesa): un walltime
+# calibrato sul caso migliore è una scommessa, e il JSON dei risultati viene
+# scritto SOLO a fine passata — un TIMEOUT azzera ore di lavoro. Il rimedio è
+# un checkpoint parziale degli accumulatori scritto durante la generazione e
+# ricaricato al rilancio (il campione è deterministico: seeded_sample_indices
+# con seed fisso restituisce sempre le stesse posizioni nello stesso ordine,
+# quindi il resume per indice è sicuro).
+
+
+# Marcatore di tipo dentro il file di stato: protegge dal caricare un JSON
+# estraneo che per caso finisse sul path dello stato.
+_RESUME_STATE_KIND = "eval_partial_state"
+# Versione dello schema: un cambio di formato invalida gli stati vecchi.
+_RESUME_STATE_SCHEMA_VERSION = 1
+# Default di evaluation.resume_every: con 2000 prompt sono 20 scritture
+# (pochi MB l'una, secondi in totale) su una passata di ore — il costo di I/O
+# è trascurabile e la perdita massima in caso di kill è resume_every prompt.
+_DEFAULT_RESUME_EVERY = 100
+# Marcatore del soggetto valutato quando non c'è un checkpoint (base model).
+_NO_CHECKPOINT_KEY = "__no_checkpoint__"
+
+
+def _checkpoint_identity(checkpoint_path: str | None) -> str:
+    """Identità del checkpoint valutato per la validazione dello stato.
+
+    Il fingerprint del prompt context NON copre l'adattatore LoRA (descrive
+    modello base + dataset + prompting + decoding): senza questo marcatore lo
+    stato di un eval su ``final`` potrebbe essere ripreso da un eval su un
+    checkpoint intermedio dello stesso contesto.
+    """
+    return str(checkpoint_path) if checkpoint_path else _NO_CHECKPOINT_KEY
+
+
+def _resume_every(config: dict[str, Any]) -> int:
+    """Cadenza di salvataggio dello stato parziale (``evaluation.resume_every``).
+
+    Valori <= 0 disabilitano del tutto il meccanismo (né salvataggio né
+    ripresa): è l'escape hatch per riprodurre il comportamento storico.
+    """
+    raw = config.get("evaluation", {}).get("resume_every", _DEFAULT_RESUME_EVERY)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "evaluation.resume_every=%r non è un intero: uso il default %d",
+            raw,
+            _DEFAULT_RESUME_EVERY,
+        )
+        return _DEFAULT_RESUME_EVERY
+
+
+def _save_resume_state(
+    path: Path,
+    *,
+    fingerprint: str,
+    metrics_version: int,
+    max_samples: int | None,
+    num_samples: int,
+    prompting_mode: str,
+    checkpoint_key: str,
+    test_set_size: int,
+    sampled_count: int,
+    resume_count: int,
+    all_completions: list[list[str]],
+    all_references: list[str],
+    all_sample_ids: list[str],
+    all_texts: list[str],
+    all_difficulties: list[str],
+) -> None:
+    """Scrivi lo stato parziale della passata in modo ATOMICO.
+
+    Il job muore per TIMEOUT in un istante arbitrario: la scrittura va su un
+    file .tmp e poi os.replace() — un kill DURANTE la scrittura lascia il
+    vecchio stato valido intatto, mai uno stato corrotto al suo posto. JSON
+    con indent=2: pochi MB (2000 prompt x 5 completions), leggibile a mano
+    in debug.
+    """
+    state = {
+        "kind": _RESUME_STATE_KIND,
+        "state_schema_version": _RESUME_STATE_SCHEMA_VERSION,
+        "prompt_context_fingerprint": fingerprint,
+        "metrics_version": metrics_version,
+        "max_samples": max_samples,
+        "num_samples": num_samples,
+        "prompting_mode": prompting_mode,
+        "checkpoint_key": checkpoint_key,
+        "test_set_size": test_set_size,
+        "sampled_count": sampled_count,
+        "completed_prompts": len(all_references),
+        "resume_count": resume_count,
+        "accumulators": {
+            "completions": all_completions,
+            "references": all_references,
+            "sample_ids": all_sample_ids,
+            "texts": all_texts,
+            "difficulties": all_difficulties,
+        },
+    }
+    tmp_path = path.with_name(path.name + ".tmp")
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except OSError as e:
+        # Un I/O NFS transienti non deve uccidere una passata di ore: si
+        # perde al peggio la ripresa dal punto corrente, mai il lavoro.
+        logger.warning("Could not save partial eval state %s: %s", path, e)
+        return
+    logger.info(
+        "  eval partial state saved: %d prompts -> %s",
+        len(all_references),
+        path.name,
+    )
+
+
+def _load_resume_state(
+    path: Path,
+    *,
+    fingerprint: str,
+    metrics_version: int,
+    max_samples: int | None,
+    num_samples: int,
+    prompting_mode: str,
+    checkpoint_key: str,
+    test_set_size: int,
+    sampled_count: int,
+    test_ds: Any,
+) -> dict[str, Any] | None:
+    """Carica lo stato parziale SE (e solo se) appartiene a questa valutazione.
+
+    La validazione è volontariamente paranoidale: riprendere da uno stato di
+    un contesto diverso produrrebbe metriche su un insieme misto di prompt,
+    indistinguibile da un risultato valido. Qualunque controllo fallito ⇒
+    lo stato è scartato (con il motivo in log) e la passata riparte da zero —
+    sempre l'opzione sicura. Il file scartato viene rimosso: la presenza
+    dello stato deve significare solo "questa passata è incompleta".
+
+    Returns:
+        Lo stato parsato, oppure ``None`` (assente o scartato).
+    """
+
+    def _discard(reason: str) -> None:
+        logger.warning(
+            "Discarding partial eval state %s: %s — restarting this pass "
+            "from scratch.",
+            path.name,
+            reason,
+        )
+        try:
+            path.unlink(missing_ok=True)
+            path.with_name(path.name + ".tmp").unlink(missing_ok=True)
+        except OSError as e:
+            logger.warning("Could not remove discarded state %s: %s", path, e)
+
+    if not path.is_file():
+        return None  # assente: caso normale (primo avvio), nessun log
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
+        _discard(f"unreadable or corrupt file ({e})")
+        return None
+    if not isinstance(state, dict) or state.get("kind") != _RESUME_STATE_KIND:
+        _discard(f"kind is not {_RESUME_STATE_KIND!r}")
+        return None
+    if state.get("state_schema_version") != _RESUME_STATE_SCHEMA_VERSION:
+        _discard(
+            f"state_schema_version {state.get('state_schema_version')!r} != "
+            f"{_RESUME_STATE_SCHEMA_VERSION}"
+        )
+        return None
+    if state.get("metrics_version") != metrics_version:
+        _discard(
+            f"metrics_version {state.get('metrics_version')!r} != {metrics_version}"
+        )
+        return None
+    if state.get("max_samples") != max_samples:
+        _discard(f"max_samples {state.get('max_samples')!r} != {max_samples!r}")
+        return None
+    if state.get("num_samples") != num_samples:
+        _discard(f"num_samples {state.get('num_samples')!r} != {num_samples}")
+        return None
+    if state.get("prompting_mode") != prompting_mode:
+        _discard(
+            f"prompting_mode {state.get('prompting_mode')!r} != {prompting_mode!r}"
+        )
+        return None
+    if state.get("checkpoint_key") != checkpoint_key:
+        _discard(
+            f"checkpoint {state.get('checkpoint_key')!r} != {checkpoint_key!r} "
+            "(different checkpoint evaluated)"
+        )
+        return None
+    if state.get("prompt_context_fingerprint") != fingerprint:
+        _discard(
+            "prompt_context_fingerprint mismatch (model/dataset/seed/system "
+            "prompt/retrieval/grammar/decoding changed)"
+        )
+        return None
+    if state.get("test_set_size") != test_set_size:
+        _discard(
+            f"test_set_size {state.get('test_set_size')!r} != {test_set_size} "
+            "(dataset changed?)"
+        )
+        return None
+    if state.get("sampled_count") != sampled_count:
+        _discard(
+            f"sampled_count {state.get('sampled_count')!r} != {sampled_count} "
+            "(different deterministic sample)"
+        )
+        return None
+
+    completed = state.get("completed_prompts")
+    accs = state.get("accumulators")
+    if not isinstance(accs, dict) or not isinstance(completed, int) or completed <= 0:
+        _discard("missing or invalid accumulators/completed_prompts")
+        return None
+    acc_keys = ("completions", "references", "sample_ids", "texts", "difficulties")
+    lengths = {k: len(accs[k]) if k in accs else None for k in acc_keys}
+    if any(ln != completed for ln in lengths.values()):
+        _discard(f"accumulator lengths incoherent: {lengths} (completed={completed})")
+        return None
+    if completed > sampled_count:
+        _discard(f"completed_prompts {completed} > sampled_count {sampled_count}")
+        return None
+    # Ogni prompt ha esattamente num_samples completions (invariante del loop).
+    if any(len(c) != num_samples for c in accs["completions"]):
+        _discard("a saved prompt does not carry exactly num_samples completions")
+        return None
+
+    # ── Allineamento col campione deterministico ─────────────────────────
+    # La protezione contro il guasto peggiore: se gli sample_id salvati non
+    # coincidono con quelli che il campione produce alle stesse posizioni, lo
+    # stato appartiene a un campione diverso e le metriche sarebbero calcolate
+    # su prompt eterogenei — senza questo check, indistinguibili da un
+    # risultato valido.
+    for i, sid in enumerate(accs["sample_ids"]):
+        expected = hashlib.sha256(
+            str(test_ds[i]["text"]).encode("utf-8", errors="replace")
+        ).hexdigest()
+        if sid != expected:
+            _discard(
+                f"sample_id mismatch at position {i}: the state belongs to a "
+                "different sample"
+            )
+            return None
+    return state
+
+
+def _remove_resume_state(path: Path | None) -> None:
+    """Rimuovi lo stato parziale (e l'eventuale .tmp) a passata completata."""
+    if path is None:
+        return
+    try:
+        Path(path).unlink(missing_ok=True)
+        Path(str(path) + ".tmp").unlink(missing_ok=True)
+    except OSError as e:
+        logger.warning("Could not remove partial eval state %s: %s", path, e)
+
+
+def _collect_completions_with_resume(
+    *,
+    test_ds: Any,
+    tokenizer: Any,
+    examples_batch: list[Any] | None,
+    generate_fn: Any,
+    num_samples: int,
+    resume_state_path: Path | None,
+    resume_every: int,
+    fingerprint: str,
+    metrics_version: int,
+    max_samples: int | None,
+    prompting_mode: str,
+    checkpoint_key: str,
+    test_set_size: int,
+) -> tuple[
+    list[list[str]],
+    list[str],
+    list[str],
+    list[str],
+    list[str],
+    dict[str, Any],
+]:
+    """Loop di generazione con stato parziale: accumula le completions,
+    salva ogni ``resume_every`` prompt e riprende da uno stato valido.
+
+    ``generate_fn(prompt) -> list[str]`` è la unità di generazione (nel
+    chiamante incapsula ``_generate_batch`` + reset del logits processor): è
+    il punto di stub per i test. Gli accumulatori restano allineati per
+    indice (la riga i-esima di ognuno appartiene allo stesso prompt).
+
+    Returns:
+        ``(all_completions, all_references, all_sample_ids, all_texts,
+        all_difficulties, resume_info)`` con
+        ``resume_info = {"resumed", "resume_count", "recovered_prompts"}``.
+    """
+    n_total = len(test_ds)
+    all_completions: list[list[str]] = []
+    all_references: list[str] = []
+    all_sample_ids: list[str] = []
+    all_texts: list[str] = []
+    all_difficulties: list[str] = []
+
+    # ── Ripresa ──────────────────────────────────────────────────────────
+    start_idx = 0
+    resume_count = 0
+    if resume_state_path is not None and resume_every > 0:
+        state = _load_resume_state(
+            Path(resume_state_path),
+            fingerprint=fingerprint,
+            metrics_version=metrics_version,
+            max_samples=max_samples,
+            num_samples=num_samples,
+            prompting_mode=prompting_mode,
+            checkpoint_key=checkpoint_key,
+            test_set_size=test_set_size,
+            sampled_count=n_total,
+            test_ds=test_ds,
+        )
+        if state is not None:
+            accs = state["accumulators"]
+            all_completions = [list(c) for c in accs["completions"]]
+            all_references = list(accs["references"])
+            all_sample_ids = list(accs["sample_ids"])
+            all_texts = list(accs["texts"])
+            all_difficulties = list(accs["difficulties"])
+            start_idx = int(state["completed_prompts"])
+            # Quante RIPRESE ha subito questa passata: entra nel JSON finale
+            # (results["resumed_from"]) così chi legge sa che il risultato è
+            # stato prodotto in più rilanci — stesso valore, provenienza nota.
+            resume_count = int(state.get("resume_count", 0)) + 1
+            logger.info("=" * 60)
+            logger.info(
+                "RESUMED partial eval state: %d/%d prompts recovered, "
+                "%d remaining (resume #%d of this pass)",
+                start_idx,
+                n_total,
+                n_total - start_idx,
+                resume_count,
+            )
+            logger.info("=" * 60)
+            # Il monitor esterno non deve mostrare 0/N finché non arriva il
+            # primo tick periodico: lo stato live parte dalla posizione
+            # recuperata.
+            live_status_set(
+                step=start_idx,
+                total_steps=n_total,
+                eval_progress=f"{start_idx}/{n_total}",
+            )
+
+    for idx, sample in enumerate(
+        tqdm(test_ds, desc="Evaluating", initial=start_idx, total=n_total)
+    ):
+        # Ripresa: le posizioni già completate sono nei buffer caricati dallo
+        # stato — si salta senza rigenerare né ricalcolare la difficoltà.
+        if idx < start_idx:
+            continue
+        text = sample["text"]  # type: ignore[index]
+        gold = sample["gloss"]  # type: ignore[index]
+
+        # Difficulty from the GOLD gloss (same heuristic as the training
+        # dataset builder): ≤5 tokens simple, ≤15 medium, else hard.
+        n_gold_tokens = len(gold.strip().split())
+        if n_gold_tokens <= 5:
+            all_difficulties.append("simple")
+        elif n_gold_tokens <= 15:
+            all_difficulties.append("medium")
+        else:
+            all_difficulties.append("hard")
+
+        # Periodic progress line for long runs (e.g. the full 8771-sample
+        # test set) — visible in output.log/slurm logs even if the tqdm
+        # bar is buffered/mangled. Parsable by chain_monitor.
+        if (idx + 1) % 50 == 0:
+            logger.info(
+                "  eval progress: %d/%d (%.1f%%)",
+                idx + 1,
+                n_total,
+                (idx + 1) / max(n_total, 1) * 100,
+            )
+            # Live status: eval progress (same cadence as the log line).
+            live_status_set(
+                step=idx + 1,
+                total_steps=n_total,
+                eval_progress=f"{idx + 1}/{n_total}",
+            )
+
+        # Build prompt with centralized template (same as training).
+        # With retrieval enabled, examples mirror the GRPO few-shot prompts.
+        prompt = build_t2g_prompt(
+            text,
+            tokenizer,
+            examples=examples_batch[idx] if examples_batch is not None else None,
+        )
+
+        completions = generate_fn(prompt)
+
+        # Store
+        all_completions.append(completions)
+        all_references.append(gold)
+        all_texts.append(str(text))
+        all_sample_ids.append(
+            hashlib.sha256(str(text).encode("utf-8", errors="replace")).hexdigest()
+        )
+
+        # Stato parziale periodico: il lavoro fatto fin qui sopravvive a un
+        # kill per walltime. Quando la cadenza cade sull'ultimo prompt lo
+        # stato copre anche la fase di metriche + JSON che segue (minuti):
+        # riprenderla da zero costerebbe di nuovo tutta la generazione.
+        if (
+            resume_state_path is not None
+            and resume_every > 0
+            and (idx + 1) % resume_every == 0
+        ):
+            _save_resume_state(
+                Path(resume_state_path),
+                fingerprint=fingerprint,
+                metrics_version=metrics_version,
+                max_samples=max_samples,
+                num_samples=num_samples,
+                prompting_mode=prompting_mode,
+                checkpoint_key=checkpoint_key,
+                test_set_size=test_set_size,
+                sampled_count=n_total,
+                resume_count=resume_count,
+                all_completions=all_completions,
+                all_references=all_references,
+                all_sample_ids=all_sample_ids,
+                all_texts=all_texts,
+                all_difficulties=all_difficulties,
+            )
+
+    return (
+        all_completions,
+        all_references,
+        all_sample_ids,
+        all_texts,
+        all_difficulties,
+        {
+            "resumed": start_idx > 0,
+            "resume_count": resume_count,
+            "recovered_prompts": start_idx,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main evaluation
 # ---------------------------------------------------------------------------
 
@@ -706,6 +1167,7 @@ def evaluate_checkpoint(
     best_of_n: bool = False,
     prompting_mode: str | None = None,
     prompting_source: str | None = None,
+    resume_state_path: str | Path | None = None,
 ) -> tuple[
     dict[str, Any],
     list[str],
@@ -740,6 +1202,10 @@ def evaluate_checkpoint(
             da ``retrieval.enabled``, ``config-override`` = forzata da
             ``evaluation.prompting``, ``config-dual`` = passata complementare
             del dual eval), stampata nei risultati accanto alla modalità.
+        resume_state_path: Path dello stato parziale per il resume da
+            walltime (``None`` = comportamento storico, nessun salvataggio
+            né ripresa). Con ``evaluation.resume_every <= 0`` il meccanismo
+            è disattivato anche quando il path è fornito.
 
     Returns:
         Tuple of ``(results, flat_completions, validity, all_references,
@@ -907,57 +1373,17 @@ def evaluate_checkpoint(
             num_samples,
         )
 
-    # ── Collect completions ──────────────────────────────────────────────
-    # Multi-sample: list[list[str]] per prompt (always nested for consistency)
-    all_completions: list[list[str]] = []
-    all_references: list[str] = []
-    all_sample_ids: list[str] = []
-    all_texts: list[str] = []
-    # Gold-difficulty per prompt (training heuristic on gold token count)
-    # — feeds results["difficulty_breakdown"] for the per-difficulty plot.
-    all_difficulties: list[str] = []
+    # ── Collect completions (con stato parziale per il resume) ───────────
+    # Multi-sample: list[list[str]] per prompt (always nested for consistency).
+    # Gli accumulatori sono allineati per indice e vivono nel checkpoint
+    # parziale: una passata interrotta e ripresa li ricostituisce identici.
+    fingerprint = _prompt_context_fingerprint(config, num_samples, prompting_mode)
 
-    for idx, sample in enumerate(tqdm(test_ds, desc="Evaluating")):
-        text = sample["text"]  # type: ignore[index]
-        gold = sample["gloss"]  # type: ignore[index]
+    # Unità di generazione stubbabile nei test: incapsula _generate_batch e
+    # il reset del logits processor (la temperature non dipende dal prompt).
+    temp = 0.7 if do_sample else 1.0  # greedy ignores temperature
 
-        # Difficulty from the GOLD gloss (same heuristic as the training
-        # dataset builder): ≤5 tokens simple, ≤15 medium, else hard.
-        n_gold_tokens = len(gold.strip().split())
-        if n_gold_tokens <= 5:
-            all_difficulties.append("simple")
-        elif n_gold_tokens <= 15:
-            all_difficulties.append("medium")
-        else:
-            all_difficulties.append("hard")
-
-        # Periodic progress line for long runs (e.g. the full 8771-sample
-        # test set) — visible in output.log/slurm logs even if the tqdm
-        # bar is buffered/mangled. Parsable by chain_monitor.
-        if (idx + 1) % 50 == 0:
-            logger.info(
-                "  eval progress: %d/%d (%.1f%%)",
-                idx + 1,
-                len(test_ds),
-                (idx + 1) / max(len(test_ds), 1) * 100,
-            )
-            # Live status: eval progress (same cadence as the log line).
-            live_status_set(
-                step=idx + 1,
-                total_steps=len(test_ds),
-                eval_progress=f"{idx + 1}/{len(test_ds)}",
-            )
-
-        # Build prompt with centralized template (same as training).
-        # With retrieval enabled, examples mirror the GRPO few-shot prompts.
-        prompt = build_t2g_prompt(
-            text,
-            tokenizer,
-            examples=examples_batch[idx] if examples_batch is not None else None,
-        )
-
-        # Generate N completions in a single model.generate() call
-        temp = 0.7 if do_sample else 1.0  # greedy ignores temperature
+    def _generate_one(prompt: str) -> list[str]:
         completions = _generate_batch(
             model,
             tokenizer,
@@ -970,14 +1396,30 @@ def evaluate_checkpoint(
         )
         if logits_processor is not None:
             logits_processor.reset()
+        return completions
 
-        # Store
-        all_completions.append(completions)
-        all_references.append(gold)
-        all_texts.append(str(text))
-        all_sample_ids.append(
-            hashlib.sha256(str(text).encode("utf-8", errors="replace")).hexdigest()
-        )
+    (
+        all_completions,
+        all_references,
+        all_sample_ids,
+        all_texts,
+        all_difficulties,
+        resume_info,
+    ) = _collect_completions_with_resume(
+        test_ds=test_ds,
+        tokenizer=tokenizer,
+        examples_batch=examples_batch,
+        generate_fn=_generate_one,
+        num_samples=num_samples,
+        resume_state_path=Path(resume_state_path) if resume_state_path else None,
+        resume_every=_resume_every(config),
+        fingerprint=fingerprint,
+        metrics_version=METRICS_VERSION,
+        max_samples=max_samples,
+        prompting_mode=prompting_mode,
+        checkpoint_key=_checkpoint_identity(checkpoint_path),
+        test_set_size=test_set_size,
+    )
 
     # Flatten completions for per-completion metrics. For num_samples=1 there
     # is 1 completion per prompt; for num_samples>1 ALL completions are scored
@@ -1053,13 +1495,21 @@ def evaluate_checkpoint(
     # grammar/decoding, più l'eventuale override CLI) — guards sibling-run
     # baseline reuse against config changes that would alter baseline
     # generations.
-    results["prompt_context_fingerprint"] = _prompt_context_fingerprint(
-        config, num_samples, prompting_mode
-    )
+    results["prompt_context_fingerprint"] = fingerprint
     results["decoding"] = {
         "do_sample": do_sample,
         "temperature": (0.7 if do_sample else None),
         "num_samples": num_samples,
+    }
+    # Provenienza del risultato: una passata ripresa da uno stato parziale
+    # produce le STESSE metriche di una completata in un colpo solo (gli
+    # accumulatori sono identici), ma chi legge il JSON deve saperlo —
+    # "resumed_from" dichiara se c'è stata una ripresa, quante volte e quanti
+    # prompt sono stati recuperati all'avvio dell'ultima.
+    results["resumed_from"] = {
+        "resumed": resume_info["resumed"],
+        "resume_count": resume_info["resume_count"],
+        "recovered_prompts": resume_info["recovered_prompts"],
     }
 
     # ── Per-difficulty breakdown ────────────────────────────────────────
@@ -1365,6 +1815,19 @@ def _run_eval_pass(
         config, num_samples, prompting_mode
     )
 
+    # ── Stati parziali per il resume da walltime ─────────────────────────
+    # Uno per SOGGETTO valutato e per modalità di prompting: baseline e
+    # checkpoint della stessa passata non devono mai condividere lo stato,
+    # né le due passate del dual (ognuna ha il proprio suffisso __<mode>).
+    # Il nome NON matcha i pattern eval_*.json di ablation_summary e
+    # campaign_report: un file di stato incompleto non è mai raccolto come
+    # risultato. A passata completata vengono rimossi (vedi sotto).
+    baseline_state_path = results_dir / f"resume_state_baseline{prompting_suffix}.json"
+    ckpt_name_for_state = Path(checkpoint_arg).name if checkpoint_arg else "zero_shot"
+    checkpoint_state_path = (
+        results_dir / f"resume_state_{ckpt_name_for_state}{prompting_suffix}.json"
+    )
+
     # ── Isolamento degli artefatti della passata (dual prompting) ────────
     # Il suffisso __<mode> copre TUTTI gli artefatti della passata: figure in
     # sottodirectory per modalità, comparison.json e evaluation.output
@@ -1403,6 +1866,7 @@ def _run_eval_pass(
             best_of_n=best_of_n,
             prompting_mode=prompting_mode,
             prompting_source=prompting_source,
+            resume_state_path=baseline_state_path,
         )
 
     elif do_compare:
@@ -1472,6 +1936,7 @@ def _run_eval_pass(
                 best_of_n=False,
                 prompting_mode=prompting_mode,
                 prompting_source=prompting_source,
+                resume_state_path=baseline_state_path,
             )
             # Salva la baseline per riuso futuro: filename con suffisso di
             # modalità quando la modalità della passata differisce da quella
@@ -1513,6 +1978,7 @@ def _run_eval_pass(
             best_of_n=best_of_n,
             prompting_mode=prompting_mode,
             prompting_source=prompting_source,
+            resume_state_path=checkpoint_state_path,
         )
 
     else:
@@ -1534,6 +2000,7 @@ def _run_eval_pass(
             best_of_n=best_of_n,
             prompting_mode=prompting_mode,
             prompting_source=prompting_source,
+            resume_state_path=checkpoint_state_path,
         )
 
     # ── Marchio di incompletezza del checkpoint ──────────────────────────
@@ -1766,6 +2233,15 @@ def _run_eval_pass(
         )
         logger.info(f"Generations saved to {gen_path}")
     print(f"  Generations saved to: {gen_path}")
+
+    # ── Pulizia dello stato parziale ─────────────────────────────────────
+    # La passata è completata con successo (JSON + generations scritti): lo
+    # stato va RIMOSSO — la sua presenza deve significare solo "questa
+    # passata è incompleta", mai un orfano accanto a un eval_*.json finito.
+    # Solo uno dei due è mai esistito (baseline o checkpoint): unlink con
+    # missing_ok copre entrambi.
+    _remove_resume_state(baseline_state_path)
+    _remove_resume_state(checkpoint_state_path)
 
     # ── Generate plots ───────────────────────────────────────────────────
     if plot:

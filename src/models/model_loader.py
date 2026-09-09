@@ -441,13 +441,29 @@ def _align_lora_dtype_to_base(model: Any) -> None:
         import torch
         from peft.tuners.lora import LoraLayer
 
+        # Il dtype da usare e' quello di CALCOLO, non quello di
+        # memorizzazione: con bnb-4bit il peso base e' uint8 (blocchi
+        # quantizzati) e `nn.Module.to` rifiuta i dtype interi, quindi
+        # leggerlo da `base_layer.weight.dtype` faceva fallire l'intera
+        # funzione con "only accepts floating point or complex dtypes,
+        # but got desired dtype=torch.uint8" (osservato nel job 7340).
+        # Il dtype di calcolo sta in `quant_state.dtype` per i layer
+        # quantizzati; per i layer non quantizzati il peso stesso e' gia'
+        # in floating point.
+        def _compute_dtype(base_layer: Any) -> Any:
+            quant_state = getattr(base_layer, "quant_state", None)
+            qs_dtype = getattr(quant_state, "dtype", None)
+            if qs_dtype is not None and qs_dtype.is_floating_point:
+                return qs_dtype
+            weight = getattr(base_layer, "weight", None)
+            if weight is not None and weight.dtype.is_floating_point:
+                return weight.dtype
+            return torch.bfloat16
+
         n_cast = 0
         for module in model.modules():
             if isinstance(module, LoraLayer):
-                base_weight = getattr(module.get_base_layer(), "weight", None)
-                target_dtype = (
-                    base_weight.dtype if base_weight is not None else torch.bfloat16
-                )
+                target_dtype = _compute_dtype(module.get_base_layer())
                 for adapter_dict in (module.lora_A, module.lora_B):
                     for sub in adapter_dict.values():
                         if hasattr(sub, "weight") and sub.weight.dtype != target_dtype:

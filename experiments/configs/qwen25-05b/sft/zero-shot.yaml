@@ -35,7 +35,7 @@ training:
   save_steps: 200
   save_total_limit: 1
   max_seq_length: 768
-  eval_fraction: 0.02        # holdout interno al train per l'early stopping
+  eval_fraction: 0.02 # holdout interno al train per l'early stopping
   early_stopping_patience: 3
   output_dir: "experiments/checkpoints/qwen25-05b/sft/zero-shot"
   log_dir: "experiments/logs/qwen25-05b/sft/zero-shot"
@@ -49,7 +49,7 @@ training:
 # degli esempi recuperati). Il valore e' un limite superiore: un prompt
 # zero-shot non lo raggiunge, quindi non cambia il comportamento nativo.
 generation:
-  max_completion_length: 256
+  max_completion_length: 128
   max_prompt_length: 768
   temperature: 0.7
 
@@ -64,7 +64,7 @@ reward:
   weight_repetition: 0.10
 
 evaluation:
-  best_of_n: false           # niente selezione oracle sulla cella supervisionata
+  best_of_n: false # niente selezione oracle sulla cella supervisionata
 
 wandb:
   run_name: "qwen25-05b-sft-zero-shot"
