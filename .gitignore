@@ -73,3 +73,6 @@ experiments/results-archive/
 *.out
 *.synctex.gz
 *.toc
+
+# Todos
+*.todo
