@@ -67,6 +67,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from src.utils.metrics import PRIMARY_METRICS, SATURATED_OVERLAP_METRICS
+
 logger = logging.getLogger(__name__)
 
 # Soglia di interpretabilità dei delta (scala [0,1]). MISURATA, non scelta a
@@ -82,6 +84,7 @@ METRIC_REGISTRY = [
     ("rouge_l_mean",            "ROUGE-L",        "0-1"),
     ("valid_rouge_l_mean",      "Valid ROUGE-L",  "0-1"),
     ("exact_match",             "Exact Match",    "0-1"),
+    ("non_copy_token_accuracy", "Non-copy Tok Acc","0-1"),
     ("pass_at_1",               "Pass@1",         "0-1"),
     ("validity_rate",           "Validity",       "0-1"),
     ("bleu_corpus",             "BLEU (corpus)",  "0-1"),
@@ -751,22 +754,35 @@ def build_markdown(
         "4. **Run dates** are shown for every run: older runs come from "
         "different configurations (e.g. `max_steps` moved 2000→5000)."
     )
+    lines.append(
+        "5. **Saturated overlap metrics — do not rank on these**: "
+        f"{', '.join(f'`{m}`' for m in SATURATED_OVERLAP_METRICS)} are all "
+        "within noise of a context-free rule baseline on ASLG-PC12 "
+        "(ROUGE-L ~0.97, EM 0.59, see `src/analysis/rule_baseline.py`). "
+        f"Use the reward-independent primary metrics instead — "
+        f"{', '.join(f'`{m}`' for m in PRIMARY_METRICS)} — for any claim "
+        "that a cell translates better, not merely that it scores higher "
+        "on the same metric family the reward optimizes."
+    )
+    next_idx = 6
     if malformed:
         lines.append(
-            f"5. **{len(malformed)} malformed/partial JSON file(s)** "
+            f"{next_idx}. **{len(malformed)} malformed/partial JSON file(s)** "
             "were skipped (interrupted runs are normal):"
         )
+        next_idx += 1
         for m in malformed:
             lines.append(f"   - `{m['path']}` — {m['error'][:120]}")
     if excluded:
         lines.append(
-            f"6. **{len(excluded)} run(s) EXCLUDED for `checkpoint_incomplete: "
-            "true`** (partial checkpoints):"
+            f"{next_idx}. **{len(excluded)} run(s) EXCLUDED for "
+            "`checkpoint_incomplete: true`** (partial checkpoints):"
         )
+        next_idx += 1
         for e in excluded:
             lines.append(f"   - `{e['path']}` — {e['reason']}")
     if warnings:
-        lines.append("7. **Pairing warnings:**")
+        lines.append(f"{next_idx}. **Pairing warnings:**")
         for w in warnings:
             lines.append(f"   - {w}")
     lines.append("")
