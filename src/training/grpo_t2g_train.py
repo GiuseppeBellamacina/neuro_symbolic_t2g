@@ -720,13 +720,23 @@ def main() -> None:
                 )
         elif reuse_adapter and not args.force_sft:
             fingerprint = compute_sft_fingerprint(sft_config)
-            # Search order: (1) sibling runs of the SAME tag, e.g.
-            # experiments/checkpoints/qwen25-05b-sft-grpo/run_*/sft_pretrain/final;
-            # (2) ANY other tag sotto experiments/checkpoints/ con sezione
-            # sft_pretrain IDENTICA (il fingerprint e' tag-independent), cosi'
-            # un nuovo tag salta il ~1h di retrain SFT. I match cross-tag
-            # vengono COPIATI in sft_pretrain/final di questo run perche'
-            # resti self-contained.
+            # Search order: (1) sibling runs of the SAME tag (this cell's own
+            # training.output_dir, e.g. experiments/checkpoints/qwen25-05b/
+            # sft-grpo/few-shot/run_*/sft_pretrain/final); (2) ANY other cell
+            # sotto experiments/checkpoints/<model> con sezione sft_pretrain
+            # IDENTICA (il fingerprint e' tag-independent), cosi' un nuovo
+            # config salta il ~2h di retrain SFT. I match cross-tag vengono
+            # COPIATI in sft_pretrain/final di questo run perche' resti
+            # self-contained.
+            #
+            # Il root del cross-tag search e' experiments/checkpoints/<model>
+            # (es. qwen25-05b), NON model_root.parent: le celle nidificano a
+            # profondita' DIVERSE sotto quella radice (2 livelli per
+            # sft-grpo/{zero,few}-shot, 3 per ablations/<categoria>/<nome>),
+            # quindi risalire di un solo livello da model_root trovava solo i
+            # sibling alla STESSA profondita' del chiamante (sft-grpo/zero-shot
+            # riusava few-shot, ma ablations/decoding/hot-rollout non
+            # raggiungeva mai sft-grpo/ nonostante un fingerprint identico).
             model_root = Path(config["training"]["output_dir"]).parent
             found = find_reusable_sft_adapter(model_root, fingerprint)
             if found is not None:
@@ -737,8 +747,14 @@ def main() -> None:
                     "(fingerprint match) — skipping SFT training"
                 )
             else:
+                model_root_parts = model_root.parts
+                if "checkpoints" in model_root_parts:
+                    idx = model_root_parts.index("checkpoints")
+                    checkpoints_root = Path(*model_root_parts[: idx + 2])
+                else:
+                    checkpoints_root = model_root.parent
                 cross = find_reusable_sft_adapter_cross_tag(
-                    model_root.parent, model_root, fingerprint
+                    checkpoints_root, model_root, fingerprint
                 )
                 if cross is not None:
                     src_adapter, src_tag = cross

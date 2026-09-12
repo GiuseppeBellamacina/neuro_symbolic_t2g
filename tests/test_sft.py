@@ -548,6 +548,26 @@ def test_find_reusable_sft_adapter_cross_tag_prefers_newest(tmp_path) -> None:
     assert found != (old, "tagA")
 
 
+def test_find_reusable_sft_adapter_cross_tag_matches_across_nesting_depths(
+    tmp_path,
+) -> None:
+    """A donor 2 levels deep (sft-grpo/few-shot) is found by a recipient 3
+    levels deep (ablations/decoding/hot-rollout) under the SAME checkpoints
+    root — the actual bug: a fixed one-segment glob only ever found siblings
+    nested at exactly the caller's own depth, so ablations/decoding/hot-rollout
+    (extends sft-grpo/few-shot.yaml, same sft_pretrain fingerprint) could
+    never reach sft-grpo/few-shot's adapter and always retrained SFT from
+    scratch."""
+    ckpts = tmp_path / "checkpoints" / "qwen25-05b"
+    fp = compute_sft_fingerprint(_sft_fingerprint_config())
+    donor = _make_adapter_run(ckpts / "sft-grpo" / "few-shot", "run_1", fp)
+    recipient_model_root = ckpts / "ablations" / "decoding" / "hot-rollout"
+    recipient_model_root.mkdir(parents=True)
+
+    found = find_reusable_sft_adapter_cross_tag(ckpts, recipient_model_root, fp)
+    assert found == (donor, "sft-grpo/few-shot")
+
+
 def test_clone_sft_adapter_copies_files_only(tmp_path) -> None:
     """clone_sft_adapter makes the new run self-contained: adapter files +
     fingerprint copied, checkpoint-*/wandb subdirs skipped."""

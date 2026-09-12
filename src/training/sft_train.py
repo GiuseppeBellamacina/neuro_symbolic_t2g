@@ -512,17 +512,28 @@ def find_reusable_sft_adapter_cross_tag(
     """Find a matching SFT adapter under a DIFFERENT model tag directory.
 
     The same-tag search (:func:`find_reusable_sft_adapter`) only looks
-    under one tag dir (e.g. ``experiments/checkpoints/qwen25-05b-sft-grpo``).
-    When a NEW tag config (e.g. ``sft-grpo-all-rewards`` →
-    ``qwen25-05b-sft-grpo-all-rewards``) declares an identical ``sft_pretrain``
-    section, its SFT training is identical — retraining it is pure waste
-    (job 7078 retrained an SFT bit-identical to optimal's).  The SFT
-    fingerprint is tag-independent (model/lora/dataset/hyperparams/system
-    prompt — no paths), so a match under any other tag is a valid adapter.
+    under one tag dir (the current cell's own ``training.output_dir``).
+    When a DIFFERENT cell (e.g. ``ablations/decoding/hot-rollout``, which
+    extends ``sft-grpo/few-shot.yaml`` without overriding ``sft_pretrain``)
+    declares an identical ``sft_pretrain`` section, its SFT training is
+    identical — retraining it is pure waste (job 7078 retrained an SFT
+    bit-identical to optimal's). The SFT fingerprint is tag-independent
+    (model/lora/dataset/hyperparams/system prompt — no paths), so a match
+    under any other tag is a valid adapter.
+
+    Cells nest at DIFFERENT depths under ``checkpoints_root`` — two segments
+    for ``sft-grpo/{zero,few}-shot``, three for ``ablations/<category>/<name>``
+    — so the search is depth-agnostic (``**``), not a fixed one-segment glob:
+    a fixed depth only ever found siblings that happened to nest at exactly
+    the same depth as the caller (e.g. ``sft-grpo/zero-shot`` could reuse
+    ``sft-grpo/few-shot``'s adapter, but ``ablations/decoding/hot-rollout``
+    could never reach it, despite an identical fingerprint).
 
     Args:
-        checkpoints_root: Directory containing ALL model tag dirs
-            (``experiments/checkpoints``).
+        checkpoints_root: The model's checkpoints root, containing every
+            cell's tag dir at whatever depth its own config nests it
+            (``experiments/checkpoints/qwen25-05b``) — NOT the caller's own
+            ``model_root.parent``, which varies with the caller's own depth.
         exclude_parent: The current config's tag dir (already searched).
         fingerprint: Expected SFT fingerprint.
 
@@ -534,23 +545,31 @@ def find_reusable_sft_adapter_cross_tag(
     if not root.is_dir():
         return None
     candidates = sorted(
-        root.glob("*/run_*/sft_pretrain/final/sft_fingerprint.json"),
+        root.glob("**/run_*/sft_pretrain/final/sft_fingerprint.json"),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
     for candidate in candidates:
-        # <root>/<tag>/run_*/sft_pretrain/final/sft_fingerprint.json
+        # .../<tag, any depth>/run_*/sft_pretrain/final/sft_fingerprint.json
+        # parents[3] is fixed relative to the FILE (final/sft_pretrain/run_*),
+        # so it resolves to the tag dir regardless of how deep it sits under
+        # `root` — see split_checkpoint_path (src/utils/run_paths.py) for the
+        # same fixed-suffix technique applied to eval results paths.
         tag_dir = candidate.parents[3]
         if tag_dir.resolve() == excluded:
             continue
         adapter_dir = _adapter_if_matching(candidate, fingerprint)
         if adapter_dir is not None:
+            try:
+                tag_name = tag_dir.relative_to(root).as_posix()
+            except ValueError:
+                tag_name = tag_dir.name
             logger.info(
                 "[sft-reuse] Cross-tag match: reusing SFT adapter from " "tag '%s': %s",
-                tag_dir.name,
+                tag_name,
                 adapter_dir,
             )
-            return adapter_dir, tag_dir.name
+            return adapter_dir, tag_name
     return None
 
 
