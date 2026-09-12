@@ -90,6 +90,7 @@ ALLOWED_EVALUATION_KEYS = {
     "output",
     "baseline_pass_at1",
     "baseline_json",
+    "rule_repair",
 }
 
 # Chiavi (qualunque sezione) che ammettono esplicitamente null: il type check
@@ -152,6 +153,7 @@ TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
     "evaluation.output": str,
     "evaluation.baseline_json": str,
     "evaluation.baseline_pass_at1": (int, float),
+    "evaluation.rule_repair": bool,
     "lora.r": int,
     "lora.lora_alpha": int,
     "lora.lora_dropout": (int, float),

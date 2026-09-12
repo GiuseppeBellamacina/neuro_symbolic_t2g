@@ -274,6 +274,13 @@ evaluation:
   output: null
   baseline_pass_at1: null
   baseline_json: null
+  # Repair simbolico post-hoc (src/analysis/rule_repair.py): sostituisce i
+  # token non derivabili dal source con quelli del transduttore a regole
+  # (fittato SOLO sul train split), lasciando intatte inserzioni/cancellazioni
+  # del modello. Blocco SEPARATO `rule_repair` nei risultati, mai le metriche
+  # primarie: default false, costo aggiuntivo è il fit del transduttore
+  # (secondi, non minuti) + un secondo passaggio di _compute_primary_metrics.
+  rule_repair: false
 
 # --- Few-shot retrieval ---
 # Recupera k esempi text→gloss dal TRAIN e li inietta nel prompt.

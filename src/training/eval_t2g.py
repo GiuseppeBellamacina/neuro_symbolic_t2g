@@ -116,6 +116,9 @@ warnings.filterwarnings(
     category=FutureWarning,
 )
 
+from src.analysis.rule_baseline import fit_from_split as _fit_rule_baseline
+from src.analysis.rule_repair import RuleRepairer
+from src.analysis.rule_repair import fit as _fit_rule_repairer
 from src.datasets.aslg_dataset import (
     download_aslg_dataset,
     load_vocabulary,
@@ -1195,6 +1198,24 @@ def _select_best_of_n(
     return selected
 
 
+def _repair_completions(
+    all_completions: list[list[str]],
+    all_texts: list[str],
+    repairer: RuleRepairer,
+) -> list[list[str]]:
+    """Apply symbolic repair to every completion, preserving nesting.
+
+    Each prompt's source text is paired with every one of its completions
+    (``num_samples`` may be > 1) — the repair is per-completion, never a
+    selection across the group, so the nested shape returned mirrors
+    ``all_completions`` exactly and can be flattened the same way.
+    """
+    return [
+        [repairer.repair(c, txt) for c in comps]
+        for comps, txt in zip(all_completions, all_texts)
+    ]
+
+
 def evaluate_checkpoint(
     config: dict[str, Any],
     checkpoint_path: str | None,
@@ -1621,6 +1642,51 @@ def evaluate_checkpoint(
             "Reported under 'oracle_best_of_n' only.",
             num_samples,
             len(selected),
+        )
+
+    # ── Rule-based symbolic repair (opt-in, additive block) ─────────────
+    # evaluation.rule_repair: false di default (comportamento storico
+    # invariato). Se true, ripara ogni completion col transduttore simbolico
+    # (src/analysis/rule_repair.py, fittato SOLO sul train split) e ricalcola
+    # l'intero blocco di metriche primarie sulle completion riparate, in un
+    # blocco SEPARATO — mai sovrascrivendo `results` sopra.
+    if config.get("evaluation", {}).get("rule_repair", False):
+        with phase("Rule-based symbolic repair"):
+            baseline = _fit_rule_baseline(dataset)
+            repairer = _fit_rule_repairer(dataset["train"], baseline)
+            all_completions_repaired = _repair_completions(
+                all_completions, all_texts, repairer
+            )
+            flat_completions_repaired = [
+                c for comps in all_completions_repaired for c in comps
+            ]
+            repaired_metrics, *_ = _compute_primary_metrics(
+                flat_completions_repaired,
+                flat_references,
+                all_completions_repaired,
+                all_references,
+                token_to_idx=token_to_idx,
+                bigram=bigram,
+                reward_weights=reward_weight_map,
+                flat_sources=flat_texts,
+                n_bootstrap=n_bootstrap_resamples,
+            )
+        repaired_metrics["note"] = (
+            "Symbolic post-hoc repair (src/analysis/rule_repair.py): every "
+            "model completion had its non-derivable tokens replaced by the "
+            "train-fitted rule transducer's aligned token; insertions and "
+            "deletions are left to the model untouched. Lexicon and "
+            "morphology are fitted on the TRAIN split only. NOT the primary "
+            "metrics — reported separately for comparability."
+        )
+        results["rule_repair"] = repaired_metrics
+        logger.info(
+            "Rule repair: recomputed primary metrics on %d repaired "
+            "completions (exact_match %.4f -> %.4f). Reported under "
+            "'rule_repair' only.",
+            len(flat_completions_repaired),
+            results.get("exact_match", float("nan")),
+            repaired_metrics.get("exact_match", float("nan")),
         )
 
     # ── Per-completion generations log (stile grpo-strict-generation) ────
