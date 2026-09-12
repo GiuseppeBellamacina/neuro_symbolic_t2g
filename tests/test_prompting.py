@@ -181,3 +181,48 @@ def test_few_shot_prompt_with_chat_tokenizer():
     assert "CHAT|" in prompt
     assert "Examples:" in prompt
     assert "Now translate:" in prompt
+
+
+# ---------------------------------------------------------------------------
+# glossary_block: train-time-only rare-word hints (src/utils/glossary.py)
+# ---------------------------------------------------------------------------
+
+
+def test_glossary_block_none_is_byte_identical_zero_shot():
+    """The default (``glossary_block=None``) must not change the zero-shot
+    prompt at all — eval_t2g.py never passes this, and every existing config
+    that doesn't opt in must see the exact legacy output."""
+    text = "The man walks into the house."
+    prompt = build_t2g_prompt(text, _ManualTokenizer(), glossary_block=None)
+    assert prompt == _legacy_manual_prompt(text)
+
+
+def test_glossary_block_empty_string_is_also_byte_identical():
+    """An empty block (e.g. ``format_glossary_block({})``) must behave the
+    same as ``None`` — a falsy block is never inserted."""
+    text = "The man walks into the house."
+    prompt = build_t2g_prompt(text, _ManualTokenizer(), glossary_block="")
+    assert prompt == _legacy_manual_prompt(text)
+
+
+def test_glossary_block_is_prepended_before_the_zero_shot_sentence():
+    text = "The man walks into the house."
+    block = "Glossary:\nhouse -> HOUSE"
+    prompt = build_t2g_prompt(text, _ManualTokenizer(), glossary_block=block)
+    expected_user = f"{block}\n\n{text}"
+    assert prompt == _legacy_manual_prompt(expected_user)
+
+
+def test_glossary_block_is_prepended_before_the_few_shot_block():
+    """With both examples and a glossary, the glossary comes first — it is
+    prepended to the whole user content, not interleaved with the examples."""
+    text = "The man walks into the house."
+    block = "Glossary:\nhouse -> HOUSE"
+    prompt = build_t2g_prompt(
+        text, _ManualTokenizer(), examples=_sample_examples(), glossary_block=block
+    )
+    expected_user = (
+        f"{block}\n\nTranslate the following English sentence into ASL gloss."
+    )
+    assert expected_user in prompt
+    assert prompt.index(block) < prompt.index("Examples:")

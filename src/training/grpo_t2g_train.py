@@ -32,6 +32,7 @@ import os
 import random
 import sys
 import warnings
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -103,6 +104,12 @@ from src.training.retrieval_setup import (
     retrieve_few_shot_batch,
 )
 from src.utils.config import load_config
+from src.utils.glossary import (
+    build_example_glossary,
+    compute_word_frequencies,
+    format_glossary_block,
+    should_include_glossary,
+)
 from src.utils.live_status import live_status_set
 from src.utils.phase_timing import log_step, phase
 from src.utils.prompting import build_t2g_prompt
@@ -319,6 +326,23 @@ def _prepare_t2g_dataset(
         else None
     )
 
+    # Train-time rare-word glossary (opt-in, never used at eval — see
+    # src/utils/glossary.py for the full design and why the block is dropped
+    # on a fraction of examples). Frequencies are computed over this SAME
+    # resolved train subset (the ``texts`` just extracted above), never over
+    # eval/test data.
+    glossary_cfg = config.get("glossary", {})
+    glossary_enabled = bool(glossary_cfg.get("enabled", False))
+    word_frequencies: Counter[str] | None = None
+    glossary_max_freq = int(glossary_cfg.get("max_freq", 3))
+    glossary_dropout = float(glossary_cfg.get("dropout", 0.5))
+    if glossary_enabled:
+        with phase(
+            "Computing train word frequencies for glossary",
+            detail=f"{len(texts)} rows",
+        ):
+            word_frequencies = compute_word_frequencies(texts)
+
     # Format prompts with the centralized T2G prompt builder.
     # This guarantees train/eval/test use identical formatting.
     # WHY phase+barra: 72.979 build_t2g_prompt con apply_chat_template sono
@@ -330,10 +354,23 @@ def _prepare_t2g_dataset(
             sample = t2g_ds[i]
             text = sample["prompt"]
 
+            glossary_block = None
+            if word_frequencies is not None:
+                sample_id = sample.get("sample_id", "")
+                if should_include_glossary(sample_id, glossary_dropout):
+                    example_glossary = build_example_glossary(
+                        text,
+                        sample["completion"],
+                        word_frequencies,
+                        max_freq=glossary_max_freq,
+                    )
+                    glossary_block = format_glossary_block(example_glossary) or None
+
             prompt = build_t2g_prompt(
                 text,
                 tokenizer,
                 examples=examples_batch[i] if examples_batch is not None else None,
+                glossary_block=glossary_block,
             )
 
             # Keep every column produced by build_t2g_dataset: ``gold_gloss``

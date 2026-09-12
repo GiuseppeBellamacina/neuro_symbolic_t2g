@@ -98,6 +98,7 @@ def build_t2g_prompt(
     tokenizer: Any,
     *,
     examples: list[Any] | None = None,
+    glossary_block: str | None = None,
 ) -> str:
     """Build a formatted T2G prompt from an English sentence.
 
@@ -117,6 +118,12 @@ def build_t2g_prompt(
         examples: Optional few-shot ``(text, gloss)`` demonstrations
             (``RetrievedExample``-like or ``{"text", "gloss"}`` dicts).
             ``None``/empty ⇒ zero-shot prompt.
+        glossary_block: Optional pre-rendered rare-word glossary block (see
+            ``src/utils/glossary.py::format_glossary_block``), prepended to
+            the user content. ``None``/empty ⇒ byte-identical to the prompt
+            without this argument. TRAIN-TIME ONLY: ``eval_t2g.py`` never
+            passes this — see ``src/utils/glossary.py`` for why evaluation
+            must stay glossary-free.
 
     Returns:
         The formatted prompt string, ready for ``tokenizer()`` or
@@ -130,6 +137,9 @@ def build_t2g_prompt(
         )
     else:
         user_content = text
+
+    if glossary_block:
+        user_content = f"{glossary_block}\n\n{user_content}"
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},

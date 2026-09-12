@@ -1,0 +1,35 @@
+# ============================================================================
+# ABLATION GLOSSARY — glossario di parole rare iniettato SOLO in addestramento
+# (variante few-shot: retrieval k=3 attivo, come grpo/few-shot.yaml)
+#
+# Fattore unico rispetto a grpo/few-shot.yaml: cambia SOLO il prompt di
+# training, aggiungendo il blocco "Glossary:" ACCANTO agli esempi few-shot
+# gia' presenti (il glossario viene anteposto all'intero user content, quindi
+# precede anche gli esempi few-shot). Vedi ablations/glossary/zero-shot.yaml
+# per la spiegazione completa del meccanismo, dell'asimmetria train/eval
+# deliberata e del dropout — qui si documenta solo il fattore aggiuntivo.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/ablations/glossary/few-shot.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../../grpo/few-shot.yaml
+
+glossary:
+  enabled: true
+  max_freq: 3
+  dropout: 0.5
+
+# Non isola la decomposizione prompting (quella vive su grpo/sft-grpo
+# zero-shot/few-shot): la passata complementare raddoppierebbe il costo senza
+# aggiungere nulla al confronto sul glossario.
+evaluation:
+  dual_prompting: false
+
+training:
+  output_dir: "experiments/checkpoints/qwen25-05b/ablations/glossary/few-shot"
+  log_dir: "experiments/logs/qwen25-05b/ablations/glossary/few-shot"
+
+wandb:
+  run_name: "qwen25-05b-abl-glossary-few-shot"
+  tags: ["T2G", "ablation", "glossary", "few-shot", "retrieval", "trie"]

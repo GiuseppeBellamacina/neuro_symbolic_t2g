@@ -1,0 +1,58 @@
+# ============================================================================
+# ABLATION GLOSSARY — glossario di parole rare iniettato SOLO in addestramento
+#
+# Fattore unico rispetto a grpo/zero-shot.yaml: cambia SOLO il prompt di
+# training, aggiungendo un blocco "Glossary:" per le parole rare della frase
+# (frequenza <= glossary.max_freq nel train), con la forma gloss corretta
+# derivata dal gold DI QUESTO ESEMPIO (src/utils/glossary.py, che riusa
+# src/analysis/rule_repair.py::align_source_to_gold — nessun embedding,
+# nessuna tabella pre-fittata: l'allineamento è esatto perche' il gold di
+# QUESTO esempio e' gia' noto in addestramento, cosa mai vera in eval).
+#
+# ASIMMETRIA DELIBERATA train/eval: l'eval di questa cella NON riceve MAI il
+# glossario (eval_t2g.py non importa src/utils/glossary.py). Fornirlo in eval
+# userebbe il gold per selezionare l'aiuto — esattamente la fuga di
+# informazione che l'esperimento vuole escludere — e testerebbe la
+# robustezza a un prompt mai visto piuttosto che il contributo
+# dell'addestramento (vedi docs/latex/capitoli/08_decoding_vincolato.tex,
+# sezione sul glossario scartato per l'iniezione a zero-shot).
+#
+# DROPOUT (glossary.dropout: 0.5): il blocco NON compare in metà degli
+# esempi di training pur avendo parole rare, cosi' la generazione senza
+# glossario resta in-distribuzione anche durante l'addestramento. Senza
+# dropout, un risultato negativo in eval sarebbe ambiguo fra "il glossario
+# non aiuta" e "il modello ha imparato a dipendere da un aiuto che
+# all'eval e' sempre assente" — la stessa ambiguita' gia' identificata per
+# l'iniezione a tempo di inferenza.
+#
+# Ispirato a Dinu et al. 2019 (arXiv:1906.01105, annotazione inline a tempo
+# di addestramento), ma NON equivalente: qui il glossario e' assente a tempo
+# di eval per costruzione, quindi questo misura se l'esposizione al
+# glossario durante il training migliora la gestione delle parole rare del
+# modello DA SOLO, non se il modello impara un meccanismo di copia che
+# richiede l'aiuto anche in inferenza.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/ablations/glossary/zero-shot.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../../grpo/zero-shot.yaml
+
+glossary:
+  enabled: true
+  max_freq: 3
+  dropout: 0.5
+
+# Non isola la decomposizione prompting (quella vive su grpo/sft-grpo
+# zero-shot/few-shot): la passata complementare raddoppierebbe il costo senza
+# aggiungere nulla al confronto sul glossario.
+evaluation:
+  dual_prompting: false
+
+training:
+  output_dir: "experiments/checkpoints/qwen25-05b/ablations/glossary/zero-shot"
+  log_dir: "experiments/logs/qwen25-05b/ablations/glossary/zero-shot"
+
+wandb:
+  run_name: "qwen25-05b-abl-glossary-zero-shot"
+  tags: ["T2G", "ablation", "glossary", "zero-shot", "trie"]
