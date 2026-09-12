@@ -396,7 +396,7 @@ def test_write_sft_fingerprint(tmp_path) -> None:
     assert out.is_file()
     doc = json.loads(out.read_text(encoding="utf-8"))
     assert doc["fingerprint"] == compute_sft_fingerprint(cfg)
-    assert doc["config"]["version"] == 1
+    assert doc["config"]["version"] == 2
     assert doc["config"]["model"]["name"] == cfg["model"]["name"]
     assert (
         doc["config"]["sft_training"]["learning_rate"]

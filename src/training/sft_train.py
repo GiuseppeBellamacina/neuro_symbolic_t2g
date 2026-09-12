@@ -239,29 +239,72 @@ def _prepare_sft_dataset(
 #: change (e.g. a new field starts affecting the adapter) — the version is
 #: part of the hash, so a bump invalidates every previously stored
 #: fingerprint automatically.
-_SFT_FINGERPRINT_VERSION = 1
+_SFT_FINGERPRINT_VERSION = 2
 
-#: Training keys that never affect the SFT adapter weights (paths/timestamps).
-_NON_DETERMINISTIC_TRAINING_KEYS = ("output_dir", "log_dir", "run_timestamp", "trainer")
+#: Training keys that actually determine the SFT adapter's weights — mirrors
+#: every ``training_cfg.get(...)`` read used to build ``SFTConfig`` in
+#: :func:`run_sft` (plus ``eval_fraction``/``early_stopping_patience``, read
+#: earlier for the eval split and the early-stopping callback). Anything else
+#: found in a resolved ``training:`` section (``output_dir``, ``log_dir``,
+#: ``run_timestamp``, ``trainer``, and GRPO-only keys such as ``max_steps``)
+#: is accessory and must NOT be able to invalidate an otherwise-identical
+#: SFT adapter — this whitelist (rather than a blacklist of known-safe keys)
+#: is what keeps that guarantee regardless of which caller adds new keys to
+#: ``training:`` in the future.
+_SFT_FINGERPRINT_TRAINING_KEYS = (
+    "seed",
+    "num_train_epochs",
+    "per_device_train_batch_size",
+    "per_device_eval_batch_size",
+    "gradient_accumulation_steps",
+    "learning_rate",
+    "lr_scheduler_type",
+    "warmup_steps",
+    "optim",
+    "weight_decay",
+    "max_grad_norm",
+    "bf16",
+    "logging_steps",
+    "save_steps",
+    "save_total_limit",
+    "max_seq_length",
+    "gradient_checkpointing",
+    "eval_fraction",
+    "eval_steps",
+    "early_stopping_patience",
+)
 
 
 def _sft_training_fingerprint_source(config: dict[str, Any]) -> dict[str, Any]:
-    """SFT-relevant training hyperparameters (path/timestamp keys excluded).
+    """SFT-relevant training hyperparameters, effective value + whitelisted.
 
-    In the GRPO flow ``sft_config["sft_pretrain"]["training"]`` carries the
-    SFT hyperparameters, while the merged ``training`` section additionally
-    holds GRPO-only keys such as ``max_steps`` that must NOT invalidate the
-    SFT adapter.  The standalone ``sft-only.yaml`` flow has no ``sft_pretrain``
-    section, so the effective ``training`` section is used instead.
+    ``sft_pretrain.training`` (if present) is merged OVER ``training`` —
+    mirroring the runtime merge ``grpo_t2g_train.py`` performs before
+    building the synthetic SFT sub-phase config — so a value only *inherited*
+    from ``base.yaml`` (``bf16``, ``optim``, ``lr_scheduler_type``,
+    ``max_grad_norm``, ``logging_steps``, ``save_steps``, ...) is captured
+    just as reliably as one explicitly repeated in ``sft_pretrain.training``.
+    The standalone ``sft/*.yaml`` flow has no ``sft_pretrain`` section, so
+    this reduces to the effective ``training`` section, unchanged.
+
+    The merged dict is then restricted to `_SFT_FINGERPRINT_TRAINING_KEYS`:
+    this is what makes GRPO-only keys (``max_steps``, ...) harmless even
+    though they're part of the same merged dict — NOT the choice of which
+    dict to merge from. An earlier version of this function used the raw,
+    un-merged ``sft_pretrain.training`` block instead of a whitelist to keep
+    ``max_steps`` out, which had the side effect of silently dropping the
+    keys above whenever they were only inherited rather than repeated
+    verbatim in ``sft_pretrain.training`` — two SFT phases that used a
+    different ``optim``/``bf16``/``lr_scheduler_type`` could fingerprint as
+    identical. See ``_SFT_FINGERPRINT_VERSION``.
     """
+    training = dict(config.get("training", {}))
     pretrain_training = config.get("sft_pretrain", {}).get("training", {})
-    if isinstance(pretrain_training, dict) and pretrain_training:
-        training = dict(pretrain_training)
-    else:
-        training = dict(config.get("training", {}))
-    for key in _NON_DETERMINISTIC_TRAINING_KEYS:
-        training.pop(key, None)
-    return training
+    if isinstance(pretrain_training, dict):
+        training.update(pretrain_training)
+    return {
+        key: training[key] for key in _SFT_FINGERPRINT_TRAINING_KEYS if key in training
+    }
 
 
 def _sft_fingerprint_payload(config: dict[str, Any]) -> dict[str, Any]:
@@ -714,6 +757,15 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
             "[sft] eval_fraction<=0 → eval_strategy='no', early stopping disabled"
         )
 
+    # `load_best_model_at_end` requires save_steps to be a round multiple of
+    # eval_steps (transformers TrainingArguments._validate_args). Defaulting
+    # eval_steps to save_steps (ratio 1) keeps that invariant true regardless
+    # of which save_steps value training_cfg actually carries — e.g. in the
+    # GRPO sub-phase, `training_cfg["save_steps"]` can be inherited from the
+    # *outer* GRPO training section (base.yaml's 500) rather than the
+    # sft_pretrain block, if the latter ever omits it.
+    _sft_save_steps = training_cfg.get("save_steps", 200)
+
     sft_config = SFTConfig(
         output_dir=output_dir,
         run_name=run_name,
@@ -730,7 +782,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         max_grad_norm=training_cfg.get("max_grad_norm", 1.0),
         bf16=training_cfg.get("bf16", True),
         logging_steps=training_cfg.get("logging_steps", 10),
-        save_steps=training_cfg.get("save_steps", 200),
+        save_steps=_sft_save_steps,
         save_total_limit=training_cfg.get("save_total_limit", 2),
         max_length=training_cfg.get(
             "max_seq_length", 768
@@ -748,7 +800,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         # grpo_t2g_train.py, so eval_fraction/eval_steps/... are read here
         # from the same key regardless of the entry point.
         eval_strategy="steps" if eval_enabled else "no",
-        eval_steps=training_cfg.get("eval_steps", 200),
+        eval_steps=training_cfg.get("eval_steps", _sft_save_steps),
         metric_for_best_model="eval_loss",
         greater_is_better=False,
         load_best_model_at_end=eval_enabled,
