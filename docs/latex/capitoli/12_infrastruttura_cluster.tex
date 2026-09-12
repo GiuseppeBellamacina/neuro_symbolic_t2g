@@ -104,7 +104,7 @@ sulle interrogazioni a \texttt{sacct}, che sotto carico può non rispondere.
 Il monitoraggio è realizzato da \texttt{python3 -m src.utils.chain\_monitor}, con
 una modalità \texttt{monitor --all} che mostra lo stato di tutta la coda.
 
-\section{Cinque guasti reali}
+\section{Sei guasti reali}
 
 Ciò che segue è la parte utile del capitolo.
 
@@ -236,9 +236,94 @@ contratto degli obiettivi ausiliari
 (sezione~\ref{sec:contratto-ausiliari}), dove
 \texttt{resolve\_auxiliary\_config} valida prima del caricamento.
 
+\subsection{Guasto 6: la fusione dell'adattatore SFT mai salvata su disco}
+\label{sec:bug-sft-merge-eval}
+
+Il più recente, e il più rilevante per l'interpretazione dei risultati del
+Capitolo~\ref{cap:risultati}. Riguarda ogni cella \texttt{sft-grpo/*}: quelle
+in cui una fase di SFT precede il GRPO nella stessa run.
+
+\texttt{src/models/model\_loader.py} fonde l'adattatore SFT nel modello base
+\textbf{solo in memoria}, prima di agganciare un nuovo LoRA per la fase GRPO.
+La fusione non viene mai scritta su disco: \texttt{trainer.save\_model()},
+applicato al modello PEFT risultante, salva soltanto il \emph{delta}
+dell'adattatore GRPO, calcolato rispetto a una base+SFT che non viene
+registrata da nessuna parte come oggetto a sé.
+
+\texttt{src/training/eval\_t2g.py::load\_model\_for\_eval} ricostruiva il
+modello come \texttt{base grezzo + adattatore GRPO}, senza sapere che una fase
+SFT fosse mai avvenuta. Il contributo dell'SFT --- la fase che consuma la
+maggior parte del tempo di calcolo della run --- spariva silenziosamente da
+ogni valutazione di ogni cella \texttt{sft-grpo}, senza errore, senza validità
+alterata: un numero plausibile, calcolato sul modello sbagliato.
+
+\subsubsection{Perché non si notava}
+
+L'adattatore SFT \emph{sopravvive} sul disco: \texttt{grpo\_t2g\_train.py}
+addestra (o copia) la fase SFT in
+\texttt{<run\_dir>/sft\_pretrain/final/}, un fratello della cartella
+\texttt{final/} del GRPO, proprio per rendere la run autocontenuta. Il difetto
+non era un dato mancante, ma un percorso mai consultato: il codice di
+valutazione non sapeva che quella cartella andasse cercata.
+
+È stato trovato rileggendo il codice del caricamento del modello e
+confrontandolo con il layout reale delle run sul cluster (\texttt{find} sulla
+struttura di una cella \texttt{sft-grpo} completata), non da un sintomo
+osservabile nei log o nelle metriche.
+
+\subsubsection{La correzione}
+
+Una funzione di individuazione,
+\texttt{\_sft\_pretrain\_adapter\_sibling(checkpoint\_path)}, cerca il fratello
+\texttt{sft\_pretrain/final/} della cartella del checkpoint GRPO (per run
+complete e per checkpoint intermedi \texttt{checkpoint-N}, non solo per
+\texttt{final}). Quando esiste, \texttt{load\_model\_for\_eval} lo fonde nel
+modello base \textbf{prima} di applicare l'adattatore GRPO, ripristinando
+l'ordine di composizione realmente usato in addestramento. Sei test in
+\texttt{tests/test\_sft\_grpo\_eval\_composition.py} coprono il rilevamento:
+il caso positivo, l'assenza di fase SFT (celle \texttt{grpo/*} pure), una fase
+SFT incompleta (mai trattata come un merge avvenuto), e un checkpoint
+intermedio.
+
+\subsubsection{Che cosa questo NON dice ancora}
+\label{sec:sft-merge-non-rimisurato}
+
+Qui va tracciata una linea netta, per lo stesso motivo per cui il
+Capitolo~\ref{cap:conclusioni} tratta le ritrattazioni come parte del
+risultato e non come rumore da nascondere: la correzione è verificata a
+livello di codice (i sei test la coprono), ma \textbf{nessuna cella
+\texttt{sft-grpo} è ancora stata rivalutata con l'eval corretto}. Questo
+capitolo può dire con certezza che cosa il vecchio codice faceva
+(comporre il modello sbagliato); non può ancora dire quanto questo abbia
+spostato il numero dell'Osservazione~5 (sezione~\ref{sec:decomposizione}).
+
+Le due ipotesi restano aperte, ed entrambe sono compatibili con quanto già
+misurato:
+
+\begin{description}
+  \item[Il crollo è (in parte) un artefatto.] Se una ri-valutazione con
+        l'eval corretto avvicina la cella \texttt{sft-grpo} al soffitto
+        dell'SFT, il meccanismo di collasso del supporto (gruppi a varianza
+        nulla, sezione~\ref{sec:supporto}) resta valido come spiegazione di
+        \emph{una parte} del divario, ma l'Osservazione~5 andrebbe riscritta:
+        il numero $0{,}5114$ misurava in parte un modello che non è mai
+        esistito come tale in fase di addestramento.
+  \item[Il crollo è un fenomeno reale, indipendente dal difetto.] Se la
+        ri-valutazione conferma un ROUGE-L e un exact match comparabili a
+        quelli già pubblicati, il meccanismo dei gruppi a varianza nulla resta
+        la spiegazione corretta, e il difetto di composizione era presente ma
+        non determinante per la conclusione qualitativa.
+\end{description}
+
+L'esperimento che scioglie l'alternativa è a costo pressoché nullo: una sola
+ri-valutazione della cella \texttt{sft-grpo} già addestrata, con il codice
+corretto, senza nessun nuovo addestramento. Non è stato ancora eseguito
+mentre questa relazione viene scritta, e il risultato, qualunque sia,
+andrà riportato qui prima di considerare l'Osservazione~5 definitiva.
+
 \section{Il filo comune}
 
-I cinque guasti hanno cause diverse ma condividono una struttura: nessuno era un
+I sei guasti hanno cause diverse ma condividono una struttura: nessuno era un
 errore di matematica, tutti riguardavano l'\emph{ordine} delle operazioni o
 l'\emph{ambiente} in cui avvenivano.
 
@@ -251,8 +336,8 @@ Guasto & Categoria \\
 2. offline dopo il primo Python & ordine: esportazione dopo l'import \\
 3. tupla veritiera & ambiente: API interna di terze parti \\
 4. coda invertita & ordine: prepend invece di append \\
-5. generatore globale & ambiente: stato condiviso \\
-6. validazione dopo l'allocazione & ordine: controllo dopo il costo \\
+5. validazione dopo l'allocazione & ordine: controllo dopo il costo \\
+6. fusione SFT mai salvata & ambiente: composizione del checkpoint non registrata \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -260,7 +345,10 @@ Guasto & Categoria \\
 Quattro su sei producevano fallimenti \emph{plausibili}: il job girava, non
 segnalava nulla di anomalo, e restituiva numeri. Su un progetto sperimentale
 questa è la categoria di guasto più costosa, perché contamina i risultati senza
-lasciare traccia nei log.
+lasciare traccia nei log. Il guasto 6 appartiene alla stessa categoria in modo
+particolarmente puro: non un job che falliva in modo silenzioso, ma un job che
+\emph{riusciva} nel senso pieno del termine, producendo un numero corretto per
+un modello diverso da quello dichiarato.
 
 La contromisura adottata in tutti i casi è la stessa e vale come conclusione del
 capitolo: \textbf{fallire presto e in modo rumoroso}, e codificare ogni

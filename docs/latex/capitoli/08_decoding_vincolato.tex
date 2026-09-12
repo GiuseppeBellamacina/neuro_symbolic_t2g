@@ -290,3 +290,237 @@ qui il vincolo va mantenuto \emph{nonostante} il costo, perché è ciò che rend
 non nullo il gradiente del reinforcement learning
 (sezione~\ref{sec:supporto}). Il costo sulla metrica di sovrapposizione è il
 prezzo pagato per avere un segnale di apprendimento.
+
+\section{Un secondo meccanismo simbolico: la riparazione post-hoc}
+\label{sec:rule-repair}
+
+Il Trie vincola \emph{durante} la generazione: sceglie fra le continuazioni
+ammesse, ma non ha nozione della frase sorgente e non può preferire un gloss
+corretto a uno semplicemente legale. Questa sezione descrive un secondo
+meccanismo simbolico, complementare e indipendente, che agisce \emph{dopo} la
+generazione e usa esattamente l'informazione che il Trie non ha: il testo
+inglese di partenza.
+
+\subsection{La motivazione: dove sbaglia ancora la policy}
+
+Ispezionando le generazioni salvate della policy SFT (la più competente della
+campagna) emerge un pattern netto: gli errori residui sono quasi tutti
+sostituzioni lessicali puntuali su parole sorgente rare ---
+\texttt{GUISE}$\to$\texttt{GUARD}, \texttt{BLINDNESS}$\to$\texttt{BLIGHT},
+\texttt{DESC-LIVE}$\to$\texttt{LIVE}. I gloss d'oro che il modello manca sono
+\emph{hapax legomena} del train set: frequenza mediana $1$, il $61\%$ presente
+tre volte o meno, contro una frequenza di base dell'$1{,}6\%$ per i gloss
+d'oro in generale.
+
+La conseguenza è doppia. Un modello neurale non può memorizzare un hapax da un
+adattamento LoRA su un corpus di questa taglia; e il reinforcement learning a
+gradiente di policy non può correggerlo nemmeno in linea di principio, perché
+sul $71{,}7\%$ dei fallimenti il token corretto non compare in nessuno dei
+campioni generati per quel prompt: nessuna reward può assegnargli credito, per
+la stessa ragione strutturale del collasso del supporto discusso nella
+sezione~\ref{sec:supporto}.
+
+Un transduttore \emph{deterministico}, però, non ha questo problema: mappa la
+parola sorgente direttamente, indipendentemente dal fatto che sia mai stata
+osservata durante l'addestramento. I due sistemi hanno quindi profili di
+errore complementari, ed è questo che il meccanismo sfrutta.
+
+\subsection{Il meccanismo}
+
+Per ogni token generato dal modello si chiede se è \emph{derivabile} dalla
+frase sorgente: condividerne lo stem (almeno $4$ caratteri di prefisso comune,
+dopo aver rimosso i marcatori \texttt{DESC-}/\texttt{X-}/\texttt{fs-}) con
+almeno una parola del testo. Se non lo è --- il modello ha probabilmente
+allucinato un elemento lessicale --- viene sostituito con il token allineato
+prodotto dal transduttore a regole del Capitolo~\ref{cap:dataset}; se lo è, il
+token del modello resta intatto.
+
+La sostituzione è ristretta alle posizioni allineate uno a uno fra l'uscita del
+modello e quella del transduttore (via \texttt{difflib.SequenceMatcher}):
+inserzioni e cancellazioni restano decisioni del modello, che gestisce la
+lunghezza e le parole funzionali molto meglio del sistema a regole. La mappa
+forma-sorgente$\to$forma-d'oro (\texttt{fit\_morphology}) sostituisce un
+lemmatizzatore esterno, appresa dalla sola morfologia osservata nel train
+(\texttt{hidden}$\to$\texttt{HIDE}, \texttt{outsourcing}$\to$\texttt{OUTSOURCE}):
+oltre a evitare una dipendenza offline sul cluster, ottiene un exact match più
+alto di WordNet sulla baseline a regole ($64{,}90\%$ contro $63{,}10\%$).
+L'implementazione è in \texttt{src/analysis/rule\_repair.py}; lessico e
+morfologia sono fittati esclusivamente sul train split.
+
+\subsection{Effetto misurato}
+
+Sulle generazioni salvate di cinque celle indipendenti, prima campione per
+prompt, $2000$ prompt di eval:
+
+\begin{center}
+\begin{tabular}{lrrrrr}
+\toprule
+Celle & EM prima & EM dopo & Corrette & Rotte & $p$ (McNemar) \\
+\midrule
+SFT & $87{,}10\%$ & $88{,}85\%$ & $40$ & $5$ & $7{,}9\times 10^{-8}$ \\
+SFT (passata few-shot) & $70{,}20\%$ & $75{,}60\%$ & $111$ & $3$ & $2{,}4\times 10^{-29}$ \\
+GRPO few-shot & $5{,}20\%$ & $8{,}25\%$ & $61$ & $0$ & $8{,}7\times 10^{-19}$ \\
+GRPO zero-shot (passata) & $1{,}85\%$ & $2{,}90\%$ & $21$ & $0$ & $9{,}5\times 10^{-7}$ \\
+Ablation dr-grpo & $3{,}65\%$ & $5{,}55\%$ & $38$ & $0$ & $7{,}3\times 10^{-12}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La metrica primaria non-copy-token accuracy si muove nella stessa direzione
+(SFT $0{,}9793\to 0{,}9809$; GRPO few-shot $0{,}4642\to 0{,}5239$): non è uno
+scambio fra una metrica e l'altra.
+
+\subsection{Il caveat sulla generalizzazione, dichiarato}
+
+La soglia di $4$ caratteri e l'euristica \texttt{is\_derivable} sono state
+tarate ispezionando le uscite dell'SFT. La prova di generalizzazione è che lo
+stesso meccanismo, non ritoccato, migliora anche i quattro insiemi su cui
+\emph{non} è stato tarato (few-shot SFT, entrambe le celle GRPO, dr-grpo), e
+non rompe mai più di $5$ prompt su $2000$ in nessun caso. Il tipo di
+regressione è anch'esso compreso e circoscritto: un'abbreviazione la cui
+espansione compare nel sorgente (\texttt{EU} da \emph{European Union}) non è
+considerata derivabile secondo l'euristica dello stem, quindi il transduttore
+la sovrascrive; è per questo che il rapporto corrette/rotte resta comunque
+intorno a $10$:$1$ invece di essere privo di regressioni.
+
+\subsection{Stato di integrazione}
+
+Il meccanismo è cablato nella pipeline di valutazione come blocco opzionale e
+\textbf{additivo}: la chiave \texttt{evaluation.rule\_repair} (default
+\texttt{false}) applica la riparazione a ogni completion e ricalcola l'intero
+blocco di metriche primarie sulle completion riparate, in un blocco separato
+\texttt{results["rule\_repair"]} dei risultati JSON --- mai sovrascrivendo le
+metriche primarie, sullo stesso modello del blocco \texttt{oracle\_best\_of\_n}
+già esistente. La composizione è coperta da test unitari
+(\texttt{tests/test\_rule\_repair\_eval\_wiring.py}); la tabella sopra resta
+però una misura fatta sulle generazioni già salvate dalle run del cluster, non
+ancora riprodotta end-to-end attraverso il nuovo flag su una valutazione dal
+vivo. È il prossimo controllo naturale, a costo quasi nullo (nessun nuovo
+addestramento, un solo passaggio di eval).
+
+\section{Un terzo meccanismo: il glossario iniettato SOLO in addestramento}
+\label{sec:glossario}
+
+La sezione precedente ripara l'allucinazione lessicale \emph{dopo} la
+generazione. Un'alternativa naturale è prevenirla, fornendo al modello
+l'informazione lessicale mancante \emph{dentro} il prompt: un blocco
+``Glossary:'' che elenca, per le parole rare della frase da tradurre, la
+forma gloss corretta. Questa sezione discute due varianti non equivalenti, la
+ragione per cui una è stata scartata sul nascere, e il disegno --- diverso da
+entrambe quelle note in letteratura --- effettivamente implementato per
+l'altra.
+
+\subsection{Due varianti, non equivalenti}
+
+\textbf{Iniezione a tempo di inferenza (zero-shot).} Aggiungere il blocco
+glossario al prompt solo in fase di valutazione, senza toccare
+l'addestramento, è l'opzione più economica da testare, ma ha un difetto di
+fondo per un modello di questa taglia: la fase SFT di Qwen2.5-0.5B-Instruct su
+questo compito non ha \emph{mai} visto un blocco ``Glossary:'' nel proprio
+input (sezione~\ref{sec:sft-vs-regola-analisi}); \texttt{build\_t2g\_prompt}
+produce, in modalità zero-shot, il testo grezzo della frase e nient'altro.
+Testare un'iniezione di questo tipo in inferenza misurerebbe la robustezza del
+modello a un formato di prompt mai osservato, non il potenziale reale
+dell'idea: un risultato negativo sarebbe ambiguo fra ``il glossario non aiuta
+questo compito'' e ``il modello non sa sfruttare una struttura di prompt che
+non ha mai visto durante il fine-tuning'', e le due letture richiedono
+conclusioni opposte. Per questo questa variante resta scartata: è lo stesso
+principio metodologico del Capitolo~\ref{cap:ausiliari}, qualificare un
+meccanismo prima di misurarlo.
+
+\textbf{Annotazione a tempo di addestramento.} L'alternativa con precedenti
+diretti in letteratura è addestrare il modello a \emph{usare}
+l'annotazione, non solo a riceverla. Dinu et al.~\cite{dinu2019training}
+mostrano che inserire vincoli terminologici come annotazioni inline
+nell'input di addestramento --- non come post-processing né come vincolo di
+decodifica --- permette a un NMT di imparare un comportamento di copia
+affidabile verso il termine fornito, a costo di inferenza nullo rispetto alla
+decodifica vincolata classica~\cite{hokamp2017,post2018}. Nella letteratura
+più recente orientata ai modelli linguistici generici, l'iniezione puramente
+a tempo di inferenza \emph{funziona}, ma su modelli e compiti diversi da
+questo: DiPMT~\cite{ghazvininejad2023dipmt} ottiene guadagni fornendo
+traduzioni candidate per le parole rare direttamente nel prompt di un LLM
+istruito e multilingue, e Bogoychev e Chen~\cite{bogoychev2023terminology}
+combinano un modello addestrato a rispettare la terminologia con un
+raffinamento a base di prompting. In entrambi i casi il modello di partenza è
+un sistema molto più grande e/o già esposto a task di traduzione con
+terminologia a tempo di addestramento o pre-addestramento massivo: condizioni
+che qui non valgono, il che motiva un disegno diverso invece di una copia
+diretta di uno dei due.
+
+\subsection{Il disegno implementato, e perché differisce da Dinu et al.}
+\label{sec:glossario-disegno}
+
+Il meccanismo (\texttt{src/utils/glossary.py}) inietta il blocco glossario
+\textbf{solo nel prompt di addestramento GRPO}, mai in valutazione:
+\texttt{eval\_t2g.py} non importa quel modulo, per costruzione, e ogni cella
+resta valutata esattamente come le altre. Questo è deliberatamente diverso
+dal meccanismo di Dinu et al., dove l'annotazione è presente sia in
+addestramento sia in inferenza (un vero comportamento di copia): fornire il
+glossario anche in eval userebbe il gold per selezionare l'aiuto, la stessa
+fuga di informazione che l'esperimento vuole escludere, e testerebbe la
+robustà a un formato di prompt piuttosto che il contributo
+dell'addestramento. Il disegno qui misura quindi una domanda più stretta e
+più onesta: \emph{l'esposizione a mappature corrette durante l'addestramento
+migliora la gestione delle parole rare del modello DA SOLO, quando l'aiuto
+sparisce}?
+
+Due scelte tecniche derivano da questo vincolo:
+
+\begin{description}
+  \item[Origine del glossario: dal gold, non un embedding.] Le parole
+        rare sono esattamente la popolazione che la
+        sezione~\ref{sec:rule-repair} già caratterizza (hapax legomena, poca
+        o nessuna occorrenza nel train): è precisamente dove un embedding
+        semantico sarebbe meno affidabile, per la stessa scarsità di segnale
+        che il glossario dovrebbe compensare. La soluzione adottata sfrutta
+        un fatto specifico dell'addestramento GRPO: il gold di
+        \emph{questo} esempio è già disponibile (è ciò su cui la reward
+        valuta), quindi la forma corretta si legge direttamente dal gold
+        della riga corrente
+        (\texttt{align\_source\_to\_gold}, la stessa euristica di
+        allineamento per stem di \texttt{rule\_repair.py}, applicata riga per
+        riga invece che fittata sul corpus). Nessuna tabella pre-fittata,
+        nessun embedding.
+  \item[Dropout del blocco (\texttt{glossary.dropout}, default $0{,}5$).]
+        Senza dropout, il modello vedrebbe il glossario in \emph{ogni}
+        esempio di training che contiene parole rare e mai in valutazione:
+        un disallineamento di distribuzione che rischierebbe di essere
+        \emph{dannoso} (il modello impara a leggere un blocco che poi
+        sparisce sempre). Omettendo il blocco su una frazione degli esempi
+        --- pur avendone diritto --- la generazione senza glossario resta
+        in-distribuzione anche durante l'addestramento stesso, e il confronto
+        in eval (sempre senza glossario, per ogni cella) diventa
+        interpretabile in entrambe le direzioni di un risultato.
+\end{description}
+
+Poiché la cella estende \texttt{grpo/zero-shot.yaml} o
+\texttt{grpo/few-shot.yaml} (nessuna fase SFT), il rischio di riuso
+silenzioso dell'impronta SFT sollevato in una stesura precedente di questa
+sezione \textbf{non si applica}: non esiste un adattatore SFT da confondere
+fra una cella con e senza glossario.
+
+\subsection{Stato: implementato, non ancora addestrato}
+
+Il meccanismo è verificato a livello di codice
+(\texttt{tests/test\_glossary.py}, ed estensioni a
+\texttt{tests/test\_rule\_repair.py} e \texttt{tests/test\_prompting.py} per
+l'allineamento per riga e la composizione del prompt), con l'invariante
+``blocco assente $\Rightarrow$ prompt byte-identico'' verificata esplicitamente,
+sullo stesso modello del contratto di non regressione degli obiettivi
+ausiliari (sezione~\ref{sec:contratto-ausiliari}). Due celle sono pronte
+in \texttt{experiments/configs/qwen25-05b/ablations/glossary/} (zero-shot e
+few-shot), fuori dalla campagna \texttt{--ablation} ufficiale a 15 celle per
+non alterarla silenziosamente.
+
+Il criterio di promozione, dichiarato in anticipo per coerenza col
+Capitolo~\ref{cap:ausiliari}: la cella deve ridurre l'errore
+\emph{specificamente} sulla popolazione di token gold hapax legomena
+(la stessa che la sezione~\ref{sec:rule-repair} isola) più di quanto non
+riduca l'errore genericamente sul resto del vocabolario. Se il guadagno (o
+l'assenza di guadagno) è uniforme sulle due popolazioni, l'effetto --- se
+presente --- è di regolarizzazione generica dell'aggiunta di più contesto al
+prompt, non del meccanismo di glossario in sé. Nessuna delle due celle è
+stata ancora addestrata mentre questa relazione viene scritta: il costo di
+uno slot di cluster non è stato speso su un'idea la cui implementazione non
+fosse già stata verificata a livello di codice.

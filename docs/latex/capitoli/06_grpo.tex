@@ -297,3 +297,55 @@ Questo è il \emph{meccanismo} del risultato negativo. Non si tratta di dire ``i
 GRPO non ha funzionato''; si tratta di mostrare, con numeri, che sull'$84{,}8\%$
 dei gruppi il gradiente era esattamente zero dopo l'SFT, e sul $73{,}9\%$ era
 esattamente zero prima di qualunque addestramento senza vincolo.
+
+\subsection{Un precedente indipendente, sulla stessa famiglia di compiti}
+
+Il collasso del supporto documentato qui non è un fenomeno isolato di questo
+progetto: la letteratura sul reinforcement learning applicato alla traduzione
+automatica neurale aveva già sollevato un dubbio strutturalmente analogo, anni
+prima della diffusione del GRPO nei modelli di ragionamento.
+Choshen et al.~\cite{choshen2020weaknesses} mostrano che i guadagni attribuiti
+al RL/MRT nella MT derivano spesso non da un segnale di reward informativo, ma
+da un effetto di \emph{peakiness}: l'addestramento concentra massa di
+probabilità sui token già più probabili nel modello pre-addestrato,
+indipendentemente da quanto la reward sia discriminante, e i miglioramenti
+plausibili si osservano quasi solo quando il token target era già fra i primi
+due o tre candidati del modello di partenza --- cioè quando la policy iniziale
+era già quasi corretta. Kiegeland e Kreutzer~\cite{kiegeland2021revisiting}
+rivisitano la stessa tesi con un intervallo più ampio di configurazioni e
+mostrano contro-evidenza empirica: la riduzione a effetto-di-peakiness non è
+universale, e in alcuni regimi il segnale di reward conta davvero.
+
+Il punto rilevante per questo lavoro non è quale dei due articoli abbia
+ragione in generale, ma che entrambi concordano sulla domanda da porre prima
+di addestrare: \emph{quanto era già corretta la policy di partenza, e la
+reward ha margine per distinguere fra le sue uscite?} È esattamente la
+domanda a cui risponde la tabella del supporto dei rollout sopra, resa
+quantitativa invece che qualitativa: sulla policy SFT la risposta è che
+l'$84{,}8\%$ dei gruppi non ha margine, non perché la reward sia
+mal disegnata, ma perché la policy è già alla saturazione.
+
+La stessa domanda, posta su modelli di ragionamento molto più grandi e con
+RLVR (RL con reward verificabili) al posto del MRT, produce risposte
+convergenti nella letteratura più recente: il RLVR migliora \texttt{pass@1}
+ma tende a restringere, non ad ampliare, il supporto empirico delle risposte
+corrette rispetto al modello base~\cite{wu2026invisibleleash}, raramente
+elicita pattern di ragionamento genuinamente nuovi rispetto a quelli già
+presenti nella distribuzione del modello base~\cite{yue2025doesrl}, e i
+cambiamenti indotti a livello di token sono sparsi ma concentrati su un
+piccolo insieme di decisioni realmente responsabili del guadagno
+osservato~\cite{qwenpilot2026sparse}. Il quadro non è univocamente negativo:
+ProRL~\cite{liu2025prorl} mostra che un RL prolungato, con controllo esplicito
+della divergenza KL e reset periodico della policy di riferimento, può
+scoprire strategie di ragionamento inaccessibili al modello base --- ma lo fa
+correlando il guadagno con la competenza \emph{iniziale} del modello sul
+compito e con la durata dell'addestramento, non contraddicendo quindi la
+condizione di margine qui misurata, semmai precisandola: il margine può
+crescere con il tempo di addestramento, ma deve esistere per cominciare. Va
+anche detto, per onestà, che il segnale di reward può produrre guadagni reali
+anche quando è quasi privo di informazione task-specifica, se il modello di
+base possiede già forti pattern latenti che la reward si limita ad
+amplificare~\cite{shao2026spurious}: un'ulteriore ragione per non concludere
+``il RL non funziona'' da un singolo esperimento negativo, e per insistere,
+come fa questo capitolo, sulla misura diretta del supporto piuttosto che
+sull'argomento teorico da solo.

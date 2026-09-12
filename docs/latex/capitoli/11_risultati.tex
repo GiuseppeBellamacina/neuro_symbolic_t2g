@@ -334,6 +334,22 @@ oltre un certo punto migliorarla peggiora l'obiettivo vero. La particolarità qu
 l'$84{,}8\%$ di varianza nulla era osservabile con una singola sonda sui rollout,
 senza addestrare.
 
+\paragraph{Nota aperta sulla composizione del checkpoint valutato.} Durante la
+stesura di questa relazione è stato individuato e corretto un difetto nella
+valutazione delle celle \texttt{sft-grpo} (guasto~7,
+sezione~\ref{sec:bug-sft-merge-eval}): l'adattatore della fase SFT non veniva
+incluso nel modello ricostruito per l'eval, che quindi valutava
+\texttt{base + adattatore GRPO} invece di \texttt{base + SFT + adattatore
+GRPO}. I numeri $0{,}9749$/$0{,}5114$ sopra sono stati prodotti con il codice
+\emph{non corretto}. Il meccanismo dei gruppi a varianza nulla resta la
+spiegazione corretta di \emph{perché} il GRPO non possa migliorare una policy
+già quasi deterministica, ed è indipendente da questo difetto; ciò che non è
+ancora verificato è l'entità esatta del crollo misurato qui. Una
+ri-valutazione della cella con il codice corretto risolve la questione senza
+nuovo addestramento (dettagli e le due ipotesi aperte in
+sezione~\ref{sec:sft-merge-non-rimisurato}); finché non è eseguita, questa
+sezione va letta con quella riserva esplicita.
+
 \section{La decomposizione dell'effetto}
 \label{sec:decomposizione}
 
