@@ -132,11 +132,13 @@ done
 
 # ── Modelli T2G ───────────────────────────────────────────────────────────────
 if [ "$ABLATION" -eq 1 ]; then
-    # Campagna completa: 3 baseline eval-only + 12 celle train+eval.
-    # Ordine ALLINEATO ad app.py:ABLATION_MODELS (il TUI batch usa la stessa
-    # lista). Le baseline zero-shot (Trie) cachano il --compare per le celle
-    # successive; sft/zero-shot addestra l'adapter SFT riusato dalle celle
-    # sft-grpo (fingerprint identica).
+    # Campagna completa: 3 baseline eval-only + 12 celle train+eval. Il TUI
+    # (remote/tui.py PresetsScreen) ha una sua copia equivalente, risolta
+    # localmente da remote/presets.yaml — non da questo array bash, e mai
+    # inviata al servizio Render come "campagna": solo la lista job già
+    # risolta. Le baseline zero-shot (Trie) cachano il --compare per le
+    # celle successive; sft/zero-shot addestra l'adapter SFT riusato dalle
+    # celle sft-grpo (fingerprint identica).
     # Formato: TAG:CONFIG[:MODE]
     # MODE: te=train+eval (default), e=eval-only, t=train-only
     MODELS=(

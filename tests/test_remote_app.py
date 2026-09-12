@@ -27,81 +27,6 @@ import remote.app as app_module
 
 AUTH = {"X-Auth-Token": "test-token"}
 
-# Ordine ESATTO di remote/app.py:ABLATION_MODELS (= cluster/run_all.sh) -
-# se cambia, aggiornare sia app.ABLATION_MODELS sia questa lista.
-EXPECTED_ABLATION_MODELS: list[tuple[str, str, str]] = [
-    (
-        "baseline-zero-shot",
-        "experiments/configs/qwen25-05b/baseline/zero-shot.yaml",
-        "e",
-    ),
-    (
-        "baseline-zero-shot-no-grammar",
-        "experiments/configs/qwen25-05b/baseline/zero-shot-no-grammar.yaml",
-        "e",
-    ),
-    ("baseline-few-shot", "experiments/configs/qwen25-05b/baseline/few-shot.yaml", "e"),
-    ("sft-zero-shot", "experiments/configs/qwen25-05b/sft/zero-shot.yaml", "te"),
-    ("grpo-zero-shot", "experiments/configs/qwen25-05b/grpo/zero-shot.yaml", "te"),
-    ("grpo-few-shot", "experiments/configs/qwen25-05b/grpo/few-shot.yaml", "te"),
-    (
-        "sft-grpo-zero-shot",
-        "experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml",
-        "te",
-    ),
-    (
-        "sft-grpo-few-shot",
-        "experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml",
-        "te",
-    ),
-    (
-        "ablations-decoding-no-grammar",
-        "experiments/configs/qwen25-05b/ablations/decoding/no-grammar.yaml",
-        "te",
-    ),
-    (
-        "ablations-decoding-hot-rollout",
-        "experiments/configs/qwen25-05b/ablations/decoding/hot-rollout.yaml",
-        "te",
-    ),
-    (
-        "ablations-rewards-edit-validity",
-        "experiments/configs/qwen25-05b/ablations/rewards/edit-validity.yaml",
-        "te",
-    ),
-    (
-        "ablations-rewards-historical-stack",
-        "experiments/configs/qwen25-05b/ablations/rewards/historical-stack.yaml",
-        "te",
-    ),
-    (
-        "ablations-loss-dr-grpo",
-        "experiments/configs/qwen25-05b/ablations/loss/dr-grpo.yaml",
-        "te",
-    ),
-    (
-        "ablations-objectives-sft-allowed-mass",
-        "experiments/configs/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml",
-        "te",
-    ),
-    (
-        "ablations-objectives-sft-structured",
-        "experiments/configs/qwen25-05b/ablations/objectives/sft-structured.yaml",
-        "te",
-    ),
-]
-
-
-def _ablation_queue() -> list[str]:
-    lines: list[str] = []
-    for tag, cfg, mode in EXPECTED_ABLATION_MODELS:
-        if mode == "e":
-            lines.append(f"eval:{cfg}:{tag}")
-        else:
-            lines.append(f"train:{cfg}:{tag}")
-            lines.append(f"eval:{cfg}:{tag}")
-    return lines
-
 
 class FakeClusterSSH:
     """Doppio di ClusterSSH: stato in memoria + log dei comandi remoti.
@@ -324,7 +249,7 @@ def test_auth_required_401(client):
         test_client.post("/jobs", json={"type": "train", "config": "sft"}).status_code
         == 401
     )
-    assert test_client.post("/queue", json={"ablation": True}).status_code == 401
+    assert test_client.post("/queue", json={"jobs": []}).status_code == 401
     assert test_client.delete("/jobs/foo").status_code == 401
     assert test_client.post("/pause").status_code == 401
     assert test_client.post("/resume").status_code == 401
@@ -566,23 +491,6 @@ def test_jobs_validation(client):
 # ── /queue ────────────────────────────────────────────────────────────────────
 
 
-def test_ablation_order_matches_run_all(client):
-    # Pin dell'ordine: app.ABLATION_MODELS deve coincidere con run_all.sh (MODELS)
-    assert app_module.ABLATION_MODELS == EXPECTED_ABLATION_MODELS
-
-
-def test_queue_replace_ablation_shortcut(client):
-    test_client, fake = client
-    resp = test_client.post("/queue", headers=AUTH, json={"ablation": True})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["count"] == 27  # 15 celle: 3 eval-only + 12 train+eval
-    expected = _ablation_queue()
-    assert body["queue"] == expected
-    assert fake.queue == expected
-    assert " rewrite_queue " in fake.commands[-1]
-
-
 def test_queue_replace_explicit_jobs(client):
     test_client, _ = client
     resp = test_client.post(
@@ -602,15 +510,22 @@ def test_queue_replace_explicit_jobs(client):
     ]
 
 
+def test_queue_replace_empty_jobs_clears_queue(client):
+    test_client, fake = client
+    test_client.post(
+        "/queue",
+        headers=AUTH,
+        json={"jobs": [{"type": "eval", "config": "sft-zero-shot"}]},
+    )
+    resp = test_client.post("/queue", headers=AUTH, json={"jobs": []})
+    assert resp.status_code == 200
+    assert resp.json()["queue"] == []
+    assert fake.queue == []
+
+
 def test_queue_validation(client):
     test_client, fake = client
     assert test_client.post("/queue", headers=AUTH, json={}).status_code == 422
-    assert (
-        test_client.post(
-            "/queue", headers=AUTH, json={"ablation": True, "jobs": []}
-        ).status_code
-        == 422
-    )
     assert not fake.commands
 
 
@@ -641,13 +556,23 @@ def test_delete_jobs_by_tag(client):
 
 def test_delete_jobs_unknown_tag_no_rewrite(client):
     test_client, fake = client
-    test_client.post("/queue", headers=AUTH, json={"ablation": True})
+    test_client.post(
+        "/queue",
+        headers=AUTH,
+        json={
+            "jobs": [
+                {"type": "eval", "config": "sft-zero-shot"},
+                {"type": "train", "config": "grpo-few-shot", "tag": "exp1"},
+                {"type": "eval", "config": "grpo-few-shot", "tag": "exp1"},
+            ]
+        },
+    )
     n_before = len(fake.commands)
     resp = test_client.delete("/jobs/tag-inesistente", headers=AUTH)
     assert resp.status_code == 200
     assert resp.json()["removed"] == 0
     assert len(fake.commands) == n_before + 1  # solo lo status, niente rewrite
-    assert len(fake.queue) == 27
+    assert len(fake.queue) == 3
 
 
 # ── /pause / /resume ───────────────────────────────────────────────────────────
@@ -1626,6 +1551,6 @@ def test_configs_exposes_known_config_map(client):
     assert r.status_code == 200
     body = r.json()
     names = [c["name"] for c in body["configs"]]
-    assert len(names) == len(app_module.CONFIG_MAP) == 15
+    assert len(names) == len(app_module.CONFIG_MAP) == 20
     assert "sft-grpo-zero-shot" in names
     assert all(c["path"] for c in body["configs"])

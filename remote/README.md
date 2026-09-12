@@ -345,7 +345,7 @@ Render (`...onrender.com`).
 | `POST /jobs/start`   | accoda + tick immediato, **1 sola ssh** → 201 + snapshot monitor + `started_now`                                                                                  |
 | `POST /jobs/batch`   | accoda più job (+ tick se `start_now`), **1 sola ssh** → 201 + snapshot + `started_now` + `queued`                                                               |
 | `DELETE /jobs/{tag}` | rimuove tutti i job col tag dato (riscrive`job_chain` filtrato)                                                                                                  |
-| `POST /queue`        | rimpiazza la coda:`{jobs: [...]}` oppure `{ablation: true}` (ordine esatto di `run_all.sh`)                                                                  |
+| `POST /queue`        | rimpiazza la coda con una lista job già risolta:`{jobs: [...]}` (lista vuota = svuota la coda)                                                             |
 | `POST /pause`        | crea`chain_stopped` sul cluster                                                                                                                                  |
 | `POST /resume`       | rimuove`chain_stopped` + tick immediato                                                                                                                          |
 | `POST /tick`         | tick manuale (comodo per testare senza cronjob.org)                                                                                                                |
@@ -371,9 +371,12 @@ curl -X POST -H "X-Auth-Token: $TOKEN" -H "Content-Type: application/json" \
 curl -X POST -H "X-Auth-Token: $TOKEN" -H "Content-Type: application/json" \
      -d '{"type":"train","config":"sft-grpo","mode":"--resume"}' $BASE/jobs
 
-# ablation completa (stesso ordine di run_all.sh --ablation)
+# rimpiazza l'intera coda con una lista già risolta (i "preset"/tier vivono
+# SOLO nel TUI, remote/presets.yaml — il servizio non conosce quel concetto,
+# vede solo job già risolti; vedi remote/tui.py PresetsScreen)
 curl -X POST -H "X-Auth-Token: $TOKEN" -H "Content-Type: application/json" \
-     -d '{"ablation": true}' $BASE/queue
+     -d '{"jobs": [{"type":"train","config":"sft-grpo-few-shot"},{"type":"eval","config":"sft-grpo-few-shot"}]}' \
+     $BASE/queue
 
 # pausa / riprendi
 curl -X POST -H "X-Auth-Token: $TOKEN" $BASE/pause
@@ -494,8 +497,9 @@ il filesystem. Conseguenze (documentate per design):
 
 Client **TUI** (app Textual, nessun REPL) per pilotare il driver da remoto
 direttamente dal terminale, Windows/pwsh incluso: dashboard di stato, coda
-job, accodamento, rimpiazzo dell'intera coda (incl. ablation completa),
-pause/resume e tick manuale.
+job, accodamento, rimpiazzo dell'intera coda, preset di job predefiniti
+("tier", uno o più insieme e nell'ordine scelto — vedi §9.1), pause/resume
+e tick manuale.
 
 ### Requisiti
 
@@ -532,18 +536,24 @@ solo come riga `T2G_AUTH_TOKEN=...`.
 
 ### Mappa tasti
 
-| Tasto   | Schermata         | Azione                                                        |
-| ------- | ----------------- | ------------------------------------------------------------- |
-| `r`   | Dashboard / Queue | refresh manuale                                               |
-| `g`   | Dashboard         | apri la coda                                                  |
-| `a`   | Dashboard / Queue | apri il form "aggiungi job"                                   |
-| `w`   | Dashboard         | apri "rimpiazza coda"                                         |
-| `p`   | Dashboard         | `POST /pause` (soft stop: nessuna nuova sottomissione)      |
-| `R`   | Dashboard         | `POST /resume` (rimuove `chain_stopped` + tick immediato) |
-| `t`   | Dashboard         | `POST /tick` manuale (spinner durante la chiamata)          |
-| `d`   | Queue             | cancella per tag (con conferma)                               |
-| `Esc` | Queue / form      | torna alla dashboard                                          |
-| `q`   | ovunque           | esci                                                          |
+| Tasto   | Schermata                     | Azione                                                        |
+| ------- | ------------------------------ | ------------------------------------------------------------- |
+| `r`   | Dashboard / Queue / Log / Presets / Results | refresh manuale (Presets: ricarica `presets.yaml`) |
+| `g`   | Dashboard                      | apri la coda                                                  |
+| `a`   | Dashboard / Queue              | apri il form "aggiungi job" (accoda)                           |
+| `s`   | Dashboard                      | apri il form "aggiungi job" in modalità avvia-subito           |
+| `S`   | Dashboard                      | apri "avvio batch" (multi-config con checkbox)                 |
+| `P`   | Dashboard                      | apri **Presets** (§9.1): uno o più preset predefiniti, in ordine |
+| `w`   | Dashboard                      | apri "rimpiazza coda" (custom, riga per riga)                  |
+| `k`   | Dashboard                      | `KILL` del job attivo (con conferma)                         |
+| `p`   | Dashboard                      | `POST /pause` (soft stop: nessuna nuova sottomissione)      |
+| `R`   | Dashboard                      | `POST /resume` (rimuove `chain_stopped` + tick immediato) |
+| `t`   | Dashboard                      | `POST /tick` manuale (spinner durante la chiamata)          |
+| `L`   | Dashboard                      | log a schermo intero del job attivo                            |
+| `v`   | Dashboard                      | risultati eval per config                                     |
+| `d`   | Queue                          | cancella per tag (con conferma)                               |
+| `Esc` | ogni schermata satellite       | torna alla dashboard                                          |
+| `q`   | ovunque                        | esci                                                          |
 
 ### Schermate
 
@@ -555,15 +565,38 @@ solo come riga `T2G_AUTH_TOKEN=...`.
   5, in rosso) ed **eventi recenti** (ultimi 8, colorati per tipo).
 - **Queue**: `DataTable` con posizione, tipo, config (basename) e tag di ogni
   job; `d` cancella per tag (con conferma), `a` apre il form.
-- **Add job**: form con Select tipo (`train`/`eval`), Select config (i 12 nomi
+- **Add job**: form con Select tipo (`train`/`eval`), Select config (i nomi
   noti) e Input tag opzionale, precompilato col default derivato dal config
   (`_` → `-`, stessa regola del driver).
-- **Replace queue**: due azioni — "Ablation completa (12 config → 22 job)" e
-  "custom" (una `tipo:config[:tag]` per riga; le righe che iniziano con `#`
-  sono ignorate). Entrambe chiedono conferma e avvisano che la coda esistente
-  viene **SOSTITUITA**.
+- **Presets** (§9.1, binding `P`): uno o più job predefiniti ("tier"), scelti
+  da `remote/presets.yaml` (file **locale**, mai inviato al servizio) e messi
+  in coda in un ordine scelto liberamente, non necessariamente uno alla
+  volta.
+- **Replace queue** (binding `w`): coda **custom**, una `tipo:config[:tag]`
+  per riga (le righe che iniziano con `#` sono ignorate) — per i preset
+  predefiniti usa Presets invece. Chiede conferma e avvisa che la coda
+  esistente viene **SOSTITUITA**.
 - **Config** (solo al primo avvio senza env/.env): URL + token, salvati nel
   `.env` locale.
+
+#### 9.1 Preset di job ("tier") — `remote/presets.yaml`
+
+I preset sono gruppi di job nominati e ordinati (es. "Tier 1 — Nucleo"),
+definiti in `remote/presets.yaml`: un file **letto solo dal TUI**
+(`remote/presets.py`), mai importato da `remote/app.py` e mai inviato al
+servizio così com'è — il servizio (Render) riceve sempre e solo la lista di
+job già risolta (`{type, config, tag, mode}`), lo stesso contratto minimo
+di `POST /jobs/batch`/`POST /queue`. Aggiungere, modificare o riordinare un
+preset è quindi un'edit locale: **non serve ridistribuire nulla su Render**.
+
+Nella schermata Presets: evidenzia un preset a sinistra ("Disponibili") e
+"Aggiungi ▸" lo sposta in "Ordine di lancio" a destra — puoi aggiungerne
+più di uno, e riordinarli con "▲ Su"/"▼ Giù"/"◂ Rimuovi" prima di lanciare.
+"Lancia" concatena i job di tutti i preset scelti, nell'ordine mostrato a
+destra, e li manda in **append** (`POST /jobs/batch`, si aggiungono alla
+coda esistente) o in **sostituisci** (`POST /queue`, la coda esistente viene
+rimpiazzata), con "Avvia subito" per un tick immediato invece di aspettare
+il prossimo hook esterno (cronjob.org, ogni 5 min di norma).
 
 Gli esiti arrivano come toast Textual: **verde** per le operazioni riuscite,
 **rosso** con dettaglio per gli errori.

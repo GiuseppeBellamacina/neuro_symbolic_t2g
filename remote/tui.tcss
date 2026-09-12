@@ -1,5 +1,14 @@
 /* tui.tcss — stili della TUI del driver T2G (remote/tui.py, CSS_PATH).
  *
+ * Tema: Tokyo Night (App.theme in tui.py, uno dei temi integrati di
+ * Textual) — qui sotto solo layout/gerarchia visiva sopra i suoi design
+ * token ($primary/$accent/$success/$warning/$error/...), niente colori
+ * fissi: cambiando tema dalla command palette (ctrl+p) tutto si riadatta.
+ *
+ * Gerarchia visiva deliberata: il job attivo (#job-box) è il pannello più
+ * importante dello schermo, quindi l'unico con bordo "heavy" e colore
+ * accent — ogni altro pannello resta "round"/$panel, un gradino sotto.
+ *
  * Pannelli della dashboard: job attivo (testo + ProgressBar + sparkline
  * loss/reward), completion samples, log tail, coda + eventi affiancati
  * (DataTable). Il file vive accanto a tui.py: Textual lo risolve
@@ -25,6 +34,7 @@ Screen {
 .title {
     height: auto;
     padding: 0 1;
+    color: $accent;
     text-style: bold;
 }
 
@@ -44,11 +54,12 @@ Screen {
     height: 3;
 }
 
-/* ── Job attivo: riepilogo + avanzamento + sparkline per-step ─────────── */
+/* ── Job attivo: il pannello "hero" — riepilogo + avanzamento + sparkline ── */
 
 #job-box {
     height: auto;
-    border: round $primary;
+    border: heavy $accent;
+    background: $panel;
     padding: 0 1;
     margin: 0 1 1 1;
 }
@@ -94,14 +105,14 @@ Screen {
 
 #samples-panel {
     height: 1fr;
-    border: round $primary;
+    border: round $success;
     padding: 0 1;
     margin: 0 1 1 1;
 }
 
 #tail-panel {
     height: 1fr;
-    border: round $panel;
+    border: round $panel-lighten-2;
     padding: 0 1;
     margin: 0 1 1 1;
 }
@@ -120,7 +131,7 @@ Screen {
 #queue-panel, #events-panel {
     width: 1fr;
     height: 1fr;
-    border: round $panel;
+    border: round $panel-lighten-2;
 }
 
 #events-panel {
@@ -136,7 +147,7 @@ Screen {
 
 #big-log {
     height: 1fr;
-    border: round $primary;
+    border: heavy $accent;
     padding: 0 1;
     margin: 0 1 1 1;
 }
@@ -162,13 +173,70 @@ Screen {
 
 #reward-panel {
     height: auto;
-    border: round $panel;
+    border: round $panel-lighten-2;
     padding: 0 1;
     margin-top: 1;
 }
 
 #reward-bars {
     height: auto;
+}
+
+/* ── Preset ("tier"), uno o più insieme e nell'ordine scelto (binding P) ── */
+/* remote/presets.yaml è locale: questa schermata non fa mai richieste finché
+ * non si preme Lancia — nessuno stato di rete da riflettere qui. */
+
+#preset-columns {
+    height: 1fr;
+    margin: 0 1 1 1;
+}
+
+.preset-col {
+    width: 1fr;
+    height: 1fr;
+    border: round $panel-lighten-2;
+}
+
+#preset-available-col {
+    border-title-color: $accent;
+}
+
+#preset-selected-col {
+    border-title-color: $success;
+}
+
+#preset-available, #preset-selected {
+    height: 1fr;
+    margin: 0;
+}
+
+#preset-controls-col {
+    width: 18;
+    height: 1fr;
+    align: center middle;
+    padding: 0 1;
+}
+
+#preset-controls-col Button {
+    width: 100%;
+    margin: 0 0 1 0;
+}
+
+#preset-summary {
+    margin: 0 1 1 1;
+}
+
+#preset-launch-row {
+    height: auto;
+    margin: 0 1 1 1;
+}
+
+#preset-launch-row Select {
+    width: 2fr;
+}
+
+#preset-launch-row Checkbox {
+    width: 1fr;
 }
 
 /* ── Widget comuni ────────────────────────────────────────────────────── */
@@ -191,8 +259,8 @@ ConfirmScreen {
 ConfirmScreen > Vertical {
     width: 76;
     height: auto;
-    border: round $error;
-    background: $surface;
+    border: heavy $error;
+    background: $panel;
     padding: 1 2;
 }
 

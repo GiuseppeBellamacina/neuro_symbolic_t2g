@@ -150,83 +150,14 @@ CONFIG_MAP: dict[str, str] = {
     "ablations-loss-dr-grpo": "experiments/configs/qwen25-05b/ablations/loss/dr-grpo.yaml",
     "ablations-objectives-sft-allowed-mass": "experiments/configs/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml",
     "ablations-objectives-sft-structured": "experiments/configs/qwen25-05b/ablations/objectives/sft-structured.yaml",
+    "ablations-objectives-sft-structured-shuffled": "experiments/configs/qwen25-05b/ablations/objectives/sft-structured-shuffled.yaml",
+    "ablations-loss-low-beta": "experiments/configs/qwen25-05b/ablations/loss/low-beta.yaml",
+    "ablations-rewards-lean-stack": "experiments/configs/qwen25-05b/ablations/rewards/lean-stack.yaml",
+    "ablations-glossary-zero-shot": "experiments/configs/qwen25-05b/ablations/glossary/zero-shot.yaml",
+    "ablations-glossary-few-shot": "experiments/configs/qwen25-05b/ablations/glossary/few-shot.yaml",
 }
 
 CONFIG_PATHS: set[str] = set(CONFIG_MAP.values())
-
-# Campagna completa in ORDINE DI RIUSO (massimizza elementi già
-# addestrati/valutati): baselines eval-only prime (baseline/zero-shot COL Trie
-# CACHEA la baseline --compare per tutte le celle successive),
-# sft/zero-shot addestra l'adapter SFT che TUTTE le celle sft-grpo riusano via
-# fingerprint cross-tag (match garantito da sft_pretrain identico), poi le
-# celle GRPO riusano SFT + baseline.
-# MODE: e = eval-only · te = train+eval. Tag = path relativo a qwen25-05b,
-# slash → trattini (safe per SLURM/monitor, allineato a cluster/run_all.sh).
-ABLATION_MODELS: list[tuple[str, str, str]] = [
-    # 1-3. Baseline eval-only (~zero costo)
-    (
-        "baseline-zero-shot",
-        "experiments/configs/qwen25-05b/baseline/zero-shot.yaml",
-        "e",
-    ),
-    (
-        "baseline-zero-shot-no-grammar",
-        "experiments/configs/qwen25-05b/baseline/zero-shot-no-grammar.yaml",
-        "e",
-    ),
-    ("baseline-few-shot", "experiments/configs/qwen25-05b/baseline/few-shot.yaml", "e"),
-    # 4. SFT-only: addestra l'adapter SFT
-    ("sft-zero-shot", "experiments/configs/qwen25-05b/sft/zero-shot.yaml", "te"),
-    # 5-8. Celle GRPO / SFT→GRPO
-    ("grpo-zero-shot", "experiments/configs/qwen25-05b/grpo/zero-shot.yaml", "te"),
-    ("grpo-few-shot", "experiments/configs/qwen25-05b/grpo/few-shot.yaml", "te"),
-    (
-        "sft-grpo-zero-shot",
-        "experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml",
-        "te",
-    ),
-    (
-        "sft-grpo-few-shot",
-        "experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml",
-        "te",
-    ),
-    # 9-15. Ablazioni (un fattore alla volta, riusano SFT + baseline)
-    (
-        "ablations-decoding-no-grammar",
-        "experiments/configs/qwen25-05b/ablations/decoding/no-grammar.yaml",
-        "te",
-    ),
-    (
-        "ablations-decoding-hot-rollout",
-        "experiments/configs/qwen25-05b/ablations/decoding/hot-rollout.yaml",
-        "te",
-    ),
-    (
-        "ablations-rewards-edit-validity",
-        "experiments/configs/qwen25-05b/ablations/rewards/edit-validity.yaml",
-        "te",
-    ),
-    (
-        "ablations-rewards-historical-stack",
-        "experiments/configs/qwen25-05b/ablations/rewards/historical-stack.yaml",
-        "te",
-    ),
-    (
-        "ablations-loss-dr-grpo",
-        "experiments/configs/qwen25-05b/ablations/loss/dr-grpo.yaml",
-        "te",
-    ),
-    (
-        "ablations-objectives-sft-allowed-mass",
-        "experiments/configs/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml",
-        "te",
-    ),
-    (
-        "ablations-objectives-sft-structured",
-        "experiments/configs/qwen25-05b/ablations/objectives/sft-structured.yaml",
-        "te",
-    ),
-]
 
 HELPER_NAME = "cluster_helper.sh"  # file locale in remote/ (per auto-install scp)
 HELPER_REMOTE = "~/neuro_symbolic_t2g/cluster/cluster_helper.sh"  # path sul cluster
@@ -781,21 +712,17 @@ def build_entry(job: "JobIn") -> str:
 
 
 def build_queue_lines(payload: "QueueIn") -> list[str]:
-    """Espande {ablation: true} o {jobs: [...]} nelle entry di coda."""
-    if payload.ablation and payload.jobs is not None:
-        raise HTTPException(422, "indicare 'ablation' OPPURE 'jobs', non entrambi")
-    if payload.ablation:
-        lines: list[str] = []
-        for tag, cfg, mode in ABLATION_MODELS:
-            if mode == "e":  # eval-only
-                lines.append(f"eval:{cfg}:{tag}")
-            else:  # "te" → train + eval
-                lines.append(f"train:{cfg}:{tag}")
-                lines.append(f"eval:{cfg}:{tag}")
-        return lines
+    """Espande {jobs: [...]} nelle entry di coda.
+
+    Nessuna nozione di "campagna"/preset qui: il servizio riceve SOLO la
+    lista già risolta di job (type/config/tag/mode). Le combinazioni
+    (tier, campagne, ordine di lancio) vivono lato client, in
+    ``remote/presets.yaml`` — file locale mai inviato al servizio — cosi'
+    aggiungere o riordinare un preset non richiede un redeploy su Render.
+    """
     if payload.jobs is None:
         raise HTTPException(
-            422, "corpo richiesto: {'jobs': [...]} oppure {'ablation': true}"
+            422, "corpo richiesto: {'jobs': [...]} (lista vuota = svuota la coda)"
         )
     return [build_entry(j) for j in payload.jobs]
 
@@ -882,7 +809,6 @@ class JobIn(BaseModel):
 
 class QueueIn(BaseModel):
     jobs: list[JobIn] | None = None
-    ablation: bool = False
 
 
 class BatchStartIn(BaseModel):
@@ -932,11 +858,11 @@ def add_job(payload: JobIn) -> dict:
 
 @app.post("/queue", dependencies=[Depends(require_auth)])
 def replace_queue(payload: QueueIn) -> dict:
-    """Rimpiazza l'intera coda: {jobs: [...]} oppure {ablation: true}."""
+    """Rimpiazza l'intera coda con una lista di job già risolta: {jobs: [...]}."""
     lines = build_queue_lines(payload)
     with _cluster() as ssh:
         state = _helper_do(ssh, "rewrite_queue", "\x1f".join(lines))
-    _add_event("queue_replace", f"{len(lines)} entry (ablation={payload.ablation})")
+    _add_event("queue_replace", f"{len(lines)} entry")
     return {
         "queue": state["queue"],
         "count": len(state["queue"]),

@@ -1,0 +1,100 @@
+# remote/presets.yaml — job presets ("tiers") for the TUI's Presets screen.
+#
+# LOCAL FILE, read only by remote/tui.py (remote/presets.py). remote/app.py
+# never imports this and never sees a preset id — the TUI resolves whichever
+# preset(s) the user picks into a plain job list ({type, config, tag, mode})
+# and sends THAT to the existing POST /jobs/batch (append) or POST /queue
+# (replace) endpoints, the same contract any single ad-hoc job already uses.
+# So: edit this file freely, reorder/add/remove presets, no Render redeploy.
+#
+# `config` values are the short names from remote/app.py:CONFIG_MAP (also
+# GET /configs). `tag` is set explicitly and equal to `config` on every job:
+# left to auto-derive (from the YAML filename stem) it collides across cells
+# that share a stem, e.g. every "zero-shot" cell would tag as "zero-shot".
+#
+# Order of presets here is also the order they're offered in the picker, but
+# what actually matters for a launch is the order the USER puts them in
+# (PresetsScreen lets you queue several presets together, reordered freely).
+#
+# Tiers below mirror the priority discussed for the post-wipe campaign:
+# Tier 0 is a cheap canary, Tier 1 is the core that can flip Finding 1,
+# Tier 2-4 are decreasing marginal value. See docs/latex or FINDINGS.md for
+# the full reasoning; this file only needs to stay in sync with which
+# configs exist (experiments/configs/qwen25-05b/**).
+
+presets:
+  - id: tier0-canary
+    label: "Tier 0 — Canarino"
+    description: >-
+      Le 3 baseline eval-only (~90 min totali). Verifica che il codice appena
+      caricato funzioni prima di impegnare un job lungo — non un risultato di
+      per sé, un test di fumo.
+    jobs:
+      - {type: eval, config: baseline-zero-shot, tag: baseline-zero-shot}
+      - {type: eval, config: baseline-zero-shot-no-grammar, tag: baseline-zero-shot-no-grammar}
+      - {type: eval, config: baseline-few-shot, tag: baseline-few-shot}
+
+  - id: tier1-core
+    label: "Tier 1 — Nucleo (Finding 1)"
+    description: >-
+      sft-grpo/few-shot per prima: e' l'unica cella dove convergono i due bug
+      appena corretti (non completava mai il training; l'eval ignorava la
+      fase SFT). sft-grpo/zero-shot riusa il suo adapter SFT. Poi grpo/* e
+      sft/zero-shot da soli, per i riferimenti.
+    jobs:
+      - {type: train, config: sft-grpo-few-shot, tag: sft-grpo-few-shot}
+      - {type: eval, config: sft-grpo-few-shot, tag: sft-grpo-few-shot}
+      - {type: train, config: sft-grpo-zero-shot, tag: sft-grpo-zero-shot}
+      - {type: eval, config: sft-grpo-zero-shot, tag: sft-grpo-zero-shot}
+      - {type: train, config: grpo-zero-shot, tag: grpo-zero-shot}
+      - {type: eval, config: grpo-zero-shot, tag: grpo-zero-shot}
+      - {type: train, config: grpo-few-shot, tag: grpo-few-shot}
+      - {type: eval, config: grpo-few-shot, tag: grpo-few-shot}
+      - {type: train, config: sft-zero-shot, tag: sft-zero-shot}
+      - {type: eval, config: sft-zero-shot, tag: sft-zero-shot}
+
+  - id: tier2-highvalue
+    label: "Tier 2 — Alto rapporto informazione/costo"
+    description: >-
+      Il vincolo simbolico (no-grammar), l'ipotesi di collasso di varianza
+      (hot-rollout, riusa l'SFT del Tier 1), e le due loss ausiliarie SFT —
+      structured + il suo controllo GATE 2 (shuffled), e allowed-mass.
+    jobs:
+      - {type: train, config: ablations-decoding-no-grammar, tag: ablations-decoding-no-grammar}
+      - {type: eval, config: ablations-decoding-no-grammar, tag: ablations-decoding-no-grammar}
+      - {type: train, config: ablations-decoding-hot-rollout, tag: ablations-decoding-hot-rollout}
+      - {type: eval, config: ablations-decoding-hot-rollout, tag: ablations-decoding-hot-rollout}
+      - {type: train, config: ablations-objectives-sft-structured, tag: ablations-objectives-sft-structured}
+      - {type: eval, config: ablations-objectives-sft-structured, tag: ablations-objectives-sft-structured}
+      - {type: train, config: ablations-objectives-sft-structured-shuffled, tag: ablations-objectives-sft-structured-shuffled}
+      - {type: eval, config: ablations-objectives-sft-structured-shuffled, tag: ablations-objectives-sft-structured-shuffled}
+      - {type: train, config: ablations-objectives-sft-allowed-mass, tag: ablations-objectives-sft-allowed-mass}
+      - {type: eval, config: ablations-objectives-sft-allowed-mass, tag: ablations-objectives-sft-allowed-mass}
+
+  - id: tier3-rewards-loss
+    label: "Tier 3 — Reward e loss"
+    description: >-
+      Valore marginale piu' contenuto: edit-validity, historical-stack e
+      lean-stack (riusa l'SFT del Tier 1), dr-grpo, low-beta (idem).
+    jobs:
+      - {type: train, config: ablations-rewards-edit-validity, tag: ablations-rewards-edit-validity}
+      - {type: eval, config: ablations-rewards-edit-validity, tag: ablations-rewards-edit-validity}
+      - {type: train, config: ablations-rewards-historical-stack, tag: ablations-rewards-historical-stack}
+      - {type: eval, config: ablations-rewards-historical-stack, tag: ablations-rewards-historical-stack}
+      - {type: train, config: ablations-rewards-lean-stack, tag: ablations-rewards-lean-stack}
+      - {type: eval, config: ablations-rewards-lean-stack, tag: ablations-rewards-lean-stack}
+      - {type: train, config: ablations-loss-dr-grpo, tag: ablations-loss-dr-grpo}
+      - {type: eval, config: ablations-loss-dr-grpo, tag: ablations-loss-dr-grpo}
+      - {type: train, config: ablations-loss-low-beta, tag: ablations-loss-low-beta}
+      - {type: eval, config: ablations-loss-low-beta, tag: ablations-loss-low-beta}
+
+  - id: tier4-glossary
+    label: "Tier 4 — Glossario (meccanismo nuovo)"
+    description: >-
+      Mai testato: iniezione del glossario di parole rare solo in training
+      (mai in eval), con dropout. zero-shot e few-shot.
+    jobs:
+      - {type: train, config: ablations-glossary-zero-shot, tag: ablations-glossary-zero-shot}
+      - {type: eval, config: ablations-glossary-zero-shot, tag: ablations-glossary-zero-shot}
+      - {type: train, config: ablations-glossary-few-shot, tag: ablations-glossary-few-shot}
+      - {type: eval, config: ablations-glossary-few-shot, tag: ablations-glossary-few-shot}

@@ -53,6 +53,7 @@ from textual.widgets import (
     Header,
     Input,
     LoadingIndicator,
+    OptionList,
     ProgressBar,
     RichLog,
     Select,
@@ -60,6 +61,17 @@ from textual.widgets import (
     Static,
     TextArea,
 )
+from textual.widgets.option_list import Option
+
+try:  # pacchetto (pytest: `from remote import tui`) → import assoluto
+    from remote.presets import PresetDef, PresetsError, load_presets, resolve_jobs
+except ImportError:  # script diretto (`python remote/tui.py`): remote/ e' sys.path[0]
+    from presets import (  # type: ignore[no-redef]
+        PresetDef,
+        PresetsError,
+        load_presets,
+        resolve_jobs,
+    )
 
 # ── Config noti al driver (stessi nomi di remote/app.py:CONFIG_MAP) ──────────
 
@@ -76,9 +88,14 @@ CONFIG_NAMES: tuple[str, ...] = (
     "ablations-decoding-hot-rollout",
     "ablations-rewards-edit-validity",
     "ablations-rewards-historical-stack",
+    "ablations-rewards-lean-stack",
     "ablations-loss-dr-grpo",
+    "ablations-loss-low-beta",
     "ablations-objectives-sft-allowed-mass",
     "ablations-objectives-sft-structured",
+    "ablations-objectives-sft-structured-shuffled",
+    "ablations-glossary-zero-shot",
+    "ablations-glossary-few-shot",
 )
 CONFIG_NAME_SET: frozenset[str] = frozenset(CONFIG_NAMES)
 
@@ -300,16 +317,9 @@ class RemoteServiceClient:
             payload["mode"] = mode
         return self._request("POST", "/jobs", json=payload)
 
-    def replace_queue(
-        self,
-        jobs: list[dict[str, str]] | None = None,
-        ablation: bool = False,
-    ) -> dict[str, Any]:
-        """POST /queue → rimpiazza la coda (``{jobs:[...]}`` o ``{ablation:true}``)."""
-        payload: dict[str, Any] = (
-            {"ablation": ablation} if jobs is None else {"jobs": jobs}
-        )
-        return self._request("POST", "/queue", json=payload)
+    def replace_queue(self, jobs: list[dict[str, str]]) -> dict[str, Any]:
+        """POST /queue {jobs:[...]} → rimpiazza l'intera coda (lista vuota = svuota)."""
+        return self._request("POST", "/queue", json={"jobs": jobs})
 
     def delete_job(self, tag: str) -> dict[str, Any]:
         """DELETE /jobs/{tag} → rimuove tutti i job col tag dato."""
@@ -662,8 +672,8 @@ class DashboardScreen(T2GScreen):
     tutto il resto resta pienamente utilizzabile.
 
     Binding: r refresh · g queue · a add · s job singolo · S batch · k kill ·
-    w replace · p pause · C campaign · R resume · t tick · L log fullscreen ·
-    v risultati.
+    w replace custom · P preset · p pause · R resume · t tick ·
+    L log fullscreen · v risultati.
     """
 
     BINDINGS = [
@@ -674,8 +684,8 @@ class DashboardScreen(T2GScreen):
         Binding("S", "start_batch", "Batch"),
         Binding("k", "kill_job", "KILL job"),
         Binding("w", "replace_queue", "Replace queue"),
+        Binding("P", "presets", "Presets"),
         Binding("p", "pause", "Pause"),
-        Binding("C", "campaign", "Campaign"),
         Binding("R", "resume", "Resume"),
         Binding("t", "tick", "Tick"),
         Binding("L", "log_full", "Log"),
@@ -753,8 +763,8 @@ class DashboardScreen(T2GScreen):
     def action_start_batch(self) -> None:
         self.t2g_app.switch_screen("batch_start")
 
-    def action_campaign(self) -> None:
-        self.t2g_app.switch_screen("campaign")
+    def action_presets(self) -> None:
+        self.t2g_app.switch_screen("presets")
 
     def action_results(self) -> None:
         self.t2g_app.switch_screen("results")
@@ -1685,99 +1695,24 @@ class ResultsScreen(T2GScreen):
         self.query_one("#reward-bars", Static).update("")
 
 
-# ── Campaign summary lines (reusable: shown in the CampaignScreen and in
-# the confirmation) — order = app.py ABLATION_MODELS (ordine di riuso). ───
-
-_CAMPAIGN_LINES: list[str] = [
-    "1. baseline-zero-shot               (eval-only) — base + Trie, CACHEA la baseline --compare",
-    "2. baseline-zero-shot-no-grammar    (eval-only) — lower bound senza vincolo",
-    "3. baseline-few-shot                (eval-only) — base + few-shot retrieval",
-    "4. sft-zero-shot                    (train+eval) — addestra l'adapter SFT",
-    "5. grpo-zero-shot                   (train+eval) — GRPO dal base, zero-shot",
-    "6. grpo-few-shot                    (train+eval) — GRPO dal base, few-shot",
-    "7. sft-grpo-zero-shot               (train+eval) — SFT→GRPO zero-shot",
-    "8. sft-grpo-few-shot                (train+eval) — SFT→GRPO few-shot",
-    "9. ablations-decoding-no-grammar    (train+eval) — GRPO senza vincolo simbolico",
-    "10. ablations-decoding-hot-rollout  (train+eval) — rollout sampler T=1.3",
-    "11. ablations-rewards-edit-validity (train+eval) — reward edit-validity singola",
-    "12. ablations-rewards-historical-stack (train+eval) — stack storico su init zero-shot",
-    "13. ablations-loss-dr-grpo          (train+eval) — obiettivo Dr-GRPO",
-    "14. ablations-objectives-sft-allowed-mass (train+eval) — SFT + massa ammessa",
-    "15. ablations-objectives-sft-structured   (train+eval) — SFT + loss strutturata",
-]
-
-
-class CampaignScreen(T2GScreen):
-    """Riepilogo della campagna completa in ordine di riuso (binding ``C``).
-
-    Mostra l'ordine di esecuzione con le note sul riuso (SFT adapter +
-    baseline cached), poi conferma prima di POST /queue {ablation: true} +
-    tick immediato.
-    """
-
-    BINDINGS = [Binding("escape", "go_back", "Back")]
-
-    def compose(self) -> ComposeResult:
-        yield Header()
-        yield Static("Campagna completa — ordine di riuso", classes="title")
-        yield Static(
-            "15 celle, 27 entry (3 eval-only + 24 train/eval).\n"
-            "L'ordine massimizza il riuso: la coda esistente viene SOSTITUITA.",
-            classes="hint",
-        )
-        yield Static(
-            "\n".join(f"  [dim]{line}[/dim]" for line in _CAMPAIGN_LINES),
-            classes="hint",
-        )
-        yield Button(
-            "Avvia campagna completa (SOSTITUISCE la coda + tick)",
-            variant="primary",
-            id="submit",
-        )
-        yield Footer()
-
-    def action_go_back(self) -> None:
-        self.t2g_app.switch_screen("dashboard")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "submit":
-            self.t2g_app.push_screen(
-                ConfirmScreen(
-                    "Avviare la CAMPAGNA COMPLETA?\n"
-                    "15 celle in ordine di riuso (27 entry).\n"
-                    "La coda esistente viene SOSTITUITA.\n"
-                    "Il primo job parte subito (tick immediato)."
-                ),
-                self._confirmed,
-            )
-
-    def _confirmed(self, ok: bool | None) -> None:
-        if ok:
-            self.t2g_app.run_worker(self.t2g_app.run_campaign())
-
-
 class ReplaceQueueScreen(T2GScreen):
-    """Rimpiazza l'intera coda: ablation completa o lista custom.
+    """Rimpiazza l'intera coda con una lista custom (binding ``w``).
 
-    Due modalità (entrambe con conferma, avvisano che la coda esistente viene
-    SOSTITUITA): ``Ablation completa`` (15 config → 27 entry, stesso ordine di
-    ``run_all.sh``) oppure coda custom, una ``tipo:config[:tag]`` per riga.
+    Una entry ``tipo:config[:tag]`` per riga. Per i preset predefiniti
+    (i "tier" di celle, uno o più insieme e nell'ordine scelto) vedi
+    ``PresetsScreen`` (binding ``P``) — qui resta il percorso libero,
+    manuale, per una coda che i preset non coprono.
     """
 
     BINDINGS = [Binding("escape", "go_back", "Back")]
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static("Rimpiazza la coda esistente", classes="title")
+        yield Static("Rimpiazza la coda esistente — coda custom", classes="title")
         yield Static(
-            "ATTENZIONE: la coda attuale viene SOSTITUITA dall'operazione.",
+            "ATTENZIONE: la coda attuale viene SOSTITUITA dall'operazione.\n"
+            "Per lanciare uno o più preset predefiniti, usa Presets (P) invece.",
             classes="hint",
-        )
-        yield Button(
-            "Ablation completa (15 config → 27 job)", variant="primary", id="ablation"
-        )
-        yield Static(
-            "…oppure definisci una coda custom (una entry per riga):", classes="hint"
         )
         yield Static(
             "Formato [b]tipo:config[:tag][/b] — es. [b]train:sft-grpo-few-shot[/b] "
@@ -1799,26 +1734,10 @@ class ReplaceQueueScreen(T2GScreen):
     # ── Eventi widget ──
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "ablation":
-            self.t2g_app.push_screen(
-                ConfirmScreen(
-                    "Avviare l'ABLATION COMPLETA?\n15 config → 27 entry. "
-                    "La coda esistente viene SOSTITUITA."
-                ),
-                self._confirmed_ablation,
-            )
-        elif event.button.id == "submit":
+        if event.button.id == "submit":
             self._submit_custom()
 
     # ── Interno ──
-
-    def _confirmed_ablation(self, ok: bool | None) -> None:
-        if ok:
-            self.t2g_app.run_worker(self.t2g_app.replace_queue(ablation=True))
-            # Torna SUBITO alla dashboard: il worker notifica l'esito, mentre
-            # restando sulla CampaignScreen i binding (g/r/a...) resterebbero
-            # inutilizzabili finche' il POST /queue non risponde (o per sempre).
-            self.t2g_app.switch_screen("dashboard")
 
     def _submit_custom(self) -> None:
         text = self.query_one("#custom", TextArea).text
@@ -1876,6 +1795,250 @@ class ReplaceQueueScreen(T2GScreen):
                 job["tag"] = parts[2].strip()
             jobs.append(job)
         return jobs
+
+
+class PresetsScreen(T2GScreen):
+    """Preset di job predefiniti ("tier"), uno o più insieme, in ordine
+    scelto (binding ``P``).
+
+    I preset vivono in ``remote/presets.yaml`` — file LOCALE, letto solo da
+    questa schermata: il servizio (Render) non ne sa nulla e non serve
+    ridistribuirlo per aggiungerne/modificarne uno. Il flusso:
+
+    1. "Disponibili" (sinistra) elenca i preset del file, con conteggio job.
+    2. "Aggiungi ▸" sposta il preset evidenziato in "Ordine di lancio"
+       (destra), in coda alla sequenza scelta finora.
+    3. "▲ Su"/"▼ Giù"/"◂ Rimuovi" riordinano o tolgono un preset già in
+       sequenza — l'ordine a destra è l'ordine ESATTO in cui i suoi job
+       finiranno in coda.
+    4. "Lancia" risolve la sequenza in una lista piatta di job e la manda
+       all'endpoint esistente (append: POST /jobs/batch, sostituisci:
+       POST /queue) — lo stesso contratto {type, config, tag, mode} di un
+       job singolo: il servizio non vede mai un "preset", solo job già
+       risolti.
+    """
+
+    BINDINGS = [
+        Binding("r", "reload_presets", "Ricarica preset"),
+        Binding("escape", "go_back", "Back"),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._presets: list[PresetDef] = []
+        self._by_id: dict[str, PresetDef] = {}
+        self._sequence: list[str] = []
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static("Preset — uno o più tier, nell'ordine che scegli", classes="title")
+        yield Static(
+            "Evidenzia un preset a sinistra e premi Aggiungi ▸ — puoi aggiungerne "
+            "più di uno, e riordinarli con ▲/▼ prima di lanciare.",
+            classes="hint",
+        )
+        with Horizontal(id="preset-columns"):
+            with Vertical(id="preset-available-col", classes="preset-col"):
+                yield OptionList(id="preset-available")
+            with Vertical(id="preset-controls-col"):
+                yield Button("Aggiungi ▸", id="preset-add")
+                yield Button("◂ Rimuovi", id="preset-remove")
+                yield Button("▲ Su", id="preset-up")
+                yield Button("▼ Giù", id="preset-down")
+            with Vertical(id="preset-selected-col", classes="preset-col"):
+                yield OptionList(id="preset-selected")
+        yield Static("Nessun preset selezionato.", id="preset-summary", classes="hint")
+        with Horizontal(id="preset-launch-row"):
+            yield Select(
+                [
+                    ("Aggiungi in coda (append)", "append"),
+                    ("Sostituisci la coda (replace)", "replace"),
+                ],
+                value="append",
+                id="preset-mode",
+            )
+            yield Checkbox(
+                "Avvia subito (tick immediato)", value=True, id="preset-start-now"
+            )
+        yield Button("Lancia", variant="primary", id="preset-launch")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one("#preset-available-col").border_title = "Disponibili"
+        self.query_one("#preset-selected-col").border_title = "Ordine di lancio"
+        self._load()
+
+    # ── Azioni (binding) ──
+
+    def action_go_back(self) -> None:
+        self.t2g_app.switch_screen("dashboard")
+
+    def action_reload_presets(self) -> None:
+        self._load()
+        self.t2g_app.notify(
+            f"[green]Preset ricaricati: {len(self._presets)}[/green]",
+            severity="information",
+            timeout=4,
+        )
+
+    # ── Eventi widget ──
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        handler = {
+            "preset-add": self._add_highlighted,
+            "preset-remove": self._remove_highlighted,
+            "preset-up": lambda: self._move_highlighted(-1),
+            "preset-down": lambda: self._move_highlighted(1),
+            "preset-launch": self._launch,
+        }.get(event.button.id or "")
+        if handler is not None:
+            handler()
+
+    # ── Interno: caricamento ──
+
+    def _load(self) -> None:
+        """Legge remote/presets.yaml (locale, sincrono: solo un file piccolo
+        su disco, non rete — nessun worker/thread necessario)."""
+        try:
+            self._presets = load_presets()
+        except PresetsError as exc:
+            self._presets = []
+            self.t2g_app.notify(
+                f"[red]presets.yaml non valido: {escape(str(exc))}[/red]",
+                severity="error",
+                timeout=10,
+            )
+        self._by_id = {p.id: p for p in self._presets}
+        # Un preset rimosso dal file non resta a orfani in sequenza.
+        self._sequence = [pid for pid in self._sequence if pid in self._by_id]
+        self._populate_available()
+        self._rebuild_selected()
+
+    def _populate_available(self) -> None:
+        available = self.query_one("#preset-available", OptionList)
+        available.clear_options()
+        if not self._presets:
+            available.add_option(
+                Option(
+                    "Nessun preset trovato in remote/presets.yaml",
+                    id=None,
+                    disabled=True,
+                )
+            )
+            return
+        for preset in self._presets:
+            prompt = Text()
+            prompt.append(preset.label, style="bold")
+            prompt.append(f"  ({preset.job_count} job)\n", style="dim")
+            prompt.append(preset.description or "—", style="dim italic")
+            available.add_option(Option(prompt, id=preset.id))
+
+    def _rebuild_selected(self) -> None:
+        selected = self.query_one("#preset-selected", OptionList)
+        selected.clear_options()
+        total_jobs = 0
+        for i, pid in enumerate(self._sequence):
+            preset = self._by_id[pid]
+            total_jobs += preset.job_count
+            prompt = Text()
+            prompt.append(f"{i + 1}. ", style="bold dim")
+            prompt.append(preset.label, style="bold")
+            prompt.append(f"  ({preset.job_count} job)", style="dim")
+            selected.add_option(Option(prompt, id=pid))
+        summary = self.query_one("#preset-summary", Static)
+        if not self._sequence:
+            summary.update("Nessun preset selezionato.")
+        else:
+            names = " → ".join(self._by_id[pid].label for pid in self._sequence)
+            summary.update(
+                f"{len(self._sequence)} preset, {total_jobs} job totali: {names}"
+            )
+
+    # ── Interno: azioni sulla sequenza ──
+
+    def _add_highlighted(self) -> None:
+        available = self.query_one("#preset-available", OptionList)
+        if available.highlighted is None:
+            self.t2g_app.notify(
+                "[yellow]Evidenzia un preset a sinistra prima[/yellow]",
+                severity="warning",
+                timeout=5,
+            )
+            return
+        option = available.get_option_at_index(available.highlighted)
+        pid = option.id
+        if pid is None:
+            return
+        if pid in self._sequence:
+            self.t2g_app.notify(
+                f"[yellow]'{escape(self._by_id[pid].label)}' è già in sequenza[/yellow]",
+                severity="warning",
+                timeout=5,
+            )
+            return
+        self._sequence.append(pid)
+        self._rebuild_selected()
+
+    def _remove_highlighted(self) -> None:
+        selected = self.query_one("#preset-selected", OptionList)
+        if selected.highlighted is None or not self._sequence:
+            return
+        del self._sequence[selected.highlighted]
+        self._rebuild_selected()
+
+    def _move_highlighted(self, delta: int) -> None:
+        selected = self.query_one("#preset-selected", OptionList)
+        index = selected.highlighted
+        if index is None:
+            return
+        target = index + delta
+        if not (0 <= target < len(self._sequence)):
+            return
+        self._sequence[index], self._sequence[target] = (
+            self._sequence[target],
+            self._sequence[index],
+        )
+        self._rebuild_selected()
+        selected.highlighted = target
+
+    def _launch(self) -> None:
+        if not self._sequence:
+            self.t2g_app.notify(
+                "[yellow]Nessun preset in sequenza: aggiungine almeno uno[/yellow]",
+                severity="warning",
+                timeout=5,
+            )
+            return
+        jobs = resolve_jobs(self._presets, self._sequence)
+        mode = str(self.query_one("#preset-mode", Select).value)
+        start_now = bool(self.query_one("#preset-start-now", Checkbox).value)
+        names = " → ".join(self._by_id[pid].label for pid in self._sequence)
+        if mode == "replace":
+            message = (
+                f"Sostituire l'intera coda con {len(jobs)} job "
+                f"({names})?\nLa coda esistente viene SOSTITUITA."
+            )
+        else:
+            message = (
+                f"Accodare {len(jobs)} job ({names})?\n"
+                "La coda esistente riceve i job IN CODA (append)."
+            )
+        self.t2g_app.push_screen(
+            ConfirmScreen(message),
+            lambda ok: self._confirmed(bool(ok), jobs, mode, start_now),
+        )
+
+    def _confirmed(
+        self, ok: bool, jobs: list[dict[str, str]], mode: str, start_now: bool
+    ) -> None:
+        if not ok:
+            return
+        if mode == "replace":
+            self.t2g_app.run_worker(
+                self.t2g_app.replace_queue_and_start(jobs, start_now)
+            )
+        else:
+            self.t2g_app.run_worker(self.t2g_app.start_batch(jobs, start_now))
 
 
 class ConfirmScreen(Screen[bool]):
@@ -1990,7 +2153,7 @@ class T2GDashApp(App[None]):
         "add_job": AddJobScreen,
         "start_job": lambda: AddJobScreen(start_mode=True),
         "batch_start": BatchStartScreen,
-        "campaign": CampaignScreen,
+        "presets": PresetsScreen,
         "replace": ReplaceQueueScreen,
         "biglog": LogScreen,
         "results": ResultsScreen,
@@ -2005,6 +2168,11 @@ class T2GDashApp(App[None]):
         refresh_interval: float = 10.0,
     ) -> None:
         super().__init__()
+        # Tokyo Night: alto contrasto, ottimo per pannelli densi di dati
+        # (sparkline, log, DataTable) — uno dei temi integrati di Textual
+        # (App.theme), non un tema custom. Cambiabile a runtime dalla
+        # command palette di Textual stesso (ctrl+p), già abilitata di default.
+        self.theme = "tokyo-night"
         self.config = config
         self.client = client or (
             RemoteServiceClient(config.url, config.token) if config else None
@@ -2329,28 +2497,50 @@ class T2GDashApp(App[None]):
             )
         await self.refresh_jobs()
 
-    async def run_campaign(self) -> None:
-        """POST /queue {ablation: true} + tick immediato (Campagna ``C``).
-
-        Sostituisce l'intera coda con la campagna in ordine di riuso
-        (app.py ABLATION_MODELS) e fa subito un tick così il primo job
-        parte senza attendere l'hook/server.
-        """
+    async def replace_queue(self, *, jobs: list[dict[str, str]]) -> None:
+        """POST /queue {jobs:[...]}: rimpiazza l'intera coda (nessun tick)."""
         if self.client is None:
             return
         try:
-            result = await asyncio.to_thread(self.client.replace_queue, None, True)
+            result = await asyncio.to_thread(self.client.replace_queue, jobs)
         except RemoteServiceError as exc:
             self.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=10)
             return
         self._set_status(result.get("status"))
         count = int(result.get("count", 0) or 0)
         self.notify(
-            f"[green]Campagna avviata: {count} job in coda[/green]",
+            f"[green]Coda rimpiazzata: {count} job in coda[/green]",
             severity="information",
             timeout=6,
         )
-        # Tick immediato: il primo job parte ora (se QoS libera)
+
+    async def replace_queue_and_start(
+        self, jobs: list[dict[str, str]], start_now: bool
+    ) -> None:
+        """POST /queue {jobs:[...]} poi, se ``start_now``, un tick immediato.
+
+        Usata da PresetsScreen in modalità "sostituisci": la coda esistente
+        viene rimpiazzata da ``jobs`` (un preset, o più preset concatenati
+        nell'ordine scelto), e se ``start_now`` un tick fa partire subito il
+        primo senza attendere il prossimo hook esterno (cronjob.org, ogni
+        5 min di norma).
+        """
+        if self.client is None:
+            return
+        try:
+            result = await asyncio.to_thread(self.client.replace_queue, jobs)
+        except RemoteServiceError as exc:
+            self.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=10)
+            return
+        self._set_status(result.get("status"))
+        count = int(result.get("count", 0) or 0)
+        self.notify(
+            f"[green]Coda sostituita: {count} job in coda[/green]",
+            severity="information",
+            timeout=6,
+        )
+        if not start_now:
+            return
         try:
             await asyncio.to_thread(self.client.tick)
             self.notify(
@@ -2362,28 +2552,6 @@ class T2GDashApp(App[None]):
             pass  # il tick fallirà se QoS occupata: la catena avanza dopo
         await self.refresh_jobs()
         self.switch_screen("dashboard")
-
-    async def replace_queue(
-        self,
-        *,
-        jobs: list[dict[str, str]] | None = None,
-        ablation: bool = False,
-    ) -> None:
-        """POST /queue: rimpiazza l'intera coda (custom o ablation)."""
-        if self.client is None:
-            return
-        try:
-            result = await asyncio.to_thread(self.client.replace_queue, jobs, ablation)
-        except RemoteServiceError as exc:
-            self.notify(f"[red]{escape(str(exc))}[/red]", severity="error", timeout=10)
-            return
-        self._set_status(result.get("status"))
-        count = int(result.get("count", 0) or 0)
-        self.notify(
-            f"[green]Coda rimpiazzata: {count} job in coda[/green]",
-            severity="information",
-            timeout=6,
-        )
         self.switch_screen("dashboard")
 
     async def pause(self) -> None:

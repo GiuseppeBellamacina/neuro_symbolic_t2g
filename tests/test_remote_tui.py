@@ -18,6 +18,7 @@ pytest.importorskip("textual")
 pytest.importorskip("httpx")
 
 from remote import tui
+from remote.presets import JobDef, PresetDef
 
 # ── Corpi di risposta campione (formato esatto di remote/app.py) ─────────────
 
@@ -270,15 +271,6 @@ def test_add_job_with_mode():
     }
 
 
-def test_replace_queue_ablation_payload():
-    client, recorder = _client()
-    client.replace_queue(ablation=True)
-    request = recorder.requests[-1]
-    assert request.method == "POST"
-    assert request.url.path == "/queue"
-    assert json.loads(request.content) == {"ablation": True}
-
-
 def test_replace_queue_jobs_payload():
     client, recorder = _client()
     jobs = [
@@ -450,6 +442,7 @@ def test_screens_are_registered():
         "add_job",
         "start_job",
         "replace",
+        "presets",
         "biglog",
         "config",
     } <= set(app.SCREENS)
@@ -1044,5 +1037,185 @@ def test_results_screen_renders_metrics_and_reward_bars():
             assert "0.990" in bars  # componente satura (come nei run reali)
             assert "translation" in bars
             assert "█" in bars and "░" in bars
+
+    asyncio.run(_run())
+
+
+# ── PresetsScreen (remote/presets.yaml, mai visto dal servizio) ──────────────
+
+
+def _fake_presets():
+    return [
+        PresetDef(
+            id="alpha",
+            label="Alpha",
+            description="primo preset",
+            jobs=(
+                JobDef(type="train", config="grpo-zero-shot", tag="grpo-zero-shot"),
+                JobDef(type="eval", config="grpo-zero-shot", tag="grpo-zero-shot"),
+            ),
+        ),
+        PresetDef(
+            id="beta",
+            label="Beta",
+            description="secondo preset",
+            jobs=(
+                JobDef(
+                    type="eval", config="baseline-zero-shot", tag="baseline-zero-shot"
+                ),
+            ),
+        ),
+    ]
+
+
+def test_presets_screen_add_reorder_and_launch_append(monkeypatch):
+    """Aggiunge Beta poi Alpha, li scambia con 'Su' cosi' Alpha parte prima,
+    lancia in append: POST /jobs/batch riceve i job di ENTRAMBI i preset,
+    concatenati nell'ordine finale della sequenza (Alpha prima di Beta)."""
+    monkeypatch.setattr(tui, "load_presets", _fake_presets)
+
+    async def _run() -> None:
+        client, recorder = _client()
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("P")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.PresetsScreen)
+            screen = app.screen
+
+            available = screen.query_one("#preset-available", tui.OptionList)
+            # "beta" e' il secondo preset disponibile (indice 1).
+            available.highlighted = 1
+            screen.query_one("#preset-add", tui.Button).press()
+            await pilot.pause()
+            available.highlighted = 0
+            screen.query_one("#preset-add", tui.Button).press()
+            await pilot.pause()
+            assert screen._sequence == ["beta", "alpha"]
+
+            # Sposta Alpha (indice 1) su: ora Alpha e' primo.
+            selected = screen.query_one("#preset-selected", tui.OptionList)
+            selected.highlighted = 1
+            screen.query_one("#preset-up", tui.Button).press()
+            await pilot.pause()
+            assert screen._sequence == ["alpha", "beta"]
+
+            screen.query_one("#preset-launch", tui.Button).press()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ConfirmScreen)
+            app.screen.query_one("#confirm", tui.Button).press()
+            await pilot.pause()
+
+            batch_requests = [
+                r for r in recorder.requests if r.url.path == "/jobs/batch"
+            ]
+            assert len(batch_requests) == 1
+            body = json.loads(batch_requests[0].content)
+            assert body["jobs"] == [
+                {"type": "train", "config": "grpo-zero-shot", "tag": "grpo-zero-shot"},
+                {"type": "eval", "config": "grpo-zero-shot", "tag": "grpo-zero-shot"},
+                {
+                    "type": "eval",
+                    "config": "baseline-zero-shot",
+                    "tag": "baseline-zero-shot",
+                },
+            ]
+            assert body["start_now"] is True
+
+    asyncio.run(_run())
+
+
+def test_presets_screen_replace_mode_ticks_and_returns_to_dashboard(monkeypatch):
+    """In modalita' 'sostituisci', dopo la conferma arriva sia POST /queue
+    che POST /tick (avvio immediato), e lo schermo torna alla dashboard."""
+    monkeypatch.setattr(tui, "load_presets", _fake_presets)
+
+    async def _run() -> None:
+        client, recorder = _client()
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("P")
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, tui.PresetsScreen)
+
+            screen.query_one("#preset-available", tui.OptionList).highlighted = 0
+            screen.query_one("#preset-add", tui.Button).press()
+            await pilot.pause()
+
+            screen.query_one("#preset-mode", tui.Select).value = "replace"
+            screen.query_one("#preset-launch", tui.Button).press()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ConfirmScreen)
+            app.screen.query_one("#confirm", tui.Button).press()
+            await pilot.pause()
+            for _ in range(20):
+                if isinstance(app.screen, tui.DashboardScreen):
+                    break
+                await pilot.pause()
+
+            queue_bodies = [
+                json.loads(r.content)
+                for r in recorder.requests
+                if r.url.path == "/queue"
+            ]
+            assert queue_bodies == [
+                {
+                    "jobs": [
+                        {
+                            "type": "train",
+                            "config": "grpo-zero-shot",
+                            "tag": "grpo-zero-shot",
+                        },
+                        {
+                            "type": "eval",
+                            "config": "grpo-zero-shot",
+                            "tag": "grpo-zero-shot",
+                        },
+                    ]
+                }
+            ]
+            assert any(r.url.path == "/tick" for r in recorder.requests)
+            assert isinstance(app.screen, tui.DashboardScreen)
+
+    asyncio.run(_run())
+
+
+def test_presets_screen_reload_picks_up_removed_preset(monkeypatch):
+    """'r' ricarica presets.yaml da disco: un preset gia' in sequenza ma
+    sparito dal file non resta orfano."""
+    presets_v1 = _fake_presets()
+
+    monkeypatch.setattr(tui, "load_presets", lambda: presets_v1)
+
+    async def _run() -> None:
+        client, _ = _client()
+        app = tui.T2GDashApp(
+            config=tui.T2GConfig(url="https://t2g.example.com", token="test-token"),
+            client=client,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("P")
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, tui.PresetsScreen)
+            screen.query_one("#preset-available", tui.OptionList).highlighted = 1
+            screen.query_one("#preset-add", tui.Button).press()
+            await pilot.pause()
+            assert screen._sequence == ["beta"]
+
+            monkeypatch.setattr(tui, "load_presets", lambda: presets_v1[:1])
+            await pilot.press("r")
+            await pilot.pause()
+            assert screen._sequence == []
 
     asyncio.run(_run())
