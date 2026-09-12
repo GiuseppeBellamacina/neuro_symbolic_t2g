@@ -336,12 +336,14 @@ def test_reward_breakdown(reward_setup):
     assert "verifier_scaled_reward" in result
     assert "gloss_format_reward" in result
     assert "gloss_repetition_reward" in result
+    assert "edit_validity_reward" in result
     for k, v in result.items():
         assert isinstance(v, float), f"{k} is float, got {type(v)}"
 
     # Without references: gold-dependent components are skipped.
     no_refs = compute_reward_breakdown(completions)
     assert "translation_quality_reward" not in no_refs
+    assert "edit_validity_reward" not in no_refs
     assert "gloss_format_reward" in no_refs
 
     # Test filtering: only active components (weight > 0)
@@ -357,3 +359,13 @@ def test_reward_breakdown(reward_setup):
     assert "translation_quality_reward" in filtered
     assert "gloss_format_reward" in filtered
     assert "gold_structure_reward" not in filtered
+
+    # The regression this test stack is here to prevent: a reward stack whose
+    # ONLY active component is edit_validity_reward (ablations/rewards/edit-
+    # validity.yaml zeroes every other weight) must still compute it.
+    edit_validity_only = compute_reward_breakdown(
+        completions,
+        references=references,
+        reward_weights={"edit_validity_reward": 1.0},
+    )
+    assert list(edit_validity_only.keys()) == ["edit_validity_reward"]

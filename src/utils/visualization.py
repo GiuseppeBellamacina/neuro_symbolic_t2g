@@ -206,6 +206,7 @@ _COMPONENT_ORDER = [
     "gloss_order_reward",
     "gloss_format_reward",
     "gloss_repetition_reward",
+    "edit_validity_reward",
 ]
 
 _COMPONENT_COLORS = {
@@ -216,6 +217,7 @@ _COMPONENT_COLORS = {
     "gloss_order_reward": "#CCB974",
     "gloss_format_reward": "#DD8452",
     "gloss_repetition_reward": "#C44E52",
+    "edit_validity_reward": "#9B59B6",
 }
 
 _COMPONENT_LABELS = {
@@ -226,6 +228,7 @@ _COMPONENT_LABELS = {
     "gloss_order_reward": "Gloss Order",
     "gloss_format_reward": "Format",
     "gloss_repetition_reward": "Repetition",
+    "edit_validity_reward": "Edit Validity",
 }
 
 
@@ -258,6 +261,15 @@ def plot_reward_breakdown(
     if reward_weights is not None:
         all_components = {c for c in all_components if reward_weights.get(c, 0.0) > 0}
     components = [c for c in _COMPONENT_ORDER if c in all_components]
+
+    if not components:
+        # Every scored component was filtered out (e.g. a reward stack whose
+        # only active component isn't in _COMPONENT_ORDER, or one whose
+        # weight is 0 everywhere) — an empty DataFrame has no "component"
+        # column at all, so building one would raise KeyError below instead
+        # of this clear message.
+        print("No active reward components to plot (all filtered out).")
+        return
 
     if reward_weights is None:
         reward_weights = {c: 1.0 for c in components}

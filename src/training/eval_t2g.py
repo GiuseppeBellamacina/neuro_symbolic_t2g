@@ -1443,6 +1443,7 @@ def evaluate_checkpoint(
         "gloss_order_reward": rewards_cfg.get("weight_gloss_order", 0.0),
         "gloss_format_reward": rewards_cfg.get("weight_format", 0.0),
         "gloss_repetition_reward": rewards_cfg.get("weight_repetition", 0.0),
+        "edit_validity_reward": rewards_cfg.get("weight_edit_validity", 0.0),
     }
 
     # Ripetizioni bootstrap del blocco CI: è il default storico di
@@ -2370,6 +2371,7 @@ def _run_eval_pass(
                 "gloss_order_reward": rewards_cfg.get("weight_gloss_order", 0.0),
                 "gloss_format_reward": rewards_cfg.get("weight_format", 0.1),
                 "gloss_repetition_reward": rewards_cfg.get("weight_repetition", 0.1),
+                "edit_validity_reward": rewards_cfg.get("weight_edit_validity", 0.0),
             }
             plot_reward_breakdown(
                 [{"label": model_tag, "scores": results["reward_breakdown"]}],

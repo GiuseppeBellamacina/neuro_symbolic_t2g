@@ -282,6 +282,7 @@ class CompletionSampleLogger:
         # Component functions for per-sample breakdown (from t2g_rewards)
         from src.rewards.t2g_rewards import (
             bleu_reward,
+            edit_validity_reward,
             gloss_format_reward,
             gloss_order_reward,
             gloss_repetition_reward,
@@ -314,6 +315,12 @@ class CompletionSampleLogger:
             ("gloss_order_reward", gloss_order_reward, {"gold_gloss": ""}),
             ("gloss_format_reward", gloss_format_reward, {}),
             ("gloss_repetition_reward", gloss_repetition_reward, {}),
+            # Default oov_weight (0.5): this reconstruction is display-only
+            # (the real training reward already uses the config's own
+            # edit_validity_oov_weight via build_t2g_reward_functions), same
+            # as every other component here never threading its own config
+            # hyperparameters through for this per-sample printout.
+            ("edit_validity_reward", edit_validity_reward, {"gold_gloss": ""}),
         ]
         # Guard: no reward functions to wrap
         if not self._reward_fns:
@@ -511,6 +518,7 @@ class CompletionSampleCallback(TrainerCallback):
         "gloss_order_reward",
         "gloss_format_reward",
         "gloss_repetition_reward",
+        "edit_validity_reward",
     )
 
     def __init__(

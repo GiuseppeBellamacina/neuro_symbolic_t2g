@@ -7,6 +7,14 @@ so the gold substitution `if "gold_gloss" in kwargs_call` never fired →
 components called without gold → returned neutral 0.0 → the sample
 display showed "+0.00" for PERFECT completions (while the trainer metrics
 were correctly ~0.87 — the training signal was intact, display-only bug).
+
+Same class of bug, found again on the real ``ablations/rewards/edit-validity``
+run 20260912 (job 7374's training log): ``edit_validity_reward`` was never
+added to ``_component_fns``/``_REWARD_COMPONENTS`` when it was introduced, so
+every printed sample showed ``REWARDS: `` (empty) and ``TOTAL: +0.0000`` for
+every completion — including clearly wrong ones — while the trainer's own
+logged metric (``rewards/_edit_validity/mean=0.287...`` in the same run) shows
+the real training signal was fine all along. Display-only, again.
 """
 
 from __future__ import annotations
@@ -29,6 +37,7 @@ def test_sample_logger_passes_gold_to_gold_anchored_components():
         "gold_structure_reward",
         "verifier_scaled_reward",
         "gloss_order_reward",
+        "edit_validity_reward",
     }
     for name, _fn, kwargs in logger._component_fns:
         if name in gold_needing:
@@ -89,3 +98,28 @@ def test_sample_logger_breakdown_without_gold_returns_floor(reward_setup):
     bd = sample["breakdown"]
     assert bd["translation_quality_reward"] == -1.0
     assert bd["gold_structure_reward"] == -1.0
+
+
+def test_sample_logger_breakdown_includes_edit_validity_when_it_is_the_only_weight(
+    reward_setup,
+):
+    """The exact ablations/rewards/edit-validity.yaml scenario: ONLY
+    edit_validity_reward has weight > 0. The breakdown (and therefore the
+    printed REWARDS/TOTAL line) must reflect it instead of being empty/0.0
+    for a completion that is clearly wrong."""
+    from src.rewards.t2g_rewards import edit_validity_reward
+
+    logger = CompletionSampleLogger(
+        reward_fns=[edit_validity_reward], reward_weights=[1.0], n_samples=1
+    )
+    logger._capture(
+        ["X-WE NEED COOPERATION NOTIFICATION"],
+        prompts=None,
+        gold_gloss=["X-WE NEED COOPERATION , DESC-NOT CONFRONTATION ."],
+    )
+    sample = logger._buffer[0]
+    bd = sample["breakdown"]
+    assert "edit_validity_reward" in bd
+    # Real value from the actual mismatched pair above: not the 0.0 the
+    # missing-component bug produced for every sample in the real run.
+    assert bd["edit_validity_reward"] != 0.0
