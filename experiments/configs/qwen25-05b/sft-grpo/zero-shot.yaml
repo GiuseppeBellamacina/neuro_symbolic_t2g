@@ -22,12 +22,23 @@ extends: ../base.yaml
 sft_pretrain:
   enabled: true
   reuse_adapter: true
+  # Blocco IDENTICO a sft/zero-shot.yaml (stessi 12 campi, non un sottoinsieme):
+  # compute_sft_fingerprint hasha questo dict verbatim, quindi qualunque chiave
+  # mancante o in piu' rompe il match di fingerprint con la cella sft-only,
+  # anche se il valore effettivo sarebbe lo stesso. Vedi anche il bug fisso in
+  # sft_train.py: save_steps mancante qui faceva ereditare il 500 della fase
+  # GRPO (base.yaml), incompatibile con l'eval_steps di default 200
+  # (--load_best_model_at_end richiede save_steps multiplo di eval_steps).
   training:
     num_train_epochs: 3
     per_device_train_batch_size: 4
+    per_device_eval_batch_size: 8
     gradient_accumulation_steps: 4
     learning_rate: 2.0e-5
     warmup_steps: 50
+    weight_decay: 0.1
+    save_steps: 200
+    save_total_limit: 1
     max_seq_length: 768
     eval_fraction: 0.02
     early_stopping_patience: 3
