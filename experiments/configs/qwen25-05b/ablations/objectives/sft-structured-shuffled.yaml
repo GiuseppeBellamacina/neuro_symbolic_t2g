@@ -1,0 +1,41 @@
+# ============================================================================
+# ABLATION OBJECTIVE — controllo negativo del GATE 2 (transizioni shuffled)
+#
+# Fattore unico rispetto a sft-structured.yaml: SOLO
+# `auxiliary_objective.structured.shuffled_control: true`. Tutto il resto
+# (top_k, alpha, weight, warmup_steps, init, prompting, budget) resta
+# identico — è il braccio di controllo richiesto da GATE 2
+# (docs/NEW_OBJECTIVES_SPEC.md): "se il grafo vero non batte quello shuffled
+# oltre il CI bootstrap appaiato, il prior non contribuisce e la cella si
+# abbandona".
+#
+# Perché serve come config separato e non solo come flag interno: senza un
+# secondo file non esiste un modo di lanciare il braccio di controllo senza
+# editare a mano sft-structured.yaml — cioè il gate era dichiarato ma non
+# eseguibile. Confronto: eval_final.json di questa cella vs.
+# ablations/objectives/sft-structured.yaml, sulla stessa metrica
+# (non_copy_token_accuracy / perplessità held-out), stesso seed di dataset.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/ablations/objectives/sft-structured-shuffled.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: sft-structured.yaml
+
+auxiliary_objective:
+  structured:
+    shuffled_control: true
+
+# Non isola la decomposizione prompting (quella vive su grpo/sft-grpo
+# zero-shot/few-shot): la passata complementare raddoppierebbe il costo senza
+# aggiungere nulla al confronto GATE 2 vero-vs-shuffled.
+evaluation:
+  dual_prompting: false
+
+training:
+  output_dir: "experiments/checkpoints/qwen25-05b/ablations/objectives/sft-structured-shuffled"
+  log_dir: "experiments/logs/qwen25-05b/ablations/objectives/sft-structured-shuffled"
+
+wandb:
+  run_name: "qwen25-05b-abl-obj-structured-shuffled"
+  tags: ["T2G", "ablation", "objective", "structured", "shuffled-control", "gate2", "sft"]

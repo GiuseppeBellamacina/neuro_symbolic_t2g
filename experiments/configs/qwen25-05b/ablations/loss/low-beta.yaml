@@ -1,0 +1,52 @@
+# ============================================================================
+# ABLATION LOSS — KL penalty ridotta (beta 0.04 → 0.01)
+#
+# Fattore unico rispetto a sft-grpo/few-shot.yaml: cambia SOLO `grpo.beta`.
+# Init (SFT 3-epoche), reward, prompting, decoding e budget restano identici
+# — il controllo diretto è sft-grpo stesso (ROUGE-L 0.5114 / EM 0.0203).
+#
+# Perché NON testiamo beta=0: già fatto e già respinto. beta=0 ("DAPO-style")
+# era il default storico prima del riallineamento a 0.04 (vedi
+# docs/SOURCES.md §DeepSeekMath, README.md "Riallineamento iperparametri") —
+# causava kl=0 e drift del policy senza ancora. Ripetere beta=0 riproporrebbe
+# un esperimento con esito già noto, non un test nuovo.
+#
+# Perché testare comunque un beta PIÙ BASSO (non zero): 0.04 è preso pari
+# pari dal default DeepSeekMath (arXiv:2402.03300), tarato su un modello
+# enormemente più grande con action space aperto. Qui l'action space è già
+# ristretto a ~15K token dal Trie (dual-root, grammar_logits_processor.py) —
+# il KL sta penalizzando movimento della policy in uno spazio già vincolato
+# strutturalmente, mentre il problema diagnosticato (FINDINGS.md Finding 1)
+# è mancanza di segnale (58-85% gruppi a varianza zero), non drift eccessivo.
+# Un ancoraggio più leggero ma non nullo (0.01, 4x più permissivo) testa se
+# nei gruppi che CONSERVANO varianza il gradiente residuo può muovere di più
+# la policy senza reintrodurre il drift che ha giustificato l'abbandono di
+# beta=0.
+#
+# Cosa NON risolve (dichiarato): non tocca il collasso a varianza zero in sé
+# (fattore ortogonale, vedi ablations/decoding/hot-rollout.yaml) né lo stack
+# di reward (vedi ablations/rewards/lean-stack.yaml). Isola solo l'effetto
+# della costante di ancoraggio KL sul residuo di segnale disponibile.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/ablations/loss/low-beta.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../../sft-grpo/few-shot.yaml
+
+grpo:
+  beta: 0.01
+
+# Non isola la decomposizione prompting (quella vive su grpo/sft-grpo
+# zero-shot/few-shot): la passata complementare raddoppierebbe il costo senza
+# aggiungere nulla al confronto sul beta KL.
+evaluation:
+  dual_prompting: false
+
+training:
+  output_dir: "experiments/checkpoints/qwen25-05b/ablations/loss/low-beta"
+  log_dir: "experiments/logs/qwen25-05b/ablations/loss/low-beta"
+
+wandb:
+  run_name: "qwen25-05b-abl-loss-low-beta"
+  tags: ["T2G", "ablation", "loss", "low-beta", "few-shot", "sft-grpo"]

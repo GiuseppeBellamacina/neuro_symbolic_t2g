@@ -1,0 +1,79 @@
+# ============================================================================
+# ABLATION REWARD — stack snellito, 4 componenti invece di 7
+#
+# Fattore unico rispetto a sft-grpo/few-shot.yaml: cambia SOLO lo stack di
+# reward. Init (SFT 3-epoche), prompting (few-shot), decoding (Trie), budget
+# e curriculum restano identici — il controllo diretto è sft-grpo stesso
+# (ROUGE-L 0.5114 / EM 0.0203, vedi FINDINGS.md Finding 1).
+#
+# Perché lo stack storico a 7 componenti (base.yaml) è ridondante, non solo
+# "con margine di semplificazione":
+#   - `weight_verifier_scaled` (0.10): è `translation_quality * gold_structure`
+#     rimappata — NON informazione nuova, è un secondo voto non-lineare sugli
+#     stessi due segnali già pesati 0.20+0.20. Rimosso (peso 0.0).
+#   - `weight_bleu` (0.20): stessa famiglia lessicale/overlap di
+#     `weight_translation` (ROUGE-L) — la n-gram precision di BLEU e la LCS-F1
+#     di ROUGE-L sono correlate quasi a coppia su sequenze di 3-8 token
+#     (vedi t2g_rewards.py). Rimosso, il peso confluisce nell'unico termine
+#     lessicale rimasto (`weight_translation`).
+#   - `weight_format` (0.10) e `weight_repetition` (0.10): misurati SATURI
+#     nei run storici (format=0.998, repetition=0.966 — RECOVERY_REPORT.md
+#     §5), cioè già gradiente morto. `format` è inoltre reso quasi tautologico
+#     dal Trie stesso (vocabolario garantito by construction) — azzerato.
+#     `repetition` invece resta utile come guardia ECONOMICA: il Trie
+#     garantisce vocabolario valido ma NON impedisce ripetizioni degeneri
+#     (token/trigram ripetuti), quindi mantiene un peso piccolo ma non nullo.
+#
+# Redistribuzione (somma 1.0), pensata per pesare gli assi realmente
+# ortogonali identificati in code review:
+#   translation (lessicale)   0.20 → 0.35  (assorbe anche il peso ex-bleu)
+#   gold_structure (fluenza)  0.20 → 0.30  (invariato nell'importanza relativa)
+#   gloss_order (ordine)      0.10 → 0.25  (è il segnale che manca quando il
+#                                            gradiente residuo spinge verso
+#                                            output più corti — FINDINGS.md
+#                                            Finding 1 punto 3: bias di
+#                                            lunghezza -0.71/-2.07 parole)
+#   repetition (guardia)      0.10 → 0.10  (invariato)
+#   format                    0.10 → 0.00
+#   verifier_scaled           0.10 → 0.00
+#   bleu                      0.20 → 0.00
+#   edit_validity              0  → 0.00  (resta opt-in, non toccato)
+#
+# Cosa NON risolve (dichiarato esplicitamente, per non sovra-vendere il fix):
+# questo config non tocca la causa PRIMARIA di Finding 1 — il collasso a
+# varianza zero in ~58-85% dei gruppi quando si parte da una policy SFT già
+# satura sul reward di train. Nessuno stack di reward può esprimersi in un
+# gruppo a varianza zero. Questo è un fattore ORTOGONALE: nei gruppi che
+# CONSERVANO varianza (i superstiti dopo hot-rollout, o grpo-only da base),
+# testa se il gradiente residuo, ripulito da termini morti/ridondanti, spinge
+# in una direzione migliore invece che verso l'accorciamento.
+#
+# Uso:
+#   CONFIG=experiments/configs/qwen25-05b/ablations/rewards/lean-stack.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../../sft-grpo/few-shot.yaml
+
+reward:
+  weight_translation: 0.35
+  weight_bleu: 0.0
+  weight_gold_structure: 0.30
+  weight_gloss_order: 0.25
+  weight_verifier_scaled: 0.0
+  weight_format: 0.0
+  weight_repetition: 0.10
+  weight_edit_validity: 0.0
+
+# Non isola la decomposizione prompting (quella vive su grpo/sft-grpo
+# zero-shot/few-shot): la passata complementare raddoppierebbe il costo senza
+# aggiungere nulla al confronto sulla reward.
+evaluation:
+  dual_prompting: false
+
+training:
+  output_dir: "experiments/checkpoints/qwen25-05b/ablations/rewards/lean-stack"
+  log_dir: "experiments/logs/qwen25-05b/ablations/rewards/lean-stack"
+
+wandb:
+  run_name: "qwen25-05b-abl-reward-lean-stack"
+  tags: ["T2G", "ablation", "reward", "lean-stack", "few-shot", "sft-grpo"]

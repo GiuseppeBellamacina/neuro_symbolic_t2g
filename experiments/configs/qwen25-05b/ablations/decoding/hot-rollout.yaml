@@ -25,6 +25,12 @@ extends: ../../sft-grpo/few-shot.yaml
 grpo:
   temperature: 1.3
 
+# Non isola la decomposizione prompting (quella vive su grpo/sft-grpo
+# zero-shot/few-shot): la passata complementare raddoppierebbe il costo senza
+# aggiungere nulla al confronto sulla temperatura di rollout.
+evaluation:
+  dual_prompting: false
+
 training:
   output_dir: "experiments/checkpoints/qwen25-05b/ablations/decoding/hot-rollout"
   log_dir: "experiments/logs/qwen25-05b/ablations/decoding/hot-rollout"

@@ -160,3 +160,6 @@ Modifica `experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml` per:
   `warmup_steps`) e `structured` (peso, `warmup_steps`, `top_k`, `alpha`,
   `shuffled_control`). Con peso 0 o sezione assente l'SFT è bit-identico a
   quello standard; vedi `ablations/objectives/{sft-allowed-mass,sft-structured}.yaml`.
+  Il braccio di controllo GATE 2 (transizioni permutate) è un config
+  separato, `ablations/objectives/sft-structured-shuffled.yaml` (estende
+  `sft-structured.yaml`, cambia solo `shuffled_control: true`).

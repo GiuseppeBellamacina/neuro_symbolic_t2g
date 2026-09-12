@@ -46,6 +46,12 @@ auxiliary_objective:
 grammar:
   track_diagnostics: true   # prerequisito del GATE 1a
 
+# Non isola la decomposizione prompting (quella vive su grpo/sft-grpo
+# zero-shot/few-shot): la passata complementare raddoppierebbe il costo senza
+# aggiungere nulla al confronto sull'obiettivo ausiliario.
+evaluation:
+  dual_prompting: false
+
 training:
   output_dir: "experiments/checkpoints/qwen25-05b/ablations/objectives/sft-allowed-mass"
   log_dir: "experiments/logs/qwen25-05b/ablations/objectives/sft-allowed-mass"

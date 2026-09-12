@@ -44,6 +44,12 @@ grpo:
   scale_rewards: none
   mask_truncated_completions: true
 
+# Non isola la decomposizione prompting (quella vive su grpo/sft-grpo
+# zero-shot/few-shot): la passata complementare raddoppierebbe il costo senza
+# aggiungere nulla al confronto sull'obiettivo RL.
+evaluation:
+  dual_prompting: false
+
 training:
   output_dir: "experiments/checkpoints/qwen25-05b/ablations/loss/dr-grpo"
   log_dir: "experiments/logs/qwen25-05b/ablations/loss/dr-grpo"

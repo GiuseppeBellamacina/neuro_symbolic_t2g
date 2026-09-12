@@ -32,6 +32,12 @@ extends: ../../grpo/few-shot.yaml
 grammar:
   enabled: false
 
+# Non isola la decomposizione prompting (quella vive su grpo/sft-grpo
+# zero-shot/few-shot): la passata complementare raddoppierebbe il costo senza
+# aggiungere nulla al confronto col Trie.
+evaluation:
+  dual_prompting: false
+
 training:
   output_dir: "experiments/checkpoints/qwen25-05b/ablations/decoding/no-grammar"
   log_dir: "experiments/logs/qwen25-05b/ablations/decoding/no-grammar"

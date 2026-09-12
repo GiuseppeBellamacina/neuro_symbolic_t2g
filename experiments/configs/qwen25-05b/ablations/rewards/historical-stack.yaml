@@ -33,6 +33,12 @@ reward:
   weight_repetition: 0.10
   weight_edit_validity: 0.0
 
+# Non isola la decomposizione prompting (quella vive su grpo/sft-grpo
+# zero-shot/few-shot): la passata complementare raddoppierebbe il costo senza
+# aggiungere nulla al confronto sulla reward.
+evaluation:
+  dual_prompting: false
+
 training:
   output_dir: "experiments/checkpoints/qwen25-05b/ablations/rewards/historical-stack"
   log_dir: "experiments/logs/qwen25-05b/ablations/rewards/historical-stack"
