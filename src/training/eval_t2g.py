@@ -163,6 +163,30 @@ logger = logging.getLogger("t2g-eval")
 # ---------------------------------------------------------------------------
 
 
+def _sft_pretrain_adapter_sibling(checkpoint_path: Path) -> Path | None:
+    """Locate the SFT-phase adapter for an ``sft_pretrain``-enabled GRPO run.
+
+    ``grpo_t2g_train.py`` merges the SFT adapter into the base model
+    IN-MEMORY ONLY before attaching a fresh LoRA for GRPO — the merge is
+    never written to disk (see ``model_loader.py::_load_with_transformers`` /
+    ``_load_with_unsloth``). ``trainer.save_model`` on the resulting PEFT
+    model therefore writes only the GRPO adapter's delta, computed relative
+    to a base+SFT it never records. Loading that adapter over the RAW base
+    (as this function used to do unconditionally) silently drops the entire
+    SFT contribution — the checkpoint that consumed most of the training
+    wall-clock ends up not represented in the evaluated model at all.
+
+    The SFT adapter DOES survive on disk: ``grpo_t2g_train.py`` always
+    trains-or-copies it to ``<run_dir>/sft_pretrain/final/``, a sibling of
+    the GRPO ``final/`` directory, specifically so the run stays
+    self-contained. This looks for that sibling and returns it if present.
+    """
+    candidate = checkpoint_path.parent / "sft_pretrain" / "final"
+    if (candidate / "adapter_config.json").exists():
+        return candidate
+    return None
+
+
 def load_model_for_eval(
     checkpoint_path: str,
     base_model_name: str,
@@ -170,14 +194,20 @@ def load_model_for_eval(
     """Load a trained model for evaluation.
 
     Handles both full model checkpoints and PEFT/LoRA adapter checkpoints.
-    For adapter checkpoints, loads the base model first, then merges adapters.
+    For adapter checkpoints, loads the base model first, then merges adapters
+    — including the SFT-phase adapter, when the checkpoint is an
+    ``sft_pretrain``-enabled GRPO run (see :func:`_sft_pretrain_adapter_sibling`).
     """
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     ckpt_path = Path(checkpoint_path)
     is_peft = (ckpt_path / "adapter_config.json").exists()
+    sft_adapter_path = _sft_pretrain_adapter_sibling(ckpt_path) if is_peft else None
 
-    logger.info(f"Loading model from {checkpoint_path} (is_peft={is_peft})...")
+    logger.info(
+        f"Loading model from {checkpoint_path} (is_peft={is_peft}, "
+        f"sft_phase={'yes: ' + str(sft_adapter_path) if sft_adapter_path else 'no'})..."
+    )
 
     tokenizer = AutoTokenizer.from_pretrained(
         checkpoint_path,
@@ -198,6 +228,11 @@ def load_model_for_eval(
             trust_remote_code=True,
         )
         from peft import PeftModel
+
+        if sft_adapter_path is not None:
+            logger.info(f"  Merging SFT-phase adapter first: {sft_adapter_path}")
+            model = PeftModel.from_pretrained(model, str(sft_adapter_path))
+            model = model.merge_and_unload()  # type: ignore[call-arg]
 
         model = PeftModel.from_pretrained(model, str(ckpt_path))
         model = model.merge_and_unload()  # type: ignore[call-arg]
