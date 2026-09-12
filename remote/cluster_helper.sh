@@ -368,47 +368,66 @@ _emit_run() {
     fi
 }
 
+# Elenca, relative a experiments/results, le dir di CELLA che contengono
+# risultati. I risultati non vivono più in una sola dir piatta per cella
+# (qwen25-05b-sft-grpo/): ora sono annidati come il config
+# (qwen25-05b/grpo/zero-shot/run_*/), quindi un glob a un livello vedrebbe
+# solo "qwen25-05b". Si parte dai file eval_*.json e si risale alla cella,
+# togliendo l'eventuale componente run_<timestamp> finale.
+_results_cells() {
+    [ -d "$PROJ_DIR/experiments/results" ] || return 0
+    (
+        cd "$PROJ_DIR/experiments/results" 2>/dev/null || exit 0
+        find . -maxdepth 7 -name 'eval_*.json' -type f 2>/dev/null |
+            sed -e 's|^\./||' -e 's|/[^/]*$||' \
+                -e 's|/run_[^/]*$||' -e 's|/zero_shot_[^/]*$||' |
+            sort -u
+    )
+}
+
 results() {
     local token="$1" dir=""
     # Token vuoto = discovery: elenco delle dir con risultati (il client
     # mostra la lista invece di duplicare la mappa config→dir).
     if [ -z "$token" ]; then
         local d list=""
-        if [ -d "$PROJ_DIR/experiments/results" ]; then
-            for d in "$PROJ_DIR/experiments/results"/*/; do
-                if [ -d "$d" ]; then
-                    d=$(basename "$d")
-                    if [ -z "$list" ]; then
-                        list="$d"
-                    else
-                        list="$list$(printf '\x1f')$d"
-                    fi
-                fi
-            done
-        fi
+        while IFS= read -r d; do
+            [ -n "$d" ] || continue
+            if [ -z "$list" ]; then
+                list="$d"
+            else
+                list="$list$(printf '\x1f')$d"
+            fi
+        done <<EOF
+$(_results_cells)
+EOF
         printf 'RESULTS_DIRS=%s\n' "$list"
         return 0
     fi
-    # Risoluzione tollerante: nome dir esatto → substring glob → senza il
-    # suffisso prompting (-zero-shot/-few-shot: il wandb run_name della cella
-    # non sempre lo contiene). Il primo glob in ordine alfabetico vince.
+    # Risoluzione tollerante: path relativo esatto → substring su una cella
+    # nota → senza il suffisso prompting (-zero-shot/-few-shot: il wandb
+    # run_name della cella non sempre lo contiene). Il primo match in ordine
+    # alfabetico vince.
     if [ -d "$PROJ_DIR/experiments/results/$token" ]; then
         dir="$PROJ_DIR/experiments/results/$token"
     else
-        set -- "$PROJ_DIR"/experiments/results/*"$token"*/
-        if [ -d "$1" ]; then
-            dir="$1"
-        fi
+        local c
+        for c in $(_results_cells); do
+            case "$c" in
+                *"$token"*) dir="$PROJ_DIR/experiments/results/$c"; break ;;
+            esac
+        done
     fi
     if [ -z "$dir" ]; then
-        local t
+        local t c
         for t in "${token%-zero-shot}" "${token%-few-shot}"; do
             if [ "$t" != "$token" ]; then
-                set -- "$PROJ_DIR"/experiments/results/*"$t"*/
-                if [ -d "$1" ]; then
-                    dir="$1"
-                    break
-                fi
+                for c in $(_results_cells); do
+                    case "$c" in
+                        *"$t"*) dir="$PROJ_DIR/experiments/results/$c"; break ;;
+                    esac
+                done
+                [ -n "$dir" ] && break
             fi
         done
     fi

@@ -154,6 +154,7 @@ from src.utils.metrics import (
 )
 from src.utils.phase_timing import phase
 from src.utils.prompting import SYSTEM_PROMPT, build_t2g_prompt
+from src.utils.run_paths import split_checkpoint_path
 
 logger = logging.getLogger("t2g-eval")
 
@@ -1774,6 +1775,7 @@ def _run_eval_pass(
     config: dict[str, Any],
     checkpoint_arg: str | None,
     *,
+    config_path: str | None = None,
     eval_baseline_only: bool,
     do_compare: bool,
     plot: bool,
@@ -2230,6 +2232,16 @@ def _run_eval_pass(
     for err, count in results["error_distribution"].items():
         print(f"    {err}: {count}")
     print("=" * 60)
+
+    # Provenienza: QUALE config e QUALE checkpoint hanno prodotto questo JSON.
+    # Senza questi campi un file di risultati è anonimo — se due celle finiscono
+    # nella stessa directory (è successo: vedi src/utils/run_paths.py) l'unico
+    # modo di attribuirlo è la forensics sui log SLURM.
+    results["provenance"] = {
+        "config": config_path,
+        "checkpoint": str(checkpoint_arg) if checkpoint_arg else None,
+        "results_dir": str(results_dir),
+    }
 
     # ── Save JSON ────────────────────────────────────────────────────────
     if output_override:
@@ -2838,15 +2850,9 @@ def main() -> None:
 
     if args.checkpoint is not None:
         checkpoint_path = Path(args.checkpoint).resolve()
-        parts = checkpoint_path.parts
-        if "checkpoints" in parts:
-            idx = parts.index("checkpoints")
-            if len(parts) > idx + 2:
-                model_name = parts[idx + 1]
-                run_id = parts[idx + 2]
-            else:
-                model_name = parts[idx + 1]
-                run_id = "default_run"
+        split = split_checkpoint_path(checkpoint_path)
+        if split is not None:
+            model_name, run_id = split
         else:
             model_name = config.get("wandb", {}).get("run_name", "t2g-model")
             run_id = (
@@ -2876,6 +2882,7 @@ def main() -> None:
     pass_common: dict[str, Any] = {
         "config": config,
         "checkpoint_arg": args.checkpoint,
+        "config_path": args.config,
         "plot": plot,
         "best_of_n": best_of_n,
         "max_samples": max_samples,

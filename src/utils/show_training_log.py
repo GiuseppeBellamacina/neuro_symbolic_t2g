@@ -13,6 +13,8 @@ import argparse
 import json
 from pathlib import Path
 
+from src.utils.run_paths import split_checkpoint_path
+
 # Default columns to show for T2G training
 _DEFAULT_COLS = [
     "step",
@@ -160,11 +162,16 @@ def plot_from_checkpoint(
 
     if output_dir is None:
         parts = ts_path.parts
-        if "checkpoints" in parts:
+        split = split_checkpoint_path(ts_path)
+        if "checkpoints" in parts and split is not None:
+            # Mirror the checkpoint layout under experiments/figures/, at whatever
+            # depth the config nests it (see src/utils/run_paths.py: slicing a fixed
+            # 2 segments here merged every variant's curves into one directory).
+            model_name, run_id = split
             idx = parts.index("checkpoints")
-            # Map experiments/checkpoints/<model_name>/run_<timestamp> -> experiments/figures/<model_name>/run_<timestamp>
-            fig_parts = list(parts[:idx]) + ["figures"] + list(parts[idx + 1 : idx + 3])
-            output_dir = str(Path(*fig_parts))
+            output_dir = str(
+                Path(*parts[:idx], "figures", *model_name.split("/"), run_id)
+            )
         else:
             output_dir = str(ts_path.parent.parent / "figures")
 
