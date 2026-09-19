@@ -519,6 +519,44 @@ class AuxiliarySFTTrainer(SFTTrainer):
             torch.tensor(lengths, dtype=torch.long, device=device),
         )
 
+    def _decode_gold_gloss_from_labels(
+        self, inputs: dict[str, Any]
+    ) -> list[str] | None:
+        """Reconstruct gold gloss text from input_ids/labels, not the dataset.
+
+        Unsloth's compiled ``_prepare_dataset`` (materialized at runtime under
+        ``unsloth_compiled_cache/UnslothSFTTrainer.py``, replacing TRL's own
+        version once Unsloth is imported) tokenizes prompt-completion rows via
+        ``dataset.map(_tokenize_pc, remove_columns=list(column_names), ...)``
+        — it drops every original dataset column, ``gold_gloss`` included,
+        regardless of ``Trainer.remove_unused_columns``/``_signature_columns``
+        (those only run later, at DataLoader-construction time, on a dataset
+        that has already lost the column). Confirmed on job 7522:
+        structured_skip_reason=1 ("no gold") for 200+ steps even after fixing
+        both of those mechanisms.
+
+        The completion span (``labels != -100``) is not subject to this: it's
+        what the LM loss itself is supervised against, so it survives by
+        construction. Decoding it recovers the exact gold gloss text (verified
+        byte-for-byte against real ASLG examples through Unsloth's own
+        tokenization path, 0 mismatches) without depending on any column
+        Unsloth's dataset-prep may or may not keep.
+        """
+        tokenizer = getattr(self, "processing_class", None) or getattr(
+            self, "tokenizer", None
+        )
+        labels = inputs.get("labels")
+        input_ids = inputs.get("input_ids")
+        if tokenizer is None or labels is None or input_ids is None:
+            return None
+        decoded: list[str] = []
+        for row in range(labels.shape[0]):
+            token_ids = input_ids[row][labels[row] != -100].tolist()
+            decoded.append(
+                tokenizer.decode(token_ids, skip_special_tokens=True).strip()
+            )
+        return decoded
+
     def _structured_term(
         self, inputs: dict[str, Any], outputs: Any, lm_loss: Tensor
     ) -> tuple[Tensor, dict[str, float]]:
@@ -561,7 +599,9 @@ class AuxiliarySFTTrainer(SFTTrainer):
         states = inputs.get("structured_states")
         lengths = inputs.get("structured_length")
         if states is None or lengths is None:
-            gold = inputs.get("gold_gloss")
+            gold = inputs.get("gold_gloss") or self._decode_gold_gloss_from_labels(
+                inputs
+            )
             if not gold:
                 return zero, {**skipped, "structured_skip_reason": 1.0}
             states, lengths = self._structured_targets(

@@ -649,6 +649,137 @@ def test_signature_columns_leave_gold_gloss_out_when_structured_is_off():
     assert "gold_gloss" not in stub._signature_columns
 
 
+def test_decode_gold_gloss_from_labels_recovers_completion_text(tokenizer):
+    """Regression for job 7522: gold_gloss was fixed (2 commits) but
+    structured_skip_reason stayed 1 (no gold) at step 200+.
+
+    Root cause: Unsloth's compiled _prepare_dataset (replaces TRL's own once
+    Unsloth is imported, materialized at unsloth_compiled_cache/UnslothSFTTrainer.py)
+    tokenizes via dataset.map(_tokenize_pc, remove_columns=list(column_names)),
+    dropping gold_gloss (and everything else) during tokenization — upstream
+    of Trainer.remove_unused_columns and the collator, so neither of the
+    previous two fixes could reach it. This test verifies the fallback: decode
+    the labels!=-100 span back to text instead of depending on the column.
+    """
+    from src.training.auxiliary_sft_trainer import AuxiliarySFTTrainer
+
+    prompt = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "translate: the man walks"},
+    ]
+    completion = [{"role": "assistant", "content": "IX MAN WALK"}]
+    prompt_ids = tokenizer.apply_chat_template(
+        prompt, tokenize=True, add_generation_prompt=True, return_dict=False
+    )
+    pc_ids = tokenizer.apply_chat_template(
+        prompt + completion, tokenize=True, return_dict=True
+    )["input_ids"]
+    n_prompt = len(prompt_ids)
+
+    labels = [-100] * n_prompt + pc_ids[n_prompt:]
+
+    stub = object.__new__(AuxiliarySFTTrainer)
+    stub.processing_class = tokenizer
+    decoded = AuxiliarySFTTrainer._decode_gold_gloss_from_labels(
+        stub,
+        {
+            "input_ids": torch.tensor([pc_ids]),
+            "labels": torch.tensor([labels]),
+        },
+    )
+
+    assert decoded == ["IX MAN WALK"]
+
+
+def test_decode_gold_gloss_returns_none_without_tokenizer_or_labels():
+    from src.training.auxiliary_sft_trainer import AuxiliarySFTTrainer
+
+    stub = object.__new__(AuxiliarySFTTrainer)
+    stub.processing_class = None
+    assert (
+        AuxiliarySFTTrainer._decode_gold_gloss_from_labels(
+            stub,
+            {"input_ids": torch.tensor([[1, 2]]), "labels": torch.tensor([[1, 2]])},
+        )
+        is None
+    )
+
+
+def test_structured_term_falls_back_to_decoded_labels_when_gold_gloss_is_absent():
+    """End-to-end: no gold_gloss key at all in inputs (the real-world case
+    under Unsloth), structured_states/lengths absent too — the term must
+    still score by decoding labels, not silently skip with reason=1."""
+    from src.datasets.structured_transitions import build_structured_transition_graph
+    from src.models.structured_gloss_head import (
+        StructuredGlossHead,
+        StructuredGraphLoss,
+    )
+    from src.training.auxiliary_sft_trainer import AuxiliarySFTTrainer
+
+    rows = [{"gloss": g} for g in ["IX MAN", "IX WALK", "MAN WALK", "IX MAN WALK"]]
+    graph = build_structured_transition_graph(rows, top_k=3)
+    head = StructuredGlossHead(hidden_size=8, num_states=graph.num_states, max_length=8)
+
+    class _FakeTokenizer:
+        def decode(self, ids, skip_special_tokens=True):
+            # A trivial reversible "tokenizer": token id N -> chr(N).
+            return "".join(chr(i) for i in ids)
+
+    gloss_a = "IX MAN"
+    gloss_b = "IX WALK"
+
+    def _ids_for(text):
+        return [ord(c) for c in text]
+
+    class _Stub(AuxiliarySFTTrainer):
+        def __init__(self) -> None:
+            self.allowed_mask_fn = None
+            self.mass_weight = 0.0
+            self.mass_warmup_steps = 0
+            self.structured_head = head
+            self.structured_loss = StructuredGraphLoss(graph)
+            self.structured_graph = graph
+            self.structured_weight = 1.0
+            self.structured_warmup_steps = 0
+            self.auxiliary_diagnostics = {}
+            self.state = None
+            self.processing_class = _FakeTokenizer()
+
+    class _Outputs:
+        logits = torch.zeros(2, 3, 5)
+        hidden_states = [torch.randn(2, 3, 8)]
+
+    def _stock(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        return (torch.tensor(2.0), _Outputs())
+
+    import src.training.auxiliary_sft_trainer as module
+
+    max_len = max(len(gloss_a), len(gloss_b))
+    ids_a = _ids_for(gloss_a) + [0] * (max_len - len(gloss_a))
+    ids_b = _ids_for(gloss_b) + [0] * (max_len - len(gloss_b))
+    labels_a = _ids_for(gloss_a) + [-100] * (max_len - len(gloss_a))
+    labels_b = _ids_for(gloss_b) + [-100] * (max_len - len(gloss_b))
+
+    original = module.SFTTrainer.compute_loss
+    module.SFTTrainer.compute_loss = _stock  # type: ignore[assignment]
+    try:
+        total = module.AuxiliarySFTTrainer.compute_loss(
+            _Stub(),
+            torch.nn.Linear(2, 2),
+            {
+                "input_ids": torch.tensor([ids_a, ids_b]),
+                "labels": torch.tensor([labels_a, labels_b]),
+                # deliberately no "gold_gloss" key: this is the real-world
+                # shape of inputs once Unsloth has stripped it.
+            },
+        )
+    finally:
+        module.SFTTrainer.compute_loss = original  # type: ignore[assignment]
+
+    assert torch.isfinite(total)
+    assert float(total.detach()) != pytest.approx(2.0), "termine structured nullo"
+
+
 def test_structured_weight_zero_leaves_loss_untouched():
     from src.training.auxiliary_sft_trainer import AuxiliarySFTTrainer
 
