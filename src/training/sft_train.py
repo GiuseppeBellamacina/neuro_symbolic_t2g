@@ -630,6 +630,39 @@ def _config_needs_unsloth_logits(config: dict[str, Any]) -> bool:
     return False
 
 
+def _build_structured_components(
+    structured_cfg: dict[str, Any],
+    sft_train_ds: Any,
+    hidden_size: int,
+) -> tuple[Any, Any, Any]:
+    """Build ``(structured_head, structured_loss, structured_graph)``.
+
+    Returns ``(None, None, None)`` when ``structured_cfg`` is empty (the
+    objective is off). Pulled out of ``run_sft`` as its own function so the
+    triple can be unit-tested without a real model: the graph is genuinely
+    used twice (to build ``structured_loss`` AND passed separately to the
+    trainer for gold-gloss-to-state mapping), and a previous inline version
+    of this code built the graph as a local ``_graph`` and only used it for
+    the loss/head, leaving the outer ``structured_graph`` at its initial
+    ``None`` — every batch then crashed in ``_structured_targets`` on the
+    first real training step once ``gold_gloss`` actually started reaching
+    it (job 7529). A function that must return the graph makes that specific
+    mistake impossible to reintroduce silently.
+    """
+    if not structured_cfg:
+        return None, None, None
+
+    from src.models.structured_gloss_head import (
+        StructuredGlossHead,
+        StructuredGraphLoss,
+    )
+
+    graph = build_structured_graph(sft_train_ds, structured_cfg)
+    loss = StructuredGraphLoss(graph)
+    head = StructuredGlossHead(hidden_size=hidden_size, num_states=graph.num_states)
+    return head, loss, graph
+
+
 def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     """Run SFT training and return the path to the saved adapter.
 
@@ -1018,24 +1051,15 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         # post-split (`sft_train_ds` è l'output di split_eval_holdout), quindi
         # l'holdout di valutazione non entra mai nelle transizioni.
         structured_cfg = auxiliary.get("structured", {})
-        structured_head = None
-        structured_loss = None
-        structured_graph = None
+        structured_head, structured_loss, structured_graph = (
+            _build_structured_components(
+                structured_cfg, sft_train_ds, int(model.config.hidden_size)
+            )
+        )
         if structured_cfg:
-            from src.models.structured_gloss_head import (
-                StructuredGlossHead,
-                StructuredGraphLoss,
-            )
-
-            _graph = build_structured_graph(sft_train_ds, structured_cfg)
-            structured_loss = StructuredGraphLoss(_graph)
-            structured_head = StructuredGlossHead(
-                hidden_size=int(model.config.hidden_size),
-                num_states=_graph.num_states,
-            )
             logger.info(
                 "Structured graph: %d stati (top_k=%s, alpha=%s, shuffled=%s)",
-                _graph.num_states,
+                structured_graph.num_states,
                 structured_cfg.get("top_k", 512),
                 structured_cfg.get("alpha", 0.1),
                 structured_cfg.get("shuffled_control", False),

@@ -21,6 +21,7 @@ import yaml
 from datasets import Dataset
 from src.training.sft_train import (
     _build_prompt_completion_example,
+    _build_structured_components,
     _config_needs_unsloth_logits,
     clone_sft_adapter,
     compute_sft_fingerprint,
@@ -665,3 +666,37 @@ def test_needs_unsloth_logits_ignores_malformed_sections():
         )
         is False
     )
+
+
+# ---------------------------------------------------------------------------
+# _build_structured_components — regression for job 7529
+# ---------------------------------------------------------------------------
+#
+# The graph was built as a local `_graph`, used for structured_loss/head, but
+# the outer `structured_graph` passed to the trainer was never reassigned
+# from its initial None. gold_gloss (fixed separately) then reached
+# compute_loss for the first time and _structured_targets crashed on step 1
+# needing a graph that was never wired through. Returning the triple from one
+# function makes forgetting a piece of it a type error, not a silent None.
+
+
+def test_build_structured_components_returns_none_triple_when_disabled():
+    assert _build_structured_components({}, [], hidden_size=8) == (None, None, None)
+
+
+def test_build_structured_components_wires_the_same_graph_everywhere():
+    rows = [
+        {"gold_gloss": g}
+        for g in ["IX MAN WALK", "IX WOMAN RUN", "MAN EAT", "WOMAN DRINK"]
+    ]
+    head, loss, graph = _build_structured_components(
+        {"weight": 0.1, "top_k": 8}, rows, hidden_size=8
+    )
+
+    assert head is not None and loss is not None and graph is not None
+    # head.output is the num_states-wide emission layer built from graph.num_states.
+    assert head.output.out_features == graph.num_states
+    # StructuredGraphLoss keeps only tensor buffers derived from this exact
+    # graph; num_states must match the SAME graph instance returned, not a
+    # second, independently-built one.
+    assert loss.num_states == graph.num_states
