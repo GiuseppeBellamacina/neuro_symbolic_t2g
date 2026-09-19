@@ -419,7 +419,9 @@ class AuxiliarySFTTrainer(SFTTrainer):
             and getattr(self, "structured_head", None) is not None
             and getattr(self, "structured_loss", None) is not None
         ):
-            structured_term, structured_diag = self._structured_term(inputs, outputs)
+            structured_term, structured_diag = self._structured_term(
+                inputs, outputs, lm_loss
+            )
             total = total + structured_term
             diagnostics_out.update(structured_diag)
 
@@ -476,7 +478,7 @@ class AuxiliarySFTTrainer(SFTTrainer):
         )
 
     def _structured_term(
-        self, inputs: dict[str, Any], outputs: Any
+        self, inputs: dict[str, Any], outputs: Any, lm_loss: Tensor
     ) -> tuple[Tensor, dict[str, float]]:
         """Structured (CRF) NLL over the reduced gloss state space.
 
@@ -485,9 +487,19 @@ class AuxiliarySFTTrainer(SFTTrainer):
         on the fly from ``gold_gloss``. Rows that cannot be mapped are skipped
         rather than scored against a fabricated target: a wrong structured
         target is worse than no structured term at all.
+
+        Takes ``lm_loss`` (not ``outputs.logits``) for the device/dtype/graph
+        of the zero-loss placeholder: this term never uses logit *values*
+        (only ``hidden_states``), so it must not touch ``outputs.logits`` at
+        all under Unsloth, which returns an ``EmptyLogits`` placeholder that
+        raises on any access (``.sum()``, ``.device``, ...) unless
+        ``UNSLOTH_RETURN_LOGITS=1`` — a real logits tensor this term has no
+        other use for. ``lm_loss`` is always a real tensor on the right
+        device by construction (it is what ``super().compute_loss`` just
+        returned).
         """
         weight = self._structured_weight_now()
-        zero = outputs.logits.sum() * 0.0
+        zero = lm_loss.sum() * 0.0
         skipped = {"structured_weight": weight, "structured_scored_rows": 0.0}
         if weight == 0.0:
             return zero, skipped
@@ -499,7 +511,7 @@ class AuxiliarySFTTrainer(SFTTrainer):
             if not gold:
                 return zero, skipped
             states, lengths = self._structured_targets(
-                [str(g) for g in gold], outputs.logits.device
+                [str(g) for g in gold], lm_loss.device
             )
 
         hidden = getattr(outputs, "hidden_states", None)

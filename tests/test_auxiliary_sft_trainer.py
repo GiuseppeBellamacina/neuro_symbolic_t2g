@@ -524,6 +524,79 @@ def test_structured_term_contributes_and_reaches_the_head():
     assert all(torch.isfinite(g).all() for g in grads)
 
 
+def test_structured_term_never_touches_outputs_logits():
+    """Regression for the real crash: under Unsloth, outputs.logits is an
+    ``EmptyLogits`` placeholder that raises on ANY access (.sum(), .device,
+    __getitem__, ...) unless UNSLOTH_RETURN_LOGITS=1 was set before Unsloth
+    was imported (a process-wide, import-time decision this trainer cannot
+    control from inside compute_loss). structured_term never uses logit
+    *values* (only hidden_states), so it must not touch .logits at all.
+    Job 7517-7519 all crashed here (auxiliary_sft_trainer.py:490,
+    `outputs.logits.sum()`) even with the env var correctly set at import
+    time — this fix sidesteps the whole question by not needing logits.
+    """
+    from src.datasets.structured_transitions import build_structured_transition_graph
+    from src.models.structured_gloss_head import (
+        StructuredGlossHead,
+        StructuredGraphLoss,
+    )
+    from src.training.auxiliary_sft_trainer import AuxiliarySFTTrainer
+
+    rows = [{"gloss": g} for g in ["IX MAN", "IX WALK", "MAN WALK", "IX MAN WALK"]]
+    graph = build_structured_transition_graph(rows, top_k=3)
+    head = StructuredGlossHead(hidden_size=8, num_states=graph.num_states, max_length=8)
+
+    class _RaisingLogits:
+        """Mirrors unsloth.models._utils.EmptyLogits: any attribute access
+        or subscript raises, exactly like the real thing does."""
+
+        def __getattr__(self, name):
+            raise NotImplementedError(f"Unsloth: Logits are empty ({name})")
+
+        def __getitem__(self, item):
+            raise NotImplementedError("Unsloth: Logits are empty (getitem)")
+
+    class _Stub(AuxiliarySFTTrainer):
+        def __init__(self) -> None:
+            self.allowed_mask_fn = None
+            self.mass_weight = 0.0
+            self.mass_warmup_steps = 0
+            self.structured_head = head
+            self.structured_loss = StructuredGraphLoss(graph)
+            self.structured_graph = graph
+            self.structured_weight = 1.0
+            self.structured_warmup_steps = 0
+            self.auxiliary_diagnostics = {}
+            self.state = None
+
+    class _Outputs:
+        logits = _RaisingLogits()
+        hidden_states = [torch.randn(2, 3, 8)]
+
+    def _stock(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        return (torch.tensor(2.0), _Outputs())
+
+    import src.training.auxiliary_sft_trainer as module
+
+    original = module.SFTTrainer.compute_loss
+    module.SFTTrainer.compute_loss = _stock  # type: ignore[assignment]
+    try:
+        total = module.AuxiliarySFTTrainer.compute_loss(
+            _Stub(),
+            torch.nn.Linear(2, 2),
+            {
+                "input_ids": torch.tensor([[1, 2, 3], [1, 2, 3]]),
+                "labels": torch.tensor([[-100, 2, 3], [-100, 2, 3]]),
+                "gold_gloss": ["IX MAN", "IX WALK"],
+            },
+        )
+    finally:
+        module.SFTTrainer.compute_loss = original  # type: ignore[assignment]
+
+    assert torch.isfinite(total)
+    assert float(total.detach()) != pytest.approx(2.0), "termine structured nullo"
+
+
 def test_structured_requires_the_graph_for_target_mapping():
     """StructuredGraphLoss tiene solo buffer: senza il grafo non si mappa nulla."""
     from src.training.auxiliary_sft_trainer import AuxiliarySFTTrainer
