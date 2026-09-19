@@ -292,7 +292,8 @@ Questa è una ritrattazione dichiarata: l'ipotesi ``la reward premia la
 verbosità'' era ragionevole a priori, è stata testata due volte
 (analiticamente e sui dati di lunghezza), e va abbandonata.
 
-\section{Osservazione 5: la degradazione della pipeline SFT$\to$GRPO}
+\section{Osservazione 5: il presunto crollo della pipeline SFT$\to$GRPO}
+\label{sec:osservazione5}
 
 Il risultato più scomodo della tabella:
 
@@ -334,21 +335,52 @@ oltre un certo punto migliorarla peggiora l'obiettivo vero. La particolarità qu
 l'$84{,}8\%$ di varianza nulla era osservabile con una singola sonda sui rollout,
 senza addestrare.
 
-\paragraph{Nota aperta sulla composizione del checkpoint valutato.} Durante la
+\paragraph{Risoluzione: il crollo era in gran parte il guasto~6.} Durante la
 stesura di questa relazione è stato individuato e corretto un difetto nella
-valutazione delle celle \texttt{sft-grpo} (guasto~7,
+valutazione delle celle \texttt{sft-grpo} (guasto~6,
 sezione~\ref{sec:bug-sft-merge-eval}): l'adattatore della fase SFT non veniva
 incluso nel modello ricostruito per l'eval, che quindi valutava
 \texttt{base + adattatore GRPO} invece di \texttt{base + SFT + adattatore
 GRPO}. I numeri $0{,}9749$/$0{,}5114$ sopra sono stati prodotti con il codice
-\emph{non corretto}. Il meccanismo dei gruppi a varianza nulla resta la
-spiegazione corretta di \emph{perché} il GRPO non possa migliorare una policy
-già quasi deterministica, ed è indipendente da questo difetto; ciò che non è
-ancora verificato è l'entità esatta del crollo misurato qui. Una
-ri-valutazione della cella con il codice corretto risolve la questione senza
-nuovo addestramento (dettagli e le due ipotesi aperte in
-sezione~\ref{sec:sft-merge-non-rimisurato}); finché non è eseguita, questa
-sezione va letta con quella riserva esplicita.
+\emph{non corretto}.
+
+Una campagna successiva, con la correzione in codice fin dall'addestramento
+(dettagli in sezione~\ref{sec:sft-merge-non-rimisurato}), dà un esito netto:
+la cella \texttt{sft-grpo/few-shot} composta correttamente ottiene ROUGE-L
+$0{,}9628$ ed exact match $0{,}7296$ (few-shot nativo), contro $0{,}9681$ e
+$0{,}7662$ dell'SFT da sola nella stessa campagna (zero-shot nativo). I due
+numeri vengono da modalità di prompting diverse --- la stessa cella SFT
+valutata in few-shot, nella stessa campagna, dà $0{,}9191$/$0{,}538$ ---
+quindi il confronto non è appaiato per prompting; non è nemmeno il confronto
+più favorevole alla cella \texttt{sft-grpo}, che con qualunque delle due
+letture resta comunque entro un punto o due di ROUGE-L dal soffitto SFT, non
+ai quaranta punti misurati sopra.
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Cella (campagna con guasto~6, $2\,000$ passi) & ROUGE-L & EM \\
+\midrule
+SFT soltanto & $0{,}9749$ & $0{,}8117$ \\
+SFT seguito da GRPO (\emph{con guasto~6}) & $0{,}5114$ & $0{,}0203$ \\
+\midrule
+\multicolumn{3}{l}{\emph{Campagna successiva, guasto~6 corretto ($5\,000$ passi, non direttamente comparabile alla precedente):}} \\
+SFT soltanto & $0{,}9681$ & $0{,}7662$ \\
+SFT seguito da GRPO (\emph{corretto}) & $0{,}9628$ & $0{,}7296$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il meccanismo dei gruppi a varianza nulla (l'$84{,}8\%$ senza gradiente
+utile) resta un fatto reale, misurato direttamente sui rollout indipendentemente
+da come il checkpoint viene poi ricomposto per l'eval; ma la sua portata va
+ridimensionata. Non è la causa di un crollo di quaranta punti --- quel numero
+era in gran parte il guasto~6 --- bensì di una deriva piccola, dell'ordine di
+un punto di ROUGE-L, coerente con un aggiornamento che tocca solo il $15{,}2\%$
+dei gruppi e resta ancorato dalla penalità KL ($\beta = 0{,}04$). Questa è
+un'altra ritrattazione dichiarata, nello stesso spirito
+dell'Osservazione~4: l'entità dell'effetto, non il meccanismo che lo produce,
+era sbagliata.
 
 \section{La decomposizione dell'effetto}
 \label{sec:decomposizione}

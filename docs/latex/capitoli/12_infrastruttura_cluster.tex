@@ -285,41 +285,39 @@ il caso positivo, l'assenza di fase SFT (celle \texttt{grpo/*} pure), una fase
 SFT incompleta (mai trattata come un merge avvenuto), e un checkpoint
 intermedio.
 
-\subsubsection{Che cosa questo NON dice ancora}
+\subsubsection{L'esito: la prima ipotesi}
 \label{sec:sft-merge-non-rimisurato}
 
-Qui va tracciata una linea netta, per lo stesso motivo per cui il
-Capitolo~\ref{cap:conclusioni} tratta le ritrattazioni come parte del
-risultato e non come rumore da nascondere: la correzione è verificata a
-livello di codice (i sei test la coprono), ma \textbf{nessuna cella
-\texttt{sft-grpo} è ancora stata rivalutata con l'eval corretto}. Questo
-capitolo può dire con certezza che cosa il vecchio codice faceva
-(comporre il modello sbagliato); non può ancora dire quanto questo abbia
-spostato il numero dell'Osservazione~5 (sezione~\ref{sec:decomposizione}).
+Il paragrafo precedente, nella stesura originale di questa relazione,
+lasciava aperte due ipotesi e rimandava lo scioglimento a una
+ri-valutazione a costo pressoché nullo della cella \texttt{sft-grpo} già
+addestrata. Nel frattempo lo storage del cluster è stato azzerato per
+liberare spazio, quindi l'esperimento eseguito non è stato la
+ri-valutazione dello stesso checkpoint, ma una campagna fresca (\texttt{max\_steps}
+$2\,000 \to 5\,000$, valutazione doppia) con la correzione già in codice fin
+dall'addestramento. La domanda a cui risponde è comunque la stessa: un
+checkpoint \texttt{sft-grpo} composto correttamente si avvicina al soffitto
+dell'SFT, o resta al livello del vecchio $0{,}5114$?
 
-Le due ipotesi restano aperte, ed entrambe sono compatibili con quanto già
-misurato:
+\textbf{Si conferma la prima ipotesi.} La cella \texttt{sft-grpo/few-shot}
+rivalutata ottiene ROUGE-L $0{,}9628$ ed exact match $0{,}7296$ (few-shot
+nativo) — contro $0{,}9681$/$0{,}7662$ dell'SFT da sola nella stessa
+campagna (zero-shot nativo): un divario residuo di circa $0{,}01$ di
+ROUGE-L, non di $0{,}46$. Il numero storico $0{,}5114$ misurava per gran parte
+\texttt{base grezzo + adattatore GRPO}, cioè esattamente il guasto appena
+descritto, non l'effetto del reinforcement learning sulla policy SFT.
 
-\begin{description}
-  \item[Il crollo è (in parte) un artefatto.] Se una ri-valutazione con
-        l'eval corretto avvicina la cella \texttt{sft-grpo} al soffitto
-        dell'SFT, il meccanismo di collasso del supporto (gruppi a varianza
-        nulla, sezione~\ref{sec:supporto}) resta valido come spiegazione di
-        \emph{una parte} del divario, ma l'Osservazione~5 andrebbe riscritta:
-        il numero $0{,}5114$ misurava in parte un modello che non è mai
-        esistito come tale in fase di addestramento.
-  \item[Il crollo è un fenomeno reale, indipendente dal difetto.] Se la
-        ri-valutazione conferma un ROUGE-L e un exact match comparabili a
-        quelli già pubblicati, il meccanismo dei gruppi a varianza nulla resta
-        la spiegazione corretta, e il difetto di composizione era presente ma
-        non determinante per la conclusione qualitativa.
-\end{description}
-
-L'esperimento che scioglie l'alternativa è a costo pressoché nullo: una sola
-ri-valutazione della cella \texttt{sft-grpo} già addestrata, con il codice
-corretto, senza nessun nuovo addestramento. Non è stato ancora eseguito
-mentre questa relazione viene scritta, e il risultato, qualunque sia,
-andrà riportato qui prima di considerare l'Osservazione~5 definitiva.
+Questo non annulla il meccanismo di collasso del supporto
+(sezione~\ref{sec:supporto}): l'$84{,}8\%$ di gruppi a varianza nulla è una
+proprietà misurata direttamente sui rollout, indipendente da come viene
+poi ricomposto il checkpoint per l'eval, e resta un fatto reale. Quello che
+cambia è la sua portata: un meccanismo che azzera il gradiente su gran
+parte dei gruppi produce, una volta il checkpoint valutato correttamente,
+una deriva piccola (circa un punto di ROUGE-L) e non il crollo di quaranta
+punti riportato dall'Osservazione~5 originale. Il meccanismo era la
+spiegazione corretta di \emph{una parte contenuta} del divario; il resto
+era il guasto stesso. Il dettaglio con la tabella di confronto è
+riportato nel Capitolo~\ref{cap:risultati}, sezione~\ref{sec:osservazione5}.
 
 \section{Il filo comune}
 

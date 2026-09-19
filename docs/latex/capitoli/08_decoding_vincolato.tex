@@ -500,7 +500,7 @@ silenzioso dell'impronta SFT sollevato in una stesura precedente di questa
 sezione \textbf{non si applica}: non esiste un adattatore SFT da confondere
 fra una cella con e senza glossario.
 
-\subsection{Stato: implementato, non ancora addestrato}
+\subsection{Stato: addestrato, con un effetto causale misurato in training}
 
 Il meccanismo è verificato a livello di codice
 (\texttt{tests/test\_glossary.py}, ed estensioni a
@@ -508,19 +508,76 @@ Il meccanismo è verificato a livello di codice
 l'allineamento per riga e la composizione del prompt), con l'invariante
 ``blocco assente $\Rightarrow$ prompt byte-identico'' verificata esplicitamente,
 sullo stesso modello del contratto di non regressione degli obiettivi
-ausiliari (sezione~\ref{sec:contratto-ausiliari}). Due celle sono pronte
-in \texttt{experiments/configs/qwen25-05b/ablations/glossary/} (zero-shot e
-few-shot), fuori dalla campagna \texttt{--ablation} ufficiale a 15 celle per
-non alterarla silenziosamente.
+ausiliari (sezione~\ref{sec:contratto-ausiliari}). Le due celle in
+\texttt{experiments/configs/qwen25-05b/ablations/glossary/} (zero-shot e
+few-shot), fuori dalla campagna \texttt{--ablation} ufficiale a 15 celle, sono
+state addestrate e valutate.
 
-Il criterio di promozione, dichiarato in anticipo per coerenza col
-Capitolo~\ref{cap:ausiliari}: la cella deve ridurre l'errore
-\emph{specificamente} sulla popolazione di token gold hapax legomena
-(la stessa che la sezione~\ref{sec:rule-repair} isola) più di quanto non
-riduca l'errore genericamente sul resto del vocabolario. Se il guadagno (o
-l'assenza di guadagno) è uniforme sulle due popolazioni, l'effetto --- se
-presente --- è di regolarizzazione generica dell'aggiunta di più contesto al
-prompt, non del meccanismo di glossario in sé. Nessuna delle due celle è
-stata ancora addestrata mentre questa relazione viene scritta: il costo di
-uno slot di cluster non è stato speso su un'idea la cui implementazione non
-fosse già stata verificata a livello di codice.
+\paragraph{L'eval, come atteso, non si sposta.} ROUGE-L ed exact match delle
+due celle restano entro il rumore delle celle GRPO-only equivalenti senza
+glossario: \texttt{glossary/zero-shot} ottiene ROUGE-L $0{,}516$ ed exact
+match $0{,}010$ contro $0{,}517$/$0{,}008$ di \texttt{grpo/zero-shot};
+\texttt{glossary/few-shot} $0{,}609$/$0{,}054$ contro $0{,}608$/$0{,}054$ di
+\texttt{grpo/few-shot} (stessa magnitudine delle altre ablazioni sullo stack
+di reward, Capitolo~\ref{cap:risultati}). Non è una sorpresa e non basta, da
+sola, a
+concludere che il meccanismo sia inerte: il glossario per costruzione non è
+mai presente in eval (sezione~\ref{sec:glossario-disegno}), quindi l'eval
+misura un trasferimento indiretto, senza l'aiuto, su una frazione minoritaria
+del vocabolario.
+
+\paragraph{Un test più diretto: il confronto mostrato-contro-scartato in
+training.} Il dropout del blocco (sezione~\ref{sec:glossario-disegno})
+produce, come effetto collaterale, un esperimento naturale pulito: fra le
+righe di training idonee al glossario (contengono almeno una parola rara,
+frequenza $\le 3$ nel train --- il $17{,}1\%$ del train set), la stessa
+estrazione deterministica sull'identificativo di riga decide, per ciascuna,
+se riceve il blocco o no. Nei campioni di completamento salvati durante
+l'addestramento di \texttt{glossary/zero-shot} e \texttt{glossary/few-shot},
+$504$ righe idonee sono state loggate in ciascuna cella: $276$ con il blocco
+mostrato, $228$ scartato --- e, poiché l'estrazione dipende solo
+dall'identificativo di riga (identico nelle due celle) e i campioni loggati
+in training campionano un sottoinsieme in larga parte sovrapposto fra le due
+run ($76$ frasi sorgente uniche, tutte in comune), il gruppo ``scartato'' è
+di fatto lo stesso in entrambe: non due misure indipendenti, ma la stessa
+popolazione di controllo letta due volte. Isolando la frazione di righe
+idonee in cui l'output del modello contiene il token gloss corretto per la
+parola rara:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Cella & Glossario mostrato ($n=276$) \\
+\midrule
+glossary/zero-shot & $73{,}6\%$ ($203/276$) \\
+glossary/few-shot & $55{,}8\%$ ($154/276$) \\
+\midrule
+\multicolumn{2}{l}{Glossario scartato, gruppo di controllo condiviso ($n=228$): $35{,}5\%$ ($81/228$)} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Un effetto di $+38$ e $+20$ punti percentuali, sulla stessa popolazione di
+controllo, con l'unica differenza la presenza del blocco: il meccanismo
+raggiunge davvero il modello e ne cambia il comportamento nella direzione
+attesa, durante l'addestramento.
+
+La coerenza fra un effetto di training marcato e un effetto di eval assente
+si spiega con la scala: il meccanismo tocca solo l'$8{,}6\%$ delle righe di
+training ($17{,}1\% \times 50\%$ di dropout), e solo sulle parole rare. Un
+segnale così locale, confinato a una coda del vocabolario, non ci si aspetta
+sposti una metrica aggregata dominata dalle parole comuni. Questo non è un
+meccanismo rotto: è un'esposizione a tempo di addestramento che funziona
+esattamente come progettato ma non generalizza in assenza dell'aiuto,
+misurato piuttosto che assunto.
+
+\paragraph{Il criterio di promozione pre-registrato resta aperto.} Il
+criterio dichiarato in anticipo per coerenza col Capitolo~\ref{cap:ausiliari}
+--- riduzione dell'errore specificamente sulla popolazione di token gold
+hapax legomena in eval (la stessa che la sezione~\ref{sec:rule-repair}
+isola), confrontata con la riduzione generica sul resto del vocabolario ---
+richiede una scomposizione delle metriche di eval per rarità del token gold,
+non ancora calcolata mentre questa relazione viene scritta. Il confronto
+mostrato-contro-scartato sopra è un test diverso e complementare (causale, a
+tempo di training), non un sostituto di quel criterio: la promozione del
+meccanismo resta, a rigore, non decisa.
