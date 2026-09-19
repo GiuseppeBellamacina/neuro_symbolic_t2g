@@ -780,6 +780,55 @@ def test_structured_term_falls_back_to_decoded_labels_when_gold_gloss_is_absent(
     assert float(total.detach()) != pytest.approx(2.0), "termine structured nullo"
 
 
+def test_move_structured_modules_moves_both_head_and_loss():
+    """Regression for job 7530: only structured_head was moved to the
+    backbone's device; structured_loss's registered buffers (transition
+    scores) stayed on CPU and the first real forward crashed inside
+    log_partition with a cuda/cpu tensor mismatch. CPU-only tests can't
+    reproduce a device mismatch directly, so this spies on .to() calls
+    instead of asserting actual tensor placement."""
+    from src.training.auxiliary_sft_trainer import AuxiliarySFTTrainer
+
+    calls: dict[str, object] = {}
+
+    class _Spy:
+        def to(self, device):
+            calls[type(self).__name__] = device
+            return self
+
+    class _Head(_Spy):
+        pass
+
+    class _Loss(_Spy):
+        pass
+
+    class _Model:
+        device = "meta"
+
+    stub = object.__new__(AuxiliarySFTTrainer)
+    stub.model = _Model()
+    stub.structured_head = _Head()
+    stub.structured_loss = _Loss()
+
+    AuxiliarySFTTrainer._move_structured_modules_to_device(stub)
+
+    assert calls == {"_Head": "meta", "_Loss": "meta"}
+
+
+def test_move_structured_modules_noop_when_either_is_absent():
+    from src.training.auxiliary_sft_trainer import AuxiliarySFTTrainer
+
+    class _Model:
+        device = "meta"
+
+    stub = object.__new__(AuxiliarySFTTrainer)
+    stub.model = _Model()
+    stub.structured_head = None
+    stub.structured_loss = None
+
+    AuxiliarySFTTrainer._move_structured_modules_to_device(stub)  # must not raise
+
+
 def test_structured_weight_zero_leaves_loss_untouched():
     from src.training.auxiliary_sft_trainer import AuxiliarySFTTrainer
 

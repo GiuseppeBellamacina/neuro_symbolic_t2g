@@ -337,12 +337,31 @@ class AuxiliarySFTTrainer(SFTTrainer):
         self.structured_warmup_steps = int(structured_warmup_steps)
         self.auxiliary_diagnostics: dict[str, float] = {}
         super().__init__(*args, **kwargs)
-        # The head is a real parameter tree: it must reach the optimizer, and it
-        # must live on the same device as the backbone.
-        if self.structured_head is not None and self.model is not None:
-            device = getattr(self.model, "device", None)
-            if device is not None:
-                self.structured_head.to(device)
+        self._move_structured_modules_to_device()
+
+    def _move_structured_modules_to_device(self) -> None:
+        """Move structured_head/structured_loss onto the backbone's device.
+
+        Both are real ``nn.Module``s that must match the backbone's device
+        for the forward pass to work: the head has trainable parameters (it
+        must also reach the optimizer), and the loss's transition scores are
+        registered buffers built from plain Python/numpy graph data in its
+        own ``__init__`` — never touching a device on their own. Moving only
+        the head (the original code) leaves the loss on CPU; the first real
+        forward then crashes inside ``log_partition`` with a cuda/cpu tensor
+        mismatch (job 7530, hit only after the separate gold_gloss and
+        structured_graph wiring bugs were already fixed — nothing exercises
+        this path on CPU-only tests, where the mismatch can't occur).
+        """
+        if self.model is None:
+            return
+        device = getattr(self.model, "device", None)
+        if device is None:
+            return
+        if self.structured_head is not None:
+            self.structured_head.to(device)
+        if self.structured_loss is not None:
+            self.structured_loss.to(device)
 
     def _set_signature_columns_if_needed(self) -> None:
         """Protect ``gold_gloss`` from ``Trainer``'s ``remove_unused_columns``.
