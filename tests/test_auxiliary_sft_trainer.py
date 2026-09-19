@@ -608,6 +608,47 @@ def test_structured_requires_the_graph_for_target_mapping():
         AuxiliarySFTTrainer._structured_targets(stub, ["IX MAN"], "cpu")
 
 
+def test_signature_columns_protect_gold_gloss_when_structured_is_on():
+    """Regression for job 7520: structured_scored_rows was 0 for 800+ steps.
+
+    Root cause had nothing to do with Unsloth: Trainer.remove_unused_columns
+    defaults to True (never overridden in this project) and strips any
+    dataset column outside _signature_columns before the collator ever sees
+    it. TRL's SFTTrainer signature list has no "gold_gloss", so it was always
+    dropped upstream of compute_loss, silently. This test exercises the real
+    mechanism (_signature_columns), not a hand-built inputs dict that already
+    contains gold_gloss like the other tests in this file do.
+    """
+    from src.training.auxiliary_sft_trainer import AuxiliarySFTTrainer
+
+    stub = object.__new__(AuxiliarySFTTrainer)
+    stub._signature_columns = None
+    stub._is_vision_dataset = False
+    stub.structured_weight = 1.0
+    stub.structured_head = object()
+    stub.structured_loss = object()
+
+    AuxiliarySFTTrainer._set_signature_columns_if_needed(stub)
+
+    assert "gold_gloss" in stub._signature_columns
+
+
+def test_signature_columns_leave_gold_gloss_out_when_structured_is_off():
+    """Inertness contract: weight 0 must not add columns the collator sees."""
+    from src.training.auxiliary_sft_trainer import AuxiliarySFTTrainer
+
+    stub = object.__new__(AuxiliarySFTTrainer)
+    stub._signature_columns = None
+    stub._is_vision_dataset = False
+    stub.structured_weight = 0.0
+    stub.structured_head = None
+    stub.structured_loss = None
+
+    AuxiliarySFTTrainer._set_signature_columns_if_needed(stub)
+
+    assert "gold_gloss" not in stub._signature_columns
+
+
 def test_structured_weight_zero_leaves_loss_untouched():
     from src.training.auxiliary_sft_trainer import AuxiliarySFTTrainer
 

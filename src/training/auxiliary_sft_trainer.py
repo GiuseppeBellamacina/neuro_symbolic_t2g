@@ -256,6 +256,17 @@ class CompletionSpanCollator(DataCollatorForLanguageModeling):
 
         batch["completion_start"] = torch.tensor(starts, dtype=torch.long)
         batch["completion_eligible"] = torch.tensor(eligible, dtype=torch.bool)
+
+        # gold_gloss is a string column: super().__call__ (TRL's
+        # DataCollatorForLanguageModeling.torch_call) builds its output dict
+        # explicitly from known tensor-izable keys and drops anything else,
+        # so it must be copied through here by hand, same as completion_start
+        # /completion_eligible above. Without this, _structured_term's
+        # inputs.get("gold_gloss") is always None regardless of whether the
+        # column survives Trainer.remove_unused_columns upstream (job 7520:
+        # structured_scored_rows stayed 0 for 800+ steps because of this).
+        if features and "gold_gloss" in features[0]:
+            batch["gold_gloss"] = [row.get("gold_gloss") for row in features]
         return batch
 
 
@@ -332,6 +343,37 @@ class AuxiliarySFTTrainer(SFTTrainer):
             device = getattr(self.model, "device", None)
             if device is not None:
                 self.structured_head.to(device)
+
+    def _set_signature_columns_if_needed(self) -> None:
+        """Protect ``gold_gloss`` from ``Trainer``'s ``remove_unused_columns``.
+
+        ``remove_unused_columns`` defaults to ``True`` and is never overridden
+        anywhere in this project. ``Trainer._remove_unused_columns`` strips any
+        dataset column outside ``self._signature_columns`` *before* the
+        DataLoader (and therefore the collator and ``compute_loss``) ever see
+        it. TRL's ``SFTTrainer`` sets that list to ``["input_ids", "labels",
+        "seq_lengths", "completion_mask", "assistant_masks"]`` — no
+        ``gold_gloss`` — so ``_structured_term``'s ``inputs.get("gold_gloss")``
+        was always ``None`` and every row fell into the "nothing to score"
+        branch, silently: no crash, ``structured_scored_rows=0`` forever (job
+        7520 confirmed this through 800+ steps with the weight at its full,
+        post-warmup value). The unit tests didn't catch it because they call
+        ``compute_loss`` directly with a hand-built ``inputs`` dict that
+        already contains ``gold_gloss``, bypassing this column-removal step
+        entirely.
+        """
+        super()._set_signature_columns_if_needed()
+        structured_on = (
+            getattr(self, "structured_weight", 0.0) > 0.0
+            and getattr(self, "structured_head", None) is not None
+            and getattr(self, "structured_loss", None) is not None
+        )
+        if (
+            structured_on
+            and self._signature_columns is not None
+            and "gold_gloss" not in self._signature_columns
+        ):
+            self._signature_columns = [*self._signature_columns, "gold_gloss"]
 
     def _auxiliary_enabled(self) -> bool:
         mass_on = (
@@ -498,18 +540,30 @@ class AuxiliarySFTTrainer(SFTTrainer):
         device by construction (it is what ``super().compute_loss`` just
         returned).
         """
+        # structured_skip_reason distinguishes the four ways this can end up
+        # scoring nothing: 0=warmup (weight not yet ramped), 1=no gold_gloss
+        # reached this call, 2=hidden_states is None (Unsloth path didn't
+        # materialize it), 3=every row was ineligible (map_glosses empty or
+        # over structured_head.max_length). Job 7520 logged
+        # structured_scored_rows=0 for 800+ steps with no way to tell which
+        # of these four was firing; this makes the next run self-diagnosing
+        # instead of another blind relaunch.
         weight = self._structured_weight_now()
         zero = lm_loss.sum() * 0.0
-        skipped = {"structured_weight": weight, "structured_scored_rows": 0.0}
+        skipped = {
+            "structured_weight": weight,
+            "structured_scored_rows": 0.0,
+            "structured_skip_reason": -1.0,
+        }
         if weight == 0.0:
-            return zero, skipped
+            return zero, {**skipped, "structured_skip_reason": 0.0}
 
         states = inputs.get("structured_states")
         lengths = inputs.get("structured_length")
         if states is None or lengths is None:
             gold = inputs.get("gold_gloss")
             if not gold:
-                return zero, skipped
+                return zero, {**skipped, "structured_skip_reason": 1.0}
             states, lengths = self._structured_targets(
                 [str(g) for g in gold], lm_loss.device
             )
@@ -518,11 +572,11 @@ class AuxiliarySFTTrainer(SFTTrainer):
         if hidden is None:
             # Senza hidden states non si forza un SECONDO forward: costerebbe il
             # doppio e cambierebbe la LM loss. Si salta e lo si dichiara.
-            return zero, skipped
+            return zero, {**skipped, "structured_skip_reason": 2.0}
 
         valid = lengths > 0
         if not bool(valid.any()) or states.numel() == 0:
-            return zero, skipped
+            return zero, {**skipped, "structured_skip_reason": 3.0}
 
         boundary = hidden[-1][:, -1, :]
         steps = int(lengths[valid].max().item())
@@ -533,6 +587,7 @@ class AuxiliarySFTTrainer(SFTTrainer):
             "structured_weight": weight,
             "structured_nll": float(per_row.mean().detach().float().item()),
             "structured_scored_rows": float(int(valid.sum().item())),
+            "structured_skip_reason": -1.0,
         }
 
     def _mass_term(
