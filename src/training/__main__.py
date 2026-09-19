@@ -96,6 +96,29 @@ if _num_gpus > 1:
         f"[bootstrap] num_gpus={_num_gpus} → disabling Unsloth (not compatible with multi-GPU)"
     )
 
+# Unsloth reads UNSLOTH_RETURN_LOGITS at IMPORT time (it decides there how to
+# patch the model's forward, i.e. whether outputs.logits is ever materialized
+# at all) — NOT lazily at each forward call. Setting it later, e.g. inside
+# sft_train.py::run_sft right before load_model_and_tokenizer, is too late:
+# Unsloth is already imported and patched by the time that code runs, and the
+# auxiliary losses (allowed_mass, structured) that need real logits crash on
+# the first training step regardless (confirmed: jobs 7517+ still failed
+# after that fix). It MUST be set here, before `import unsloth` below — the
+# same reason this whole bootstrap module exists (import order).
+_aux = _cfg.get("auxiliary_objective")
+if isinstance(_aux, dict) and any(
+    isinstance(_aux.get(_name), dict)
+    and float(_aux[_name].get("weight", 0.0) or 0.0) > 0.0
+    for _name in ("allowed_mass", "structured")
+):
+    import os as _os
+
+    _os.environ["UNSLOTH_RETURN_LOGITS"] = "1"
+    print(
+        "[bootstrap] auxiliary_objective attivo → UNSLOTH_RETURN_LOGITS=1 "
+        "(prima dell'import di Unsloth)"
+    )
+
 # Unsloth early import — MUST happen before importing torch/transformers/trl
 if _cfg.get("model", {}).get("use_unsloth", False):
     print(
