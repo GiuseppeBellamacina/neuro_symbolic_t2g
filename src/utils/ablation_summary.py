@@ -62,6 +62,40 @@ DELTA_METRICS = [
 ]
 
 
+def _discover_cells(results_dir: Path) -> dict[str, list[Path]]:
+    """Map each cell (config) to its ``run_*`` directories, at ANY nesting depth.
+
+    Cells nest at different depths under ``results_dir`` depending on how deep
+    their own config path is — ``qwen25-05b/grpo/zero-shot`` is 2 levels above
+    its ``run_*`` dirs, the legacy flat ``qwen25-05b-baseline-few-shot`` is 0 —
+    so a fixed-depth ``iterdir()`` only ever found the shallow legacy layout.
+    Anchoring on the ``run_*`` segment itself keeps every cell distinct at any
+    depth (same fix as ``src/utils/run_paths.py::split_checkpoint_path``,
+    applied here to the READ side instead of the write side).
+
+    A cell with no ``run_*`` children at all (eval files written directly
+    inside the cell dir — the oldest layout) maps to an empty list; callers
+    fall back to the cell dir itself in that case.
+    """
+    cells: dict[str, list[Path]] = {}
+    for run_dir in results_dir.rglob("run_*"):
+        if not run_dir.is_dir():
+            continue
+        config_name = run_dir.parent.relative_to(results_dir).as_posix()
+        cells.setdefault(config_name, []).append(run_dir)
+    # Oldest layout: eval_*.json directly inside the cell dir, no run_*
+    # wrapper at all. A file whose OWN parent is a run_* dir is already
+    # covered by the loop above (checking the parent's children, not its own
+    # name, would wrongly re-admit every run_* dir as a cell of itself).
+    for eval_file in results_dir.rglob("eval_*.json"):
+        parent = eval_file.parent
+        if parent.name.startswith("run_"):
+            continue  # already covered above
+        config_name = parent.relative_to(results_dir).as_posix()
+        cells.setdefault(config_name, [])
+    return cells
+
+
 def find_eval_results(results_dir: Path) -> list[dict]:
     """Scan results_dir for all eval_*.json files (excluding baseline).
 
@@ -73,26 +107,11 @@ def find_eval_results(results_dir: Path) -> list[dict]:
         logger.warning("Results directory not found: %s", results_dir)
         return entries
 
-    for config_dir in sorted(results_dir.iterdir()):
-        if not config_dir.is_dir():
-            continue
-
-        config_name = config_dir.name
-
+    for config_name, run_dirs in sorted(_discover_cells(results_dir).items()):
         # Each config may have multiple run_* subdirectories.
         # Take the latest one (sorted = chronological).
-        run_dirs = sorted(
-            [
-                d
-                for d in config_dir.iterdir()
-                if d.is_dir() and d.name.startswith("run_")
-            ]
-        )
-        if not run_dirs:
-            # Maybe results are directly in the config dir (no run_ subdirs)
-            run_dirs = [config_dir]
-
-        latest_run = run_dirs[-1]
+        run_dirs = sorted(run_dirs)
+        latest_run = run_dirs[-1] if run_dirs else (results_dir / config_name)
 
         # Find eval_*.json (skip eval_baseline.json — that's the zero-shot ref)
         eval_files = [

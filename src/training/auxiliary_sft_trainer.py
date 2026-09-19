@@ -43,8 +43,8 @@ from typing import Any
 
 import torch
 from torch import Tensor
-from transformers import DataCollatorForLanguageModeling
 from trl import SFTTrainer  # type: ignore[import]
+from trl.trainer.sft_trainer import DataCollatorForLanguageModeling
 
 from src.training.allowed_mass_loss import allowed_mass_loss
 
@@ -200,6 +200,17 @@ class CompletionSpanCollator(DataCollatorForLanguageModeling):
     auxiliary losses score only completion positions, so the span is recovered
     here and validated against the labels TRL actually produced — if the two
     disagree we raise instead of scoring the wrong positions.
+
+    The base class MUST be ``trl.trainer.sft_trainer.DataCollatorForLanguageModeling``
+    (imported above), not ``transformers.DataCollatorForLanguageModeling`` — same
+    class name, unrelated classes. The ``transformers`` one is the BERT-style MLM
+    collator and has no notion of ``completion_mask``: it batches every feature
+    key as-is, so the variable-length per-example ``completion_mask`` list TRL's
+    dataset prep attaches (padded only by TRL's OWN collator) crashes
+    ``torch.tensor()`` the moment two examples in a batch have different
+    completion lengths (jobs 7457-7459: "expected sequence of length 101 at
+    dim 1 (got 98)"). Constructor signature differs accordingly: ``pad_token_id``
+    (int), not ``tokenizer``/``mlm``.
     """
 
     def __init__(self, *, eos_token_id: int, **kwargs: Any) -> None:

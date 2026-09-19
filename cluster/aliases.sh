@@ -469,9 +469,27 @@ alias t2g-gpu='gpu'
 alias t2g-trainlog='trainlog'
 alias t2g-help='claudio'
 
+# Esegue un modulo python DENTRO il container Apptainer via un'allocazione
+# srun breve, non-interattiva (bloccante: ritorna quando lo script finisce).
+# Necessario perché il login node non ha ne' un .venv del progetto ne'
+# apptainer in PATH: python3 -u -m ... invocato bare (come facevano
+# ablation-summary/campaign-report prima di questo fix) girava sul python3
+# di sistema del login node, senza matplotlib/pandas/numpy — mai testato
+# fino a una vera campagna, sempre fallito con ModuleNotFoundError.
+# Risorse ridotte rispetto a train.sh/eval.sh (16G/2cpu/10min, non 48G/8cpu):
+# questi script leggono JSON e disegnano grafici, non toccano la GPU.
+_t2g_run_report() {
+    local account="${SLURM_ACCOUNT:-thesis-course}"
+    srun --account "$account" --partition "$account" --qos gpu-xlarge \
+        --gres=gpu:1 --gres=shard:4000 --mem=16G --cpus-per-task=2 \
+        --time=00:10:00 \
+        apptainer run --nv /shared/sifs/latest.sif \
+        python3 -u "$@"
+}
+
 # Genera tabella + grafico cross-config dopo l'ablation (uso: ablation-summary)
 ablation-summary() {
-    cd "$PROJ_DIR" && python3 -u -m src.utils.ablation_summary "$@"
+    cd "$PROJ_DIR" && _t2g_run_report -m src.utils.ablation_summary "$@"
 }
 
 # Confronti strutturati cross-fattore per la matrice di ablazione
@@ -481,7 +499,7 @@ ablation-summary() {
 # discordanti, metrics_version, soglia di rumore). Da lanciare a fine
 # campagna o quando il cluster termina una chain.
 campaign-report() {
-    cd "$PROJ_DIR" && python3 -u -m src.analysis.campaign_report "$@"
+    cd "$PROJ_DIR" && _t2g_run_report -m src.analysis.campaign_report "$@"
 }
 
 # ── Pip / Environment ────────────────────────────────────────────────────────

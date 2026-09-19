@@ -620,9 +620,16 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     """
 
     # ── Setup logging ────────────────────────────────────────────────────
+    # force=True: see the identical comment in grpo_t2g_train.py's main() —
+    # Unsloth often configures the root logger first, making a plain
+    # basicConfig() a silent no-op (every logger.info() call in this file
+    # then vanishes). Harmless when called as the GRPO flow's SFT sub-phase,
+    # where grpo_t2g_train.py's own forced call already won with the same
+    # format.
     logging.basicConfig(
         level=logging.INFO,
         format="%(message)s",
+        force=True,
     )
     # Quiet down external libraries
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -1010,8 +1017,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
                 eval_dataset=sft_eval_ds if eval_enabled else None,
                 processing_class=tokenizer,
                 data_collator=CompletionSpanCollator(
-                    tokenizer=tokenizer,
-                    mlm=False,
+                    pad_token_id=tokenizer.pad_token_id,
                     eos_token_id=tokenizer.eos_token_id,
                 ),
                 allowed_mask_fn=allowed_mask_fn,

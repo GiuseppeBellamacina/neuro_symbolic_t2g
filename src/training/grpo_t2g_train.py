@@ -586,9 +586,17 @@ def main() -> None:
     grpo_cfg = config.get("generation", config.get("grpo", {}))
 
     # ── Setup logging ────────────────────────────────────────────────────
+    # force=True: Unsloth (imported before this point, see __main__.py) often
+    # configures the root logger itself at import time — basicConfig() is a
+    # documented no-op once root already has a handler, so without force=True
+    # every logger.info() call in this file (and in modules it calls) was
+    # silently dropped whenever Unsloth's handler won the race, with no error
+    # to signal it. Confirmed on real job logs: zero INFO-level lines in any
+    # train/eval log this project has ever produced.
     logging.basicConfig(
         level=logging.INFO,
         format="%(message)s",
+        force=True,
     )
     # Quiet down external libraries
     logging.getLogger("httpx").setLevel(logging.WARNING)

@@ -209,6 +209,57 @@ def test_span_recovery_handles_fully_unsupervised_row():
     assert out["completion_eligible"].tolist() == [False]
 
 
+# --- real CompletionSpanCollator: the actual HF/TRL collation path ----------
+#
+# The tests above exercise the span-recovery MATH via _StubCollator, which
+# never calls the real base class's __call__ — so they could not have caught
+# the real bug (jobs 7457/7458/7459, all three auxiliary-objective cells):
+# CompletionSpanCollator subclassed transformers.DataCollatorForLanguageModeling
+# (the unrelated BERT-style MLM collator) instead of
+# trl.trainer.sft_trainer.DataCollatorForLanguageModeling (the SFT-aware one
+# that knows how to pad a per-example completion_mask). Two examples with
+# different completion lengths in the same batch crashed torch.tensor()
+# ("expected sequence of length 101 at dim 1 (got 98)"). These tests
+# instantiate the REAL class and drive it through __call__.
+
+
+def test_completion_span_collator_pads_examples_of_different_completion_length():
+    """The actual failure mode of jobs 7457-7459: two examples whose
+    completion_mask differs in length must not crash torch.tensor()."""
+    from src.training.auxiliary_sft_trainer import CompletionSpanCollator
+
+    collator = CompletionSpanCollator(pad_token_id=0, eos_token_id=9)
+    features = [
+        {
+            "input_ids": [1, 2, 3, 4, 5, 6, 9],
+            "completion_mask": [0, 0, 0, 0, 1, 1, 1],
+        },
+        {
+            "input_ids": [1, 2, 9],
+            "completion_mask": [0, 0, 1],
+        },
+    ]
+
+    batch = collator(features)
+
+    assert batch["input_ids"].shape == batch["labels"].shape == (2, 7)
+    # Row 0: completion is the last 3 tokens [4, 5, 6? no: positions 4,5,6 -> values 5,6,9]
+    assert batch["labels"][0].tolist() == [-100, -100, -100, -100, 5, 6, 9]
+    # Row 1: completion is just the EOS token, right-padded with -100 to len 7.
+    assert batch["labels"][1].tolist() == [-100, -100, 9, -100, -100, -100, -100]
+    assert batch["completion_start"].tolist() == [4, 2]
+    assert batch["completion_eligible"].tolist() == [True, True]
+
+
+def test_completion_span_collator_rejects_transformers_style_kwargs():
+    """Constructing it the OLD (wrong-base-class) way must fail loudly: the
+    real base class takes pad_token_id, not tokenizer/mlm."""
+    from src.training.auxiliary_sft_trainer import CompletionSpanCollator
+
+    with pytest.raises(TypeError):
+        CompletionSpanCollator(tokenizer=object(), mlm=False, eos_token_id=9)
+
+
 # --- trainer construction contract ------------------------------------------
 
 

@@ -2787,9 +2787,16 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # force=True: see the identical comment in grpo_t2g_train.py's main() —
+    # Unsloth often configures the root logger first (this file also loads
+    # it, per __main__.py's import-order bootstrap), making a plain
+    # basicConfig() a silent no-op. Confirmed on a real eval job (slurm-
+    # eval-7383): zero "[t2g-eval]"-prefixed lines anywhere in the log,
+    # including load_model_for_eval's own logger.info calls.
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        force=True,
     )
     # HF libraries attach their own StreamHandler AND propagate to root —
     # every library warning printed twice (slurm-eval-7077). Strip the
