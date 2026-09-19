@@ -21,6 +21,7 @@ import yaml
 from datasets import Dataset
 from src.training.sft_train import (
     _build_prompt_completion_example,
+    _config_needs_unsloth_logits,
     clone_sft_adapter,
     compute_sft_fingerprint,
     find_reusable_sft_adapter,
@@ -600,3 +601,67 @@ def test_grpo_cli_force_sft_flag() -> None:
     args = build_arg_parser().parse_args(["--config", "x.yaml", "--resume"])
     assert args.force_sft is False
     assert args.resume is True
+
+
+# ---------------------------------------------------------------------------
+# _config_needs_unsloth_logits — UNSLOTH_RETURN_LOGITS gate
+# ---------------------------------------------------------------------------
+#
+# Unsloth never materializes outputs.logits unless UNSLOTH_RETURN_LOGITS=1 is
+# set BEFORE the model loads. Both auxiliary losses need real logits (jobs
+# 7507/7508/7513 all crashed on step 1 without this). This gate decides
+# whether to set that env var, cheaply, before paying for model loading.
+
+
+def test_needs_unsloth_logits_false_when_section_absent():
+    assert _config_needs_unsloth_logits({}) is False
+    assert _config_needs_unsloth_logits({"auxiliary_objective": {}}) is False
+
+
+def test_needs_unsloth_logits_false_when_weight_zero():
+    config = {
+        "auxiliary_objective": {
+            "allowed_mass": {"weight": 0.0},
+            "structured": {"weight": 0.0},
+        }
+    }
+    assert _config_needs_unsloth_logits(config) is False
+
+
+def test_needs_unsloth_logits_true_for_positive_allowed_mass_weight():
+    config = {"auxiliary_objective": {"allowed_mass": {"weight": 0.1}}}
+    assert _config_needs_unsloth_logits(config) is True
+
+
+def test_needs_unsloth_logits_true_for_positive_structured_weight():
+    config = {"auxiliary_objective": {"structured": {"weight": 0.1}}}
+    assert _config_needs_unsloth_logits(config) is True
+
+
+def test_needs_unsloth_logits_true_when_either_is_positive():
+    config = {
+        "auxiliary_objective": {
+            "allowed_mass": {"weight": 0.0},
+            "structured": {"weight": 0.2},
+        }
+    }
+    assert _config_needs_unsloth_logits(config) is True
+
+
+def test_needs_unsloth_logits_ignores_malformed_sections():
+    """Never the thing that turns a config error into a crash somewhere
+    else — resolve_auxiliary_config validates and raises later; this just
+    degrades to False on anything it can't cleanly read as a weight."""
+    assert _config_needs_unsloth_logits({"auxiliary_objective": "not-a-dict"}) is False
+    assert (
+        _config_needs_unsloth_logits(
+            {"auxiliary_objective": {"allowed_mass": "not-a-dict"}}
+        )
+        is False
+    )
+    assert (
+        _config_needs_unsloth_logits(
+            {"auxiliary_objective": {"allowed_mass": {"weight": "oops"}}}
+        )
+        is False
+    )

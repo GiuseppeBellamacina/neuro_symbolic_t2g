@@ -605,6 +605,31 @@ def clone_sft_adapter(source: str | Path, destination: str | Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def _config_needs_unsloth_logits(config: dict[str, Any]) -> bool:
+    """True if either auxiliary objective (weight > 0) needs real ``.logits``.
+
+    A cheap peek at the RAW config, deliberately not
+    ``resolve_auxiliary_config`` (which validates and raises on malformed
+    sections): this only needs to know whether logits will be touched at
+    all, before paying for model loading, and must never be the thing that
+    turns a config error into a crash at a different point in the file.
+    """
+    auxiliary = config.get("auxiliary_objective")
+    if not isinstance(auxiliary, dict):
+        return False
+    for name in ("allowed_mass", "structured"):
+        section = auxiliary.get(name)
+        if not isinstance(section, dict):
+            continue
+        try:
+            weight = float(section.get("weight", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if weight > 0.0:
+            return True
+    return False
+
+
 def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     """Run SFT training and return the path to the saved adapter.
 
@@ -693,6 +718,23 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     )
 
     # (prepare-data is handled in main(), not here)
+
+    # Unsloth returns empty `.logits` by default (a memory optimization: the
+    # fused kernel computes the LM loss without ever materializing the full
+    # [B, T, V] tensor) unless UNSLOTH_RETURN_LOGITS=1 is set BEFORE the model
+    # is loaded/patched. Both auxiliary losses need real logits — allowed_mass
+    # scores them directly, and structured (auxiliary_sft_trainer.py's
+    # _structured_term) reads `.logits` even just for its zero-loss device/dtype
+    # placeholder when the weight is 0 mid-warmup. Without this, every
+    # auxiliary-objective cell crashed on the first training step (jobs
+    # 7507/7508: NotImplementedError; 7513: a stranger 'function object is not
+    # subscriptable' from the same missing-logits property, depending on
+    # whether output_hidden_states was also requested).
+    if _config_needs_unsloth_logits(config):
+        os.environ["UNSLOTH_RETURN_LOGITS"] = "1"
+        logger.info(
+            "UNSLOTH_RETURN_LOGITS=1 (obiettivo ausiliario attivo, servono i logit reali)"
+        )
 
     # ── Step 2: Model loading ────────────────────────────────────────────
     logger.info("=" * 60)

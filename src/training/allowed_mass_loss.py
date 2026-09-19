@@ -48,15 +48,16 @@ which exposes the same dual-root Trie walk the decoder applies, so the loss and
 the decoder cannot drift apart. That producer is the reason this module is
 callable at all.
 
-STATUS ON THIS BRANCH: **no training client.** The mask producer and the loss
-both exist and are tested end-to-end, but nothing in ``sft_train.py`` calls
-them — wiring an auxiliary objective into the trainer is exactly the change that
-was rejected from the ``edit-rewards`` branch for altering default-path SFT.
-Before using this in a real run, satisfy GATE 1a in
-``docs/NEW_OBJECTIVES_SPEC.md``: one inference-only cluster probe showing that
-``removed_mass`` is large enough to be worth optimizing. Note that
-``track_diagnostics`` defaults to ``False`` and no training script enables it,
-so no historical run recorded this quantity.
+STATUS: wired into ``sft_train.py`` via ``AuxiliarySFTTrainer``
+(``ablations/objectives/sft-allowed-mass.yaml``, which also sets
+``grammar.track_diagnostics: true`` — the GATE 1a prerequisite in
+``docs/NEW_OBJECTIVES_SPEC.md``). The wiring is additive and gated on a
+positive weight exactly as the ``edit-rewards`` branch's version was not: with
+``weight == 0`` the trainer is bit-identical to stock ``SFTTrainer``
+(``tests/test_auxiliary_sft_trainer.py``). Requires
+``UNSLOTH_RETURN_LOGITS=1`` when Unsloth is in use — set automatically by
+``sft_train.py::run_sft`` whenever this objective's weight is positive, since
+Unsloth otherwise never materializes ``outputs.logits`` this function needs.
 """
 
 from __future__ import annotations
