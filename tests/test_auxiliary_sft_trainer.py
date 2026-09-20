@@ -158,9 +158,10 @@ class _StubCollator:
             first = int(positions[0].item())
             last = int(positions[-1].item())
             contiguous = positions.numel() == (last - first + 1)
-            ends_eos = int(batch["input_ids"][row, last].item()) == self.eos_token_id
+            span_ids = batch["input_ids"][row, first : last + 1]
+            has_eos = bool((span_ids == self.eos_token_id).any().item())
             starts.append(first)
-            eligible.append(bool(contiguous and ends_eos and first >= 1))
+            eligible.append(bool(contiguous and has_eos and first >= 1))
         assert CompletionSpanCollator is not None  # module import sanity
         batch["completion_start"] = torch.tensor(starts, dtype=torch.long)
         batch["completion_eligible"] = torch.tensor(eligible, dtype=torch.bool)
@@ -251,6 +252,36 @@ def test_completion_span_collator_pads_examples_of_different_completion_length()
     assert batch["labels"][1].tolist() == [-100, -100, 9, -100, -100, -100, -100]
     assert batch["completion_start"].tolist() == [4, 2]
     assert batch["completion_eligible"].tolist() == [True, True]
+
+
+def test_completion_span_collator_eligible_with_trailing_token_after_eos():
+    """Regression for job 7551: aux/mass_scored_positions was 0 for 100+
+    steps, on both the real ASLG dataset and synthetic data with no chat
+    template involved. Root cause: Qwen's chat template emits
+    "<|im_end|>\n" for the assistant turn, and that trailing "\n" is itself
+    part of the completion span (labels != -100), landing at the actual
+    last position instead of the EOS token one before it. The old
+    "input_ids[last] == eos_token_id" check made every row ineligible
+    regardless of data; checking for EOS anywhere in the contiguous
+    supervised span (verified against the real tokenizer: pc_ids tail
+    [..., 151645, 198], i.e. [<|im_end|>, "\\n"]) fixes it while still
+    rejecting a genuinely truncated completion (no EOS at all)."""
+    from src.training.auxiliary_sft_trainer import CompletionSpanCollator
+
+    collator = CompletionSpanCollator(pad_token_id=0, eos_token_id=9)
+    features = [
+        {
+            # completion = positions [1,2,3,4]: gloss tokens, EOS, then a
+            # trailing template token (e.g. "\n") that is still supervised.
+            "input_ids": [1, 2, 3, 9, 99],
+            "completion_mask": [0, 1, 1, 1, 1],
+        }
+    ]
+
+    batch = collator(features)
+
+    assert batch["completion_start"].tolist() == [1]
+    assert batch["completion_eligible"].tolist() == [True]
 
 
 def test_completion_span_collator_rejects_transformers_style_kwargs():

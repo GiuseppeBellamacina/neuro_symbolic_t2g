@@ -274,13 +274,24 @@ class CompletionSpanCollator(DataCollatorForLanguageModeling):
             first = int(positions[0].item())
             last = int(positions[-1].item())
             contiguous = positions.numel() == (last - first + 1)
-            ends_with_eos = (
-                int(batch["input_ids"][row, last].item()) == self.eos_token_id
-            )
+            # The chat template's end-of-turn token is not always the last
+            # supervised position: Qwen's template emits "<|im_end|>\n" for
+            # the assistant turn, and the trailing "\n" is itself part of the
+            # completion span, landing at `last` instead of the actual EOS
+            # token one position earlier. Checking "last == eos" made every
+            # row ineligible regardless of data (confirmed: aux/mass_
+            # scored_positions=0 for 100+ steps on job 7551, and on synthetic
+            # data with no chat-template involvement at all). Checking for
+            # EOS anywhere in the supervised span is robust to that and to
+            # any other trailing template artifact, while still rejecting a
+            # genuinely truncated completion (no EOS emitted at all before
+            # cutoff).
+            span_ids = batch["input_ids"][row, first : last + 1]
+            has_eos = bool((span_ids == self.eos_token_id).any().item())
             starts.append(first)
-            # Only score rows whose completion is a contiguous span terminated by
-            # EOS: a truncated completion has no valid final state.
-            eligible.append(bool(contiguous and ends_with_eos and first >= 1))
+            # Only score rows whose completion is a contiguous span that
+            # reached EOS: a truncated completion has no valid final state.
+            eligible.append(bool(contiguous and has_eos and first >= 1))
 
         batch["completion_start"] = torch.tensor(starts, dtype=torch.long)
         batch["completion_eligible"] = torch.tensor(eligible, dtype=torch.bool)
