@@ -43,10 +43,38 @@ from typing import Any
 
 import torch
 from torch import Tensor
+from transformers import TrainerCallback
 from trl import SFTTrainer  # type: ignore[import]
 from trl.trainer.sft_trainer import DataCollatorForLanguageModeling
 
 from src.training.allowed_mass_loss import allowed_mass_loss
+
+
+class _ForceUnslothReturnLogits(TrainerCallback):
+    """Re-assert ``UNSLOTH_RETURN_LOGITS=1`` right before every step.
+
+    Setting the env var before importing Unsloth is not sufficient: something
+    inside ``Trainer.train()``'s own setup resets it to ``"0"`` before the
+    first forward pass, independent of ``gradient_checkpointing`` (verified
+    both at the ``SFTConfig`` level and at ``use_gradient_checkpointing`` in
+    ``get_peft_model`` — disabling both still left the var at ``"0"`` at the
+    crash site). A direct, isolated ``compute_loss()`` call — bypassing
+    ``Trainer.train()`` — does NOT trigger the reset and returns real logits;
+    only the real training loop does. Whatever resets it, Unsloth's compiled
+    forward reads ``os.environ`` fresh on every call
+    (``unsloth/models/llama.py::_CausalLM_fast_forward``), so re-asserting it
+    on ``on_train_begin``/``on_step_begin`` reliably wins regardless of the
+    exact internal mechanism doing the reset — this sidesteps needing to
+    identify it. ``_mass_term`` is the only caller that needs real logit
+    *values*; ``_structured_term`` was rewritten to never touch
+    ``outputs.logits`` at all, so it does not need this callback.
+    """
+
+    def on_train_begin(self, args, state, control, **kwargs):  # noqa: D102
+        os.environ["UNSLOTH_RETURN_LOGITS"] = "1"
+
+    def on_step_begin(self, args, state, control, **kwargs):  # noqa: D102
+        os.environ["UNSLOTH_RETURN_LOGITS"] = "1"
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +366,8 @@ class AuxiliarySFTTrainer(SFTTrainer):
         self.auxiliary_diagnostics: dict[str, float] = {}
         super().__init__(*args, **kwargs)
         self._move_structured_modules_to_device()
+        if self.mass_weight > 0.0:
+            self.add_callback(_ForceUnslothReturnLogits())
 
     def _move_structured_modules_to_device(self) -> None:
         """Move structured_head/structured_loss onto the backbone's device.

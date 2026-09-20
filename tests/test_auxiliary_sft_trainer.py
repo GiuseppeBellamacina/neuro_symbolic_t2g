@@ -10,6 +10,8 @@ path. So these tests assert inertness first and functionality second.
 from __future__ import annotations
 
 import math
+import os
+from typing import Any
 
 import pytest
 import torch
@@ -827,6 +829,73 @@ def test_move_structured_modules_noop_when_either_is_absent():
     stub.structured_loss = None
 
     AuxiliarySFTTrainer._move_structured_modules_to_device(stub)  # must not raise
+
+
+def test_force_unsloth_return_logits_sets_env_var(monkeypatch):
+    """Direct test of the callback class: both hooks must set the var."""
+    from src.training.auxiliary_sft_trainer import _ForceUnslothReturnLogits
+
+    monkeypatch.delenv("UNSLOTH_RETURN_LOGITS", raising=False)
+    cb = _ForceUnslothReturnLogits()
+
+    cb.on_train_begin(None, None, None)
+    assert os.environ["UNSLOTH_RETURN_LOGITS"] == "1"
+
+    monkeypatch.setenv("UNSLOTH_RETURN_LOGITS", "0")
+    cb.on_step_begin(None, None, None)
+    assert os.environ["UNSLOTH_RETURN_LOGITS"] == "1"
+
+
+def test_mass_weight_positive_registers_force_return_logits_callback():
+    """Regression for job 7536+: setting UNSLOTH_RETURN_LOGITS=1 before
+    importing Unsloth is not sufficient — something inside Trainer.train()'s
+    own setup resets it to "0" before the first forward pass (confirmed live
+    on the cluster: a direct compute_loss() call returns real logits, but
+    the same call through trainer.train() gets EmptyLogits, with the env var
+    reading "0" at that exact point despite being set to "1" moments
+    earlier). AuxiliarySFTTrainer must register a callback that re-asserts
+    it every step, and only when mass_weight > 0 — structured_term never
+    needs real logit values, so it must not pay this cost."""
+    import src.training.auxiliary_sft_trainer as module
+
+    original_init = module.SFTTrainer.__init__
+    registered: list[Any] = []
+
+    def _stub_init(self, *args: Any, **kwargs: Any) -> None:
+        self.model = None
+        self.add_callback = registered.append
+
+    module.SFTTrainer.__init__ = _stub_init  # type: ignore[assignment]
+    try:
+        module.AuxiliarySFTTrainer(
+            allowed_mask_fn=lambda prefixes, vocab, device: None,
+            mass_weight=0.1,
+        )
+    finally:
+        module.SFTTrainer.__init__ = original_init  # type: ignore[assignment]
+
+    assert any(isinstance(cb, module._ForceUnslothReturnLogits) for cb in registered)
+
+
+def test_mass_weight_zero_does_not_register_force_return_logits_callback():
+    import src.training.auxiliary_sft_trainer as module
+
+    original_init = module.SFTTrainer.__init__
+    registered: list[Any] = []
+
+    def _stub_init(self, *args: Any, **kwargs: Any) -> None:
+        self.model = None
+        self.add_callback = registered.append
+
+    module.SFTTrainer.__init__ = _stub_init  # type: ignore[assignment]
+    try:
+        module.AuxiliarySFTTrainer()
+    finally:
+        module.SFTTrainer.__init__ = original_init  # type: ignore[assignment]
+
+    assert not any(
+        isinstance(cb, module._ForceUnslothReturnLogits) for cb in registered
+    )
 
 
 def test_structured_weight_zero_leaves_loss_untouched():
