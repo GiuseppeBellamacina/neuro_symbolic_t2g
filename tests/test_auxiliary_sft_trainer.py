@@ -557,6 +557,126 @@ def test_structured_term_contributes_and_reaches_the_head():
     assert all(torch.isfinite(g).all() for g in grads)
 
 
+def test_structured_term_ignores_rows_whose_gold_path_is_unsupported():
+    """Regression for jobs 7532/7534: eval_loss was `inf` at every single
+    evaluation, tripping EarlyStoppingCallback(patience=3) after exactly 3
+    evals and capping training at step 800 of a 13,410-step budget (structured
+    and structured-shuffled both hit this; sft-allowed-mass, unaffected,
+    trained to completion in the same window).
+
+    Root cause: StructuredGraphLoss.gold_score() returns -inf for a row whose
+    gold path needs a transition edge the graph doesn't have — expected for
+    held-out eval rows, since the graph is fit ONLY on post-split train rows
+    (anti-leakage) with a sparse top_k cutoff. forward() turns that -inf into
+    a +inf per-row NLL, and the old per_row.mean() let ONE unsupported row
+    poison the whole batch to +inf. This constructs one supported row (a
+    trained bigram) and one unsupported row (the reverse bigram, never seen)
+    and asserts the term stays finite, non-zero, and reflects only the
+    supported row."""
+    from src.datasets.structured_transitions import build_structured_transition_graph
+    from src.models.structured_gloss_head import (
+        StructuredGlossHead,
+        StructuredGraphLoss,
+    )
+    from src.training.auxiliary_sft_trainer import AuxiliarySFTTrainer
+
+    rows = [{"gloss": g} for g in ["IX MAN", "IX WALK", "MAN WALK", "IX MAN WALK"]]
+    graph = build_structured_transition_graph(rows, top_k=3)
+    head = StructuredGlossHead(hidden_size=8, num_states=graph.num_states, max_length=8)
+
+    supported_states = graph.map_glosses("IX MAN")
+    assert supported_states, "fixture assumption: IX MAN must be a mappable path"
+    # "MAN IX" was never observed in training (only "IX MAN" was) — the
+    # reversed bigram is exactly the kind of eval-only transition the sparse,
+    # train-only graph does not cover.
+    unsupported_states = list(reversed(supported_states))
+
+    width = max(len(supported_states), len(unsupported_states))
+    states = torch.tensor(
+        [
+            supported_states + [0] * (width - len(supported_states)),
+            unsupported_states + [0] * (width - len(unsupported_states)),
+        ],
+        dtype=torch.long,
+    )
+    lengths = torch.tensor([len(supported_states), len(unsupported_states)])
+
+    class _Stub(AuxiliarySFTTrainer):
+        def __init__(self) -> None:
+            self.allowed_mask_fn = None
+            self.mass_weight = 0.0
+            self.mass_warmup_steps = 0
+            self.structured_head = head
+            self.structured_loss = StructuredGraphLoss(graph)
+            self.structured_graph = graph
+            self.structured_weight = 1.0
+            self.structured_warmup_steps = 0
+            self.auxiliary_diagnostics = {}
+            self.state = None
+
+    class _Outputs:
+        hidden_states = [torch.randn(2, 3, 8)]
+
+    stub = _Stub()
+    lm_loss = torch.tensor(2.0)
+    term, diag = stub._structured_term(
+        {"structured_states": states, "structured_length": lengths},
+        _Outputs(),
+        lm_loss,
+    )
+
+    assert torch.isfinite(term)
+    assert diag["structured_skip_reason"] == -1.0
+    assert diag["structured_scored_rows"] == 1.0
+    assert diag["structured_unsupported_rows"] == 1.0
+    assert math.isfinite(diag["structured_nll"])
+
+
+def test_structured_term_skip_reason_4_when_every_row_is_unsupported():
+    from src.datasets.structured_transitions import build_structured_transition_graph
+    from src.models.structured_gloss_head import (
+        StructuredGlossHead,
+        StructuredGraphLoss,
+    )
+    from src.training.auxiliary_sft_trainer import AuxiliarySFTTrainer
+
+    rows = [{"gloss": g} for g in ["IX MAN", "IX WALK", "MAN WALK", "IX MAN WALK"]]
+    graph = build_structured_transition_graph(rows, top_k=3)
+    head = StructuredGlossHead(hidden_size=8, num_states=graph.num_states, max_length=8)
+
+    supported_states = graph.map_glosses("IX MAN")
+    unsupported_states = list(reversed(supported_states))
+    states = torch.tensor([unsupported_states, unsupported_states], dtype=torch.long)
+    lengths = torch.tensor([len(unsupported_states), len(unsupported_states)])
+
+    class _Stub(AuxiliarySFTTrainer):
+        def __init__(self) -> None:
+            self.allowed_mask_fn = None
+            self.mass_weight = 0.0
+            self.mass_warmup_steps = 0
+            self.structured_head = head
+            self.structured_loss = StructuredGraphLoss(graph)
+            self.structured_graph = graph
+            self.structured_weight = 1.0
+            self.structured_warmup_steps = 0
+            self.auxiliary_diagnostics = {}
+            self.state = None
+
+    class _Outputs:
+        hidden_states = [torch.randn(2, 3, 8)]
+
+    stub = _Stub()
+    term, diag = stub._structured_term(
+        {"structured_states": states, "structured_length": lengths},
+        _Outputs(),
+        torch.tensor(2.0),
+    )
+
+    assert float(term) == pytest.approx(0.0)
+    assert diag["structured_skip_reason"] == 4.0
+    assert diag["structured_scored_rows"] == 0.0
+
+
 def test_structured_term_never_touches_outputs_logits():
     """Regression for the real crash: under Unsloth, outputs.logits is an
     ``EmptyLogits`` placeholder that raises on ANY access (.sum(), .device,

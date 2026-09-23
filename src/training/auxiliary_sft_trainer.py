@@ -638,13 +638,14 @@ class AuxiliarySFTTrainer(SFTTrainer):
         device by construction (it is what ``super().compute_loss`` just
         returned).
         """
-        # structured_skip_reason distinguishes the four ways this can end up
-        # scoring nothing: 0=warmup (weight not yet ramped), 1=no gold_gloss
-        # reached this call, 2=hidden_states is None (Unsloth path didn't
-        # materialize it), 3=every row was ineligible (map_glosses empty or
-        # over structured_head.max_length). Job 7520 logged
+        # structured_skip_reason distinguishes the ways this can end up scoring
+        # nothing: 0=warmup (weight not yet ramped), 1=no gold_gloss reached
+        # this call, 2=hidden_states is None (Unsloth path didn't materialize
+        # it), 3=every row was ineligible (map_glosses empty or over
+        # structured_head.max_length), 4=every row's gold path used an edge
+        # the (train-only, sparse top_k) graph doesn't have. Job 7520 logged
         # structured_scored_rows=0 for 800+ steps with no way to tell which
-        # of these four was firing; this makes the next run self-diagnosing
+        # of these was firing; this makes the next run self-diagnosing
         # instead of another blind relaunch.
         weight = self._structured_weight_now()
         zero = lm_loss.sum() * 0.0
@@ -682,11 +683,33 @@ class AuxiliarySFTTrainer(SFTTrainer):
         steps = int(lengths[valid].max().item())
         emissions = self.structured_head(boundary[valid], length=steps)
         per_row = self.structured_loss(emissions, states[valid, :steps], lengths[valid])
-        term = weight * per_row.mean()
+
+        # gold_score() (structured_gloss_head.py) returns -inf for any row
+        # whose gold path needs an edge absent from the graph — expected for
+        # held-out eval rows, since the graph is fit ONLY on post-split train
+        # rows (anti-leakage) with a sparse top_k cutoff, so it doesn't cover
+        # every transition eval examples happen to use. forward() turns that
+        # single -inf into a +inf per-row NLL, and per_row.mean() then turns
+        # ONE unsupported row into an infinite loss for the WHOLE batch.
+        # Confirmed live: aux/structured_nll=inf at every eval step on jobs
+        # 7532/7534, which made eval_loss=inf and tripped
+        # EarlyStoppingCallback(patience=3) after exactly 3 evals — both
+        # structured cells stopped at step 800 of a 13,410-step budget while
+        # sft-allowed-mass (unaffected, no graph dependency) trained to
+        # completion. Filtering unsupported rows out of the mean — the same
+        # "skip, don't score against a wrong target" policy already applied
+        # to un-mappable/over-length rows above — fixes this without
+        # weakening the anti-leakage graph-construction contract.
+        finite = torch.isfinite(per_row)
+        if not bool(finite.any()):
+            return zero, {**skipped, "structured_skip_reason": 4.0}
+        scored = per_row[finite]
+        term = weight * scored.mean()
         return term, {
             "structured_weight": weight,
-            "structured_nll": float(per_row.mean().detach().float().item()),
-            "structured_scored_rows": float(int(valid.sum().item())),
+            "structured_nll": float(scored.mean().detach().float().item()),
+            "structured_scored_rows": float(int(finite.sum().item())),
+            "structured_unsupported_rows": float(int((~finite).sum().item())),
             "structured_skip_reason": -1.0,
         }
 
