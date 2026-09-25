@@ -1753,6 +1753,32 @@ def _complement_prompting(mode: str) -> str:
     return "few-shot" if mode == "zero-shot" else "zero-shot"
 
 
+def _validate_results_subdir(value: Any) -> str | None:
+    """Validate ``evaluation.results_subdir``: one plain directory name, or None.
+
+    Every artifact of an eval pass (baseline cache, eval JSON, comparison,
+    figures, logs, resume states) lands in a directory derived from the
+    CHECKPOINT path, so re-evaluating an already-evaluated checkpoint with a
+    different decoding (e.g. greedy) would overwrite the existing results —
+    including ``eval_baseline.json``, leaving the run dir internally
+    inconsistent. The subdir isolates the whole pass.
+
+    Rejected on purpose: path separators / ``..`` (must stay inside the run
+    dir) and a ``run_`` prefix — ``ablation_summary._discover_cells`` anchors
+    on ``run_*`` names and would take the subdir for the latest run of the
+    cell, silently replacing the primary result in summaries.
+    """
+    if value is None or value == "":
+        return None
+    name = str(value)
+    if "/" in name or "\\" in name or name in (".", "..") or name.startswith("run_"):
+        raise ValueError(
+            "evaluation.results_subdir must be a single directory name, "
+            f"without separators and not starting with 'run_': {value!r}"
+        )
+    return name
+
+
 def _resolve_prompting(
     eval_cfg: dict[str, Any], config: dict[str, Any]
 ) -> tuple[str, str, bool]:
@@ -2819,6 +2845,7 @@ def main() -> None:
     baseline_pass_at1 = eval_cfg.get("baseline_pass_at1")
     baseline_json = eval_cfg.get("baseline_json")
     dual_prompting = bool(eval_cfg.get("dual_prompting", False))
+    results_subdir = _validate_results_subdir(eval_cfg.get("results_subdir"))
 
     # ── Resolve the effective prompting mode (passata primaria) ──────────
     # La coppia (modalità, provenienza) viene stampata nel log, stampata nei
@@ -2945,6 +2972,10 @@ def main() -> None:
     results_dir = Path("experiments/results") / model_name / run_id
     figures_dir = Path("experiments/figures") / model_name / run_id
     logs_dir = Path("experiments/logs") / model_name / run_id
+    if results_subdir:
+        results_dir /= results_subdir
+        figures_dir /= results_subdir
+        logs_dir /= results_subdir
 
     results_dir.mkdir(parents=True, exist_ok=True)
     figures_dir.mkdir(parents=True, exist_ok=True)

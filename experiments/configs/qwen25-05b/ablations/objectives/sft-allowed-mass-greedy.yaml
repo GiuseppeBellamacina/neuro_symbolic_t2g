@@ -1,0 +1,34 @@
+# ============================================================================
+# ABLATION OBJECTIVE — allowed-mass, RIVALUTAZIONE GREEDY. SOLO EVAL.
+#
+# Domanda: il +6.8pp EM di allowed-mass sull'SFT (valutazione campionata,
+# T=0.7, 5 completion) viene da risposte migliori o solo da una distribuzione
+# più "affilata"? La loss massimizza la massa DELL'INSIEME ammesso, non del
+# token corretto: non può riordinare i candidati, ma rende il modello più
+# sicuro, e sotto campionamento un modello più sicuro sbaglia meno "per
+# sfortuna". Greedy (argmax) toglie la casualità:
+#   - vantaggio che resta  → allowed-mass ha imparato risposte migliori;
+#   - vantaggio che sparisce → effetto di calibrazione (quello previsto nel
+#     docstring di src/training/allowed_mass_loss.py).
+# Si legge SOLO accanto a sft/zero-shot-greedy.yaml.
+#
+# Stesso training.output_dir della cella madre: eval.sh auto-rileva il
+# checkpoint più recente (run_*/final), cioè il modello già valutato in
+# campionamento. NON va MAI addestrata con questa config (creerebbe un nuovo
+# run "più recente" nella directory della cella madre).
+#
+# Uso (solo eval):
+#   bash cluster/run_all.sh ablations/objectives/sft-allowed-mass-greedy --eval-only
+# ============================================================================
+
+extends: sft-allowed-mass.yaml
+
+evaluation:
+  num_samples: 1 # greedy: eval_t2g imposta do_sample = num_samples > 1
+  best_of_n: false # richiede num_samples > 1
+  # Artefatti in run_*/decoding-greedy/: i risultati campionati restano intatti.
+  results_subdir: "decoding-greedy"
+
+wandb:
+  run_name: "qwen25-05b-abl-obj-allowed-mass-greedy"
+  tags: ["T2G", "ablation", "objective", "allowed-mass", "greedy", "eval-only"]

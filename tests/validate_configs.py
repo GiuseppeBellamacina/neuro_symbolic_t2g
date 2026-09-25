@@ -91,6 +91,7 @@ ALLOWED_EVALUATION_KEYS = {
     "baseline_pass_at1",
     "baseline_json",
     "rule_repair",
+    "results_subdir",
 }
 
 # Chiavi (qualunque sezione) che ammettono esplicitamente null: il type check
@@ -157,6 +158,9 @@ TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
     "evaluation.baseline_json": str,
     "evaluation.baseline_pass_at1": (int, float),
     "evaluation.rule_repair": bool,
+    # Sottodirectory che isola TUTTI gli artefatti di una rivalutazione
+    # (es. greedy) dello stesso checkpoint; vedi eval_t2g._validate_results_subdir.
+    "evaluation.results_subdir": str,
     "lora.r": int,
     "lora.lora_alpha": int,
     "lora.lora_dropout": (int, float),

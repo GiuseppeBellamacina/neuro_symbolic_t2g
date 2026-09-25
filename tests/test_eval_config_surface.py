@@ -19,11 +19,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import pytest  # noqa: E402
+
 from src.training.eval_t2g import (  # noqa: E402
     _checkpoint_completeness_stamp,
     _complement_prompting,
     _deduce_eval_modes,
     _resolve_prompting,
+    _validate_results_subdir,
 )
 
 _FEWSHOT_CFG = {
@@ -159,3 +162,25 @@ def test_missing_checkpoint_is_not_stamped():
     """Base model (nessun checkpoint): nessuno stamp."""
     assert _checkpoint_completeness_stamp(None) == {}
     assert _checkpoint_completeness_stamp("") == {}
+
+
+# ---------------------------------------------------------------------------
+# _validate_results_subdir — isolates a re-eval of an evaluated checkpoint
+# ---------------------------------------------------------------------------
+
+
+def test_results_subdir_absent_means_primary_layout():
+    assert _validate_results_subdir(None) is None
+    assert _validate_results_subdir("") is None
+
+
+def test_results_subdir_accepts_a_plain_name():
+    assert _validate_results_subdir("decoding-greedy") == "decoding-greedy"
+
+
+@pytest.mark.parametrize("bad", ["a/b", r"a\b", "..", ".", "run_greedy"])
+def test_results_subdir_rejects_escapes_and_run_prefix(bad):
+    """'run_*' would be discovered by ablation_summary as the cell's latest
+    run and silently replace the primary (sampled) result in summaries."""
+    with pytest.raises(ValueError, match="results_subdir"):
+        _validate_results_subdir(bad)

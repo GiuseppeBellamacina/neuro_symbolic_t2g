@@ -96,14 +96,39 @@ def test_other_repetition_and_no_holdout_leakage():
         assert_gloss_paths_supported([holdout[0]["gloss"]], graph)
 
 
-def test_shuffled_control_is_deterministic_and_preserves_edge_payloads():
+def test_shuffled_control_is_deterministic():
     graph = build_structured_transition_graph(ROWS, top_k=2)
     one = shuffled_transition_control(graph, seed=7)
     two = shuffled_transition_control(graph, seed=7)
-    np.testing.assert_array_equal(one.edge_dst, two.edge_dst)
-    assert sorted(one.edge_count.tolist()) == sorted(graph.edge_count.tolist())
-    assert sorted(one.edge_log_prob.tolist()) == sorted(graph.edge_log_prob.tolist())
-    assert not np.array_equal(one.edge_dst, graph.edge_dst)
+    np.testing.assert_array_equal(one.edge_log_prob, two.edge_log_prob)
+    np.testing.assert_array_equal(one.edge_count, two.edge_count)
+
+
+def test_shuffled_control_keeps_support_and_real_gold_paths_scorable():
+    """Regression: the old control permuted destination labels, so real gold
+    paths used edges the shuffled graph no longer had. The structured term
+    was then skipped on 98% of steps (every row unsupported) and the
+    "control" trained as plain SFT. The control must keep the exact edge
+    set so every real train path stays supported."""
+    graph = build_structured_transition_graph(ROWS, top_k=2)
+    shuffled = shuffled_transition_control(graph, seed=7)
+    np.testing.assert_array_equal(shuffled.edge_src, graph.edge_src)
+    np.testing.assert_array_equal(shuffled.edge_dst, graph.edge_dst)
+    assert_gloss_paths_supported([row["gloss"] for row in ROWS], shuffled)
+
+
+def test_shuffled_control_permutes_weights_only_within_each_source():
+    graph = build_structured_transition_graph(ROWS, top_k=2)
+    shuffled = shuffled_transition_control(graph, seed=7)
+    for source in np.unique(graph.edge_src):
+        mask = graph.edge_src == source
+        assert sorted(shuffled.edge_log_prob[mask].tolist()) == sorted(
+            graph.edge_log_prob[mask].tolist()
+        )
+        assert np.isclose(np.exp(shuffled.edge_log_prob[mask]).sum(), 1.0)
+    # BOS has two successors with different counts (B twice, A once): the
+    # preference between them must actually be scrambled.
+    assert not np.array_equal(shuffled.edge_log_prob, graph.edge_log_prob)
 
 
 def test_state_size_guard():

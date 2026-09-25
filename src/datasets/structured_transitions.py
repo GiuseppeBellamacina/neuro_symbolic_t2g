@@ -185,21 +185,45 @@ def assert_gloss_paths_supported(
 def shuffled_transition_control(
     graph: StructuredTransitionGraph, *, seed: int = 0
 ) -> StructuredTransitionGraph:
-    """Permute ordinary destination labels, preserving edge/count degree multisets."""
-    size = graph.num_states
-    permutation = np.random.default_rng(seed).permutation(size)
-    if size > 1 and np.array_equal(permutation, np.arange(size)):
-        permutation = np.roll(permutation, 1)
-    dst = graph.edge_dst.copy()
-    ordinary = dst < size
-    dst[ordinary] = permutation[dst[ordinary]]
-    order = np.lexsort((dst, graph.edge_src))
+    """GATE 2 negative control: same support, scrambled transition preferences.
+
+    Every ``(src, dst)`` edge is kept; only the (count, log_prob) payloads are
+    permuted *within each source's outgoing edges*. Each state therefore keeps
+    its exact set of allowed successors, its row normalization and its
+    outgoing-probability multiset (entropy); the only information destroyed
+    is which successor is likely. Real gold paths stay scorable by
+    construction, so the structured term stays active exactly as often as
+    with the real graph.
+
+    The previous version permuted destination labels (``a->b`` became
+    ``a->pi(b)``). That removed the edges real gold paths need: in the
+    structured-shuffled run 98% of logged steps (2012/2051) had every row
+    unsupported, so the term was zero and the "control" trained as plain SFT
+    (it matched the plain-SFT cell within 0.8pp EM). It compared
+    "structured term vs none", not "real vs scrambled transitions".
+
+    Caveat, inherent to any scorable control: the support itself (which
+    transitions exist at all) still comes from real data, so this isolates
+    the value of the transition *weights*, not of the support.
+    """
+    rng = np.random.default_rng(seed)
+    count = graph.edge_count.copy()
+    log_prob = graph.edge_log_prob.copy()
+    for source in np.unique(graph.edge_src):
+        indices = np.flatnonzero(graph.edge_src == source)
+        if indices.size < 2:
+            continue
+        permutation = rng.permutation(indices.size)
+        if np.array_equal(permutation, np.arange(indices.size)):
+            permutation = np.roll(permutation, 1)
+        count[indices] = graph.edge_count[indices[permutation]]
+        log_prob[indices] = graph.edge_log_prob[indices[permutation]]
     return StructuredTransitionGraph(
         graph.states,
-        graph.edge_src[order].copy(),
-        dst[order],
-        graph.edge_count[order].copy(),
-        graph.edge_log_prob[order].copy(),
+        graph.edge_src.copy(),
+        graph.edge_dst.copy(),
+        count,
+        log_prob,
         graph.alpha,
         graph.train_sample_ids,
         graph.train_hash,

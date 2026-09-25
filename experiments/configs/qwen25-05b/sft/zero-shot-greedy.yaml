@@ -1,0 +1,37 @@
+# ============================================================================
+# SFT zero-shot — RIVALUTAZIONE GREEDY dello stesso checkpoint. SOLO EVAL.
+#
+# Perché esiste: la valutazione standard campiona (T=0.7, 5 completion per
+# prompt). sft-allowed-mass batte l'SFT di +6.8pp EM in campionamento, ma la
+# sua loss per costruzione "affila" la distribuzione senza poter riordinare i
+# candidati dell'insieme ammesso. Sotto campionamento un modello più sicuro fa
+# più exact match anche con la stessa prima scelta. Greedy (argmax, nessuna
+# casualità) separa le due ipotesi: se il vantaggio resta, allowed-mass ha
+# imparato risposte migliori; se sparisce, era un effetto di calibrazione.
+# Va letta SOLO accanto a ablations/objectives/sft-allowed-mass-greedy.yaml.
+#
+# Stesso training.output_dir della cella madre: eval.sh auto-rileva il
+# checkpoint più recente (run_*/final), quindi valuta ESATTAMENTE il modello
+# della valutazione campionata. Per la stessa ragione NON va MAI addestrata:
+# un train con questa config scriverebbe un nuovo run nella directory della
+# cella SFT, che diventerebbe il "più recente" per tutte le eval successive.
+#
+# Uso (solo eval):
+#   bash cluster/run_all.sh sft/zero-shot-greedy --eval-only
+# ============================================================================
+
+extends: zero-shot.yaml
+
+evaluation:
+  num_samples: 1 # greedy: eval_t2g imposta do_sample = num_samples > 1
+  best_of_n: false # richiede num_samples > 1
+  # Stesso protocollo della passata di allowed-mass (dual_prompting: false):
+  # la passata complementare raddoppierebbe il costo senza entrare nel confronto.
+  dual_prompting: false
+  # Tutti gli artefatti (baseline greedy, eval JSON, comparison, figure, log)
+  # in run_*/decoding-greedy/: i risultati campionati non vengono toccati.
+  results_subdir: "decoding-greedy"
+
+wandb:
+  run_name: "qwen25-05b-sft-zero-shot-greedy"
+  tags: ["T2G", "sft", "zero-shot", "trie", "greedy", "eval-only"]

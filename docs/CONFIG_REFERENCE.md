@@ -236,6 +236,7 @@ silenzioso knob ignorato.
 | `evaluation.output` | str \| null | path | `null` = nome derivato dal checkpoint (`eval:1785-1786`) | Path esplicito del results JSON (ex flag `--output`). Con dual/override riceve il suffisso `__<mode>`. | `eval:2266,1775-1786` |
 | `evaluation.baseline_pass_at1` | float \| null | float ∈ [0,1] \| null | `null` | Pass@1 del baseline per il plot `baseline_vs_grpo` (ex flag CLI). | `eval:2267,1978-1984` |
 | `evaluation.baseline_json` | str \| null | path \| null | `null` | JSON di baseline esterno per i confronti (ex flag `--baseline-json`); di solito superfluo grazie alla cache automatica. | `eval:2268,1447-1460,1854-1857,1992-1995` |
+| `evaluation.results_subdir` | str \| null | nome di directory semplice \| null | `null` = layout primario | Isola TUTTI gli artefatti della passata (cache baseline, eval JSON, `comparison.json`, figure, log, stati di resume) in `run_*/<subdir>/`. Serve a rivalutare un checkpoint già valutato con un'altra decodifica (es. le celle `*-greedy`) senza sovrascrivere i risultati esistenti, `eval_baseline.json` compresa. Rifiutati separatori, `.`/`..` e il prefisso `run_` (ablation_summary la scambierebbe per il run più recente della cella). | `eval_t2g._validate_results_subdir` |
 
 ---
 
