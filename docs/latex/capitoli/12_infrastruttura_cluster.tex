@@ -104,7 +104,7 @@ sulle interrogazioni a \texttt{sacct}, che sotto carico può non rispondere.
 Il monitoraggio è realizzato da \texttt{python3 -m src.utils.chain\_monitor}, con
 una modalità \texttt{monitor --all} che mostra lo stato di tutta la coda.
 
-\section{Sei guasti reali}
+\section{Sette guasti reali}
 
 Ciò che segue è la parte utile del capitolo.
 
@@ -319,9 +319,84 @@ spiegazione corretta di \emph{una parte contenuta} del divario; il resto
 era il guasto stesso. Il dettaglio con la tabella di confronto è
 riportato nel Capitolo~\ref{cap:risultati}, sezione~\ref{sec:osservazione5}.
 
+\subsection{Guasto 7: la catena della pipeline degli obiettivi ausiliari}
+\label{sec:bug-ausiliari}
+
+Non un guasto ma una catena: nove difetti incontrati uno dopo l'altro mettendo
+in esercizio gli obiettivi del Capitolo~\ref{cap:ausiliari}, ognuno visibile
+solo dopo aver corretto il precedente. Sono raccolti insieme perché hanno una
+causa di fondo comune, discussa sotto.
+
+\begin{center}
+\small
+\begin{tabular}{p{0.3cm}p{5.2cm}p{5.6cm}l}
+\toprule
+\# & Sintomo & Causa & Tipo \\
+\midrule
+1 & crash del collatore al primo batch & classe base \texttt{DataCollatorForLanguageModeling} di Transformers (MLM) invece dell'omonima di TRL & rumoroso \\
+2 & \texttt{NotImplementedError} sui logits & Unsloth restituisce un segnaposto \texttt{EmptyLogits}; il termine strutturato lo toccava senza averne bisogno & rumoroso \\
+3 & termine strutturato mai applicato, $0$ righe valutate per $800$ passi & la preparazione del dataset compilata da Unsloth rimuove tutte le colonne originali, \texttt{gold\_gloss} compresa & silenzioso \\
+4 & crash nella mappatura dei bersagli & il grafo costruito non veniva mai passato al trainer & rumoroso \\
+5 & tensori su dispositivi diversi & i buffer della loss strutturata restavano su CPU & rumoroso \\
+6 & logits vuoti nonostante \texttt{UNSLOTH\_RETURN\_LOGITS=1} & la variabile torna a \texttt{0} durante \texttt{Trainer.train()} & rumoroso \\
+7 & massa ammessa mai applicata, $0$ posizioni per $100$ passi & controllo di fine sequenza sull'ultima posizione, occupata dall'a capo dopo \texttt{<|im\_end|>} & silenzioso \\
+8 & loss di validazione $+\infty$, arresto a $800$ passi & una riga con percorso gold non rappresentabile rendeva infinita la media del batch & silenzioso \\
+9 & controllo mescolato che vince sul grafo vero & la permutazione delle destinazioni spegneva il termine nel $98\%$ dei passi & silenzioso \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsubsection{La causa di fondo: il codice sul disco non è quello che gira}
+
+Tre dei nove difetti (2, 3 e 6), i più costosi da diagnosticare, nascono dallo
+stesso fraintendimento: aver letto il sorgente installato delle librerie e
+averlo creduto il codice eseguito. Unsloth non si limita a modificare il modello: al
+momento dell'import compila e sostituisce metodi interi del trainer di TRL. La
+preparazione del dataset effettivamente eseguita, ad esempio, è materializzata
+in \texttt{unsloth\_compiled\_cache/UnslothSFTTrainer.py} ed è diversa da quella
+del pacchetto TRL; lo stesso trainer compilato non eredita dall'\texttt{SFTTrainer}
+di TRL ma da una sua classe base comune, per cui il \texttt{compute\_loss} letto
+nel sorgente di TRL non viene mai eseguito. Il difetto 6 è la forma più pura del
+problema: la variabile d'ambiente veniva impostata correttamente, prima
+dell'import, e verificata nei log; il suo valore al momento del passaggio in
+avanti, letto con una sonda nel ciclo di addestramento vero, era \texttt{0}.
+Chiamare lo stesso \texttt{compute\_loss} fuori da \texttt{Trainer.train()}
+restituiva invece logits reali.
+
+La diagnosi è arrivata solo quando si è smesso di ragionare sul sorgente e si è
+interrogato il codice vivo sul cluster: \texttt{inspect.getsource} sui metodi
+effettivamente legati all'istanza del trainer e una sonda sul valore delle
+variabili al momento della chiamata. La correzione del difetto 6 non dipende
+dall'aver individuato il meccanismo interno che azzera la variabile: una
+callback la riafferma all'inizio di ogni passo, e poiché il passaggio in avanti
+compilato la legge a ogni chiamata, vince comunque.
+
+\subsubsection{Perché i test non li avevano visti}
+
+I test degli obiettivi ausiliari chiamavano \texttt{compute\_loss} con un
+dizionario di input costruito a mano, che conteneva già \texttt{gold\_gloss},
+bersagli con fine sequenza nell'ultima posizione, tensori già sul dispositivo
+giusto e percorsi sempre rappresentabili. Ciascuna di queste comodità
+nascondeva uno dei difetti. Ogni correzione è accompagnata da un test di
+regressione che riproduce la condizione reale: il segnaposto dei logits che
+solleva un'eccezione a ogni accesso, l'input senza \texttt{gold\_gloss}, il
+token finale dopo la fine sequenza, la riga con percorso non rappresentabile, il
+controllo che deve lasciare valutabili i percorsi di training.
+
+\subsubsection{Gli indicatori che hanno reso visibili i silenziosi}
+
+I quattro difetti silenziosi sono emersi solo perché il trainer registra, a ogni
+passo, quante righe o posizioni il termine ausiliario ha effettivamente
+valutato, e (per il termine strutturato) un codice che dice \emph{perché} un
+passo non ne ha valutata nessuna: rampa non iniziata, bersaglio assente, stati
+nascosti assenti, righe ineleggibili, percorsi non rappresentabili. Un
+contatore fermo a zero per centinaia di passi è stato ogni volta il primo
+indizio; il codice di motivazione ha trasformato ogni ripartenza in una misura
+invece che in un tentativo.
+
 \section{Il filo comune}
 
-I sei guasti hanno cause diverse ma condividono una struttura: nessuno era un
+I sette guasti hanno cause diverse ma condividono una struttura: nessuno era un
 errore di matematica, tutti riguardavano l'\emph{ordine} delle operazioni o
 l'\emph{ambiente} in cui avvenivano.
 
@@ -336,6 +411,7 @@ Guasto & Categoria \\
 4. coda invertita & ordine: prepend invece di append \\
 5. validazione dopo l'allocazione & ordine: controllo dopo il costo \\
 6. fusione SFT mai salvata & ambiente: composizione del checkpoint non registrata \\
+7. pipeline degli obiettivi ausiliari & ambiente: codice di terze parti sostituito a runtime \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -346,7 +422,10 @@ questa è la categoria di guasto più costosa, perché contamina i risultati sen
 lasciare traccia nei log. Il guasto 6 appartiene alla stessa categoria in modo
 particolarmente puro: non un job che falliva in modo silenzioso, ma un job che
 \emph{riusciva} nel senso pieno del termine, producendo un numero corretto per
-un modello diverso da quello dichiarato.
+un modello diverso da quello dichiarato. Il guasto 7 ne aggiunge quattro della
+stessa specie: un termine ausiliario che non si applicava, un altro che non si
+applicava per una ragione diversa, un arresto anticipato con numeri plausibili e
+un controllo che controllava un'altra cosa.
 
 La contromisura adottata in tutti i casi è la stessa e vale come conclusione del
 capitolo: \textbf{fallire presto e in modo rumoroso}, e codificare ogni

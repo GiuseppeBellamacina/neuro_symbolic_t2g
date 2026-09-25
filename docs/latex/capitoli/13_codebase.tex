@@ -89,6 +89,9 @@ Gruppo & Cella & Tipo \\
                             & \texttt{hot-rollout} & addestramento \\
 \texttt{ablations/objectives} & \texttt{sft-allowed-mass} & addestramento \\
                               & \texttt{sft-structured} & addestramento \\
+                              & \texttt{sft-structured-shuffled} & addestramento \\
+                              & \texttt{sft-allowed-mass-greedy} & sola valutazione \\
+\texttt{sft} & \texttt{zero-shot-greedy} & sola valutazione \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -278,23 +281,35 @@ rosso, \texttt{test\_ssh\_alias\_no\_user\_no\_port}, attribuendone il
 fallimento a una connessione SSH reale verso il cluster e quindi a una
 dipendenza dalla rete.
 
-\textbf{La diagnosi era sbagliata}, e va corretta qui perché l'errore è
-istruttivo. Il test non apre alcuna connessione: sostituisce il meccanismo di
-esecuzione con un oggetto che \emph{cattura} il comando costruito e ne verifica
-la forma (che il bersaglio sia l'alias di configurazione, senza utente
-esplicito né porta). È un test puramente locale e deterministico.
+Una stesura intermedia aveva ritrattato quella diagnosi, sostenendo che il test
+fosse puramente locale perché ``cattura'' il comando costruito. \textbf{Anche la
+ritrattazione era sbagliata}, e la ragione è la stessa che rende istruttivo
+l'episodio. Il test sostituisce la classe \texttt{ClusterSSH} con una
+sottoclasse che \emph{registra} il comando, ma che eredita il metodo di
+esecuzione reale: la richiesta \texttt{POST /tick} arriva fino a
+\texttt{subprocess.run(["ssh", \ldots, "gcluster", \ldots])}, e nel test non c'è
+alcun mock di \texttt{subprocess}. Su una macchina in cui l'alias
+\texttt{gcluster} è configurato, il test apre quindi una connessione vera e
+tenta di eseguire sul cluster il comando \texttt{tick} dell'helper remoto;
+altrove fallisce con un errore 502. In un'occasione documentata, eseguirlo dalla
+workstation di sviluppo durante un addestramento ha coinciso con il blocco
+delle connessioni per ``troppi login'' dell'utente sul cluster.
 
-L'errore di diagnosi era stato commesso osservando un fallimento e inferendone
-la causa dal nome del test invece di leggerne il corpo. È lo stesso schema che
-il Capitolo~\ref{cap:infrastruttura} documenta nei sei guasti
-infrastrutturali: una spiegazione plausibile, adottata senza verifica, che
-sopravvive perché nessuno controlla.
+Entrambi gli errori sono nati dallo stesso schema: una conclusione tratta da
+un'osservazione parziale (il nome del test la prima volta, l'oggetto che
+cattura il comando la seconda), senza seguire la chiamata fino in fondo. È lo
+schema che il Capitolo~\ref{cap:infrastruttura} documenta nei sette guasti
+infrastrutturali. La correzione del test è semplice (un mock di
+\texttt{subprocess.run}, già usato da un test vicino dello stesso file), ma
+finché non è applicata il file \texttt{tests/test\_remote\_app.py} va escluso
+dalle esecuzioni sulla workstation.
 
-La suite è dunque interamente verde. Il numero corrente è di $476$ test, dopo
-la rimozione dei test di componenti eliminati e
-l'aggiunta di quelli introdotti dai lavori descritti in questo capitolo:
-equivalenza del retrieval ottimizzato, stimatori di pass@$k$, superficie di
-configurazione dell'eval, cache e round-trip del servizio remoto.
+Il numero corrente è di $609$ test raccolti, dopo la rimozione dei test di
+componenti eliminati e l'aggiunta di quelli introdotti dai lavori descritti in
+questo capitolo e nel Capitolo~\ref{cap:ausiliari}: equivalenza del retrieval
+ottimizzato, stimatori di pass@$k$, superficie di configurazione dell'eval,
+cache e round-trip del servizio remoto, regressioni della pipeline degli
+obiettivi ausiliari.
 
 L'unico elemento non eseguito è un test dichiarato come tale dal codice
 stesso, non un fallimento silenzioso.

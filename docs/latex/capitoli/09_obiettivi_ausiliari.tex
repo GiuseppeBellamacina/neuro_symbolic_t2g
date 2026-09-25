@@ -103,7 +103,7 @@ File & Ruolo \\
 \midrule
 \texttt{src/datasets/structured\_transitions.py} & stima delle transizioni dal training \\
 \texttt{src/models/structured\_gloss\_head.py} & la testa strutturata \\
-\texttt{src/training/structured\_sft.py} & integrazione nella loss \\
+\texttt{src/training/auxiliary\_sft\_trainer.py} & integrazione nella loss \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -219,19 +219,34 @@ quindi un \emph{contratto} verificato da test, il cui contenuto è il seguente.
         \texttt{CompletionSpanCollator} marca come non eleggibili le righe
         troncate o in cui lo span della completion non è contiguo. Su quelle
         righe gli obiettivi ausiliari non vengono applicati, invece di essere
-        applicati a posizioni sbagliate.
+        applicati a posizioni sbagliate. Una riga è considerata completa se lo
+        span supervisionato \emph{contiene} il token di fine sequenza, non se
+        \emph{termina} con esso: il template di chat di Qwen chiude il turno
+        dell'assistente con \texttt{<|im\_end|>} seguito da un a capo, e il
+        controllo sull'ultima posizione rendeva ineleggibile ogni riga.
+  \item[Percorsi gold non rappresentabili.] Il grafo delle transizioni è
+        stimato solo sul training, con un taglio sparso: un esempio di
+        valutazione può usare una transizione che il grafo non contiene. Per
+        quella riga il punteggio del percorso gold vale $-\infty$ e la NLL
+        $+\infty$. Queste righe sono escluse dalla media e contate a parte
+        (\texttt{structured\_unsupported\_rows}), con la stessa politica delle
+        righe non mappabili: nessuna riga viene valutata contro un bersaglio
+        che il modello non può rappresentare. Prima della correzione una sola
+        riga del genere rendeva infinita la loss dell'intero batch.
 \end{description}
 
 Il filo comune è: \emph{fallire in modo rumoroso e presto}, invece di produrre
 numeri plausibili e sbagliati. È la lezione ricorrente di questo progetto, e il
-Capitolo~\ref{cap:infrastruttura} ne raccoglie cinque casi concreti.
+Capitolo~\ref{cap:infrastruttura} ne raccoglie sette casi concreti.
 
 \section{I criteri di promozione}
 
-Entrambi gli obiettivi sono implementati e verificati, ma \textbf{non sono stati
-addestrati}. Non per mancanza di tempo, ma perché sono stati definiti in
-anticipo dei criteri che devono essere soddisfatti prima di spendere tempo di
-GPU.
+Nella prima stesura di questa relazione entrambi gli obiettivi erano
+implementati e verificati ma non addestrati, e i criteri qui sotto erano stati
+fissati \emph{prima} di spendere tempo di GPU. Nel frattempo entrambi sono stati
+addestrati: i risultati sono nel Capitolo~\ref{cap:risultati},
+sezione~\ref{sec:osservazione-ausiliari}. I criteri restano quelli dichiarati in
+anticipo, ed è su di essi che i risultati vanno letti.
 
 \begin{description}
   \item[Criterio 1 (massa ammessa).] Una sonda in inferenza deve mostrare una
@@ -252,6 +267,33 @@ GPU.
 Il secondo criterio è un controllo ablativo classico, e ha una proprietà utile:
 è \emph{poco costoso} rispetto all'addestramento completo, perché richiede solo
 la testa e non la messa a punto dell'intero modello.
+
+\subsection{Che cosa va mescolato nel controllo}
+\label{sec:controllo-mescolato}
+
+``Transizioni mescolate casualmente'' non è una specifica sufficiente, e la prima
+implementazione lo ha dimostrato. Quella versione permutava le
+\emph{destinazioni} degli archi: una transizione $a \to b$ diventava
+$a \to \pi(b)$. Il risultato è un grafo in cui i percorsi gold reali non
+esistono più, perché usano archi che la permutazione ha spostato. Su quei
+percorsi la loss strutturata non è definita, e con l'esclusione delle righe non
+rappresentabili (sezione~\ref{sec:contratto-ausiliari}) il termine si spegne:
+nell'addestramento del controllo il $98\%$ dei passi registrati ($2\,012$ su
+$2\,051$) non aveva \emph{alcuna} riga valutabile. Il controllo si è quindi
+addestrato come un SFT puro, e il confronto misurava ``termine strutturato
+contro nessun termine'', non ``transizioni vere contro transizioni mescolate''.
+
+La versione corretta conserva il \emph{supporto} del grafo, cioè l'insieme
+esatto delle coppie $(a, b)$, e permuta solo i pesi, separatamente per ogni stato
+di partenza. Ogni stato mantiene gli stessi successori ammessi, la stessa
+normalizzazione e lo stesso multinsieme di probabilità uscenti (quindi la stessa
+entropia); l'unica informazione distrutta è \emph{quale} successore è probabile.
+I percorsi gold restano valutabili per costruzione, e il termine strutturato è
+attivo con la stessa frequenza del grafo vero.
+
+Il caveat, inevitabile per qualunque controllo su cui la loss sia definita: il
+supporto stesso viene dai dati reali. Il controllo isola quindi il valore dei
+\emph{pesi} delle transizioni, non quello del supporto.
 
 L'impostazione generale è che un obiettivo ausiliario non va promosso perché è
 implementato e i test passano. Va promosso quando esiste una previsione

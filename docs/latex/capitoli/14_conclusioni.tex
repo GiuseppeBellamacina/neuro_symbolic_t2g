@@ -231,20 +231,29 @@ reward media $-0{,}3233$).
 
 \subsection{Eseguire i gate degli obiettivi ausiliari}
 
-I due obiettivi del Capitolo~\ref{cap:ausiliari} sono implementati, verificati e
-non addestrati. I criteri di promozione sono definiti:
+I due obiettivi del Capitolo~\ref{cap:ausiliari} sono ora addestrati
+(sezione~\ref{sec:osservazione-ausiliari}), ma nessuno dei due gate è ancora
+chiuso:
 
 \begin{enumerate}
-  \item per la massa ammessa, una sonda in inferenza che mostri una riduzione
-        misurabile della massa rimossa dal vincolo di decodifica;
-  \item per la loss strutturata, un confronto controllato fra testa addestrata
-        con transizioni vere e con transizioni mescolate casualmente.
+  \item la \textbf{massa ammessa} migliora l'exact match di $+0{,}068$ in
+        valutazione campionata, contro la previsione dichiarata in anticipo.
+        Restano da escludere l'effetto di calibrazione (valutazione greedy, in
+        corso) e la maggiore durata dell'addestramento; la sonda in inferenza
+        sulla massa rimossa, criterio originale del gate, non è ancora stata
+        calcolata;
+  \item la \textbf{loss strutturata} peggiora tutte le metriche rispetto
+        all'SFT, fermandosi molto prima per early stopping. Il confronto con il
+        controllo mescolato corretto, che conserva il supporto del grafo e
+        permuta solo i pesi, è in corso: la prima versione del controllo non
+        misurava ciò che doveva.
 \end{enumerate}
 
-Entrambi i gate costano poco rispetto a un addestramento completo, ed entrambi
-possono produrre un risultato negativo che risparmia l'esperimento. Il valore
-$+0{,}0444$ bit della qualificazione strutturale suggerisce che il margine
-disponibile sia modesto.
+Per entrambi vale la raccomandazione della sezione~\ref{sec:dispersione-run}:
+con un solo seed per cella, un vantaggio di pochi punti di exact match va
+confermato con più seed prima di essere considerato stabilito. Il valore
+$+0{,}0444$ bit della qualificazione strutturale continua a suggerire che il
+margine disponibile per la loss strutturata sia modesto.
 
 \subsection{Il reinforcement learning, se e quando}
 

@@ -382,6 +382,130 @@ un'altra ritrattazione dichiarata, nello stesso spirito
 dell'Osservazione~4: l'entità dell'effetto, non il meccanismo che lo produce,
 era sbagliata.
 
+\section{Osservazione 6: gli obiettivi ausiliari}
+\label{sec:osservazione-ausiliari}
+
+I due obiettivi del Capitolo~\ref{cap:ausiliari} sono stati addestrati come
+varianti della cella SFT zero-shot, con un solo fattore cambiato: il termine
+ausiliario, di peso $\lambda = 0{,}1$ con rampa lineare sui primi $200$ passi.
+La valutazione è la stessa della cella SFT: $2\,000$ prompt del test set,
+decodifica vincolata dal Trie, campionamento a $T = 0{,}7$ con $5$ completion per
+prompt.
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+Cella & Passi (epoche) & ROUGE-L & Exact match & chrF \\
+\midrule
+SFT soltanto & $10\,000$ ($2{,}24$) & $0{,}9681$ & $0{,}7662$ & $96{,}36$ \\
+Massa ammessa & $13\,000$ ($2{,}91$) & $\mathbf{0{,}9769}$ & $\mathbf{0{,}8341}$ & $97{,}55$ \\
+Loss strutturata, grafo vero & $5\,600$ ($1{,}25$) & $0{,}9430$ & $0{,}6053$ & $93{,}16$ \\
+Controllo, prima versione$^{*}$ & $10\,000$ ($2{,}24$) & $0{,}9693$ & $0{,}7737$ & $96{,}53$ \\
+Controllo, versione corretta & \multicolumn{4}{c}{in corso} \\
+\bottomrule
+\end{tabular}
+\end{center}
+{\small $^{*}$ Non valido come controllo: si veda sotto e la
+sezione~\ref{sec:controllo-mescolato}.}
+
+\paragraph{La durata dell'addestramento non è la stessa, per scelta.} Ogni cella
+si ferma per early stopping sulla loss di validazione interna (valutata ogni $200$
+passi, pazienza di tre valutazioni), e quella loss è la loss \emph{totale}: LM più
+$\lambda$ volte il termine ausiliario. Ciascuna cella si ferma quindi quando smette
+di migliorare il \emph{proprio} obiettivo, e le durate differiscono. È una scelta
+deliberata e non un difetto del confronto: il confronto misura ogni obiettivo
+nelle condizioni in cui il suo stesso criterio di arresto lo porta. Va però
+tenuta presente in ogni lettura dei delta qui sotto.
+
+\subsection{La massa ammessa}
+
+Rispetto all'SFT la cella guadagna $+0{,}0088$ di ROUGE-L e $+0{,}0679$ di exact
+match. Le due metriche vanno lette in modo diverso:
+\begin{itemize}
+  \item su \textbf{ROUGE-L} il guadagno è sotto la soglia di circa $0{,}02$ oltre
+        la quale una differenza fra celle è distinguibile dalla variabilità di
+        addestramento (sezione~\ref{sec:dispersione-run}). Non è un risultato;
+  \item su \textbf{exact match} il guadagno è circa $2{,}2$ volte la dispersione
+        fra due run della cella SFT ($0{,}0304$). È sopra il rumore osservato, ma
+        non di molto, e con un solo seed per cella.
+\end{itemize}
+
+Il risultato sull'exact match \emph{contraddice} la previsione dichiarata in
+anticipo nel Capitolo~\ref{cap:ausiliari}: la loss è piatta sull'insieme ammesso,
+non esprime preferenze fra token legali e quindi, da sola, non dovrebbe migliorare
+l'exact match. Prima di concludere che la previsione era sbagliata vanno escluse
+due spiegazioni alternative:
+\begin{enumerate}
+  \item \textbf{più addestramento}: la cella ha fatto il $30\%$ di passi in più
+        dell'SFT ($13\,000$ contro $10\,000$), perché il termine ausiliario ha
+        ritardato l'early stopping;
+  \item \textbf{una distribuzione più affilata sotto campionamento}. Il valore
+        della loss è piatto rispetto a ridistribuzioni interne all'insieme
+        ammesso, ma il suo gradiente non lo è: per un token ammesso,
+        $\partial \mathcal{L}_{\text{AM}} / \partial z_i
+        = -\,p_i (1 - P_{\allowed}) / P_{\allowed}$, dove $P_{\allowed}$ è la
+        massa dell'insieme. Ogni logit ammesso sale quindi in proporzione alla
+        propria probabilità: i token già probabili guadagnano più degli altri,
+        e la distribuzione \emph{dentro} l'insieme si affila anche dopo la
+        rinormalizzazione del Trie. L'ordinamento dei token ammessi però non
+        cambia, perché $z_i - z_j$ si muove nella direzione di $p_i - p_j$.
+        Sotto campionamento a $T = 0{,}7$ un modello più affilato si allontana
+        meno spesso dalla sua prima scelta, e l'exact match sale anche con la
+        stessa prima scelta. Sarebbe un effetto di calibrazione, compatibile
+        con la previsione del Capitolo~\ref{cap:ausiliari}.
+\end{enumerate}
+La seconda spiegazione si verifica valutando le due celle in modo
+\emph{deterministico} (greedy: si prende sempre il token più probabile, nessuna
+casualità). Poiché l'affilatura conserva l'ordinamento, in greedy il solo termine
+ausiliario non dovrebbe cambiare le risposte: se il vantaggio resta, la cella ha
+imparato risposte migliori (per effetto indiretto sull'addestramento o per la
+durata maggiore); se sparisce, era calibrazione. La valutazione greedy di
+entrambe le celle è \textbf{in corso} (celle \texttt{sft/zero-shot-greedy} e
+\texttt{ablations/\allowbreak objectives/\allowbreak sft-allowed-mass-greedy}).
+Il criterio~1 nella sua forma originale, la sonda in inferenza sulla massa
+rimossa dal vincolo, non è ancora stato calcolato.
+
+\subsection{La loss strutturata}
+
+Con il grafo vero la cella è \emph{peggiore} dell'SFT su tutte le metriche:
+$-0{,}0251$ di ROUGE-L, oltre la soglia di distinguibilità, e $-0{,}1609$ di
+exact match. Si è anche fermata molto prima ($5\,600$ passi, $1{,}25$ epoche),
+per la ragione descritta sopra: il termine strutturato pesa circa $0{,}32$ su una
+loss di validazione totale di $0{,}40$ (NLL strutturata attorno a $3{,}2$, valore
+diagnostico dell'ultimo batch valutato), per cui l'arresto è governato dal
+plateau della testa strutturata e non da quello del modello linguistico.
+
+Con i dati disponibili non si possono separare le due letture: modello meno
+addestrato, oppure termine strutturato che interferisce con l'apprendimento
+della parte linguistica. Un confronto a pari numero di passi non è ricostruibile
+dai log, perché la loss LM registrata durante la validazione è quella dell'ultimo
+batch e non la media sull'insieme di validazione. In entrambe le letture, in
+questa configurazione il risultato non fornisce alcuna evidenza a favore
+dell'obiettivo, ed è coerente con il margine modesto stimato in anticipo
+($+0{,}0444$ bit, sezione~\ref{sec:qualificazione-strutturale}).
+
+Una prima esecuzione di questa cella e del suo controllo si era fermata a $800$
+passi per un guasto, documentato nel Capitolo~\ref{cap:infrastruttura}: la loss
+di validazione valeva $+\infty$ a ogni valutazione. I numeri della tabella sono
+quelli successivi alla correzione.
+
+\subsection{Il controllo: la prima versione non era un controllo}
+
+La prima versione del controllo mescolato permutava le destinazioni degli archi
+del grafo, e così facendo rendeva non rappresentabili i percorsi gold reali
+(sezione~\ref{sec:controllo-mescolato}): il termine strutturato è rimasto spento
+nel $98\%$ dei passi. La cella si è quindi comportata come un secondo SFT, e i
+numeri lo confermano: si ferma allo stesso passo dell'SFT ($10\,000$) e ne
+riproduce le metriche entro $0{,}0012$ di ROUGE-L e $0{,}0075$ di exact match,
+valori coerenti con la dispersione fra run della sezione~\ref{sec:dispersione-run}.
+Come replica dell'SFT è un dato utile; come controllo è inservibile.
+
+Il confronto ``grafo vero contro grafo mescolato'' che la prima versione
+sembrava fornire (il grafo mescolato ``vinceva'') misurava in realtà ``termine
+strutturato contro nessun termine''. Il verdetto sul criterio~2 dipende dal
+controllo corretto, che conserva il supporto del grafo e permuta solo i pesi;
+il suo addestramento è \textbf{in corso}.
+
 \section{La decomposizione dell'effetto}
 \label{sec:decomposizione}
 
