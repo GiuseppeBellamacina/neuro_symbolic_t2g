@@ -232,28 +232,22 @@ reward media $-0{,}3233$).
 \subsection{Eseguire i gate degli obiettivi ausiliari}
 
 I due obiettivi del Capitolo~\ref{cap:ausiliari} sono ora addestrati
-(sezione~\ref{sec:osservazione-ausiliari}), ma nessuno dei due gate è ancora
-chiuso:
+(sezione~\ref{sec:osservazione-ausiliari}), con esiti opposti:
 
 \begin{enumerate}
-  \item la \textbf{massa ammessa} migliora l'exact match di $+0{,}068$ in
-        valutazione campionata, contro la previsione dichiarata in anticipo.
-        Restano da escludere l'effetto di calibrazione (valutazione greedy, in
-        corso) e la maggiore durata dell'addestramento; la sonda in inferenza
-        sulla massa rimossa, criterio originale del gate, non è ancora stata
-        calcolata;
-  \item la \textbf{loss strutturata} peggiora tutte le metriche rispetto
-        all'SFT, fermandosi molto prima per early stopping. Il confronto con il
-        controllo mescolato corretto, che conserva il supporto del grafo e
-        permuta solo i pesi, è in corso: la prima versione del controllo non
-        misurava ciò che doveva.
+  \item la \textbf{massa ammessa} migliora l'exact match di circa sei punti
+        sull'SFT, sia in valutazione campionata ($+0{,}068$) sia in greedy
+        ($+0{,}065$): non è un effetto della decodifica, e contraddice la
+        previsione dichiarata in anticipo. È l'unico candidato da portare avanti.
+        Prima di considerarlo stabilito servono più seed (il guadagno è circa due
+        volte la dispersione osservata fra run) e la sonda in inferenza sulla
+        massa rimossa, che ne verifichi il meccanismo;
+  \item la \textbf{loss strutturata} fallisce il criterio fissato in anticipo:
+        con il controllo corretto (stesso supporto, pesi permutati) le metriche
+        sono identiche a quelle del grafo vero, ed entrambe peggiori dell'SFT.
+        L'informazione sulle transizioni non contribuisce; l'obiettivo va
+        abbandonato, come il margine di $+0{,}0444$ bit lasciava prevedere.
 \end{enumerate}
-
-Per entrambi vale la raccomandazione della sezione~\ref{sec:dispersione-run}:
-con un solo seed per cella, un vantaggio di pochi punti di exact match va
-confermato con più seed prima di essere considerato stabilito. Il valore
-$+0{,}0444$ bit della qualificazione strutturale continua a suggerire che il
-margine disponibile per la loss strutturata sia modesto.
 
 \subsection{Il reinforcement learning, se e quando}
 

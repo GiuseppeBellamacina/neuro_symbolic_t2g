@@ -401,7 +401,7 @@ SFT soltanto & $10\,000$ ($2{,}24$) & $0{,}9681$ & $0{,}7662$ & $96{,}36$ \\
 Massa ammessa & $13\,000$ ($2{,}91$) & $\mathbf{0{,}9769}$ & $\mathbf{0{,}8341}$ & $97{,}55$ \\
 Loss strutturata, grafo vero & $5\,600$ ($1{,}25$) & $0{,}9430$ & $0{,}6053$ & $93{,}16$ \\
 Controllo, prima versione$^{*}$ & $10\,000$ ($2{,}24$) & $0{,}9693$ & $0{,}7737$ & $96{,}53$ \\
-Controllo, versione corretta & \multicolumn{4}{c}{in corso} \\
+Controllo, versione corretta & $5\,600$ ($1{,}25$) & $0{,}9464$ & $0{,}6078$ & $93{,}67$ \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -458,12 +458,46 @@ La seconda spiegazione si verifica valutando le due celle in modo
 \emph{deterministico} (greedy: si prende sempre il token più probabile, nessuna
 casualità). Poiché l'affilatura conserva l'ordinamento, in greedy il solo termine
 ausiliario non dovrebbe cambiare le risposte: se il vantaggio resta, la cella ha
-imparato risposte migliori (per effetto indiretto sull'addestramento o per la
-durata maggiore); se sparisce, era calibrazione. La valutazione greedy di
-entrambe le celle è \textbf{in corso} (celle \texttt{sft/zero-shot-greedy} e
-\texttt{ablations/\allowbreak objectives/\allowbreak sft-allowed-mass-greedy}).
-Il criterio~1 nella sua forma originale, la sonda in inferenza sulla massa
-rimossa dal vincolo, non è ancora stato calcolato.
+imparato risposte migliori; se sparisce, era calibrazione. Le stesse due celle
+(stessi checkpoint) valutate in greedy, celle \texttt{sft/zero-shot-greedy} e
+\texttt{ablations/\allowbreak objectives/\allowbreak sft-allowed-mass-greedy}:
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+Decodifica & \multicolumn{2}{c}{SFT soltanto} & \multicolumn{2}{c}{Massa ammessa} \\
+ & ROUGE-L & Exact match & ROUGE-L & Exact match \\
+\midrule
+Campionata ($T=0{,}7$) & $0{,}9681$ & $0{,}7662$ & $0{,}9769$ & $0{,}8341$ \\
+Greedy & $0{,}9696$ & $0{,}7775$ & $0{,}9774$ & $0{,}8420$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Il vantaggio resta}: $+0{,}0645$ di exact match in greedy contro
+$+0{,}0679$ in campionamento. La seconda spiegazione è esclusa, e la tabella
+mostra anche perché: per entrambi i modelli passare da campionamento a greedy
+cambia l'exact match di appena un punto. Le distribuzioni sono già così
+concentrate che il campionamento a $T = 0{,}7$ quasi non se ne allontana, e
+un'ulteriore affilatura non aveva margine per spostare il risultato.
+
+Resta la prima spiegazione, la durata, che però non è una variabile
+indipendente: sono le $3\,000$ iterazioni in più che il termine ausiliario ha
+reso utili. L'SFT non poteva sfruttarle, perché la sua loss di validazione era
+già ferma ($0{,}0291$ a $8\,000$ passi, $0{,}0286$ a $10\,000$). La lettura più
+semplice compatibile con i dati è che il termine agisca da regolarizzatore e
+rimandi il plateau. Non è verificabile dai checkpoint esistenti: è conservato
+solo il migliore di ciascuna run, per cui la cella con massa ammessa non può
+essere valutata a $10\,000$ passi.
+
+La conclusione, con le cautele dovute: sotto questo protocollo aggiungere il
+termine migliora l'exact match di circa sei punti, circa due volte la
+dispersione osservata fra run dell'SFT, con un solo seed per cella; il
+guadagno non è un effetto della decodifica, e \textbf{la previsione dichiarata
+in anticipo era sbagliata} nella parte che escludeva un effetto sull'exact
+match. Il criterio~1 nella sua forma originale, la sonda in inferenza sulla
+massa rimossa dal vincolo, non è ancora stato calcolato, quindi il meccanismo
+resta un'ipotesi.
 
 \subsection{La loss strutturata}
 
@@ -502,9 +536,31 @@ Come replica dell'SFT è un dato utile; come controllo è inservibile.
 
 Il confronto ``grafo vero contro grafo mescolato'' che la prima versione
 sembrava fornire (il grafo mescolato ``vinceva'') misurava in realtà ``termine
-strutturato contro nessun termine''. Il verdetto sul criterio~2 dipende dal
-controllo corretto, che conserva il supporto del grafo e permuta solo i pesi;
-il suo addestramento è \textbf{in corso}.
+strutturato contro nessun termine''.
+
+\subsection{Il controllo corretto: il criterio~2 non è soddisfatto}
+
+Il controllo corretto conserva il supporto del grafo e permuta solo i pesi. Il
+confronto con il grafo vero è pulito: stessa durata ($5\,600$ passi per
+entrambi) e termine strutturato attivo nel $100\%$ dei passi registrati
+($1\,149$ su $1\,149$), zero righe non rappresentabili.
+
+La testa strutturata \emph{distingue} i due grafi: sul grafo vero la loss di
+validazione migliore è $0{,}398$, su quello mescolato $0{,}473$. Le transizioni
+vere sono quindi più facili da modellare. Ma questo non si trasferisce alla
+traduzione: il controllo ottiene ROUGE-L $0{,}9464$ ed exact match $0{,}6078$,
+contro $0{,}9430$ e $0{,}6053$ del grafo vero. Le differenze ($0{,}0034$ e
+$0{,}0025$, a favore del controllo) sono un ordine di grandezza sotto la
+dispersione fra run.
+
+Per il criterio fissato in anticipo il risultato è netto: se transizioni vere e
+mescolate danno lo stesso risultato, il contributo non viene dall'informazione
+strutturale e \textbf{l'obiettivo va abbandonato}. Il peggioramento rispetto
+all'SFT, identico con i due grafi, è un effetto del termine in sé e
+dell'arresto anticipato che induce, non delle transizioni. È coerente con il
+margine di $+0{,}0444$ bit stimato prima di addestrare: un'informazione così
+piccola, che un decoder autoregressivo riceve comunque condizionando sul gloss
+precedente, non lasciava spazio a un guadagno misurabile.
 
 \section{La decomposizione dell'effetto}
 \label{sec:decomposizione}
