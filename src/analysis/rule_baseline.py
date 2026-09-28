@@ -146,3 +146,41 @@ def fit_from_split(
         min_count=min_count,
         deletion_threshold=deletion_threshold,
     )
+
+
+def main() -> None:
+    """Fit on train, evaluate on the full test split, print the ch3 numbers.
+
+    CPU-only (no model, no GPU): reproduces the report's reference numbers
+    (ROUGE-L 0.9697 / EM 0.5912 / non-copy 0.9428 on the full 8109-row test
+    set) from a plain terminal run.
+    """
+    from src.datasets.aslg_dataset import download_aslg_dataset
+    from src.utils.metrics import non_copy_token_accuracy, rouge_l_score
+
+    dataset = download_aslg_dataset(seed=42)
+    baseline = fit_from_split(dataset)
+    print(f"lexicon: {len(baseline.lexicon)} entries")
+    print(f"deletions: {sorted(baseline.deletions)}")
+
+    test_rows = list(dataset["test"])
+    sources = [str(r["text"]) for r in test_rows]
+    references = [str(r["gloss"]) for r in test_rows]
+    predictions = [baseline.apply(text) for text in sources]
+
+    rouge_l = sum(rouge_l_score(p, r) for p, r in zip(predictions, references)) / len(
+        test_rows
+    )
+    exact_match = sum(
+        p.strip() == r.strip() for p, r in zip(predictions, references)
+    ) / len(test_rows)
+    non_copy, _hits, _total = non_copy_token_accuracy(predictions, sources, references)
+
+    print(f"\ntest rows: {len(test_rows)}")
+    print(f"ROUGE-L:                 {rouge_l:.4f}")
+    print(f"Exact match:             {exact_match:.4f}")
+    print(f"Non-copy-token accuracy: {non_copy:.4f}")
+
+
+if __name__ == "__main__":
+    main()
