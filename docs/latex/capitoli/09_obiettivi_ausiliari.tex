@@ -76,6 +76,45 @@ avrebbe un modello mentale sbagliato della sua forma funzionale. Dichiararlo in
 anticipo evita di interpretare un risultato nullo sull'exact match come un
 fallimento dell'implementazione.
 
+\subsection{Un dettaglio sul gradiente, non catturato dalla previsione}
+\label{sec:am-gradiente}
+
+La previsione appena dichiarata guarda al \emph{valore} della~\eqref{eq:am-repeat},
+che è piatto sull'insieme ammesso. Il suo \emph{gradiente} non lo è, e la
+differenza è rilevante per interpretare correttamente il risultato del
+Capitolo~\ref{cap:risultati}.
+
+Per un token ammesso $i$ con logit $z_i$ e probabilità $p_i = \policy(i \mid x,
+y_{<t})$, derivando la~\eqref{eq:am-repeat} rispetto a $z_i$ si ottiene
+\begin{equation}
+  \label{eq:am-gradient}
+  \frac{\partial \mathcal{L}_{\text{AM}}}{\partial z_i}
+  \;=\; -\, p_i \, \frac{1 - P_{\allowed}}{P_{\allowed}},
+  \qquad
+  P_{\allowed} \;=\; \sum_{v \in \allowed_t} \policy(v \mid x, y_{<t}).
+\end{equation}
+Il segno è negativo (il gradiente della loss spinge $z_i$ verso l'alto, come
+atteso: la loss va minimizzata), e il fattore moltiplicativo è $p_i$ stesso.
+Ogni token ammesso sale quindi in proporzione a \emph{quanta probabilità ha già}:
+i token già preferiti guadagnano più degli altri, e la differenza $z_i - z_j$
+fra due token ammessi si muove nella direzione di $p_i - p_j$. La distribuzione
+\emph{dentro} l'insieme ammesso si affila, anche dopo la rinormalizzazione
+operata dal Trie in decodifica — ma l'ordinamento dei candidati non cambia, ed
+è per questo che la previsione resta corretta nella sua parte qualitativa
+(``non fornisce alcuna preferenza fra i token legali'').
+
+La previsione era però incompleta: un modello più affilato è più robusto al
+campionamento, perché si allontana meno spesso dalla propria scelta preferita
+per effetto del rumore di temperatura. Un guadagno di exact match sotto
+campionamento sarebbe quindi compatibile con questo meccanismo, pur senza
+contraddire la piattezza del valore della loss. Il Capitolo~\ref{cap:risultati},
+sezione~\ref{sec:osservazione-ausiliari}, verifica questa lettura confrontando
+decodifica campionata e greedy, e la scarta: il guadagno persiste quasi
+identico in greedy, dove l'affilatura da sola non dovrebbe contare. La
+previsione dichiarata in questa sezione va quindi corretta, non solo
+completata: l'obiettivo migliora l'exact match, per una via che
+la~\eqref{eq:am-gradient} non spiega da sola.
+
 \section{Obiettivo 2: la loss strutturata}
 
 \subsection{Formulazione}
