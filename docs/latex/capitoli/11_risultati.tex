@@ -123,7 +123,7 @@ L'SFT ottiene ROUGE-L $0{,}9681$, sostanzialmente pari alla baseline a regole
 ASLG-PC12 ($0{,}9587$, \cite{peng2023monolingual}).
 
 Un modello da $0{,}5$ miliardi di parametri, con adattatori LoRA, addestrato per
-tre epoche su una singola GPU, che eguaglia lo stato dell'arte pubblicato e
+poco più di due epoche su una singola GPU, che eguaglia lo stato dell'arte pubblicato e
 insieme una tabella di corrispondenze non addestrata. La lettura corretta non è
 che il sistema sia migliore: è che la metrica ha esaurito la propria capacità
 discriminante.
@@ -161,7 +161,7 @@ Base zero-shot con Trie & $0{,}1373$ & $0{,}9055$ & $0{,}0451$ \\
 
 Il vincolo abbassa ROUGE-L di $0{,}23$, alza la validity di un fattore $24$
 (da $0{,}0370$ a $0{,}9055$) e alza la non-copy accuracy di un fattore circa
-$60$. Il meccanismo è quello discusso nel Capitolo~\ref{cap:decoding}: senza
+$64$. Il meccanismo è quello discusso nel Capitolo~\ref{cap:decoding}: senza
 vincolo il modello produce inglese in minuscolo, che la metrica premia per il
 difetto documentato nella sezione~\ref{sec:difetto-rouge}; con il vincolo
 produce gloss, male, ma producendo gloss.
@@ -175,7 +175,11 @@ La conferma su una cella addestrata viene dall'ablazione \texttt{no-grammar},
 che ripete l'addestramento GRPO senza vincolo di decodifica: ROUGE-L $0{,}7590$
 ed exact match $0{,}0604$, contro $0{,}9681$ e $0{,}7662$ dell'SFT vincolata.
 Il valore di ROUGE-L, isolato, sembrerebbe promettente; l'exact match mostra che
-quasi nessuna uscita è la sequenza di gloss corretta.
+quasi nessuna uscita è la sequenza di gloss corretta. Sulla struttura il quadro è
+lo stesso: la validity permissiva della cella arriva a $0{,}9899$, ma le uscite
+fatte interamente di gloss del vocabolario sono solo il $19{,}4\%$
+(Capitolo~\ref{cap:decoding}). Senza Trie il GRPO impara l'aspetto di un gloss,
+non il vocabolario chiuso.
 
 \subsection{Una conferma indipendente dalla scelta della metrica}
 \label{sec:conferma-case-sensitive}
@@ -281,9 +285,12 @@ convergente e con la penalità KL attiva ($\beta = 0{,}04$), il GRPO lascia il
 sistema sostanzialmente dov'era.
 
 Il meccanismo che lo spiega è quello dei gruppi a varianza nulla discusso nel
-Capitolo~\ref{cap:grpo}. Una policy SFT convergente risolve correttamente la
-gran parte dei prompt, e per quei prompt tutti i candidati del gruppo ricevono
-la stessa reward: il vantaggio è esattamente zero e non c'è alcun aggiornamento.
+Capitolo~\ref{cap:grpo}, ed è misurato: nelle due celle SFT seguito da GRPO fra
+il $61\%$ e il $71\%$ dei gruppi ha varianza nulla, contro meno del $6\%$ delle
+celle GRPO dal modello base (sezione~\ref{sec:supporto}). Una policy SFT
+convergente risolve correttamente la gran parte dei prompt, e per quei prompt gli
+otto candidati sono la stessa sequenza e ricevono la stessa reward: il vantaggio
+è esattamente zero e non c'è alcun aggiornamento.
 Il gradiente che resta proviene dalla minoranza di prompt su cui la policy era
 incerta, cioè da un sottoinsieme selezionato e atipico; la penalità KL impedisce
 che l'aggiornamento su quel sottoinsieme sposti la policy lontano dal punto di
@@ -478,8 +485,8 @@ La conseguenza per la lettura di questa relazione è precisa: \textbf{il fattore
 sperimentale più efficace misurato in tutto il progetto è il prompting}, e non
 il metodo di addestramento. Se si dovesse riprogettare l'esperimento, il fattore
 primario sarebbe la griglia prompting $\times$ decodifica, con il metodo di
-addestramento come fattore secondario applicato \emph{dopo} aver identificato il
-substrato su cui i rollout hanno il supporto migliore.
+addestramento come fattore secondario applicato \emph{dopo} aver identificato la
+combinazione di prompting e decodifica più favorevole.
 
 \section{Determinismo delle esecuzioni}
 \label{sec:determinismo}

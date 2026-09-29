@@ -152,12 +152,15 @@ verificabili:
         $10{,}47\%$ delle righe di training contiene parole corrotte da una
         rimozione di sottostringa (per esempio \texttt{therefore} diventa
         \texttt{DESC-REFORE});
-  \item la \textbf{quantificazione del supporto dei rollout}, che spiega
-        meccanicamente quando il reinforcement learning non può funzionare
+  \item la \textbf{misura dei gruppi a varianza nulla} durante l'addestramento,
+        che spiega perché il GRPO non sposta una policy SFT già convergente:
+        fra il $61\%$ e il $71\%$ dei gruppi non produce gradiente
         (Capitolo~\ref{cap:grpo});
   \item un risultato \textbf{neuro-simbolico non ovvio}: il vincolo simbolico
-        peggiora la metrica di sovrapposizione e contemporaneamente \emph{abilita}
-        il segnale di reward (Capitolo~\ref{cap:decoding});
+        peggiora la metrica di sovrapposizione e contemporaneamente
+        \emph{garantisce} la struttura, che il GRPO da solo non impara: senza
+        Trie solo il $19\%$ delle uscite è fatto interamente di gloss del
+        vocabolario (Capitolo~\ref{cap:decoding});
   \item due \textbf{obiettivi ausiliari} qualificati prima di essere
         addestrati (Capitolo~\ref{cap:ausiliari}): l'obiettivo di massa
         ammessa funziona (SFT con massa ammessa: ROUGE-L $0{,}9769$, exact match

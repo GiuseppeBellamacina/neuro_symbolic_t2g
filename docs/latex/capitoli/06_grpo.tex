@@ -100,14 +100,19 @@ la qualità del segnale piuttosto che la dimensione del passo.
 
 \subsection{Un dato di contesto: l'esposizione ai dati}
 
-$2\,000$ passi con batch $1$ e accumulo $8$ significano circa $16\,000$ prompt
-visti. Su un training set di $72\,979$ esempi corrispondono a
+Ogni passo di GRPO consuma \emph{un solo} prompt: gli $8$ micro-batch
+dell'accumulo del gradiente sono gli $8$ rollout dello stesso prompt, non $8$
+prompt distinti. Le celle addestrate con GRPO fanno $5\,000$ passi, quindi vedono
+$5\,000$ prompt, che su un training set di $72\,979$ esempi corrispondono a
 \begin{equation}
-  \frac{2\,000 \times 1 \times 8}{72\,979} \;\approx\; 0{,}22
-  \quad\text{epoche.}
+  \frac{5\,000}{72\,979} \;\approx\; 0{,}069
+  \quad\text{epoche,}
 \end{equation}
+cioè il $6{,}9\%$ del training set.
 
-L'SFT vede i dati tre volte; il GRPO circa un quinto di volta. Questo va detto
+L'SFT si ferma per early stopping a $10\,000$ passi con batch effettivo $16$,
+cioè circa $2{,}24$ epoche; il GRPO vede meno di un decimo dei dati una sola
+volta. Questo va detto
 esplicitamente perché rende improprio qualunque confronto diretto ``SFT contro
 GRPO'' interpretato come confronto fra metodi: i due bracci non hanno la stessa
 esposizione ai dati. Il GRPO non è stato sotto-addestrato per errore, ma per
@@ -124,53 +129,72 @@ sequenze di lunghezza diversa vengono pesate fra loro; Dr.~GRPO
 bias. Tutti gli esperimenti di reinforcement learning di questo lavoro usano i
 valori predefiniti di TRL~$0{,}24$: variante di loss \texttt{dapo}
 (normalizzazione sul numero di token del batch), reward centrate sulla media del
-gruppo e non divise per la deviazione standard, senza dynamic sampling né
-clip-higher. La variante Dr.~GRPO compare solo come cella di ablazione.
+gruppo e divise per la sua deviazione standard (\texttt{scale\_rewards='group'}),
+senza dynamic sampling né clip-higher. La variante Dr.~GRPO compare solo come cella di ablazione.
 
 \section{La misura decisiva: il supporto dei rollout}
 \label{sec:supporto}
 
 Prima di chiedersi se il GRPO migliori le metriche, si può chiedere se abbia
-\emph{materiale} su cui lavorare: si generano $G$ candidati per un campione di
-prompt, se ne calcolano le reward e si osserva la frazione di gruppi a varianza
-nulla o morti. Il quadro qualitativo è il seguente.
+\emph{materiale} su cui lavorare. TRL registra durante l'addestramento la
+frazione di gruppi a varianza nulla; nei log delle run conservate ce ne sono
+$1\,000$ valori per run, uno ogni cinque passi.
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Cella & Media & Mediana \\
+\midrule
+GRPO dal modello base, zero-shot & $0{,}5\%$ & $0\%$ \\
+GRPO dal modello base, few-shot & $3{,}6\%$ & $0\%$ \\
+GRPO dal modello base, few-shot, senza Trie & $5{,}6\%$ & $0\%$ \\
+\midrule
+SFT seguito da GRPO, zero-shot & $70{,}8\%$ & $80\%$ \\
+SFT seguito da GRPO, few-shot & $61{,}0\%$ & $60\%$ \\
+SFT seguito da GRPO, rollout a temperatura alta & $27{,}3\%$ & $20\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La tabella separa due regimi.
 
 \begin{description}
-  \item[Base senza vincolo.] Senza Trie il modello base produce sequenze valide
-        solo nel $3{,}7\%$ dei casi (tabella dei risultati): la maggior parte
-        dei candidati riceve la reward minima e molti gruppi sono morti, dunque
-        privi di gradiente.
-  \item[Base con vincolo.] Il Trie forza i candidati dentro la regione in cui la
-        reward è discriminante (validità $90{,}6\%$ zero-shot, $98{,}2\%$
-        few-shot): il vincolo simbolico \emph{crea} il supporto. È il risultato
-        neuro-simbolico approfondito nel Capitolo~\ref{cap:decoding}.
-  \item[Policy SFT.] La policy è già quasi ottima e una larga maggioranza dei
-        gruppi ha \emph{varianza nulla}, perché tutti i candidati sono corretti
-        e ricevono la stessa reward massima. Il gradiente è nullo per la ragione
-        opposta a prima: non per fallimento, ma per saturazione.
+  \item[Dal modello base il segnale c'è.] Meno del $6\%$ dei gruppi resta senza
+        gradiente, anche senza Trie. Con sette componenti di reward continue,
+        due candidati diversi non ricevono quasi mai la stessa reward: un gruppo
+        ha varianza nulla solo quando gli otto candidati coincidono. Il limite
+        del GRPO dal modello base non è dunque la mancanza di segnale, ma ciò
+        che il segnale può insegnare in $5\,000$ prompt ($0{,}069$ epoche) e il
+        fatto che la reward premi surrogati della traduzione corretta
+        (Capitolo~\ref{cap:reward}).
+  \item[Dalla policy SFT il segnale manca.] Fra il $61\%$ e il $71\%$ dei
+        gruppi ha varianza nulla, perché la policy è già concentrata e gli otto
+        candidati sono la stessa sequenza. Il gradiente è nullo non per
+        fallimento, ma per saturazione.
 \end{description}
+
+Il gruppo morto in senso stretto, con tutte le reward al minimo, resta un caso
+teorico: non si osserva in nessuna run conservata, perché anche il modello base
+senza vincolo, con gli esempi nel prompt, produce candidati diversi fra loro. Non
+è stata addestrata una cella zero-shot senza Trie, dove il modello produce
+inglese (validity $3{,}7\%$), quindi quel regime non è misurato.
 
 \subsection{La conclusione meccanica}
 
-Il GRPO su questo compito è schiacciato fra due fallimenti simmetrici:
-\begin{equation}
-  \underbrace{\text{policy troppo debole}}_{\text{gruppi morti: nessun candidato buono}}
-  \quad\Big|\quad
-  \underbrace{\text{policy troppo forte}}_{\text{varianza nulla: tutti i candidati buoni}}
-\end{equation}
-Nel primo caso $A_i = 0$ perché $R_i = R_{\min}$ per ogni $i$; nel secondo
-perché $R_i = R_{\max}$ per ogni $i$. La finestra utile, in cui il gruppo
-contiene sia candidati buoni sia cattivi, è stretta, perché il compito è quasi
-deterministico (sezione~\ref{sec:entropia}). Concentrare l'addestramento sugli
-esempi difficili non risolve il problema: su modelli linguistici piccoli messi a
-punto con GRPO produce rendimenti decrescenti~\cite{yadav2026limits}, perché gli
-esempi difficili scivolano verso il regime dei gruppi morti.
+Il fallimento misurato è uno solo, quello per saturazione. Quando la policy è
+già forte gli otto candidati coincidono, $R_i = \bar{R}$ per ogni $i$ e il
+vantaggio è nullo: è la ragione per cui il GRPO applicato dopo l'SFT lascia il
+sistema dov'era (sezione~\ref{sec:osservazione5}). Aumentare la diversità dei
+rollout riduce i gruppi senza gradiente (dal $61\%$ al $27\%$ con la
+temperatura di campionamento alta), ma il risultato finale non cambia: ROUGE-L
+$0{,}9634$ contro $0{,}9628$. Più segnale non si traduce in una policy migliore
+quando la policy è già al tetto del corpus.
 
-Questo è il \emph{meccanismo} del risultato negativo, e va letto con
-proporzione: il GRPO dal modello base (few-shot) impara qualcosa, portando il
-ROUGE-L da $0{,}4664$ a $0{,}6082$, ma resta molto al di sotto sia della baseline
-a regole ($0{,}9685$) sia dell'SFT ($0{,}9681$). Partendo dall'SFT, invece, il
-margine di miglioramento è quasi esaurito in partenza.
+Va letto con proporzione anche l'altro lato: il GRPO dal modello base
+(few-shot) impara, portando il ROUGE-L da $0{,}4664$ a $0{,}6082$, pur avendo
+segnale su quasi ogni gruppo. Resta molto al di sotto sia della baseline a
+regole ($0{,}9685$) sia dell'SFT ($0{,}9681$), che però ha visto i dati più di
+trenta volte tanto.
 
 \subsection{Un precedente indipendente}
 

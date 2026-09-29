@@ -77,17 +77,20 @@ il confine di parola è esplicito nella struttura del Trie.
 Grandezza & Valore \\
 \midrule
 Gloss nel vocabolario & $15\,472$ \\
-Identificatori di token ammessi come primo token & $3\,967$ \\
-Gloss con il primo token bloccato & $4$ \\
-Massa di probabilità irraggiungibile & $12 / 897\,971$ \\
+Token del vocabolario di Qwen & $151\,643$ \\
+Token che iniziano l'uscita (radice \texttt{root}) & $1\,391$ \\
+Token che iniziano un gloss successivo (radice \texttt{space\_root}) & $1\,550$ \\
+Token usati da almeno un gloss & $3\,967$ \\
+Gloss non emettibili & $0$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-I quattro gloss non emettibili sono artefatti del corpus
-(sezione~\ref{sec:artefatti}), non gloss linguisticamente significativi. La massa
-irraggiungibile, circa una parte su settantacinquemila, è la verifica
-quantitativa che il vincolo non tagli fuori nulla di rilevante.
+A ogni passo il modello sceglie quindi fra poche centinaia o poche migliaia di
+token invece che fra $151\,643$, e dentro un gloss la scelta si restringe ancora:
+dopo \texttt{DESC} restano $36$ continuazioni, dopo \texttt{FLIN} una sola. Ogni
+gloss del vocabolario è emettibile in entrambe le posizioni, quindi nessuna delle
+$897\,971$ occorrenze di gloss del training set è irraggiungibile.
 
 Un'ulteriore diagnostica opzionale misura la massa
 di probabilità rimossa dal vincolo a ogni passo; è disattivata di default e non
@@ -137,29 +140,51 @@ tentativo di traduzione con punteggio basso. La metrica di sovrapposizione
 registra un peggioramento; la metrica che conta registra un miglioramento di
 quasi due ordini di grandezza.
 
-\subsection{L'effetto veramente importante: il vincolo crea il supporto}
+\subsection{L'effetto veramente importante: il vincolo garantisce la struttura}
 
 Il ROUGE-L, però, non è la ragione per cui il vincolo è presente nel sistema. La
-ragione è nel supporto dei rollout (sezione~\ref{sec:supporto}). Senza vincolo,
-il modello base produce inglese e la reward è uniformemente pessima su gran
-parte dei candidati di un gruppo: come stabilito nella
-sezione~\ref{sec:gruppi-morti}, per quei prompt il gradiente è esattamente zero.
-Con il vincolo, i candidati sono gloss legali e la reward torna a discriminare
-fra di essi, riducendo in modo netto la frazione di gruppi morti.
+ragione è la struttura delle uscite, e va misurata con un criterio che non lasci
+margini: un'uscita è \emph{strettamente valida} se \emph{tutti} i suoi token sono
+gloss del vocabolario. La validity delle tabelle è più permissiva, perché accetta
+un'uscita con almeno metà dei token nel vocabolario
+(Capitolo~\ref{cap:metriche}), e senza vincolo le due misure divergono molto.
 
-\textbf{Il componente simbolico non migliora le metriche: rende possibile
-l'apprendimento.} È il risultato neuro-simbolico di questo lavoro, e ha una forma
-argomentativa precisa. Il vincolo restringe il supporto della distribuzione
-generativa alla regione in cui la reward è \emph{discriminante}. Fuori da quella
-regione tutti i candidati sono ugualmente cattivi, quindi la
-sottrazione~\eqref{eq:grpo-adv} li annulla tutti; dentro, differiscono, quindi
-producono gradiente.
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Cella & Validity & Stretta \\
+\midrule
+Base zero-shot, senza Trie & $0{,}0370$ & $0{,}0138$ \\
+Base few-shot, senza Trie & $0{,}7604$ & $0{,}1147$ \\
+GRPO few-shot, senza Trie & $0{,}9899$ & $0{,}1941$ \\
+\midrule
+Base zero-shot, con Trie & $0{,}9055$ & $0{,}9869$ \\
+Base few-shot, con Trie & $0{,}9821$ & $0{,}9805$ \\
+GRPO few-shot, con Trie & $0{,}9954$ & $0{,}9988$ \\
+SFT, con Trie & $1{,}0000$ & $0{,}9999$ \\
+\bottomrule
+\end{tabular}
+\end{center}
 
-Questo giustifica anche una raccomandazione operativa generale: quando si prepara
-un esperimento di reinforcement learning su un compito con uscita strutturata,
-conviene misurare il supporto dei rollout \emph{prima} di addestrare, e
-considerare il vincolo simbolico non come un accessorio di qualità ma come una
-precondizione per la fattibilità.
+Senza Trie il GRPO impara l'\emph{aspetto} di un gloss --- maiuscole, prefissi
+\texttt{DESC-} e \texttt{X-}, articoli cancellati --- e la validity permissiva
+sale a $0{,}99$. Ma solo il $19\%$ delle uscite è fatto interamente di gloss del
+vocabolario: il resto contiene parole plausibili che nel vocabolario chiuso non
+esistono (\texttt{MULTI} dove il corpus ha \texttt{MULTUS}). Con il Trie la
+validità stretta è fra il $98\%$ e il $100\%$ per costruzione, qualunque sia la
+policy. Dove resta sotto il $100\%$ la causa sono le uscite vuote, perché il
+vincolo ammette la fine della sequenza già al primo passo.
+
+\textbf{Il componente simbolico non migliora le metriche: garantisce il vincolo
+che il reinforcement learning da solo non impara.} È il risultato neuro-simbolico
+di questo lavoro. Il GRPO avvicina la forma, il Trie impone il vocabolario.
+
+Una cosa che il vincolo \emph{non} fa, contrariamente a quanto si potrebbe
+attendere, è creare il segnale di apprendimento. I gruppi a varianza nulla sono
+meno del $6\%$ sia con sia senza Trie (sezione~\ref{sec:supporto}): con sette
+componenti di reward continue i candidati di un gruppo ricevono quasi sempre
+reward diverse, vincolati o no.
+
 \section{Il costo}
 
 Il vincolo non è gratuito. A ogni passo di generazione richiede:

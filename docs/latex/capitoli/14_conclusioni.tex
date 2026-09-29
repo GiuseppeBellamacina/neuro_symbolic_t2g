@@ -32,11 +32,15 @@ comporre. Con il prompt few-shot, il modello vincolato raggiunge ROUGE-L
 $0{,}4664$ e validity $0{,}9821$: quasi tutto il guadagno di questo passaggio
 ($+0{,}33$) viene dal prompting, non dall'aggiornamento di parametri.
 
+Soprattutto, il vincolo fa ciò che il reinforcement learning da solo non fa:
+garantisce la struttura. Senza Trie il GRPO impara l'aspetto di un gloss e la
+validity permissiva sale a $0{,}99$, ma solo il $19\%$ delle uscite è fatto
+interamente di gloss del vocabolario; con il Trie la quota è fra il $98\%$ e il
+$100\%$ per costruzione. Il vincolo \emph{non} crea invece il segnale di
+apprendimento: i gruppi a varianza nulla sono meno del $6\%$ con o senza Trie.
 Il costo che il vincolo impone sulla qualità del contenuto è documentato in
-letteratura~\cite{reddy2603,zhou2604,ye2504}. Su un compito con supporto
-scarso, la conclusione è che vada pagato, perché l'alternativa è un segnale di
-reward non discriminante. Una valutazione del vincolo va fatta su validity e
-supporto dei rollout, non sul solo ROUGE-L.
+letteratura~\cite{reddy2603,zhou2604,ye2504}; una sua valutazione va fatta sulla
+validità stretta, non sul solo ROUGE-L.
 
 \subsection{La posizione onesta sul GRPO}
 
@@ -87,8 +91,8 @@ diretta con segnali di qualità visivi~\cite{rao2025rvlf}.
 L'esperimento primario dovrebbe essere una griglia prompting $\times$
 decodifica, con il metodo di addestramento come fattore secondario: sono i due
 fattori con l'effetto misurato più grande, e il disegno attuale li confonde. Il
-metodo di addestramento va applicato dopo aver identificato il substrato con il
-supporto migliore.
+metodo di addestramento va applicato dopo aver identificato
+la combinazione di prompting e decodifica più favorevole.
 
 \subsection{Consolidare la massa ammessa}
 
