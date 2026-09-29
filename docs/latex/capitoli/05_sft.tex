@@ -105,6 +105,13 @@ La \emph{grandezza} del vantaggio dipende radicalmente dalla metrica:
         vantaggio netto dell'SFT sulla regola.
 \end{itemize}
 
+Il confronto sull'exact match è inoltre sbilanciato a sfavore dell'SFT. Il
+$7{,}15\%$ delle frasi valutate contiene un gloss mai visto nel training, che con
+il Trie non si può generare; la regola invece copia in maiuscolo le parole che non
+conosce e su quelle frasi arriva al $25\%$. Sulle $1\,857$ frasi che entrambi
+possono tradurre l'SFT ottiene $0{,}8252$ contro $0{,}6123$: $21$ punti di
+vantaggio invece di $18$ (sezione~\ref{sec:tetto-vocabolario}).
+
 Questa discrepanza è la prima manifestazione concreta della saturazione:
 ROUGE-L, essendo una metrica di sovrapposizione, non ha risoluzione residua per
 distinguere i due sistemi, mentre l'exact match sì. È un argomento operativo per

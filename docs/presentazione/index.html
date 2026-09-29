@@ -497,7 +497,8 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   <div class="legend"><span><i style="background:var(--neutral)"></i>Regola (non addestrata)</span><span><i style="background:var(--accent)"></i>SFT</span></div>
   <div class="gbars" id="sft-bars"></div>
   <p class="body" style="margin-top:36px" data-step="4">Cosa aggiunge l'SFT: il <b>contesto</b>. La copula (is, are → BE) si tiene o si cancella a seconda della frase; una regola sceglie una volta per tutte.</p>
-  <aside class="aside">L'SFT e la regola sono indistinguibili su ROUGE-L. La differenza si vede solo sull'exact match: gli errori scendono dal 41 al 23 per cento. Il vantaggio viene da ciò che una regola senza contesto non può fare, per esempio decidere se tenere o cancellare la copula. Questo è il livello del contenuto: il tetto del corpus su ROUGE-L, ma non su exact match.</aside>
+  <p class="small" style="margin-top:14px" data-step="5">E il confronto è a sfavore dell'SFT: il 7 % delle frasi ha un gloss mai visto nel training, che con il Trie non si può scrivere. Sulle altre: regola 0,61, SFT 0,83.</p>
+  <aside class="aside">L'SFT e la regola sono indistinguibili su ROUGE-L. La differenza si vede solo sull'exact match: gli errori scendono dal 41 al 23 per cento. Il vantaggio viene da ciò che una regola senza contesto non può fare, per esempio decidere se tenere o cancellare la copula. Questo è il livello del contenuto: il tetto del corpus su ROUGE-L, ma non su exact match. Un'ultima cosa, a favore dell'SFT: il vocabolario del Trie viene dal solo training, quindi il 7 per cento delle frasi di test contiene un gloss che il modello vincolato non può produrre, mentre la regola copia in maiuscolo le parole sconosciute. Sulle frasi che entrambi possono tradurre il divario sale a 21 punti.</aside>
 </section>
 
 <!-- 15 -->

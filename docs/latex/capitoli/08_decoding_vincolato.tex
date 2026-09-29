@@ -228,6 +228,51 @@ Il vincolo è dunque una condizione necessaria di buona formazione, non una
 condizione sufficiente di correttezza. Confondere le due cose porterebbe a
 attribuire al componente simbolico garanzie che non ha.
 
+\section{Da dove viene il vocabolario, e il tetto che impone}
+\label{sec:tetto-vocabolario}
+
+Il Trie è costruito una sola volta, all'avvio di ogni esecuzione, a partire dal
+vocabolario gloss. Il vocabolario è l'insieme delle parole distinte della colonna
+gloss del \emph{solo training set}, senza soglie di frequenza: basta che un gloss
+compaia una volta. L'addestramento lo salva su file e la valutazione rilegge lo
+stesso file, quindi le due fasi usano lo stesso vincolo, e il test non vi
+contribuisce.
+
+Ne segue un limite preciso. Un gloss che compare nel test ma mai nel training non
+è nel Trie, e con il vincolo attivo non può essere generato. Sulle $2\,000$ frasi
+valutate succede nel $7{,}15\%$ dei casi ($143$ frasi, $167$ occorrenze su
+$24\,518$): sono soprattutto nomi propri e parole rare, come \texttt{BRAGHETTO},
+\texttt{ISLAMIFICATION}, \texttt{PARACHUTIST}. Su quelle frasi l'exact match è
+nullo per costruzione, per qualunque modello vincolato, quindi \textbf{il tetto
+dell'exact match con il Trie è $0{,}9285$}.
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+Sistema & Tutte & Raggiungibili ($1\,857$) & Irraggiungibili ($143$) \\
+\midrule
+Regola (senza Trie) & $0{,}5865$ & $0{,}6123$ & $0{,}2517$ \\
+SFT & $0{,}7662$ & $0{,}8252$ & $0$ \\
+SFT con massa ammessa & $0{,}8341$ & $0{,}8983$ & $0$ \\
+SFT seguito da GRPO, zero-shot & $0{,}8095$ & $0{,}8718$ & $0$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La baseline a regole non ha questo tetto: una parola che non conosce la copia in
+maiuscolo, e così riproduce $89$ dei $167$ gloss mai visti nel training. Il
+confronto fra la regola e i modelli vincolati è quindi sbilanciato a sfavore dei
+secondi: sulle frasi che entrambi possono tradurre il vantaggio dell'SFT è di
+$21$ punti di exact match, non di $18$.
+
+Includere nel vocabolario anche i gloss del test eliminerebbe il tetto, ma
+userebbe le risposte del test per decidere che cosa il modello può scrivere: è
+una fuga di informazione dal test, e renderebbe i numeri non difendibili.
+L'alternativa corretta è ammettere, per ogni frase, anche la copia in maiuscolo
+delle parole dell'\emph{ingresso}, cioè lo stesso meccanismo che usa la regola.
+Il vincolo diventerebbe dipendente dalla frase, ma costruito solo da ciò che il
+modello vede.
+
 \section{Il costo nascosto della generazione vincolata}
 
 Il risultato della sezione~\ref{sec:trie-risultato} --- il vincolo peggiora la
