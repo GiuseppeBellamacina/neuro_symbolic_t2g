@@ -157,7 +157,7 @@ from src.utils.metrics import (
 )
 from src.utils.phase_timing import phase
 from src.utils.prompting import SYSTEM_PROMPT, build_t2g_prompt
-from src.utils.run_paths import split_checkpoint_path
+from src.utils.run_paths import eval_output_location
 
 logger = logging.getLogger("t2g-eval")
 
@@ -2964,28 +2964,12 @@ def main() -> None:
     # distinguono per il suffisso __<mode>).
     from datetime import datetime
 
-    run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    if args.checkpoint is not None:
-        checkpoint_path = Path(args.checkpoint).resolve()
-        split = split_checkpoint_path(checkpoint_path)
-        if split is not None:
-            model_name, run_id = split
-        else:
-            model_name = config.get("wandb", {}).get("run_name", "t2g-model")
-            run_id = (
-                checkpoint_path.parent.name
-                if checkpoint_path.name in ["final", "checkpoint-*"]
-                else checkpoint_path.name
-            )
-        model_tag_default = run_id
-    else:
-        raw_model_name = config["model"]["name"].split("/")[-1].lower()
-        model_name = raw_model_name.replace(".", "")
-        if "run_name" in config.get("wandb", {}):
-            model_name = config["wandb"]["run_name"]
-        run_id = f"zero_shot_{run_timestamp}"
-        model_tag_default = "zero-shot"
+    model_name, run_id, model_tag_default = eval_output_location(
+        args.config,
+        config,
+        args.checkpoint,
+        datetime.now().strftime("%Y%m%d_%H%M%S"),
+    )
 
     results_dir = Path("experiments/results") / model_name / run_id
     figures_dir = Path("experiments/figures") / model_name / run_id

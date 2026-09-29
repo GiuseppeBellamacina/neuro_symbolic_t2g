@@ -112,7 +112,7 @@ UNKNOWN = "unknown"
 # Suffisso dual/override sui nomi file: l'eval usa `__zero-shot` (dash,
 # f"__{prompting_mode}"); si tollera anche la forma con underscore.
 _PROMPTING_SUFFIX_RE = re.compile(r"__(zero[-_]shot|few[-_]shot)$")
-# Data/ora nel nome della run dir: run_20260904_062558 / zero_shot_20260902_055547
+# Data/ora nel nome della run dir: run_20260904_062558
 _RUN_TS_RE = re.compile(r"(\d{8})_(\d{6})")
 
 # Testo dichiarativo riprodotto in JSON e Markdown: la deduzione dei fattori
@@ -173,24 +173,24 @@ def _tokens_to_string(tokens: list[str]) -> str:
 def _split_cell_and_run(parts: tuple[str, ...]) -> tuple[str | None, str]:
     """Separa il nome cella dall'identificativo di run in un percorso di eval.
 
-    Le celle non stanno tutte alla stessa profondità: la famiglia baseline è
-    piatta (``qwen25-05b-baseline-zero-shot/zero_shot_<ts>/``) mentre le celle
-    sperimentali sono annidate quanto il loro config (``qwen25-05b/sft/
-    zero-shot/run_<ts>/``). Prendere ``parts[0]`` come cella, com'era prima,
+    Ogni eval vive in ``<cella>/run_<ts>/`` (o in una sua sotto-directory di
+    sola valutazione), e la cella è annidata quanto il suo config:
+    ``qwen25-05b/sft/zero-shot/run_<ts>/``, ``qwen25-05b/baseline/zero-shot/
+    run_<ts>/``. Prendere ``parts[0]`` come cella, com'era in origine,
     collassava tutte le celle annidate su ``qwen25-05b``: una sola tipologia,
-    tutti gli altri run marcati superseded, e la matrice risultante
-    accostava celle diverse come se fossero la stessa.
+    tutti gli altri run marcati superseded, e una matrice che accostava celle
+    diverse come se fossero la stessa.
 
-    L'ancora è il segmento di run (``run_*`` / ``zero_shot_*``): tutto ciò che
-    lo precede è la cella, tutto ciò che lo segue è una variante di sola
-    valutazione dello stesso checkpoint (per esempio ``decoding-greedy``) e
-    va tenuta distinta, perché ha metriche proprie.
+    L'ancora è l'ULTIMO segmento ``run_*``: ciò che lo precede è la cella, ciò
+    che lo segue è una variante di sola valutazione dello stesso checkpoint
+    (per esempio ``decoding-greedy``), tenuta distinta perché ha metriche
+    proprie. Un file senza segmento di run è un orfano e viene scartato.
     """
-    for i, part in enumerate(parts[:-1]):
-        if part.startswith("run_") or part.startswith("zero_shot_"):
-            cell_parts = list(parts[:i]) + list(parts[i + 1 : -1])
-            return ("-".join(cell_parts) or parts[0], part)
-    return (None, "")
+    runs = [i for i, part in enumerate(parts[:-1]) if part.startswith("run_")]
+    if not runs or runs[-1] == 0:
+        return (None, "")
+    i = runs[-1]
+    return ("-".join(parts[:i] + parts[i + 1 : -1]), parts[i])
 
 
 def deduce_cell_factors(cell: str) -> tuple[dict, dict]:

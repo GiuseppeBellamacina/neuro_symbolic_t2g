@@ -439,8 +439,8 @@ Con `config=<nome dir o nome config>`:
 
 ```json
 {
-  "config": "qwen25-05b-sft-grpo",
-  "results_dir": "experiments/results/qwen25-05b-sft-grpo",
+  "config": "sft-grpo-few-shot",
+  "results_dir": "experiments/results/qwen25-05b/sft-grpo/few-shot",
   "runs": [{"run_id": "run_20260904_000559", "metrics": {...}}],
   "source": "cache|live",
   "age_seconds": 0.0

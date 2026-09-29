@@ -369,18 +369,19 @@ _emit_run() {
 }
 
 # Elenca, relative a experiments/results, le dir di CELLA che contengono
-# risultati. I risultati non vivono più in una sola dir piatta per cella
-# (qwen25-05b-sft-grpo/): ora sono annidati come il config
-# (qwen25-05b/grpo/zero-shot/run_*/), quindi un glob a un livello vedrebbe
-# solo "qwen25-05b". Si parte dai file eval_*.json e si risale alla cella,
-# togliendo l'eventuale componente run_<timestamp> finale.
+# risultati. Le celle sono annidate come il config
+# (qwen25-05b/grpo/zero-shot/run_*/, qwen25-05b/baseline/zero-shot/run_*/),
+# quindi un glob a un livello vedrebbe solo "qwen25-05b". Si parte dai file
+# eval_*.json e si risale alla cella togliendo il segmento run_<timestamp> e
+# tutto ciò che lo segue: le sotto-directory di sola valutazione
+# (run_*/decoding-greedy/) appartengono alla stessa cella. Un eval senza
+# segmento run_* è un orfano del vecchio layout e non è una cella.
 _results_cells() {
     [ -d "$PROJ_DIR/experiments/results" ] || return 0
     (
         cd "$PROJ_DIR/experiments/results" 2>/dev/null || exit 0
-        find . -maxdepth 7 -name 'eval_*.json' -type f 2>/dev/null |
-            sed -e 's|^\./||' -e 's|/[^/]*$||' \
-                -e 's|/run_[^/]*$||' -e 's|/zero_shot_[^/]*$||' |
+        find . -maxdepth 8 -path '*/run_*' -name 'eval_*.json' -type f 2>/dev/null |
+            sed -e 's|^\./||' -e 's|/run_[^/]*/.*$||' |
             sort -u
     )
 }
@@ -411,12 +412,26 @@ EOF
     if [ -d "$PROJ_DIR/experiments/results/$token" ]; then
         dir="$PROJ_DIR/experiments/results/$token"
     else
-        local c
+        local c key
+        # Chiave di config (CONFIG_MAP dell'app, fallback della TUI): il percorso
+        # della cella senza il tag del modello, con '-' al posto di '/'
+        # (qwen25-05b/baseline/zero-shot <-> baseline-zero-shot). Match esatto,
+        # prima di qualunque sottostringa: "grpo-few-shot" è contenuto anche in
+        # sft-grpo/few-shot, e "baseline" in tutte e tre le baseline.
         for c in $(_results_cells); do
-            case "$c" in
-                *"$token"*) dir="$PROJ_DIR/experiments/results/$c"; break ;;
-            esac
+            key="${c#*/}"
+            if [ "${key//\//-}" = "$token" ]; then
+                dir="$PROJ_DIR/experiments/results/$c"
+                break
+            fi
         done
+        if [ -z "$dir" ]; then
+            for c in $(_results_cells); do
+                case "$c" in
+                    *"$token"*) dir="$PROJ_DIR/experiments/results/$c"; break ;;
+                esac
+            done
+        fi
     fi
     if [ -z "$dir" ]; then
         local t c

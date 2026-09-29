@@ -53,11 +53,45 @@ def test_discover_cells_finds_legacy_flat_layout(tmp_path):
     assert set(cells) == {"qwen25-05b-baseline-few-shot"}
 
 
-def test_discover_cells_finds_oldest_layout_with_no_run_dir(tmp_path):
-    """Eval files directly inside the cell dir, no run_* subdir at all."""
+def test_discover_cells_ignores_evals_outside_any_run(tmp_path):
+    """An eval with no run_* ancestor has no run id and no link to a config:
+    it is an orphan, not a cell."""
     _write_eval(tmp_path / "qwen25-05b-optimal/eval_final.json", rouge_l_mean=0.3)
-    cells = _discover_cells(tmp_path)
-    assert cells == {"qwen25-05b-optimal": []}
+    assert _discover_cells(tmp_path) == {}
+
+
+def test_eval_subdirectory_of_a_run_is_its_own_row(tmp_path):
+    """run_*/decoding-greedy/ is the same checkpoint decoded differently: it has
+    metrics of its own, so it is a separate row named after the cell, not
+    after the run, and its run id is still the run_* segment."""
+    _write_eval(
+        tmp_path / "qwen25-05b/sft/zero-shot/run_1/eval_final.json",
+        rouge_l_mean=0.9681,
+    )
+    _write_eval(
+        tmp_path / "qwen25-05b/sft/zero-shot/run_1/decoding-greedy/eval_final.json",
+        rouge_l_mean=0.9696,
+    )
+    entries = {e["config_name"]: e for e in find_eval_results(tmp_path)}
+    assert set(entries) == {
+        "qwen25-05b/sft/zero-shot",
+        "qwen25-05b/sft/zero-shot/decoding-greedy",
+    }
+    assert entries["qwen25-05b/sft/zero-shot/decoding-greedy"]["run_id"] == "run_1"
+
+
+def test_baseline_cells_live_inside_the_model_tree(tmp_path):
+    """The three baselines sit under <model>/baseline/, like every other cell."""
+    for variant in ("zero-shot", "few-shot", "zero-shot-no-grammar"):
+        _write_eval(
+            tmp_path / f"qwen25-05b/baseline/{variant}/run_1/eval_zero_shot.json",
+            rouge_l_mean=0.1,
+        )
+    assert set(_discover_cells(tmp_path)) == {
+        "qwen25-05b/baseline/zero-shot",
+        "qwen25-05b/baseline/few-shot",
+        "qwen25-05b/baseline/zero-shot-no-grammar",
+    }
 
 
 def test_discover_cells_picks_no_duplicate_across_mixed_layouts(tmp_path):

@@ -352,7 +352,11 @@ su sft/zero-shot: kill a 1964/3000 dopo 6,5 h). Il rimedio, attivo di default:
 
 ## 7. File di output e figure
 
-Per ogni eval (in `experiments/results/<model>/<run_id>/`):
+Per ogni eval (in `experiments/results/<cella>/run_<ts>/`, dove `<cella>` è il
+percorso del config sotto `experiments/configs/`, baseline comprese:
+`qwen25-05b/baseline/zero-shot/run_<ts>/`; un'eval con `evaluation.results_subdir`
+scrive in `run_<ts>/<results_subdir>/`). Nessuna eval scrive fuori da una
+`run_*`: `src/utils/run_paths.py::eval_output_location` si rifiuta di farlo.
 - `eval_<ckpt>.json` — metriche primarie (incluse `non_copy_token_accuracy`,
   `non_copy_token_hits`, `non_copy_token_total`, §2d) + `oracle_best_of_n` +
   reward

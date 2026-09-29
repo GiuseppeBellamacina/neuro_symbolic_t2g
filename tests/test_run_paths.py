@@ -7,6 +7,8 @@ same ``experiments/results/<model_name>/<run_id>`` directory.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from src.utils.run_paths import split_checkpoint_path
 
 
@@ -91,9 +93,104 @@ def test_path_without_checkpoints_segment_returns_none() -> None:
     assert split_checkpoint_path("/tmp/some/random/model/final") is None
 
 
-def test_no_run_segment_falls_back_to_two_levels() -> None:
-    """Non-standard layout without run_*: historical 2-level behaviour."""
-    assert split_checkpoint_path("experiments/checkpoints/mymodel/final") == (
-        "mymodel",
-        "final",
+def test_no_run_segment_is_not_guessed() -> None:
+    """Without a run_* segment there is no run to attach outputs to.
+
+    The old fallback returned the first two segments, so
+    ``checkpoints/qwen25-05b/grpo/final`` became ``('qwen25-05b', 'grpo')`` and
+    the eval wrote ``results/qwen25-05b/grpo/eval_final.json``: an orphan in a
+    group directory, attributable to no cell. The caller now opens a fresh run
+    in the config's cell instead.
+    """
+    assert (
+        split_checkpoint_path("experiments/checkpoints/qwen25-05b/grpo/final") is None
     )
+    assert split_checkpoint_path("experiments/checkpoints/run_1/final") is None
+
+
+def test_cell_from_config_mirrors_the_config_tree() -> None:
+    """Baselines have no checkpoint: their cell is the config's own path, the
+    same convention every trained cell follows through its output_dir."""
+    from src.utils.run_paths import cell_from_config
+
+    for config, cell in [
+        (
+            "experiments/configs/qwen25-05b/baseline/zero-shot.yaml",
+            "qwen25-05b/baseline/zero-shot",
+        ),
+        (
+            "experiments/configs/qwen25-05b/baseline/zero-shot-no-grammar.yaml",
+            "qwen25-05b/baseline/zero-shot-no-grammar",
+        ),
+        (
+            "experiments/configs/qwen25-05b/ablations/loss/dr-grpo.yaml",
+            "qwen25-05b/ablations/loss/dr-grpo",
+        ),
+    ]:
+        assert cell_from_config(config) == cell
+    assert cell_from_config("/tmp/scratch.yaml") is None
+
+
+_CFG = {"model": {"name": "Qwen/Qwen2.5-0.5B-Instruct"}, "wandb": {"run_name": "x"}}
+
+
+def test_baseline_evals_go_inside_the_model_tree_in_a_run_dir() -> None:
+    """The three baselines have no checkpoint: each writes to
+    <model>/baseline/<variant>/run_<ts>/, like every trained cell."""
+    from src.utils.run_paths import eval_output_location
+
+    for variant in ("zero-shot", "few-shot", "zero-shot-no-grammar"):
+        cell, run_id, label = eval_output_location(
+            f"experiments/configs/qwen25-05b/baseline/{variant}.yaml",
+            _CFG,
+            None,
+            "20260929_120000",
+        )
+        assert (cell, run_id) == (
+            f"qwen25-05b/baseline/{variant}",
+            "run_20260929_120000",
+        )
+        assert label == "zero-shot"
+
+
+def test_checkpoint_eval_joins_its_training_run() -> None:
+    """An eval of a trained checkpoint lands in the SAME cell and run as the
+    training, whatever the config path says."""
+    from src.utils.run_paths import eval_output_location
+
+    assert eval_output_location(
+        "experiments/configs/qwen25-05b/grpo/few-shot.yaml",
+        _CFG,
+        "experiments/checkpoints/qwen25-05b/grpo/few-shot/run_20260914_070600/final",
+        "20260929_120000",
+    ) == ("qwen25-05b/grpo/few-shot", "run_20260914_070600", "run_20260914_070600")
+
+
+def test_checkpoint_without_a_run_opens_a_fresh_run_in_the_config_cell() -> None:
+    """This is the path that used to write orphans straight into a group
+    directory (results/qwen25-05b/grpo/eval_final.json)."""
+    from src.utils.run_paths import eval_output_location
+
+    cell, run_id, label = eval_output_location(
+        "experiments/configs/qwen25-05b/grpo/few-shot.yaml",
+        _CFG,
+        "experiments/checkpoints/qwen25-05b/grpo/final",
+        "20260929_120000",
+    )
+    assert (cell, run_id) == ("qwen25-05b/grpo/few-shot", "run_20260929_120000")
+    assert label == "grpo"
+
+
+def test_every_eval_location_is_inside_a_run() -> None:
+    """The invariant every reader relies on, over every config in the repo."""
+    from src.utils.config import resolve_config
+    from src.utils.run_paths import eval_output_location
+
+    configs = sorted(Path("experiments/configs/qwen25-05b").rglob("*.yaml"))
+    assert configs
+    for path in configs:
+        cell, run_id, _ = eval_output_location(
+            path, resolve_config(str(path)), None, "20260929_120000"
+        )
+        assert run_id.startswith("run_"), path
+        assert cell.startswith("qwen25-05b/"), (path, cell)

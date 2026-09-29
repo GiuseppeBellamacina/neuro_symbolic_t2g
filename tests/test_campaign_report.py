@@ -120,7 +120,7 @@ def test_malformed_json_reported_not_raised(tmp_path):
     make_eval(
         tmp_path,
         "t2g-zero-shot",
-        "zero_shot_20260101_000000",
+        "run_20260101_000000",
         "eval_zero_shot.json",
         raw="{not valid json,,,",
     )
@@ -446,10 +446,18 @@ def test_nested_cells_do_not_collapse_into_one_typology(tmp_path):
     assert _split_cell_and_run(
         ("qwen25-05b", "sft", "zero-shot", "run_1", "decoding-greedy", "e.json")
     ) == ("qwen25-05b-sft-zero-shot-decoding-greedy", "run_1")
-    # the flat baseline family keeps working
+    # baselines live inside the model tree like every other cell; the joined
+    # name is the one the factor deduction already understood
     assert _split_cell_and_run(
-        ("qwen25-05b-baseline-zero-shot", "zero_shot_1", "eval_zero_shot.json")
-    ) == ("qwen25-05b-baseline-zero-shot", "zero_shot_1")
+        ("qwen25-05b", "baseline", "zero-shot", "run_1", "eval_zero_shot.json")
+    ) == ("qwen25-05b-baseline-zero-shot", "run_1")
+    # the old baseline run dir (zero_shot_<ts>) is not a run: orphan, skipped
+    assert (
+        _split_cell_and_run(
+            ("qwen25-05b-baseline-zero-shot", "zero_shot_1", "eval_zero_shot.json")
+        )[0]
+        is None
+    )
     # loose evals with no run segment are the pre-run_* layout: skipped
     assert _split_cell_and_run(("qwen25-05b", "sft", "eval_final.json"))[0] is None
 

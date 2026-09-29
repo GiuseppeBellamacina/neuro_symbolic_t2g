@@ -8,7 +8,8 @@ Usage:
     python -m src.utils.ablation_summary --results-dir experiments/results
     python -m src.utils.ablation_summary --output-dir experiments/figures
 
-Scans ``experiments/results/*/`` for ``eval_*.json`` and
+Scans ``experiments/results/<cella>/run_<ts>/`` (at any nesting depth, baselines
+included: ``qwen25-05b/baseline/zero-shot/run_<ts>/``) for ``eval_*.json`` and
 ``comparison.json`` files, extracts metrics, and produces:
     - ``ablation_summary.csv`` — machine-readable table
     - ``ablation_summary.md`` — human-readable Markdown table
@@ -69,45 +70,39 @@ DELTA_METRICS = [
 ]
 
 
+def _run_segment(eval_dir: Path) -> str:
+    """Il segmento ``run_*`` più interno sopra ``eval_dir`` (lui stesso incluso)."""
+    return next(
+        p for p in (eval_dir, *eval_dir.parents) if p.name.startswith("run_")
+    ).name
+
+
 def _discover_cells(results_dir: Path) -> dict[str, list[Path]]:
-    """Map each cell (config) to its ``run_*`` directories, at ANY nesting depth.
+    """Map each cell to the directories holding its evals, one per run, oldest first.
 
-    Cells nest at different depths under ``results_dir`` depending on how deep
-    their own config path is — ``qwen25-05b/grpo/zero-shot`` is 2 levels above
-    its ``run_*`` dirs, the legacy flat ``qwen25-05b-baseline-few-shot`` is 0 —
-    so a fixed-depth ``iterdir()`` only ever found the shallow legacy layout.
-    Anchoring on the ``run_*`` segment itself keeps every cell distinct at any
-    depth (same fix as ``src/utils/run_paths.py::split_checkpoint_path``,
-    applied here to the READ side instead of the write side).
+    Every eval lives in ``<cella>/run_<ts>/`` or in an eval-only sub-directory of
+    it (``run_<ts>/<results_subdir>/``, e.g. ``decoding-greedy``), at whatever
+    depth the config nests the cell. The anchor is the LAST ``run_*`` segment
+    above the file: what precedes it is the cell, what follows it is a variant of
+    the same checkpoint with metrics of its own, reported as its own row
+    (``qwen25-05b/sft/zero-shot/decoding-greedy``).
 
-    A cell with no ``run_*`` children at all (eval files written directly
-    inside the cell dir — the oldest layout) maps to an empty list; callers
-    fall back to the cell dir itself in that case.
+    An eval file with no ``run_*`` ancestor is an orphan — no run id, no link to
+    the config that produced it — and is ignored: the pre-``run_*`` layout left
+    such files in group directories (``qwen25-05b/sft/eval_final.json``) carrying
+    numbers that belonged to no cell.
     """
-    cells: dict[str, list[Path]] = {}
-    for run_dir in results_dir.rglob("run_*"):
-        if not run_dir.is_dir():
-            continue
-        config_name = run_dir.parent.relative_to(results_dir).as_posix()
-        cells.setdefault(config_name, []).append(run_dir)
-    # Oldest layout: eval_*.json directly inside the cell dir, no run_*
-    # wrapper at all. A file whose OWN parent is a run_* dir is already
-    # covered by the loop above (checking the parent's children, not its own
-    # name, would wrongly re-admit every run_* dir as a cell of itself).
+    cells: dict[str, set[Path]] = {}
     for eval_file in results_dir.rglob("eval_*.json"):
-        parent = eval_file.parent
-        if parent.name.startswith("run_"):
-            continue  # already covered above
-        # A dir that also CONTAINS run_* cells below it is not a cell itself:
-        # its loose eval_*.json are leftovers from the pre-run_* layout, and
-        # admitting them adds a phantom row (e.g. "qwen25-05b/sft" beside the
-        # real "qwen25-05b/sft/zero-shot") carrying superseded numbers.
-        if any(d.is_dir() for d in parent.rglob("run_*")):
-            logger.debug("Skipping legacy loose evals under %s", parent)
+        rel = eval_file.parent.relative_to(results_dir).parts
+        runs = [i for i, seg in enumerate(rel) if seg.startswith("run_")]
+        if not runs or runs[-1] == 0:
+            logger.debug("Skipping orphan eval outside any run_*: %s", eval_file)
             continue
-        config_name = parent.relative_to(results_dir).as_posix()
-        cells.setdefault(config_name, [])
-    return cells
+        i = runs[-1]
+        key = "/".join(rel[:i] + rel[i + 1 :])
+        cells.setdefault(key, set()).add(eval_file.parent)
+    return {k: sorted(v, key=_run_segment) for k, v in cells.items()}
 
 
 def find_eval_results(results_dir: Path) -> list[dict]:
@@ -121,11 +116,10 @@ def find_eval_results(results_dir: Path) -> list[dict]:
         logger.warning("Results directory not found: %s", results_dir)
         return entries
 
-    for config_name, run_dirs in sorted(_discover_cells(results_dir).items()):
-        # Each config may have multiple run_* subdirectories.
-        # Take the latest one (sorted = chronological).
-        run_dirs = sorted(run_dirs)
-        latest_run = run_dirs[-1] if run_dirs else (results_dir / config_name)
+    for config_name, eval_dirs in sorted(_discover_cells(results_dir).items()):
+        # One entry per run, oldest first (run_<timestamp> sorts
+        # chronologically): the latest run is the one reported.
+        latest_run = eval_dirs[-1]
 
         # Find eval_*.json (skip eval_baseline.json — that's the zero-shot ref)
         eval_files = [
@@ -153,7 +147,7 @@ def find_eval_results(results_dir: Path) -> list[dict]:
 
         entry = {
             "config_name": config_name,
-            "run_id": latest_run.name,
+            "run_id": _run_segment(latest_run),
             "eval_path": str(eval_path),
             "metrics": {},
         }

@@ -474,8 +474,9 @@ creato il sottodir `run_<timestamp>`):
 │       │   │   └── final/
 │       │   └── latest -> run_20260403_120000
 │       └── (analoghi per sft/zero-shot, grpo/few-shot, ablations/…)
-├── experiments/results/<model>/<run_id>/    (eval JSON)
-├── experiments/figures/<model>/<run_id>/    (plot)
+├── experiments/results/<cella>/run_<ts>/    (eval JSON; <cella> = percorso del config,
+│                                             es. qwen25-05b/grpo/few-shot, qwen25-05b/baseline/zero-shot)
+├── experiments/figures/<cella>/run_<ts>/    (plot)
 └── logs/
     ├── slurm-train-<JOB_ID>.log
     ├── slurm-eval-<JOB_ID>.log
