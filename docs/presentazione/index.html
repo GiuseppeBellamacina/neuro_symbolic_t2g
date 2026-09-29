@@ -222,6 +222,40 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .opt.hot { border-color: var(--accent); background: var(--accent-100); color: var(--accent-700); }
 .model { display: inline-block; font-size: 28px; padding: 16px 26px; border-radius: 12px; background: var(--ink); color: var(--surface); font-weight: 600; margin-bottom: 36px; }
 
+
+/* Trie disegnato (SVG). */
+.trie { display: block; overflow: visible; }
+.trie text { font-family: var(--mono); font-size: 22px; dominant-baseline: central; }
+.trie .node rect { fill: var(--plane); stroke: var(--grid); stroke-width: 2; transition: stroke .3s, fill .3s, stroke-width .3s; }
+.trie .node text { fill: var(--ink); }
+.trie .node .sp { fill: var(--muted); }
+.trie .node.term rect { fill: var(--accent-100); stroke: var(--accent-200); }
+.trie .node.term text { fill: var(--accent-700); }
+.trie .node.pill rect { fill: var(--ink2); stroke: none; }
+.trie .node.pill text { fill: #fff; font-family: var(--sans); font-size: 20px; font-weight: 650; }
+.trie .node.pill.path rect { fill: var(--accent-700); }
+.trie .node.path:not(.pill) rect { stroke: var(--accent-600); stroke-width: 3; }
+.trie .node.next rect { stroke: var(--accent); stroke-width: 3; stroke-dasharray: 7 5; }
+.trie .node.cur rect { stroke: var(--ink); stroke-width: 4; stroke-dasharray: none; }
+.trie .node.pill.cur rect { fill: var(--ink); }
+.trie .edge { fill: none; stroke: var(--base); stroke-width: 2; transition: stroke .3s; }
+.trie .edge.path { stroke: var(--accent-600); stroke-width: 4; }
+.trie .stub { font-family: var(--sans); font-size: 16px; fill: var(--muted); }
+.trie .cap { font-family: var(--sans); font-size: 17px; letter-spacing: .08em; fill: var(--muted); font-weight: 650; }
+.trie .halo { fill: none; stroke: var(--surface); stroke-width: 10; stroke-linecap: round; }
+.trie .jump { fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-dasharray: 8 6; }
+.trie .jump.bad { stroke: var(--neg); }
+.trie .blocked { font-family: var(--sans); font-size: 21px; fill: var(--neg); font-weight: 600; }
+.hw { display: grid; grid-template-columns: 640px 720px; gap: 48px; }
+.hwcol h3 { margin: 0 0 6px; font-size: 28px; }
+.hwout { min-height: 56px; margin-top: 2px; gap: 8px; }
+.hwout .chip { font-size: 24px; padding: 6px 12px; }
+.walkfoot { display: grid; grid-template-columns: auto 1fr auto; gap: 34px; align-items: baseline; margin-top: 6px; }
+.walkfoot .count { font-size: 54px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent-600); }
+.walkfoot .of { font-size: 20px; color: var(--muted); }
+.walkfoot .state { font-size: 26px; line-height: 1.3; }
+.walkfoot .eos { font-size: 22px; color: var(--ink2); white-space: nowrap; }
+
 /* Cromo della presentazione. */
 #progress { position: absolute; left: 0; bottom: 0; height: 5px; background: var(--accent); width: 0; }
 #counter { position: absolute; right: 36px; bottom: 16px; font-size: 16px; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -324,7 +358,7 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
 
 <!-- 6 -->
 <section class="slide" data-title="La maschera">
-  <div class="kicker">Il vincolo · 1 di 3</div>
+  <div class="kicker">Il vincolo · 1 di 4</div>
   <h2>A ogni passo, solo i token che continuano un gloss</h2>
   <p class="body" style="margin-bottom:26px">Già scritto: <span class="chip gloss">X-Y</span> &nbsp;— il modello propone il prossimo token:</p>
   <div class="chips mask" data-mark="1" style="gap:16px">
@@ -348,41 +382,54 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
 </section>
 
 <!-- 7 -->
-<section class="slide" data-title="Due radici">
-  <div class="kicker">Il vincolo · 2 di 3</div>
-  <h2>Lo spazio fa parte del token: servono due radici</h2>
+<section class="slide" data-title="Lo spazio conta">
+  <div class="kicker">Il vincolo · 2 di 4</div>
+  <h2>Lo spazio fa parte del token</h2>
   <div class="rows">
-    <div class="row" data-step="1"><div class="lbl">Tokenizer</div>
-      <div class="txt"><span class="chip">WILL</span> <span class="arrow">→</span> <span class="chip">W</span> <span class="chip">ILL</span> <span class="small">2 token</span>
-        &nbsp;&nbsp;&nbsp; <span class="chip"><span class="sp">␣</span>WILL</span> <span class="arrow">→</span> <span class="chip"><span class="sp">␣</span>WILL</span> <span class="small">1 token</span></div></div>
-    <div class="row" data-step="2"><div class="lbl">Una radice</div>
-      <div class="txt"><span class="chip gloss">HOW</span> + <span class="chip">EVER</span> + <span class="chip">Y</span> <span class="arrow">→</span> <span class="chip bad">HOWEVERY ✕</span>
-        <p class="small" style="margin-top:10px">HOW è un gloss, EVER è l'inizio di EVERY: senza lo spazio si incollano in un gloss che non esiste</p></div></div>
-    <div class="row" data-step="3"><div class="lbl">Due radici</div>
-      <div class="txt"><span class="chip gloss">HOW</span> + <span class="chip gloss"><span class="sp">␣</span>EVERY</span> <span class="arrow">→</span> <span class="chip gloss">HOW</span> <span class="chip gloss"><span class="sp">␣</span>EVERY</span> ✓
-        <p class="small" style="margin-top:10px">dopo un gloss finito si riparte solo da un token con lo spazio · <b>root</b>: primo token, senza spazio · <b>space_root</b>: ogni gloss successivo</p></div></div>
+    <div class="row" data-step="1"><div class="lbl">Senza spazio</div>
+      <div class="txt"><span class="chip">WILL</span> <span class="arrow">→</span> <span class="chip">W</span> <span class="chip">ILL</span> <span class="small">&nbsp;2 token</span></div></div>
+    <div class="row" data-step="1"><div class="lbl">Con lo spazio</div>
+      <div class="txt"><span class="chip"><span class="sp">␣</span>WILL</span> <span class="arrow">→</span> <span class="chip"><span class="sp">␣</span>WILL</span> <span class="small">&nbsp;1 token</span></div></div>
+    <div class="row" data-step="2"><div class="lbl">Quindi</div>
+      <div class="txt">Lo stesso gloss ha due scritture in token: una se apre l'uscita, una se arriva dopo un altro gloss. Il Trie deve distinguerle.</div></div>
   </div>
-  <p class="foot">819 gloss sono un token solo: con una radice sola ogni coppia poteva fondersi.</p>
-  <aside class="aside">Il tokenizer BPE incorpora lo spazio nel token che segue: WILL da solo diventa due token, con lo spazio davanti è un token unico. Con una sola radice, alla fine di un gloss il Trie accettava di nuovo i token senza spazio, e così nascevano parole inesistenti come HOWEVERY, che abbiamo davvero visto in uscita. La soluzione: ogni gloss è inserito due volte, senza spazio nella radice usata solo per il primo token, e con lo spazio in quella da cui riparte ogni gloss successivo.</aside>
+  <p class="foot">Tokenizer BPE di Qwen2.5 · ␣ = spazio iniziale del token.</p>
+  <aside class="aside">Il tokenizer incorpora lo spazio nel token che lo segue. WILL all'inizio della frase è W più ILL; WILL dopo un altro gloss è un token unico, con lo spazio davanti. Quindi ogni gloss esiste in due versioni a livello di token, e il Trie deve sapere quale delle due è lecita in quel punto. Se non lo sa, succede quello che vediamo nella prossima slide.</aside>
+</section>
+
+<!-- 7b -->
+<section class="slide" data-title="Una radice contro due" data-hook="however" data-steps="5">
+  <div class="kicker">Il vincolo · 3 di 4</div>
+  <h2>Con una radice sola, due gloss si incollano</h2>
+  <div class="hw">
+    <div class="hwcol">
+      <h3>Una radice</h3>
+      <svg class="trie" id="trie-one"></svg>
+      <div class="chips hwout" id="hw-out-one"></div>
+    </div>
+    <div class="hwcol" data-step="4">
+      <h3>Due radici</h3>
+      <svg class="trie" id="trie-two"></svg>
+      <div class="chips hwout" id="hw-out-two"></div>
+    </div>
+  </div>
+  <p class="foot">Sottoalbero reale del Trie del progetto, solo i gloss dell'esempio · blu = qui finisce un gloss · «+N» = figli non disegnati.</p>
+  <aside class="aside">A sinistra il Trie con una radice sola, com'era all'inizio. HOW è un gloss completo, quindi il Trie accetta di ricominciare, ma dalla stessa radice, senza spazio. E dalla radice parte EVER, che è l'inizio di EVERY. Risultato: HOW, EVER, Y, cioè HOWEVERY, un gloss che non esiste. L'abbiamo visto davvero nelle uscite. A destra la correzione: la radice root serve solo per il primo token; dopo un gloss completo si può ripartire solo da space_root, dove i gloss cominciano con lo spazio. EVER senza spazio lì non c'è, quindi è vietato; ␣EVERY sì.</aside>
 </section>
 
 <!-- 8 -->
 <section class="slide walk" data-title="Il cammino nel Trie" data-hook="trie" data-steps="10">
-  <div class="kicker">Il vincolo · 3 di 3</div>
-  <h2>Il cammino nel Trie, token per token</h2>
+  <div class="kicker">Il vincolo · 4 di 4</div>
+  <h2 style="margin-bottom:22px">Il cammino nel Trie, token per token</h2>
   <div class="chips out" id="walk-out"></div>
-  <div class="panel">
-    <div>
-      <div class="count" id="walk-count">1 392</div>
-      <div class="of">token ammessi al prossimo passo<br>su 151 643</div>
-    </div>
-    <div>
-      <div class="state" id="walk-state"></div>
-      <div class="eos" id="walk-eos"></div>
-    </div>
+  <svg class="trie" id="trie-walk"></svg>
+  <div class="walkfoot">
+    <div><span class="count" id="walk-count">1 392</span> <span class="of">token ammessi al passo successivo, su 151 643</span></div>
+    <div class="state" id="walk-state"></div>
+    <div class="eos" id="walk-eos"></div>
   </div>
-  <p class="foot">Conteggi reali del processore del progetto sulla frase dell'esempio.</p>
-  <aside class="aside">Seguiamo la frase di prima un token alla volta. Il numero grande è quanti token il Trie lascia scegliere al passo successivo. Guardate cosa succede dentro un gloss lungo: dopo FL restano 21 continuazioni, dopo FLIN una sola. E la fine della sequenza è ammessa solo quando l'ultimo gloss è completo: non si può chiudere a metà di DESC o di FLINCH.</aside>
+  <p class="foot">Sottoalbero reale · conteggi del processore del progetto · bordo nero = dove siamo · tratteggio = prossimo token.</p>
+  <aside class="aside">La frase di prima, un token alla volta, sul Trie disegnato. Il primo token parte da root, a sinistra. Dopo X-Y il gloss è completo, e il prossimo parte da space_root, a destra: la freccia tratteggiata è il salto. Guardate dentro i gloss lunghi: dopo ␣DESC restano 36 continuazioni, dopo IN una sola, CH. La fine della sequenza è ammessa solo su un nodo blu, cioè a gloss completo. Nel Trie vero i nodi hanno molti più figli: il «+N» dice quanti non sono disegnati.</aside>
 </section>
 
 <!-- 9 -->
@@ -810,22 +857,235 @@ hbars(document.getElementById("zero-bars"), D.zeroStd, { fmt: (v) => pct(v) });
   document.getElementById("abl-table").innerHTML = html.join("");
 })();
 
-/* ── Hook della slide 8: cammino nel Trie ────────────────────────────── */
-const HOOKS = {
-  trie(slide, step) {
-    const w = D.walk;
-    const chip = (t, cls = "") => {
-      const sp = t.startsWith(" ");
-      return `<span class="chip ${cls}${sp ? " start" : ""}">${sp ? '<span class="sp">␣</span>' : ""}${sp ? t.slice(1) : t}</span>`;
-    };
-    const done = w.slice(0, step).map((s) => chip(s.tok, "gloss"));
-    const nxt = w[step].tok ? chip(w[step].tok, "ghost") : '<span class="chip ghost">fine</span>';
-    document.getElementById("walk-out").innerHTML = done.join("") + nxt;
-    const s = w[step];
-    document.getElementById("walk-count").textContent = thin(s.n);
-    document.getElementById("walk-state").innerHTML = s.state;
-    document.getElementById("walk-eos").innerHTML = `Chiudere qui la sequenza: <b>${s.eos ? "ammesso" : "vietato"}</b>`;
+const HOOKS = {};
+
+/* ── Trie disegnato ──────────────────────────────────────────────────────
+   Sottoalbero estratto dal Trie reale (GlossVocabularyLogitsProcessor sul
+   tokenizer di Qwen2.5): per ogni gloss, i token del cammino, se il nodo
+   raggiunto chiude un gloss (term) e quanti figli ha davvero (kids).
+   ─────────────────────────────────────────────────────────────────────── */
+const TRIE = {
+  rootKids: 1391,
+  spaceKids: 1550,
+  root: {
+    "X-Y": [{ t: "X", term: true, kids: 11 }, { t: "-Y", term: true, kids: 2 }],
+    WILL: [{ t: "W", term: true, kids: 71 }, { t: "ILL", term: true, kids: 1 }],
+    "DESC-NOT": [{ t: "DESC", term: false, kids: 37 }, { t: "-N", term: true, kids: 32 }, { t: "OT", term: true, kids: 3 }],
+    FLINCH: [{ t: "FL", term: false, kids: 22 }, { t: "IN", term: false, kids: 1 }, { t: "CH", term: true, kids: 0 }],
+    ".": [{ t: ".", term: true, kids: 0 }],
+    HOW: [{ t: "HOW", term: true, kids: 1 }],
+    EVERY: [{ t: "EVER", term: false, kids: 2 }, { t: "Y", term: true, kids: 3 }],
+    Y: [{ t: "Y", term: true, kids: 21 }],
   },
+  space: {
+    "X-Y": [{ t: " X", term: true, kids: 10 }, { t: "-Y", term: true, kids: 2 }],
+    WILL: [{ t: " WILL", term: true, kids: 1 }],
+    "DESC-NOT": [{ t: " DESC", term: false, kids: 36 }, { t: "-N", term: true, kids: 32 }, { t: "OT", term: true, kids: 3 }],
+    FLINCH: [{ t: " FL", term: false, kids: 21 }, { t: "IN", term: false, kids: 1 }, { t: "CH", term: true, kids: 0 }],
+    ".": [{ t: " .", term: true, kids: 0 }],
+    HOW: [{ t: " HOW", term: true, kids: 1 }],
+    EVERY: [{ t: " EVERY", term: true, kids: 3 }],
+    Y: [{ t: " Y", term: true, kids: 19 }],
+  },
+};
+
+const SVGNS = "http://www.w3.org/2000/svg";
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+const tokLabel = (t) => (t.startsWith(" ") ? `<tspan class="sp">␣</tspan>${esc(t.slice(1))}` : esc(t));
+const tokText = (t) => (t.startsWith(" ") ? "␣" + t.slice(1) : t);
+
+function buildTree(side, glosses, label) {
+  const root = { t: label, pill: true, kids: [], id: side, total: side === "root" ? TRIE.rootKids : TRIE.spaceKids };
+  for (const g of glosses) {
+    let n = root;
+    for (const s of TRIE[side][g]) {
+      const id = n.id + "|" + s.t;
+      let c = n.kids.find((k) => k.id === id);
+      if (!c) { c = { t: s.t, term: s.term, total: s.kids, kids: [], id }; n.kids.push(c); }
+      n = c;
+    }
+  }
+  return root;
+}
+
+// Albero orizzontale: la profondità va verso destra, un gloss per riga.
+function placeTree(tree, x0, y0, rowH) {
+  const colX = [0, 176, 330, 470];
+  let leaf = 0;
+  const rec = (n, d) => {
+    n.x = x0 + colX[d];
+    n.w = n.pill ? n.t.length * 11.5 + 34 : tokText(n.t).length * 13.3 + 28;
+    if (!n.kids.length) n.y = y0 + leaf++ * rowH;
+    else { n.kids.forEach((k) => rec(k, d + 1)); n.y = (n.kids[0].y + n.kids[n.kids.length - 1].y) / 2; }
+  };
+  rec(tree, 0);
+  tree.top = y0 - 22;
+  tree.bottom = y0 + (leaf - 1) * rowH;
+  return tree;
+}
+
+function drawTries(svg, trees, { width, height, caps = [], scale = 1 }) {
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("width", width * scale);
+  svg.setAttribute("height", height * scale);
+  const idm = svg.id;
+  let edges = "", nodes = "", stubs = "";
+  svg._n = {};
+  const walk = (n) => {
+    svg._n[n.id] = n;
+    for (const c of n.kids) {
+      edges += `<path class="edge" data-a="${esc(n.id)}" data-b="${esc(c.id)}" d="M${n.x + n.w},${n.y} C${n.x + n.w + 34},${n.y} ${c.x - 34},${c.y} ${c.x},${c.y}"/>`;
+      walk(c);
+    }
+    const cls = n.pill ? "node pill" : "node" + (n.term ? " term" : "");
+    nodes += `<g class="${cls}" data-id="${esc(n.id)}"><rect x="${n.x}" y="${n.y - 22}" width="${n.w}" height="44" rx="${n.pill ? 22 : 8}"/>`
+      + `<text x="${n.x + (n.pill ? 17 : 14)}" y="${n.y + 1}">${n.pill ? esc(n.t) : tokLabel(n.t)}</text></g>`;
+    const extra = n.total - n.kids.length;
+    if (extra > 0) {
+      // Solo radici e foglie: sotto un nodo intermedio l'etichetta finirebbe
+      // sulla riga successiva.
+      if (n.pill) stubs += `<text class="stub" x="${n.x + n.w / 2}" y="${n.y + 40}" text-anchor="middle">+${thin(extra)} altri</text>`;
+      else if (!n.kids.length) stubs += `<text class="stub" x="${n.x + n.w + 10}" y="${n.y + 1}">+${extra}</text>`;
+    }
+  };
+  trees.forEach(walk);
+  const capsSvg = caps.map((c) => `<text class="cap" x="${c.x}" y="${c.y}">${esc(c.text)}</text>`).join("");
+  svg.innerHTML = `<defs>
+      <marker id="${idm}-a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0b0b0b"/></marker>
+      <marker id="${idm}-b" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d03b3b"/></marker>
+    </defs>${capsSvg}<g>${edges}</g><g>${nodes}</g><g>${stubs}</g><g class="jumps"></g><g class="notes"></g>`;
+  svg._g = {};
+  svg.querySelectorAll(".node").forEach((g) => (svg._g[g.dataset.id] = g));
+}
+
+// Salto verso una radice: dal nodo appena completato alla radice da cui si riparte.
+function jumpPath(a, b) {
+  if (a.id.startsWith(b.id + "|")) return sameTreeJump(a, b);
+  if (b.y - 22 > a.y + 34) {          // radice più in basso
+    const sx = a.x + a.w / 2, sy = a.y + 22, ex = b.x + b.w / 2, ey = b.y - 24;
+    return `M${sx},${sy} C${sx},${sy + 60} ${ex},${ey - 60} ${ex},${ey}`;
+  }
+  if (b.x > a.x + a.w) {              // radice a destra
+    const sx = a.x + a.w, sy = a.y, ex = b.x - 4, ey = b.y;
+    return `M${sx},${sy} C${sx + 140},${sy} ${ex - 140},${ey} ${ex},${ey}`;
+  }
+  return sameTreeJump(a, b);
+}
+
+// Stessa radice: si esce a destra del nodo, si passa sopra la prima riga e
+// si entra nella radice da sinistra, senza attraversare altri nodi.
+function sameTreeJump(a, b) {
+  const sx = a.x + a.w, sy = a.y, gx = sx + 22, top = b.top - 30, lx = b.x - 30, r = 14;
+  return `M${sx},${sy} H${gx - r} Q${gx},${sy} ${gx},${sy - r} V${top + r} Q${gx},${top} ${gx - r},${top}`
+    + ` H${lx + r} Q${lx},${top} ${lx},${top + r} V${b.y - r} Q${lx},${b.y} ${lx + r},${b.y} H${b.x - 4}`;
+}
+
+function trieState(svg, st = {}) {
+  const inPath = new Set(st.path || []);
+  for (const [id, g] of Object.entries(svg._g)) {
+    g.classList.toggle("path", inPath.has(id));
+    g.classList.toggle("cur", st.cur === id);
+    g.classList.toggle("next", st.next === id);
+    g.classList.toggle("hot", (st.hot || []).includes(id));
+  }
+  svg.querySelectorAll(".edge").forEach((e) =>
+    e.classList.toggle("path", inPath.has(e.dataset.a) && inPath.has(e.dataset.b)));
+  const J = svg.querySelector(".jumps");
+  J.innerHTML = (st.jumps || []).map(([from, to, bad]) => {
+    const d = jumpPath(svg._n[from], svg._n[to]);
+    return `<path class="halo" d="${d}"/><path class="jump${bad ? " bad" : ""}" d="${d}" marker-end="url(#${svg.id}-${bad ? "b" : "a"})"/>`;
+  }).join("");
+  svg.querySelector(".notes").innerHTML = (st.notes || []).map((n) =>
+    `<text class="blocked${n.ok ? " ok" : ""}" x="${n.x}" y="${n.y}">${esc(n.text)}</text>`).join("");
+}
+
+const chipHtml = (t, cls = "") => {
+  const sp = t.startsWith(" ");
+  return `<span class="chip ${cls}${sp ? " start" : ""}">${sp ? '<span class="sp">␣</span>' : ""}${esc(sp ? t.slice(1) : t)}</span>`;
+};
+
+/* Slide «una radice contro due» */
+const HW = (function () {
+  const one = placeTree(buildTree("root", ["HOW", "EVERY", "Y"], "root"), 50, 90, 62);
+  drawTries(document.getElementById("trie-one"), [one], { width: 470, height: 260, scale: 1.35 });
+  // HOW nell'ultima riga: il salto verso space_root scende senza attraversare nodi.
+  const r = placeTree(buildTree("root", ["EVERY", "Y", "HOW"], "root"), 20, 40, 52);
+  const s = placeTree(buildTree("space", ["HOW", "EVERY", "Y"], "space_root"), 20, 262, 52);
+  drawTries(document.getElementById("trie-two"), [r, s], { width: 600, height: 430, scale: 1.15 });
+  return { one, r, s };
+})();
+
+/* Slide del cammino */
+const WALK = (function () {
+  const gl = ["X-Y", "WILL", "DESC-NOT", "FLINCH", "."];
+  const r = placeTree(buildTree("root", gl, "root"), 40, 110, 56);
+  const s = placeTree(buildTree("space", gl, "space_root"), 740, 110, 56);
+  drawTries(document.getElementById("trie-walk"), [r, s], {
+    width: 1408, height: 370,
+    caps: [{ x: 10, y: 22, text: "ROOT · PRIMO TOKEN, SENZA SPAZIO" }, { x: 710, y: 22, text: "SPACE_ROOT · OGNI GLOSS SUCCESSIVO" }],
+  });
+  // Cammino dei token, con la stessa regola del processore: prima i figli del
+  // nodo corrente, poi (se il nodo chiude un gloss) i figli di space_root.
+  const toks = D.walk.map((w) => w.tok).filter((t) => t !== null);
+  const nodes = { root: r, space: s };
+  const byId = {};
+  const idx = (n) => { byId[n.id] = n; n.kids.forEach(idx); };
+  idx(r); idx(s);
+  const ids = [];
+  let cur = r;
+  for (const t of toks) {
+    let nxt = cur.kids.find((k) => k.t === t);
+    if (!nxt && (cur.term || cur.pill)) nxt = nodes.space.kids.find((k) => k.t === t);
+    ids.push(nxt.id);
+    cur = nxt;
+  }
+  return { r, s, ids, toks, byId };
+})();
+
+HOOKS.trie = function (slide, k) {
+  const w = D.walk;
+  const done = WALK.toks.slice(0, k).map((t) => chipHtml(t, "gloss"));
+  const nxt = w[k].tok ? chipHtml(w[k].tok, "ghost") : '<span class="chip ghost">fine</span>';
+  document.getElementById("walk-out").innerHTML = done.join("") + nxt;
+  const seen = WALK.ids.slice(0, k);
+  const path = ["root", ...seen];
+  if (seen.some((id) => id.startsWith("space"))) path.push("space");
+  const cur = k === 0 ? "root" : seen[k - 1];
+  const next = k < WALK.ids.length ? WALK.ids[k] : null;
+  const jumps = [];
+  if (next && next.split("|").length === 2 && next.startsWith("space") && k > 0) jumps.push([cur, "space"]);
+  trieState(document.getElementById("trie-walk"), { path, cur, next, jumps });
+  document.getElementById("walk-count").textContent = thin(w[k].n);
+  document.getElementById("walk-state").innerHTML = w[k].state;
+  document.getElementById("walk-eos").innerHTML = `Chiudere qui: <b>${w[k].eos ? "ammesso" : "vietato"}</b>`;
+};
+
+HOOKS.however = function (slide, k) {
+  const one = document.getElementById("trie-one");
+  const two = document.getElementById("trie-two");
+  const L = [
+    {},
+    { path: ["root", "root|HOW"], cur: "root|HOW" },
+    { path: ["root", "root|HOW", "root|EVER"], cur: "root|EVER", jumps: [["root|HOW", "root", true]] },
+    { path: ["root", "root|HOW", "root|EVER", "root|EVER|Y"], cur: "root|EVER|Y" },
+  ];
+  trieState(one, L[Math.min(k, 3)]);
+  const outOne = ["", chipHtml("HOW", "gloss"), chipHtml("HOW", "gloss") + chipHtml("EVER"),
+    chipHtml("HOW", "gloss") + chipHtml("EVER") + chipHtml("Y") + ' <span class="arrow">→</span> <span class="chip bad">HOWEVERY ✕</span>'];
+  document.getElementById("hw-out-one").innerHTML = outOne[Math.min(k, 3)];
+
+  const sPill = HW.s;
+  const R = [
+    {}, {}, {}, {},
+    { path: ["root", "root|HOW"], cur: "root|HOW" },
+    {
+      path: ["root", "root|HOW", "space", "space| EVERY"], cur: "space| EVERY", jumps: [["root|HOW", "space"]],
+      notes: [{ x: 20, y: sPill.bottom + 48, text: "EVER senza spazio non parte da space_root ✕" }],
+    },
+  ];
+  trieState(two, R[k]);
+  document.getElementById("hw-out-two").innerHTML = k < 4 ? "" : k === 4 ? chipHtml("HOW", "gloss")
+    : chipHtml("HOW", "gloss") + chipHtml(" EVERY", "gloss") + ' <span class="arrow">→</span> <span class="chip gloss">HOW ␣EVERY ✓</span>';
 };
 
 /* ─────────────────────────────────────────────────────────────────────────
