@@ -77,17 +77,19 @@ il confine di parola è esplicito nella struttura del Trie.
 Grandezza & Valore \\
 \midrule
 Gloss nel vocabolario & $15\,472$ \\
-Token del vocabolario di Qwen & $151\,643$ \\
+Nodi dei due alberi & $55\,123$ \\
+Token distinti usati nei due alberi & $4\,002$ \\
 Token che iniziano l'uscita (radice \texttt{root}) & $1\,391$ \\
 Token che iniziano un gloss successivo (radice \texttt{space\_root}) & $1\,550$ \\
-Token usati da almeno un gloss & $3\,967$ \\
+Logit prodotti dal modello a ogni passo & $151\,936$ \\
 Gloss non emettibili & $0$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 A ogni passo il modello sceglie quindi fra poche centinaia o poche migliaia di
-token invece che fra $151\,643$, e dentro un gloss la scelta si restringe ancora:
+token invece che fra tutti i $151\,936$ logit, e dentro un gloss la scelta si
+restringe ancora:
 dopo \texttt{DESC} restano $36$ continuazioni, dopo \texttt{FLIN} una sola. Ogni
 gloss del vocabolario è emettibile in entrambe le posizioni, quindi nessuna delle
 $897\,971$ occorrenze di gloss del training set è irraggiungibile.
@@ -171,9 +173,12 @@ Senza Trie il GRPO impara l'\emph{aspetto} di un gloss --- maiuscole, prefissi
 sale a $0{,}99$. Ma solo il $19\%$ delle uscite è fatto interamente di gloss del
 vocabolario: il resto contiene parole plausibili che nel vocabolario chiuso non
 esistono (\texttt{MULTI} dove il corpus ha \texttt{MULTUS}). Con il Trie la
-validità stretta è fra il $98\%$ e il $100\%$ per costruzione, qualunque sia la
-policy. Dove resta sotto il $100\%$ la causa sono le uscite vuote, perché il
-vincolo ammette la fine della sequenza già al primo passo.
+validità stretta è fra il $98\%$ e il $100\%$, qualunque sia la policy, e il
+residuo ha una sola causa: il limite di $128$ token. Un'uscita che entra in un
+ciclo e non si chiude viene troncata, spesso a metà di un gloss, e l'ultimo pezzo
+non è un gloss. Su $40\,000$ uscite vincolate nessun token fuori vocabolario
+compare in una posizione diversa dall'ultima, tutte le uscite non valide sono
+lunghe esattamente $128$ token, e nessuna è vuota.
 
 \textbf{Il componente simbolico non migliora le metriche: garantisce il vincolo
 che il reinforcement learning da solo non impara.} È il risultato neuro-simbolico

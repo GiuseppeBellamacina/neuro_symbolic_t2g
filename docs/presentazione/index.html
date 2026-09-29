@@ -376,7 +376,7 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
     <span class="chip no">\n <span class="tick">✕</span></span>
   </div>
   <p class="small" style="margin-top:22px" data-step="1">✓ ammesso · ✕ vietato: il suo logit va a −∞ e non può essere scelto</p>
-  <p class="body" style="margin-top:40px" data-step="2">Dopo <span class="mono">X-Y</span> restano <b class="em">1 553</b> token su <b>151 643</b>.</p>
+  <p class="body" style="margin-top:40px" data-step="2">Dopo <span class="mono">X-Y</span> restano <b class="em">1 553</b> token su <b>151 936</b>.</p>
   <p class="foot">Token e verdetti calcolati con il tokenizer di Qwen e il Trie del progetto. ␣ = spazio iniziale del token.</p>
   <aside class="aside">Il Trie è un albero di prefissi costruito sul vocabolario gloss. A ogni passo di generazione dice quali token portano ancora a un gloss valido; tutti gli altri logit vengono messi a meno infinito. Notate THE: è vietato perché nessun gloss comincia così, dato che nel corpus l'articolo viene cancellato. E il punto senza spazio è vietato, quello con lo spazio no: lo spazio conta, ed è il tema della prossima slide.</aside>
 </section>
@@ -424,7 +424,7 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   <div class="chips out" id="walk-out"></div>
   <svg class="trie" id="trie-walk"></svg>
   <div class="walkfoot">
-    <div><span class="count" id="walk-count">1 392</span> <span class="of">token ammessi al passo successivo, su 151 643</span></div>
+    <div><span class="count" id="walk-count">1 392</span> <span class="of">token ammessi al passo successivo, su 151 936</span></div>
     <div class="state" id="walk-state"></div>
     <div class="eos" id="walk-eos"></div>
   </div>
@@ -487,7 +487,7 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   <div class="bars" id="strict-bars"></div>
   <div class="axis" style="margin-top:6px"><div></div><div class="ticks"><span>0</span><span>25 %</span><span>50 %</span><span>75 %</span><span>100 %</span></div><div></div></div>
   <p class="foot">Uscite fatte interamente di gloss del vocabolario. La validity delle tabelle accetta anche uscite con metà dei token validi.</p>
-  <aside class="aside">Questa è la slide che risponde alla domanda di fondo sul lato della struttura. Senza Trie, il GRPO porta la quota di uscite interamente valide da 11 a 19 per cento. Se usassi la validity permissiva, quella che accetta metà dei token validi, vedreste 0,99: il GRPO impara l'aspetto di un gloss, maiuscole e prefissi, ma non il vocabolario chiuso. Con il Trie siamo fra il 98 e il 100 per cento per costruzione, qualunque sia il modello.</aside>
+  <aside class="aside">Questa è la slide che risponde alla domanda di fondo sul lato della struttura. Senza Trie, il GRPO porta la quota di uscite interamente valide da 11 a 19 per cento. Se usassi la validity permissiva, quella che accetta metà dei token validi, vedreste 0,99: il GRPO impara l'aspetto di un gloss, maiuscole e prefissi, ma non il vocabolario chiuso. Con il Trie siamo fra il 98 e il 100 per cento, qualunque sia il modello: le poche uscite non valide sono troncate al limite di 128 token, con l'ultimo gloss tagliato a metà. In mezzo a un'uscita non compare mai un token fuori vocabolario.</aside>
 </section>
 
 <!-- 14 -->
@@ -605,7 +605,7 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   </div>
   <div class="spacer"></div>
   <p class="lead" data-step="4">Grazie.</p>
-  <aside class="aside">La risposta per questa fase, sui due assi. Sulla struttura: senza un vincolo in decodifica il GRPO si avvicina alla forma ma non la rispetta; con il Trie la rispetta per costruzione. Sul contenuto: il GRPO da solo non raggiunge la supervisione, e dopo la supervisione non aggiunge. I limiti sono dichiarati: un seme, un corpus saturo, un modello piccolo.</aside>
+  <aside class="aside">La risposta per questa fase, sui due assi. Sulla struttura: senza un vincolo in decodifica il GRPO si avvicina alla forma ma non la rispetta; con il Trie la rispetta, a parte le uscite troncate al limite di lunghezza. Sul contenuto: il GRPO da solo non raggiunge la supervisione, e dopo la supervisione non aggiunge. I limiti sono dichiarati: un seme, un corpus saturo, un modello piccolo.</aside>
 </section>
 
 <div id="progress"></div>
@@ -671,7 +671,7 @@ const D = {
   ],
   // GlossVocabularyLogitsProcessor._allowed_after_prefix, tokenizer Qwen2.5.
   walk: [
-    { tok: "X", n: 1392, eos: true, state: "Inizio: si parte dalla radice <b>root</b>, token senza spazio." },
+    { tok: "X", n: 1392, eos: true, state: "Inizio: si parte dalla radice <b>root</b>, token senza spazio. Chiudere subito darebbe un'uscita vuota." },
     { tok: "-Y", n: 1562, eos: true, state: "<span class='mono'>X</span> è già un gloss: si può continuare in <span class='mono'>X-Y</span> o iniziarne un altro." },
     { tok: " WILL", n: 1553, eos: true, state: "Gloss finito: il prossimo parte da <b>space_root</b>, con lo spazio." },
     { tok: " DESC", n: 1552, eos: true, state: "Gloss finito: di nuovo da <b>space_root</b>." },
@@ -683,7 +683,7 @@ const D = {
     { tok: " .", n: 1551, eos: true, state: "Gloss finito: <b>space_root</b>." },
     { tok: null, n: 1551, eos: true, state: "Fine della sequenza: ammessa, l'ultimo gloss è completo." },
   ],
-  vocabTokens: 151643,
+  vocabTokens: 151936,
   ablations: [
     { blk: "Dal modello base · riferimento GRPO few-shot" },
     { ref: true, name: "GRPO few-shot", r: 0.6082, e: 0.0544, read: "" },
