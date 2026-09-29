@@ -22,48 +22,52 @@ struttura dati che rende questo calcolo immediato.
 Operativamente il vincolo agisce sui logits come nella~\eqref{eq:constrained}:
 si pone $z_{t,v} = -\infty$ per ogni $v \notin \allowed_t$ prima della softmax.
 
+
 \section{Implementazione}
 
-Due componenti, con responsabilità separate:
-
-\begin{center}
-\begin{tabular}{ll}
-\toprule
-File & Ruolo \\
-\midrule
-\texttt{src/grammar/gloss\_grammar.py} & \texttt{GlossVocabularyMask}: il Trie e il calcolo dell'insieme ammesso \\
-\texttt{src/grammar/grammar\_logits\_processor.py} & \texttt{GlossVocabularyLogitsProcessor}: l'applicazione ai logits \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-La separazione è deliberata: la maschera è una struttura dati pura, testabile
-senza modello, mentre il processore di logits è l'adattatore verso l'interfaccia
-di generazione della libreria. Tutti i test sulla correttezza del vincolo agiscono
-sulla prima, senza caricare la GPU.
+Il vincolo è realizzato da due componenti con responsabilità separate: una
+maschera del vocabolario (\texttt{GlossVocabularyMask}), struttura dati pura che
+contiene il Trie e calcola l'insieme ammesso, testabile senza modello, e un
+processore di logits che la applica in fase di generazione. Lo stesso calcolo
+dell'insieme ammesso è esposto in forma \emph{teacher-forced}, cioè per prefissi
+noti in blocco, ed è consumato dagli obiettivi ausiliari del
+Capitolo~\ref{cap:ausiliari}: la definizione di ``token ammesso'' esiste in un
+solo punto.
 
 \subsection{La doppia radice}
 \label{sec:trie-dual-root}
 
-Un dettaglio che non è un dettaglio. Il tokenizzatore codifica lo spazio come
-parte del token successivo: il token per \texttt{"HOUSE"} e quello per
-\texttt{"~HOUSE"} sono identificatori distinti. Ne segue che il primo gloss di
-una sequenza e i gloss successivi hanno insiemi di primi token \emph{diversi}.
+Il tokenizzatore BPE codifica lo spazio come parte del token che segue: il token
+per \texttt{HOUSE} e quello per \texttt{" HOUSE"} sono
+identificatori distinti. Il primo token di una sequenza, che non ha spazio
+davanti, e il primo token di ogni gloss successivo, che lo porta, appartengono
+quindi a insiemi diversi.
 
-Il Trie è quindi costruito con \textbf{due radici}:
+Il Trie ha perciò \textbf{due radici}, entrambe punti di ingresso all'\emph{inizio}
+di un gloss:
 \begin{description}
-  \item[\texttt{root}] usata per il primo gloss della sequenza, i cui token
-        iniziali non hanno spazio davanti;
-  \item[\texttt{space\_root}] usata per tutti i gloss successivi, i cui token
-        iniziali portano lo spazio.
+  \item[\texttt{root}] indicizza il primo token BPE di ciascun gloss codificato
+        \emph{senza} spazio iniziale; è usata soltanto per il primo token
+        generato dopo il prompt;
+  \item[\texttt{space\_root}] indicizza gli stessi primi token codificati
+        \emph{con} spazio iniziale (\texttt{" " + gloss}); è usata per avviare
+        ogni gloss successivo al primo.
 \end{description}
 
-Se si usasse una sola radice si aprirebbe un difetto concreto: il modello
-potrebbe concatenare due gloss senza separatore, producendo forme come
-\texttt{DEBUTRECHT} (dalla giustapposizione di \texttt{DEBUT} e
-\texttt{RECHT}) che il Trie a radice singola accetterebbe come prefisso valido
-perché non distingue il confine di parola. La doppia radice rende il confine
-esplicito nella struttura.
+La regola di transizione è la seguente. All'inizio della generazione l'insieme
+ammesso è l'insieme dei figli di \texttt{root}. All'interno di un gloss si
+percorrono i figli del nodo corrente. Quando si raggiunge un nodo terminale il
+gloss può concludersi, e il gloss seguente deve iniziare da un figlio di
+\texttt{space\_root}; la prosecuzione dello stesso gloss (figli del nodo
+terminale) resta ammessa se il gloss è prefisso di un altro.
+
+Lo scopo è imporre il separatore agli spazi fra gloss. Con una radice unica,
+due gloss la cui forma superficiale è un singolo token BPE potrebbero essere
+emessi in successione \emph{senza} spazio, e la loro concatenazione
+(per esempio \texttt{DEBUT} seguito da \texttt{RECHT}, che darebbe
+\texttt{DEBUTRECHT}) sarebbe una forma inesistente nel vocabolario. Poiché ogni
+gloss successivo al primo può iniziare solo da un token che include lo spazio,
+il confine di parola è esplicito nella struttura del Trie.
 
 \subsection{Numeri della costruzione}
 
@@ -80,62 +84,14 @@ Massa di probabilità irraggiungibile & $12 / 897\,971$ \\
 \end{tabular}
 \end{center}
 
-I quattro gloss non emettibili sono \texttt{-RRB-}, \texttt{WWW.8HOURS.EU},
-una forma costituita da un asterisco isolato, e una forma che inizia con il
-carattere di \emph{byte order mark}. Sono tutti artefatti del corpus
-(sezione~\ref{sec:artefatti}), non gloss linguisticamente significativi: la loro
-inaccessibilità non costituisce una perdita.
+I quattro gloss non emettibili sono artefatti del corpus
+(sezione~\ref{sec:artefatti}), non gloss linguisticamente significativi. La massa
+irraggiungibile, circa una parte su settantacinquemila, è la verifica
+quantitativa che il vincolo non tagli fuori nulla di rilevante.
 
-La massa irraggiungibile di $12$ su $897\,971$ è la verifica quantitativa che il
-vincolo non stia tagliando fuori qualcosa di rilevante: circa una parte su
-settantacinquemila.
-
-\subsection{L'interfaccia per gli usi non generativi}
-
-Il vincolo serve anche al di fuori della generazione: gli obiettivi ausiliari
-del Capitolo~\ref{cap:ausiliari} hanno bisogno di conoscere l'insieme ammesso in
-modalità \emph{teacher-forced}, cioè per prefissi noti in blocco e non generati
-uno alla volta. A questo scopo è stato aggiunto il metodo
-\begin{center}
-\texttt{allowed\_mask\_for\_prefixes(prefixes, vocab\_size, device)}
-\end{center}
-con il supporto interno \texttt{\_allowed\_after\_prefix}. Restituisce
-direttamente la maschera booleana per un insieme di prefissi, evitando di
-duplicare la logica del Trie in due punti del codice: la definizione di ``token
-ammesso'' esiste in un solo posto, e sia la generazione sia la loss ausiliaria
-la consumano.
-
-\section{L'alternativa scartata: l'automa a stack}
-\label{sec:pda-scartato}
-
-Il progetto conteneva, in una fase precedente, un'implementazione di automa a
-stack (\emph{pushdown automaton}) con parsing LL(1), pensata per imporre una
-grammatica context-free invece di un semplice lessico chiuso. È stata rimossa.
-Le ragioni vanno documentate, perché la rimozione di codice funzionante richiede
-giustificazione.
-
-\begin{enumerate}
-  \item \textbf{Non è mai stata eseguita.} Il componente non ha mai prodotto un
-        risultato sperimentale. Manteneva quindi un costo di manutenzione senza
-        contropartita.
-  \item \textbf{Conflitto di parsing non risolto.} La grammatica presentava un
-        conflitto fra la produzione vuota e l'insieme dei simboli che possono
-        seguire un non terminale, innescato dai gloss che iniziano con una cifra
-        (per esempio \texttt{0}, \texttt{8}, \texttt{08.30}). Un parser LL(1)
-        richiede che l'insieme dei primi simboli e quello dei simboli seguenti
-        siano disgiunti in presenza di produzioni vuote; qui non lo erano.
-  \item \textbf{Sovradimensionamento.} Il linguaggio target è
-        \texttt{gloss*}: una chiusura di Kleene su un insieme finito. È un
-        linguaggio regolare, riconoscibile da un automa a stati finiti. Un automa
-        a stack riconosce linguaggi context-free, strettamente più espressivi:
-        la potenza aggiuntiva non serviva a nulla su questo compito.
-\end{enumerate}
-
-La conclusione generale è che la scelta del formalismo simbolico deve seguire la
-complessità effettiva del linguaggio da vincolare, non l'ambizione del disegno.
-Sulla decodifica grammaticalmente vincolata in senso pieno esiste letteratura
-matura~\cite{geng2023gcd,park2024gad}; sarebbe la strada corretta se il vincolo
-fosse davvero context-free, che qui non è il caso.
+Un'ulteriore diagnostica opzionale misura la massa
+di probabilità rimossa dal vincolo a ogni passo; è disattivata di default e non
+interviene nei risultati riportati.
 
 \section{Il risultato controintuitivo}
 \label{sec:trie-risultato}
@@ -148,7 +104,7 @@ Ecco l'effetto del vincolo sulla cella base zero-shot.
 Metrica & Senza Trie & Con Trie \\
 \midrule
 ROUGE-L & $0{,}3648$ & $0{,}1373$ \\
-Non-copy-token accuracy & $0{,}0006$ & $0{,}0432$ \\
+Non-copy-token accuracy & $0{,}0007$ & $0{,}0451$ \\
 Validity & $0{,}0370$ & $0{,}9055$ \\
 \bottomrule
 \end{tabular}
@@ -156,7 +112,7 @@ Validity & $0{,}0370$ & $0{,}9055$ \\
 
 Il vincolo fa \emph{crollare} ROUGE-L da $0{,}3648$ a $0{,}1373$: una perdita
 apparente di $0{,}23$. Allo stesso tempo la non-copy-token accuracy passa da
-$0{,}0006$ a $0{,}0432$, un fattore circa $70$.
+$0{,}0007$ a $0{,}0451$, un fattore circa $64$.
 
 \subsection{Come si spiega}
 
@@ -167,14 +123,14 @@ Senza vincolo, il modello base fa la cosa per cui è stato pre-addestrato: produ
 inglese. Poiché il gloss è in larga parte inglese maiuscolizzato
 (sezione~\ref{sec:sintetico}), produrre inglese ottiene un ROUGE-L
 rispettabile ``per caso''. Ma la non-copy-token accuracy, che valuta solo le
-posizioni dove il gloss \emph{differisce} dal testo, è $0{,}0006$: praticamente
+posizioni dove il gloss \emph{differisce} dal testo, è $0{,}0007$: praticamente
 nulla. Il modello non ha imparato niente sul gloss; sta beneficiando della
 sovrapposizione lessicale del corpus.
 
 Con il vincolo, il modello è costretto a emettere solo gloss del vocabolario.
 Perde la possibilità di copiare l'inglese, quindi perde il ROUGE-L gratuito. In
 compenso, sulle posizioni che richiedono una trasformazione reale, comincia a
-produrre qualcosa di corretto ($0{,}0432$ invece di $0{,}0006$).
+produrre qualcosa di corretto ($0{,}0451$ invece di $0{,}0007$).
 
 Detto in modo compatto: il vincolo trasforma una copia con punteggio alto in un
 tentativo di traduzione con punteggio basso. La metrica di sovrapposizione
@@ -184,24 +140,12 @@ quasi due ordini di grandezza.
 \subsection{L'effetto veramente importante: il vincolo crea il supporto}
 
 Il ROUGE-L, però, non è la ragione per cui il vincolo è presente nel sistema. La
-ragione è nella tabella del supporto dei rollout
-(sezione~\ref{sec:supporto}), che vale la pena riportare nella parte pertinente:
-
-\begin{center}
-\begin{tabular}{lrr}
-\toprule
-Substrato zero-shot & Gruppi morti & Reward media \\
-\midrule
-Senza Trie & $0{,}7390$ & $-0{,}9579$ \\
-Con Trie   & $0{,}1990$ & $-0{,}8034$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-Senza vincolo, il $74\%$ dei gruppi è morto: come stabilito nella
-sezione~\ref{sec:gruppi-morti}, per quei prompt il gradiente è esattamente zero e
-il reinforcement learning non è nemmeno definito come procedura utile. Con il
-vincolo, i gruppi morti scendono al $20\%$.
+ragione è nel supporto dei rollout (sezione~\ref{sec:supporto}). Senza vincolo,
+il modello base produce inglese e la reward è uniformemente pessima su gran
+parte dei candidati di un gruppo: come stabilito nella
+sezione~\ref{sec:gruppi-morti}, per quei prompt il gradiente è esattamente zero.
+Con il vincolo, i candidati sono gloss legali e la reward torna a discriminare
+fra di essi, riducendo in modo netto la frazione di gruppi morti.
 
 \textbf{Il componente simbolico non migliora le metriche: rende possibile
 l'apprendimento.} È il risultato neuro-simbolico di questo lavoro, e ha una forma
@@ -216,7 +160,6 @@ un esperimento di reinforcement learning su un compito con uscita strutturata,
 conviene misurare il supporto dei rollout \emph{prima} di addestrare, e
 considerare il vincolo simbolico non come un accessorio di qualità ma come una
 precondizione per la fattibilità.
-
 \section{Il costo}
 
 Il vincolo non è gratuito. A ogni passo di generazione richiede:
@@ -248,8 +191,7 @@ Per evitare sovrainterpretazioni, va delimitato ciò che il Trie garantisce.
   \item[Non impedisce] le ripetizioni degeneri: \texttt{HOUSE HOUSE HOUSE} è una
         sequenza perfettamente ammissibile per il Trie. È il motivo per cui la
         reward include una componente dedicata alla ripetizione
-        (Capitolo~\ref{cap:reward}) e per cui il test avversario sul peso $w$
-        della sezione precedente era necessario.
+        (Capitolo~\ref{cap:reward}).
 \end{description}
 
 Il vincolo è dunque una condizione necessaria di buona formazione, non una
@@ -291,293 +233,16 @@ non nullo il gradiente del reinforcement learning
 (sezione~\ref{sec:supporto}). Il costo sulla metrica di sovrapposizione è il
 prezzo pagato per avere un segnale di apprendimento.
 
-\section{Un secondo meccanismo simbolico: la riparazione post-hoc}
-\label{sec:rule-repair}
+\section{Evidenza ablativa}
 
-Il Trie vincola \emph{durante} la generazione: sceglie fra le continuazioni
-ammesse, ma non ha nozione della frase sorgente e non può preferire un gloss
-corretto a uno semplicemente legale. Questa sezione descrive un secondo
-meccanismo simbolico, complementare e indipendente, che agisce \emph{dopo} la
-generazione e usa esattamente l'informazione che il Trie non ha: il testo
-inglese di partenza.
+L'effetto del Trie è verificato da confronti indipendenti. Sul modello base il
+vincolo porta la validity da $0{,}0370$ a $0{,}9055$ in zero-shot, e con il
+prompting a esempi il ROUGE-L sale da $0{,}1373$ a $0{,}4664$ (validity
+$0{,}9821$). Senza Trie il BLEU corpus collassa a $0{,}0008$, segno che le uscite
+non sono gloss. Infine l'ablazione \texttt{no-grammar} dell'addestramento GRPO,
+che rimuove il vincolo, raggiunge ROUGE-L $0{,}7590$ ed exact match $0{,}0604$,
+contro $0{,}9681$ e $0{,}7662$ dell'SFT vincolato.
 
-\subsection{La motivazione: dove sbaglia ancora la policy}
-
-Ispezionando le generazioni salvate della policy SFT (la più competente della
-campagna) emerge un pattern netto: gli errori residui sono quasi tutti
-sostituzioni lessicali puntuali su parole sorgente rare ---
-\texttt{GUISE}$\to$\texttt{GUARD}, \texttt{BLINDNESS}$\to$\texttt{BLIGHT},
-\texttt{DESC-LIVE}$\to$\texttt{LIVE}. I gloss d'oro che il modello manca sono
-\emph{hapax legomena} del train set: frequenza mediana $1$, il $61\%$ presente
-tre volte o meno, contro una frequenza di base dell'$1{,}6\%$ per i gloss
-d'oro in generale.
-
-La conseguenza è doppia. Un modello neurale non può memorizzare un hapax da un
-adattamento LoRA su un corpus di questa taglia; e il reinforcement learning a
-gradiente di policy non può correggerlo nemmeno in linea di principio, perché
-sul $71{,}7\%$ dei fallimenti il token corretto non compare in nessuno dei
-campioni generati per quel prompt: nessuna reward può assegnargli credito, per
-la stessa ragione strutturale del collasso del supporto discusso nella
-sezione~\ref{sec:supporto}.
-
-Un transduttore \emph{deterministico}, però, non ha questo problema: mappa la
-parola sorgente direttamente, indipendentemente dal fatto che sia mai stata
-osservata durante l'addestramento. I due sistemi hanno quindi profili di
-errore complementari, ed è questo che il meccanismo sfrutta.
-
-\subsection{Il meccanismo}
-
-Per ogni token generato dal modello si chiede se è \emph{derivabile} dalla
-frase sorgente: condividerne lo stem (almeno $4$ caratteri di prefisso comune,
-dopo aver rimosso i marcatori \texttt{DESC-}/\texttt{X-}/\texttt{fs-}) con
-almeno una parola del testo. Se non lo è --- il modello ha probabilmente
-allucinato un elemento lessicale --- viene sostituito con il token allineato
-prodotto dal transduttore a regole del Capitolo~\ref{cap:dataset}; se lo è, il
-token del modello resta intatto.
-
-La sostituzione è ristretta alle posizioni allineate uno a uno fra l'uscita del
-modello e quella del transduttore (via \texttt{difflib.SequenceMatcher}):
-inserzioni e cancellazioni restano decisioni del modello, che gestisce la
-lunghezza e le parole funzionali molto meglio del sistema a regole. La mappa
-forma-sorgente$\to$forma-d'oro (\texttt{fit\_morphology}) sostituisce un
-lemmatizzatore esterno, appresa dalla sola morfologia osservata nel train
-(\texttt{hidden}$\to$\texttt{HIDE}, \texttt{outsourcing}$\to$\texttt{OUTSOURCE}):
-oltre a evitare una dipendenza offline sul cluster, ottiene un exact match più
-alto di WordNet sulla baseline a regole ($64{,}90\%$ contro $63{,}10\%$).
-L'implementazione è in \texttt{src/analysis/rule\_repair.py}; lessico e
-morfologia sono fittati esclusivamente sul train split.
-
-\subsection{Effetto misurato}
-
-Sulle generazioni salvate di cinque celle indipendenti, prima campione per
-prompt, $2000$ prompt di eval:
-
-\begin{center}
-\begin{tabular}{lrrrrr}
-\toprule
-Celle & EM prima & EM dopo & Corrette & Rotte & $p$ (McNemar) \\
-\midrule
-SFT & $87{,}10\%$ & $88{,}85\%$ & $40$ & $5$ & $7{,}9\times 10^{-8}$ \\
-SFT (passata few-shot) & $70{,}20\%$ & $75{,}60\%$ & $111$ & $3$ & $2{,}4\times 10^{-29}$ \\
-GRPO few-shot & $5{,}20\%$ & $8{,}25\%$ & $61$ & $0$ & $8{,}7\times 10^{-19}$ \\
-GRPO zero-shot (passata) & $1{,}85\%$ & $2{,}90\%$ & $21$ & $0$ & $9{,}5\times 10^{-7}$ \\
-Ablation dr-grpo & $3{,}65\%$ & $5{,}55\%$ & $38$ & $0$ & $7{,}3\times 10^{-12}$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-La metrica primaria non-copy-token accuracy si muove nella stessa direzione
-(SFT $0{,}9793\to 0{,}9809$; GRPO few-shot $0{,}4642\to 0{,}5239$): non è uno
-scambio fra una metrica e l'altra.
-
-\subsection{Il caveat sulla generalizzazione, dichiarato}
-
-La soglia di $4$ caratteri e l'euristica \texttt{is\_derivable} sono state
-tarate ispezionando le uscite dell'SFT. La prova di generalizzazione è che lo
-stesso meccanismo, non ritoccato, migliora anche i quattro insiemi su cui
-\emph{non} è stato tarato (few-shot SFT, entrambe le celle GRPO, dr-grpo), e
-non rompe mai più di $5$ prompt su $2000$ in nessun caso. Il tipo di
-regressione è anch'esso compreso e circoscritto: un'abbreviazione la cui
-espansione compare nel sorgente (\texttt{EU} da \emph{European Union}) non è
-considerata derivabile secondo l'euristica dello stem, quindi il transduttore
-la sovrascrive; è per questo che il rapporto corrette/rotte resta comunque
-intorno a $10$:$1$ invece di essere privo di regressioni.
-
-\subsection{Stato di integrazione}
-
-Il meccanismo è cablato nella pipeline di valutazione come blocco opzionale e
-\textbf{additivo}: la chiave \texttt{evaluation.rule\_repair} (default
-\texttt{false}) applica la riparazione a ogni completion e ricalcola l'intero
-blocco di metriche primarie sulle completion riparate, in un blocco separato
-\texttt{results["rule\_repair"]} dei risultati JSON --- mai sovrascrivendo le
-metriche primarie, sullo stesso modello del blocco \texttt{oracle\_best\_of\_n}
-già esistente. La composizione è coperta da test unitari
-(\texttt{tests/test\_rule\_repair\_eval\_wiring.py}); la tabella sopra resta
-però una misura fatta sulle generazioni già salvate dalle run del cluster, non
-ancora riprodotta end-to-end attraverso il nuovo flag su una valutazione dal
-vivo. È il prossimo controllo naturale, a costo quasi nullo (nessun nuovo
-addestramento, un solo passaggio di eval).
-
-\section{Un terzo meccanismo: il glossario iniettato SOLO in addestramento}
-\label{sec:glossario}
-
-La sezione precedente ripara l'allucinazione lessicale \emph{dopo} la
-generazione. Un'alternativa naturale è prevenirla, fornendo al modello
-l'informazione lessicale mancante \emph{dentro} il prompt: un blocco
-``Glossary:'' che elenca, per le parole rare della frase da tradurre, la
-forma gloss corretta. Questa sezione discute due varianti non equivalenti, la
-ragione per cui una è stata scartata sul nascere, e il disegno --- diverso da
-entrambe quelle note in letteratura --- effettivamente implementato per
-l'altra.
-
-\subsection{Due varianti, non equivalenti}
-
-\textbf{Iniezione a tempo di inferenza (zero-shot).} Aggiungere il blocco
-glossario al prompt solo in fase di valutazione, senza toccare
-l'addestramento, è l'opzione più economica da testare, ma ha un difetto di
-fondo per un modello di questa taglia: la fase SFT di Qwen2.5-0.5B-Instruct su
-questo compito non ha \emph{mai} visto un blocco ``Glossary:'' nel proprio
-input (sezione~\ref{sec:sft-vs-regola-analisi}); \texttt{build\_t2g\_prompt}
-produce, in modalità zero-shot, il testo grezzo della frase e nient'altro.
-Testare un'iniezione di questo tipo in inferenza misurerebbe la robustezza del
-modello a un formato di prompt mai osservato, non il potenziale reale
-dell'idea: un risultato negativo sarebbe ambiguo fra ``il glossario non aiuta
-questo compito'' e ``il modello non sa sfruttare una struttura di prompt che
-non ha mai visto durante il fine-tuning'', e le due letture richiedono
-conclusioni opposte. Per questo questa variante resta scartata: è lo stesso
-principio metodologico del Capitolo~\ref{cap:ausiliari}, qualificare un
-meccanismo prima di misurarlo.
-
-\textbf{Annotazione a tempo di addestramento.} L'alternativa con precedenti
-diretti in letteratura è addestrare il modello a \emph{usare}
-l'annotazione, non solo a riceverla. Dinu et al.~\cite{dinu2019training}
-mostrano che inserire vincoli terminologici come annotazioni inline
-nell'input di addestramento --- non come post-processing né come vincolo di
-decodifica --- permette a un NMT di imparare un comportamento di copia
-affidabile verso il termine fornito, a costo di inferenza nullo rispetto alla
-decodifica vincolata classica~\cite{hokamp2017,post2018}. Nella letteratura
-più recente orientata ai modelli linguistici generici, l'iniezione puramente
-a tempo di inferenza \emph{funziona}, ma su modelli e compiti diversi da
-questo: DiPMT~\cite{ghazvininejad2023dipmt} ottiene guadagni fornendo
-traduzioni candidate per le parole rare direttamente nel prompt di un LLM
-istruito e multilingue, e Bogoychev e Chen~\cite{bogoychev2023terminology}
-combinano un modello addestrato a rispettare la terminologia con un
-raffinamento a base di prompting. In entrambi i casi il modello di partenza è
-un sistema molto più grande e/o già esposto a task di traduzione con
-terminologia a tempo di addestramento o pre-addestramento massivo: condizioni
-che qui non valgono, il che motiva un disegno diverso invece di una copia
-diretta di uno dei due.
-
-\subsection{Il disegno implementato, e perché differisce da Dinu et al.}
-\label{sec:glossario-disegno}
-
-Il meccanismo (\texttt{src/utils/glossary.py}) inietta il blocco glossario
-\textbf{solo nel prompt di addestramento GRPO}, mai in valutazione:
-\texttt{eval\_t2g.py} non importa quel modulo, per costruzione, e ogni cella
-resta valutata esattamente come le altre. Questo è deliberatamente diverso
-dal meccanismo di Dinu et al., dove l'annotazione è presente sia in
-addestramento sia in inferenza (un vero comportamento di copia): fornire il
-glossario anche in eval userebbe il gold per selezionare l'aiuto, la stessa
-fuga di informazione che l'esperimento vuole escludere, e testerebbe la
-robustà a un formato di prompt piuttosto che il contributo
-dell'addestramento. Il disegno qui misura quindi una domanda più stretta e
-più onesta: \emph{l'esposizione a mappature corrette durante l'addestramento
-migliora la gestione delle parole rare del modello DA SOLO, quando l'aiuto
-sparisce}?
-
-Due scelte tecniche derivano da questo vincolo:
-
-\begin{description}
-  \item[Origine del glossario: dal gold, non un embedding.] Le parole
-        rare sono esattamente la popolazione che la
-        sezione~\ref{sec:rule-repair} già caratterizza (hapax legomena, poca
-        o nessuna occorrenza nel train): è precisamente dove un embedding
-        semantico sarebbe meno affidabile, per la stessa scarsità di segnale
-        che il glossario dovrebbe compensare. La soluzione adottata sfrutta
-        un fatto specifico dell'addestramento GRPO: il gold di
-        \emph{questo} esempio è già disponibile (è ciò su cui la reward
-        valuta), quindi la forma corretta si legge direttamente dal gold
-        della riga corrente
-        (\texttt{align\_source\_to\_gold}, la stessa euristica di
-        allineamento per stem di \texttt{rule\_repair.py}, applicata riga per
-        riga invece che fittata sul corpus). Nessuna tabella pre-fittata,
-        nessun embedding.
-  \item[Dropout del blocco (\texttt{glossary.dropout}, default $0{,}5$).]
-        Senza dropout, il modello vedrebbe il glossario in \emph{ogni}
-        esempio di training che contiene parole rare e mai in valutazione:
-        un disallineamento di distribuzione che rischierebbe di essere
-        \emph{dannoso} (il modello impara a leggere un blocco che poi
-        sparisce sempre). Omettendo il blocco su una frazione degli esempi
-        --- pur avendone diritto --- la generazione senza glossario resta
-        in-distribuzione anche durante l'addestramento stesso, e il confronto
-        in eval (sempre senza glossario, per ogni cella) diventa
-        interpretabile in entrambe le direzioni di un risultato.
-\end{description}
-
-Poiché la cella estende \texttt{grpo/zero-shot.yaml} o
-\texttt{grpo/few-shot.yaml} (nessuna fase SFT), il rischio di riuso
-silenzioso dell'impronta SFT sollevato in una stesura precedente di questa
-sezione \textbf{non si applica}: non esiste un adattatore SFT da confondere
-fra una cella con e senza glossario.
-
-\subsection{Stato: addestrato, con un effetto causale misurato in training}
-
-Il meccanismo è verificato a livello di codice
-(\texttt{tests/test\_glossary.py}, ed estensioni a
-\texttt{tests/test\_rule\_repair.py} e \texttt{tests/test\_prompting.py} per
-l'allineamento per riga e la composizione del prompt), con l'invariante
-``blocco assente $\Rightarrow$ prompt byte-identico'' verificata esplicitamente,
-sullo stesso modello del contratto di non regressione degli obiettivi
-ausiliari (sezione~\ref{sec:contratto-ausiliari}). Le due celle in
-\texttt{experiments/configs/qwen25-05b/ablations/glossary/} (zero-shot e
-few-shot), fuori dalla campagna \texttt{--ablation} ufficiale a 15 celle, sono
-state addestrate e valutate.
-
-\paragraph{L'eval, come atteso, non si sposta.} ROUGE-L ed exact match delle
-due celle restano entro il rumore delle celle GRPO-only equivalenti senza
-glossario: \texttt{glossary/zero-shot} ottiene ROUGE-L $0{,}516$ ed exact
-match $0{,}010$ contro $0{,}517$/$0{,}008$ di \texttt{grpo/zero-shot};
-\texttt{glossary/few-shot} $0{,}609$/$0{,}054$ contro $0{,}608$/$0{,}054$ di
-\texttt{grpo/few-shot} (stessa magnitudine delle altre ablazioni sullo stack
-di reward, Capitolo~\ref{cap:risultati}). Non è una sorpresa e non basta, da
-sola, a
-concludere che il meccanismo sia inerte: il glossario per costruzione non è
-mai presente in eval (sezione~\ref{sec:glossario-disegno}), quindi l'eval
-misura un trasferimento indiretto, senza l'aiuto, su una frazione minoritaria
-del vocabolario.
-
-\paragraph{Un test più diretto: il confronto mostrato-contro-scartato in
-training.} Il dropout del blocco (sezione~\ref{sec:glossario-disegno})
-produce, come effetto collaterale, un esperimento naturale pulito: fra le
-righe di training idonee al glossario (contengono almeno una parola rara,
-frequenza $\le 3$ nel train --- il $17{,}1\%$ del train set), la stessa
-estrazione deterministica sull'identificativo di riga decide, per ciascuna,
-se riceve il blocco o no. Nei campioni di completamento salvati durante
-l'addestramento di \texttt{glossary/zero-shot} e \texttt{glossary/few-shot},
-$504$ righe idonee sono state loggate in ciascuna cella: $276$ con il blocco
-mostrato, $228$ scartato --- e, poiché l'estrazione dipende solo
-dall'identificativo di riga (identico nelle due celle) e i campioni loggati
-in training campionano un sottoinsieme in larga parte sovrapposto fra le due
-run ($76$ frasi sorgente uniche, tutte in comune), il gruppo ``scartato'' è
-di fatto lo stesso in entrambe: non due misure indipendenti, ma la stessa
-popolazione di controllo letta due volte. Isolando la frazione di righe
-idonee in cui l'output del modello contiene il token gloss corretto per la
-parola rara:
-
-\begin{center}
-\begin{tabular}{lr}
-\toprule
-Cella & Glossario mostrato ($n=276$) \\
-\midrule
-glossary/zero-shot & $73{,}6\%$ ($203/276$) \\
-glossary/few-shot & $55{,}8\%$ ($154/276$) \\
-\midrule
-\multicolumn{2}{l}{Glossario scartato, gruppo di controllo condiviso ($n=228$): $35{,}5\%$ ($81/228$)} \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-Un effetto di $+38$ e $+20$ punti percentuali, sulla stessa popolazione di
-controllo, con l'unica differenza la presenza del blocco: il meccanismo
-raggiunge davvero il modello e ne cambia il comportamento nella direzione
-attesa, durante l'addestramento.
-
-La coerenza fra un effetto di training marcato e un effetto di eval assente
-si spiega con la scala: il meccanismo tocca solo l'$8{,}6\%$ delle righe di
-training ($17{,}1\% \times 50\%$ di dropout), e solo sulle parole rare. Un
-segnale così locale, confinato a una coda del vocabolario, non ci si aspetta
-sposti una metrica aggregata dominata dalle parole comuni. Questo non è un
-meccanismo rotto: è un'esposizione a tempo di addestramento che funziona
-esattamente come progettato ma non generalizza in assenza dell'aiuto,
-misurato piuttosto che assunto.
-
-\paragraph{Il criterio di promozione pre-registrato resta aperto.} Il
-criterio dichiarato in anticipo per coerenza col Capitolo~\ref{cap:ausiliari}
---- riduzione dell'errore specificamente sulla popolazione di token gold
-hapax legomena in eval (la stessa che la sezione~\ref{sec:rule-repair}
-isola), confrontata con la riduzione generica sul resto del vocabolario ---
-richiede una scomposizione delle metriche di eval per rarità del token gold,
-non ancora calcolata mentre questa relazione viene scritta. Il confronto
-mostrato-contro-scartato sopra è un test diverso e complementare (causale, a
-tempo di training), non un sostituto di quel criterio: la promozione del
-meccanismo resta, a rigore, non decisa.
+Una variante distinta, l'iniezione di un blocco di glossario nel prompt di
+addestramento GRPO, è stata provata come ablazione separata; non fa parte del
+meccanismo di decodifica e non viene discussa oltre.

@@ -7,10 +7,10 @@ possibile è cercare segnale altrove: non in una reward su sequenze generate, ma
 in obiettivi ausiliari calcolabili in modalità \emph{teacher-forced}, cioè sui
 riferimenti noti.
 
-Sono stati implementati due obiettivi. Entrambi sono documentati qui insieme ai
-criteri che ne governano la promozione a esperimento vero, perché il punto
-metodologico del capitolo è proprio questo: \textbf{qualificare un obiettivo
-prima di addestrarlo}.
+Sono stati implementati due obiettivi, entrambi aggiunti alla loss dell'SFT.
+Tutte le celle a confronto usano gli stessi seed e la stessa configurazione di
+base, e differiscono soltanto per il termine ausiliario: il confronto con l'SFT
+semplice è quindi controllato.
 
 \section{Obiettivo 1: la massa ammessa}
 
@@ -40,20 +40,6 @@ alcuna variante più elaborata. La loss totale diventa
 \end{equation}
 con $\lambda$ configurabile.
 
-L'implementazione è in \texttt{src/training/allowed\_mass\_loss.py}, integrata
-nel percorso di addestramento tramite
-\texttt{src/training/auxiliary\_sft\_trainer.py}.
-
-\subsection{Nota numerica}
-
-Il termine $\log \sum \exp$ implicito nella~\eqref{eq:am-repeat} è calcolato in
-precisione a 32 bit, anche quando il resto del passaggio in avanti gira in
-precisione ridotta. La ragione è che la somma è su un insieme di migliaia di
-elementi con logits di ampiezza variabile, e in precisione dimezzata la perdita
-di cifre significative è sufficiente a produrre gradienti sbagliati. È il tipo
-di dettaglio che non si nota fino a quando l'addestramento diverge senza motivo
-apparente.
-
 \subsection{Che cosa questo obiettivo può e non può fare}
 
 Qui va ripetuta con forza l'osservazione della sezione sui fondamenti: la
@@ -70,11 +56,6 @@ valutato:
   \item l'obiettivo \textbf{non può}, da solo, migliorare l'exact match, perché
         non fornisce alcuna preferenza fra i token legali.
 \end{itemize}
-
-Chiunque si aspettasse un miglioramento dell'exact match da questo obiettivo
-avrebbe un modello mentale sbagliato della sua forma funzionale. Dichiararlo in
-anticipo evita di interpretare un risultato nullo sull'exact match come un
-fallimento dell'implementazione.
 
 \subsection{Un dettaglio sul gradiente, non catturato dalla previsione}
 \label{sec:am-gradiente}
@@ -103,17 +84,12 @@ operata dal Trie in decodifica — ma l'ordinamento dei candidati non cambia, ed
 è per questo che la previsione resta corretta nella sua parte qualitativa
 (``non fornisce alcuna preferenza fra i token legali'').
 
-La previsione era però incompleta: un modello più affilato è più robusto al
-campionamento, perché si allontana meno spesso dalla propria scelta preferita
-per effetto del rumore di temperatura. Un guadagno di exact match sotto
-campionamento sarebbe quindi compatibile con questo meccanismo, pur senza
-contraddire la piattezza del valore della loss. Il Capitolo~\ref{cap:risultati},
-sezione~\ref{sec:osservazione-ausiliari}, verifica questa lettura confrontando
-decodifica campionata e greedy, e la scarta: il guadagno persiste quasi
-identico in greedy, dove l'affilatura da sola non dovrebbe contare. La
-previsione dichiarata in questa sezione va quindi corretta, non solo
-completata: l'obiettivo migliora l'exact match, per una via che
-la~\eqref{eq:am-gradient} non spiega da sola.
+Un modello più affilato è più robusto al campionamento, e un guadagno di exact
+match sotto campionamento sarebbe compatibile con questo meccanismo pur senza
+contraddire la piattezza del valore della loss. La sezione~\ref{sec:risultati-ausiliari}
+mostra tuttavia che il guadagno persiste quasi identico in decodifica greedy,
+dove l'affilatura da sola non dovrebbe contare: la previsione va quindi
+corretta, non solo completata.
 
 \section{Obiettivo 2: la loss strutturata}
 
@@ -134,33 +110,12 @@ più uno stato aggregato \texttt{OTHER} che raccoglie tutti gli altri. Le
 transizioni sono stimate esclusivamente dal training set \emph{dopo} la
 suddivisione, per evitare contaminazione.
 
-I file coinvolti sono:
-\begin{center}
-\begin{tabular}{ll}
-\toprule
-File & Ruolo \\
-\midrule
-\texttt{src/datasets/structured\_transitions.py} & stima delle transizioni dal training \\
-\texttt{src/models/structured\_gloss\_head.py} & la testa strutturata \\
-\texttt{src/training/auxiliary\_sft\_trainer.py} & integrazione nella loss \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\subsection{Vincolo di memoria}
-
-Un CRF ingenuo richiederebbe un tensore di punteggi di forma
-$[B, T, |\vocab|]$, con $B$ dimensione del batch, $T$ lunghezza e $|\vocab|$
-dimensione del vocabolario. Su un vocabolario di decine di migliaia di elementi
-questo è proibitivo.
-
-L'implementazione evita completamente quel tensore usando accumulazione sparsa
-(\texttt{scatter\_add}) in precisione a 32 bit: si aggregano i contributi
-soltanto per gli indici effettivamente coinvolti. Il requisito di memoria
-diventa proporzionale al numero di transizioni osservate, non al prodotto delle
-dimensioni.
+Il termine è calcolato con accumulazione sparsa in precisione a 32 bit, evitando
+il tensore di punteggi di forma $[B, T, |\vocab|]$ che un CRF ingenuo
+richiederebbe.
 
 \subsection{Qualificazione: quanto informa realmente il gloss precedente?}
+
 \label{sec:qualificazione-strutturale}
 
 Prima di spendere tempo di GPU su questo obiettivo, è stata posta la domanda
@@ -212,132 +167,78 @@ interesse non c'è. Potrebbe sottostimare o sovrastimare il vero contributo. È 
 limitazione del metodo di stima, non un difetto dell'implementazione, e la sua
 risoluzione richiederebbe un allineamento non monotono fra le due sequenze.
 
-\subsection{Onestà sulle ritrattazioni}
-
-Questa stima è stata corretta due volte prima di arrivare al valore riportato.
-Le versioni precedenti erano affette da contaminazione fra training e valutazione
-e da un backoff mal specificato che assorbiva parte del guadagno apparente. Il
-valore $+0{,}0444$ bit è quello sopravvissuto alla verifica.
-
-Segnalarlo non è autodenigrazione: è la condizione perché il numero sia
-credibile. Un guadagno di $0{,}0444$ bit è abbastanza piccolo da poter essere
-prodotto interamente da un errore di metodo, e chi legge deve sapere che
-l'errore è stato cercato.
-
 \section{Il contratto di non regressione}
 \label{sec:contratto-ausiliari}
 
-Aggiungere termini alla loss di addestramento è una modifica invasiva: rischia
-di alterare il comportamento anche quando è disattivata. Il progetto adotta
-quindi un \emph{contratto} verificato da test, il cui contenuto è il seguente.
+Aggiungere termini alla loss è una modifica invasiva, e il progetto adotta
+quindi un contratto verificato da test. Con peso nullo il percorso di
+addestramento è bit-identico a quello dell'SFT semplice, così che le celle che
+non usano gli obiettivi ausiliari non ne siano influenzate. Le opzioni che
+distruggono la corrispondenza fra posizione nel tensore e posizione nella
+sequenza (\emph{packing}, \emph{padding-free}) sono rifiutate. Il grafo delle
+transizioni è stimato solo sul training con un taglio sparso: un esempio di
+valutazione può usare una transizione assente, per la quale il punteggio del
+percorso gold vale $-\infty$. Queste righe sono escluse dalla media e contate a
+parte: nessuna riga è valutata contro un bersaglio che il modello non può
+rappresentare.
 
-\begin{description}
-  \item[Inerzia esatta a peso nullo.] Con peso $0$ il percorso di addestramento
-        deve essere \textbf{bit-identico} a quello del \texttt{SFTTrainer}
-        originale. Non ``approssimativamente uguale'': identico. La verifica è
-        automatica, e serve a garantire che tutte le celle sperimentali che non
-        usano gli obiettivi ausiliari non ne siano influenzate.
-  \item[Validazione prima del modello.] La funzione
-        \texttt{resolve\_auxiliary\_config} valida la configurazione
-        \emph{prima} che il modello venga caricato. Un errore di configurazione
-        deve costare secondi, non minuti (si veda la
-        sezione~\ref{sec:bug-evalonly} per il caso reale in cui questa regola era
-        violata).
-  \item[Incompatibilità rifiutate esplicitamente.] Le opzioni di
-        \emph{packing} (concatenazione di più esempi in una sequenza) e
-        \emph{padding-free} sono rifiutate, perché entrambe distruggono la
-        corrispondenza fra posizione nel tensore e posizione nella sequenza
-        originale, da cui gli obiettivi ausiliari dipendono. Rifiutare è
-        preferibile a produrre silenziosamente risultati sbagliati.
-  \item[Un solo processo.] La funzione \texttt{require\_single\_process}
-        rifiuta l'esecuzione con più di un processo. La ragione è che
-        l'aggregazione delle statistiche strutturate non è stata verificata in
-        regime distribuito; piuttosto che dedurre un comportamento non testato,
-        l'esecuzione viene bloccata.
-  \item[Marcatura delle righe ineleggibili.] Il collatore
-        \texttt{CompletionSpanCollator} marca come non eleggibili le righe
-        troncate o in cui lo span della completion non è contiguo. Su quelle
-        righe gli obiettivi ausiliari non vengono applicati, invece di essere
-        applicati a posizioni sbagliate. Una riga è considerata completa se lo
-        span supervisionato \emph{contiene} il token di fine sequenza, non se
-        \emph{termina} con esso: il template di chat di Qwen chiude il turno
-        dell'assistente con \texttt{<|im\_end|>} seguito da un a capo, e il
-        controllo sull'ultima posizione rendeva ineleggibile ogni riga.
-  \item[Percorsi gold non rappresentabili.] Il grafo delle transizioni è
-        stimato solo sul training, con un taglio sparso: un esempio di
-        valutazione può usare una transizione che il grafo non contiene. Per
-        quella riga il punteggio del percorso gold vale $-\infty$ e la NLL
-        $+\infty$. Queste righe sono escluse dalla media e contate a parte
-        (\texttt{structured\_unsupported\_rows}), con la stessa politica delle
-        righe non mappabili: nessuna riga viene valutata contro un bersaglio
-        che il modello non può rappresentare. Prima della correzione una sola
-        riga del genere rendeva infinita la loss dell'intero batch.
-\end{description}
-
-Il filo comune è: \emph{fallire in modo rumoroso e presto}, invece di produrre
-numeri plausibili e sbagliati. È la lezione ricorrente di questo progetto, e il
-Capitolo~\ref{cap:infrastruttura} ne raccoglie sette casi concreti.
-
-\section{I criteri di promozione}
-
-Nella prima stesura di questa relazione entrambi gli obiettivi erano
-implementati e verificati ma non addestrati, e i criteri qui sotto erano stati
-fissati \emph{prima} di spendere tempo di GPU. Nel frattempo entrambi sono stati
-addestrati: i risultati sono nel Capitolo~\ref{cap:risultati},
-sezione~\ref{sec:osservazione-ausiliari}. I criteri restano quelli dichiarati in
-anticipo, ed è su di essi che i risultati vanno letti.
-
-\begin{description}
-  \item[Criterio 1 (massa ammessa).] Una sonda in inferenza deve mostrare una
-        riduzione misurabile della \emph{massa rimossa} dal vincolo di
-        decodifica. Cioè: il modello addestrato con l'obiettivo deve collocare
-        più probabilità su token legali, e quindi il Trie deve dover intervenire
-        meno. Questa è la previsione che segue dalla forma funzionale
-        dell'obiettivo, e se non si verifica l'obiettivo non sta facendo ciò che
-        si crede.
-  \item[Criterio 2 (loss strutturata).] Un confronto controllato fra la testa
-        strutturata addestrata con le transizioni \emph{vere} e la stessa testa
-        addestrata con transizioni \emph{mescolate casualmente}. Se le due
-        condizioni danno lo stesso risultato, il guadagno non viene
-        dall'informazione strutturale ma dalla capacità aggiuntiva della testa, e
-        l'obiettivo va abbandonato.
-\end{description}
-
-Il secondo criterio è un controllo ablativo classico, e ha una proprietà utile:
-è \emph{poco costoso} rispetto all'addestramento completo, perché richiede solo
-la testa e non la messa a punto dell'intero modello.
-
-\subsection{Che cosa va mescolato nel controllo}
+\section{Il controllo con transizioni mescolate}
 \label{sec:controllo-mescolato}
 
-``Transizioni mescolate casualmente'' non è una specifica sufficiente, e la prima
-implementazione lo ha dimostrato. Quella versione permutava le
-\emph{destinazioni} degli archi: una transizione $a \to b$ diventava
-$a \to \pi(b)$. Il risultato è un grafo in cui i percorsi gold reali non
-esistono più, perché usano archi che la permutazione ha spostato. Su quei
-percorsi la loss strutturata non è definita, e con l'esclusione delle righe non
-rappresentabili (sezione~\ref{sec:contratto-ausiliari}) il termine si spegne:
-nell'addestramento del controllo il $98\%$ dei passi registrati ($2\,012$ su
-$2\,051$) non aveva \emph{alcuna} riga valutabile. Il controllo si è quindi
-addestrato come un SFT puro, e il confronto misurava ``termine strutturato
-contro nessun termine'', non ``transizioni vere contro transizioni mescolate''.
+Per stabilire se il guadagno della loss strutturata derivi dall'informazione
+sulle transizioni o dalla sola capacità aggiuntiva della testa, si confronta
+l'addestramento con le transizioni \emph{vere} con quello con transizioni
+\emph{mescolate}. ``Mescolate casualmente'' non è però una specifica sufficiente.
+Permutare le \emph{destinazioni} degli archi ($a \to b$ diventa
+$a \to \pi(b)$) produce un grafo in cui i percorsi gold reali non esistono più:
+il termine strutturato non è definito su di essi e, con l'esclusione delle righe
+non rappresentabili, si spegne, riducendo il controllo a un SFT puro.
 
-La versione corretta conserva il \emph{supporto} del grafo, cioè l'insieme
+Il controllo corretto conserva il \emph{supporto} del grafo, cioè l'insieme
 esatto delle coppie $(a, b)$, e permuta solo i pesi, separatamente per ogni stato
 di partenza. Ogni stato mantiene gli stessi successori ammessi, la stessa
 normalizzazione e lo stesso multinsieme di probabilità uscenti (quindi la stessa
 entropia); l'unica informazione distrutta è \emph{quale} successore è probabile.
 I percorsi gold restano valutabili per costruzione, e il termine strutturato è
-attivo con la stessa frequenza del grafo vero.
+attivo con la stessa frequenza del grafo vero. Il supporto stesso viene dai dati
+reali: il controllo isola quindi il valore dei \emph{pesi} delle transizioni,
+non quello del supporto.
 
-Il caveat, inevitabile per qualunque controllo su cui la loss sia definita: il
-supporto stesso viene dai dati reali. Il controllo isola quindi il valore dei
-\emph{pesi} delle transizioni, non quello del supporto.
+\section{Risultati}
+\label{sec:risultati-ausiliari}
 
-L'impostazione generale è che un obiettivo ausiliario non va promosso perché è
-implementato e i test passano. Va promosso quando esiste una previsione
-quantitativa derivata dalla sua forma funzionale, e quella previsione è
-verificata su un esperimento di controllo. Su questo progetto, il valore
-$+0{,}0444$ bit della sezione~\ref{sec:qualificazione-strutturale} suggerisce che
-il margine disponibile sia modesto: è un'informazione che vale la pena avere
-\emph{prima} di allocare il calcolo, non dopo.
+Valutazione su $2\,000$ prompt, campionamento a $\tau=0{,}7$ con $N=5$
+generazioni per prompt, salvo dove indicato.
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+Cella & ROUGE-L & Exact match & Non-copy acc. & Validity \\
+\midrule
+SFT & $0{,}9681$ & $0{,}7662$ & $0{,}9510$ & $1{,}0000$ \\
+SFT (greedy) & $0{,}9696$ & $0{,}7775$ & $0{,}9547$ & $1{,}0000$ \\
+SFT + massa ammessa & $0{,}9769$ & $0{,}8341$ & $0{,}9685$ & $1{,}0000$ \\
+SFT + massa ammessa (greedy) & $0{,}9774$ & $0{,}8420$ & $0{,}9699$ & $1{,}0000$ \\
+SFT + strutturata (grafo vero) & $0{,}9430$ & $0{,}6053$ & $0{,}9067$ & $1{,}0000$ \\
+SFT + strutturata (controllo mescolato) & $0{,}9464$ & $0{,}6078$ & $0{,}9089$ & $1{,}0000$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La massa ammessa migliora l'SFT semplice, con exact match da $0{,}7662$ a
+$0{,}8341$. La previsione basata sul valore piatto della loss non lo avrebbe
+anticipato, e nemmeno l'affilatura del gradiente della sezione~\ref{sec:am-gradiente}
+la spiega da sola: il guadagno persiste in decodifica greedy ($0{,}7775 \to
+0{,}8420$), dove il rumore di temperatura non conta. Il meccanismo esatto
+resta quindi non spiegato dalla sola~\eqref{eq:am-gradient}.
+
+La loss strutturata invece \emph{non} migliora: exact match $0{,}6053$ contro
+$0{,}7662$ dell'SFT. Soprattutto, \textbf{fallisce il proprio controllo
+negativo}: il grafo mescolato, che ha lo stesso supporto ma pesi privi di
+significato, ottiene $0{,}9464/0{,}6078$, cioè marginalmente \emph{sopra} il
+grafo vero. L'effetto dell'obiettivo strutturato non è quindi attribuibile alla
+struttura delle transizioni, coerentemente con il guadagno informativo di soli
+$0{,}0444$ bit stimato nella sezione~\ref{sec:qualificazione-strutturale}. Un
+obiettivo ausiliario va promosso non perché è implementato e i test passano, ma
+perché una previsione derivata dalla sua forma funzionale è verificata da un
+controllo: qui è vero per la massa ammessa e falso per la loss strutturata.

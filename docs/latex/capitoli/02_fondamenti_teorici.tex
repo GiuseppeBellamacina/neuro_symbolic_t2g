@@ -154,10 +154,11 @@ Questa è la formulazione classica dell'apprendimento a etichette parziali
 massimizzazione della verosimiglianza marginale (\emph{maximum marginal
 likelihood}, \cite{guu2017mml}). Va sottolineata una proprietà che sarà decisiva
 nel Capitolo~\ref{cap:ausiliari}: la~\eqref{eq:allowed-mass} è \emph{piatta}
-sull'insieme ammesso. Qualunque ridistribuzione della massa \emph{interna} ad
-$\allowed_t$ lascia la loss invariata. Ne segue che questo obiettivo può
-migliorare la \emph{calibrazione} (quanta probabilità va sui token legali) ma non
-può, da solo, migliorare l'exact match.
+sull'insieme ammesso nel suo \emph{valore}, cioè ridistribuire la massa
+\emph{interna} ad $\allowed_t$ non la modifica. Il suo \emph{gradiente}, però,
+non è piatto: dipende da come la massa è distribuita fra i token dell'insieme.
+Un effetto sull'exact match, oltre che sulla \emph{calibrazione} (quanta
+probabilità va sui token legali), non è quindi escluso a priori.
 
 \section{Adattamento efficiente: LoRA e quantizzazione}
 
@@ -202,9 +203,7 @@ alta e sono gli unici a ricevere gradiente. Il risultato è che un modello che i
 precisione a 16 bit non entrerebbe in memoria diventa addestrabile su una sola
 GPU.
 
-Il costo è un rumore di quantizzazione sui pesi base. Per il presente lavoro la
-conseguenza operativa è che i risultati non sono bit-per-bit riproducibili
-cambiando backend di quantizzazione, mentre lo sono a parità di backend e seed.
+Il costo è un rumore di quantizzazione sui pesi base.
 
 \section{Generazione: strategie di decodifica}
 
@@ -275,14 +274,6 @@ elementi di $G$, l'insieme ammesso è
 dove $\cdot$ denota la concatenazione. Il Trie è precisamente la struttura che
 materializza $\mathrm{Pref}(G)$ in modo che la~\eqref{eq:trie-allowed} sia
 calcolabile con un accesso a un dizionario.
-
-Un Trie riconosce il linguaggio $G$, che è finito e quindi regolare. Un
-automa a stack (\emph{pushdown automaton}) riconosce linguaggi context-free,
-strettamente più espressivi. La scelta fra i due, nel
-Capitolo~\ref{cap:decoding}, è motivata dal fatto che il linguaggio target di
-questo progetto è \texttt{gloss*}, cioè una semplice chiusura di Kleene su un
-insieme finito: un Trie è sufficiente, e un automa a stack sarebbe
-sovradimensionato.
 
 \section{Apprendimento per rinforzo: impostazione}
 
@@ -451,13 +442,6 @@ determina l'interpretazione dei risultati.
         dove $M$ è il numero di prompt. Si tratta di una \emph{media empirica}
         sulle prime $k$ generazioni di ciascun prompt, con $\theta = 0{,}3$.
 
-        Va segnalato, perché è fonte di confusione, che questa \textbf{non} è la
-        forma combinatoria $1 - \binom{n-c}{k} / \binom{n}{k}$ diffusa in
-        letteratura, la quale stima senza distorsione la probabilità di successo
-        su $k$ estrazioni a partire da $n > k$ campioni osservati. Quella forma
-        non è impiegata qui. La differenza è discussa nel
-        Capitolo~\ref{cap:metriche}, insieme a un secondo stimatore empirico
-        della stessa quantità che il codice riporta accanto al primo.
 \end{description}
 
 Un avvertimento che il Capitolo~\ref{cap:metriche} svilupperà in dettaglio:

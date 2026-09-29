@@ -12,8 +12,8 @@ La scelta di un modello piccolo è motivata da tre ragioni, in ordine di peso:
 
 \begin{enumerate}
   \item \textbf{Vincolo di risorse.} L'addestramento gira su una singola GPU di
-        un cluster condiviso con una quota di una sola allocazione per volta
-        (Capitolo~\ref{cap:infrastruttura}). Il reinforcement learning richiede
+        un cluster condiviso con una quota di una sola allocazione per volta. Il
+        reinforcement learning richiede
         di generare $G$ candidati per ogni prompt a ogni passo, quindi il costo
         di generazione domina; un modello grande renderebbe l'esperimento
         infattibile.
@@ -60,13 +60,6 @@ stringente.
 Il rapporto $\alpha/r = 2$ è la scelta convenzionale. Il dropout $0{,}05$ agisce
 solo sul ramo dell'adattatore.
 
-Il caricamento è realizzato in \texttt{src/models/model\_loader.py}, che
-incapsula sia la quantizzazione a 4 bit sia l'installazione degli adattatori,
-esponendo una sola funzione di caricamento usata da tutti i punti di ingresso
-(SFT, GRPO, valutazione). Questa centralizzazione è deliberata: garantisce che
-la cella di valutazione carichi il modello esattamente come la cella di
-addestramento, evitando una classe di discrepanze difficile da diagnosticare.
-
 \section{Lo stack software}
 
 La riproducibilità richiede di fissare le versioni. Lo stack è il seguente.
@@ -89,29 +82,6 @@ sentence-transformers & $5{,}2{,}3$ & retrieval per il few-shot \\
 \end{tabular}
 \end{center}
 
-Alcune di queste versioni non sono neutrali, e vale la pena segnalarlo qui
-perché il Capitolo~\ref{cap:infrastruttura} documenta i guasti che ne sono
-derivati.
-
-\begin{description}
-  \item[Unsloth.] Fornisce kernel ottimizzati e un percorso di caricamento a 4
-        bit. Il suo import è però costoso e con effetti collaterali globali: va
-        eseguito \emph{dopo} le validazioni di configurazione, non prima. Un bug
-        reale documentato nella sezione~\ref{sec:bug-evalonly} consisteva
-        esattamente in una validazione posta dopo l'import, con il risultato che
-        un errore di configurazione banale si manifestava solo dopo minuti di
-        caricamento.
-  \item[Transformers 5.3.0.] Ha introdotto un cambiamento di firma in una
-        funzione interna di rilevamento dei pacchetti, che ha rotto l'import di
-        \texttt{trl.trainer.grpo\_trainer} (sezione~\ref{sec:bug-weave}).
-  \item[TRL 0.24.0.] I valori predefiniti del \texttt{GRPOTrainer} in questa
-        versione determinano quale variante dell'obiettivo GRPO viene
-        effettivamente ottimizzata. Poiché nessuna configurazione storica del
-        progetto li impostava esplicitamente, gli esperimenti hanno usato i
-        default della libreria per omissione e non per scelta. L'analisi
-        completa è nella sezione~\ref{sec:denominatori}.
-\end{description}
-
 \section{Il formato del prompt}
 
 Il modello riceve un'istruzione e produce il gloss. Sono state usate due
@@ -131,11 +101,7 @@ frasi di training sono codificate in vettori una volta sola, e a inferenza si
 cercano i tre vicini più prossimi.
 
 La lunghezza massima del prompt in questa modalità è $768$ token, per far posto
-agli esempi. Questo vincolo è verificato automaticamente:
-\texttt{tests/validate\_configs.py} rifiuta qualunque configurazione che attivi
-il retrieval con \texttt{max\_prompt\_length} inferiore a $512$, perché un
-prompt troncato eliminerebbe silenziosamente gli esempi rendendo la cella
-indistinguibile dallo zero-shot.
+agli esempi.
 
 \subsection{Perché questa distinzione è centrale}
 
@@ -143,17 +109,12 @@ Anticipando il Capitolo~\ref{cap:risultati}: la differenza fra zero-shot e
 few-shot è, numericamente, il fattore \emph{più grande} osservato in tutto
 l'esperimento. Il modello base con vincolo di decodifica passa da ROUGE-L
 $0{,}1373$ (zero-shot) a $0{,}4664$ (few-shot), un salto di $0{,}33$ ottenuto
-\emph{senza aggiornare un solo parametro}. Il totale di variazione fra il punto
-di partenza peggiore e il miglior risultato con reinforcement learning è circa
-$0{,}42$. Ne segue che la maggior parte dell'effetto attribuibile alla
-``pipeline'' è in realtà effetto di prompting.
-
-Questa è una confusione di fattori nel disegno originale: le celle che
-combinavano metodo di addestramento e modalità di prompting non permettevano di
-separare i due contributi. La correzione proposta nel
-Capitolo~\ref{cap:conclusioni} è di rendere l'esperimento primario una griglia
-prompting $\times$ decodifica, con il metodo di addestramento come fattore
-successivo.
+\emph{senza aggiornare un solo parametro}. Il miglior risultato con
+reinforcement learning a partire dal modello base è circa $0{,}61$ (few-shot):
+rispetto al punto di partenza ($0{,}1373$) l'escursione totale è di circa
+$0{,}47$, e il solo prompting ne fornisce circa il $70\%$. Ne segue che gran
+parte dell'effetto attribuibile alla ``pipeline'' è in realtà effetto di
+prompting.
 
 \section{Il vocabolario di uscita}
 

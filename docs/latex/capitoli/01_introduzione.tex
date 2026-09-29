@@ -103,17 +103,22 @@ solo training set, ottiene:
 \toprule
 Sistema & ROUGE-L & Exact match \\
 \midrule
-Baseline a regole (nessun apprendimento) & $0{,}9697$ & $0{,}5912$ \\
-SFT (modello addestrato) & $0{,}9749$ & $0{,}8117$ \\
-GRPO da modello base & $0{,}5998$ & $0{,}0499$ \\
+Baseline a regole (nessun apprendimento) & $0{,}9685$ & $0{,}5865$ \\
+SFT (modello addestrato) & $0{,}9681$ & $0{,}7662$ \\
+GRPO da modello base (few-shot) & $0{,}6082$ & $0{,}0544$ \\
+SFT seguito da GRPO (few-shot) & $0{,}9628$ & $0{,}7296$ \\
+SFT con obiettivo di massa ammessa & $0{,}9769$ & $0{,}8341$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 Si legga con attenzione la terza riga: il miglior risultato ottenuto con
-reinforcement learning ($0{,}5998$) sta \emph{molto sotto} una regola che non
-apprende nulla ($0{,}9697$). Persino la trasformazione banale ``metti tutto in
-maiuscolo'' raggiunge ROUGE-L $0{,}6454$, cioè batte il GRPO.
+reinforcement learning a partire dal modello base ($0{,}6082$) sta \emph{molto
+sotto} una regola che non apprende nulla ($0{,}9685$). Persino la trasformazione
+banale ``metti tutto in maiuscolo'' raggiunge ROUGE-L $0{,}6454$, cioè batte il
+GRPO. Sul ROUGE-L, inoltre, l'SFT non si distingue dalla regola ($0{,}9681$
+contro $0{,}9685$): il suo unico vantaggio netto è sull'exact match
+($0{,}7662$ contro $0{,}5865$).
 
 Da qui seguono tre conseguenze che strutturano il resto della relazione:
 
@@ -128,11 +133,10 @@ Da qui seguono tre conseguenze che strutturano il resto della relazione:
         regola. La domanda si riduce a ``il GRPO memorizza una mappa
         quasi-identità meglio dell'SFT?'', che riguarda l'ottimizzazione e non
         la lingua dei segni.
-  \item \textbf{La metrica di riferimento è essa stessa difettosa.} Come
-        mostrato nel Capitolo~\ref{cap:metriche}, l'implementazione di ROUGE-L
-        impiegata è insensibile alle maiuscole e spezza i token sui caratteri
-        non alfanumerici, quindi premia un modello che si limita a copiare
-        l'inglese.
+  \item \textbf{Le metriche di sovrapposizione premiano la copia.} Poiché il
+        gloss è in larga parte l'inglese maiuscolizzato, ROUGE-L e le metriche
+        analoghe assegnano punteggi alti a un modello che si limita a copiare
+        l'ingresso (Capitolo~\ref{cap:metriche}).
 \end{enumerate}
 
 \section{Contributi}
@@ -141,9 +145,8 @@ Al netto del risultato negativo, il lavoro produce alcuni contributi
 verificabili:
 
 \begin{itemize}
-  \item una \textbf{baseline a regole} riutilizzabile
-        (\texttt{src/analysis/rule\_baseline.py}) che rende interpretabili i
-        numeri su questo corpus, insieme a una metrica insensibile alla copia
+  \item una \textbf{baseline a regole} riutilizzabile che rende interpretabili
+        i numeri su questo corpus, insieme a una metrica insensibile alla copia
         (\emph{non-copy-token accuracy});
   \item un \textbf{censimento degli artefatti} del generatore del corpus: il
         $10{,}47\%$ delle righe di training contiene parole corrotte da una
@@ -155,29 +158,25 @@ verificabili:
   \item un risultato \textbf{neuro-simbolico non ovvio}: il vincolo simbolico
         peggiora la metrica di sovrapposizione e contemporaneamente \emph{abilita}
         il segnale di reward (Capitolo~\ref{cap:decoding});
-  \item due \textbf{obiettivi ausiliari} implementati e qualificati prima di
-        essere addestrati, con i relativi criteri di promozione
-        (Capitolo~\ref{cap:ausiliari}).
+  \item due \textbf{obiettivi ausiliari} qualificati prima di essere
+        addestrati (Capitolo~\ref{cap:ausiliari}): l'obiettivo di massa
+        ammessa funziona (SFT con massa ammessa: ROUGE-L $0{,}9769$, exact match
+        $0{,}8341$, contro $0{,}9681$ e $0{,}7662$ dell'SFT semplice), mentre
+        l'obiettivo strutturato fallisce il proprio controllo ($0{,}9430$ e
+        $0{,}6053$).
 \end{itemize}
 
 \section{Come leggere questa relazione}
 
-La relazione è pensata per essere autocontenuta. Il
-Capitolo~\ref{cap:fondamenti} introduce da zero le nozioni teoriche necessarie:
-modelli linguistici autoregressivi, entropia incrociata, adattamento a rango
-basso, apprendimento per rinforzo, gradiente di policy. Chi ha già familiarità
-con questi argomenti può saltarlo.
-
-I capitoli successivi seguono la pipeline: dati
-(Capitolo~\ref{cap:dataset}), modello (Capitolo~\ref{cap:modello}), i due
-metodi di addestramento (Capitoli~\ref{cap:sft} e~\ref{cap:grpo}), il disegno
-delle reward (Capitolo~\ref{cap:reward}), il componente simbolico
+Il Capitolo~\ref{cap:fondamenti} introduce le nozioni teoriche necessarie
+(modelli linguistici autoregressivi, entropia incrociata, adattamento a rango
+basso, gradiente di policy) e può essere saltato da chi le conosce. I capitoli
+successivi seguono la pipeline: dati (Capitolo~\ref{cap:dataset}), modello
+(Capitolo~\ref{cap:modello}), i due metodi di addestramento
+(Capitoli~\ref{cap:sft} e~\ref{cap:grpo}), il disegno delle reward
+(Capitolo~\ref{cap:reward}), il componente simbolico
 (Capitolo~\ref{cap:decoding}), gli obiettivi ausiliari
 (Capitolo~\ref{cap:ausiliari}), le metriche (Capitolo~\ref{cap:metriche}) e i
 risultati (Capitolo~\ref{cap:risultati}). Gli ultimi tre capitoli riguardano
 l'infrastruttura di calcolo, l'organizzazione del codice e le conclusioni.
-
-Ogni capitolo segue lo stesso schema: prima la teoria, poi la scelta
-implementativa, poi il file e la funzione che la realizzano. I valori numerici
-riportati sono tutti misurati; dove un valore non è disponibile è indicato
-esplicitamente con un segnaposto, invece di essere stimato.
+I valori numerici riportati sono tutti misurati.

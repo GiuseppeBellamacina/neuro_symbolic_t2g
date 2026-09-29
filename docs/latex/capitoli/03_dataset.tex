@@ -51,11 +51,8 @@ Le due cifre del vocabolario differiscono perché il filtro scarta forme che non
 possono essere emesse (si veda il Capitolo~\ref{cap:decoding}); l'insieme
 effettivamente usato dal vincolo di decodifica conta $15\,472$ gloss.
 
-Il seed $42$ e la proporzione $90/10$ sono fissati nel codice, non scelti per
-esperimento: ogni numero riportato in questa relazione si riferisce a questa
-suddivisione. Dove è stato necessario riselezionare soglie, è stato usato un
-\emph{secondo} livello di suddivisione interno al solo training set
-($90/10$, seed $1234$), per non contaminare il test.
+Il seed $42$ e la proporzione $90/10$ sono fissati nel codice: ogni numero
+riportato in questa relazione si riferisce a questa suddivisione.
 
 \section{Il corpus è sintetico}
 \label{sec:sintetico}
@@ -184,30 +181,12 @@ In totale $7\,641$ righe di training, ossia il $10{,}47\%$, contengono almeno
 una parola corrotta da questo meccanismo. Una riga su dieci del riferimento
 contiene una forma che nessun segnante userebbe.
 
-Un secondo artefatto è la presenza del token \texttt{20the}, residuo evidente di
-una decodifica mancata della sequenza percent-encoded \texttt{\%20the} nell'URL
-o nel file di origine.
-
-Un terzo riguarda la codifica dei caratteri: $147$ righe su $87\,710$
-($0{,}168\%$) contengono caratteri non ASCII, e $72$ token del vocabolario gloss
-sono non ASCII (fra cui una forma che inizia con il carattere di
-\emph{byte order mark}).
-
-\subsection{Perché il dato non è stato pulito}
-
-È una scelta deliberata, e va motivata perché a prima vista appare
-controintuitiva.
-
-Ripulire questi artefatti cambierebbe il compito. I numeri di riferimento
-pubblicati in letteratura su ASLG-PC12 sono calcolati sul dato \emph{così come
-è}; ripulirlo renderebbe i nostri risultati non confrontabili con quelli. Poiché
-il contributo principale di questo lavoro è mostrare che quei numeri pubblicati
-sono saturi, è necessario misurare sullo stesso dato che li ha prodotti.
-
-Gli artefatti sono quindi documentati e conservati. Costituiscono anzi un
-argomento a favore della tesi centrale: un corpus con il $10\%$ di righe
-corrotte da un bug di sostituzione di stringhe non è un riferimento adeguato per
-valutare la qualità di una traduzione.
+Poiché i riferimenti pubblicati in letteratura sono calcolati sul dato così
+com'è, gli artefatti sono documentati e conservati, in modo che i nostri numeri
+restino confrontabili con quelli. Costituiscono anzi un argomento a favore della
+tesi centrale: un corpus con il $10\%$ di righe corrotte da un bug di
+sostituzione di stringhe non è un riferimento adeguato per valutare la qualità
+di una traduzione.
 
 \section{La baseline a regole}
 \label{sec:baseline-regole}
@@ -218,8 +197,7 @@ relazione.
 
 \subsection{Costruzione}
 
-L'implementazione è in \texttt{src/analysis/rule\_baseline.py}. Il metodo è
-elementare:
+Il metodo è elementare:
 
 \begin{enumerate}
   \item si scorre il \emph{solo training set} e, sulle righe in cui testo e
@@ -228,8 +206,7 @@ elementare:
   \item per ogni parola inglese si conserva il gloss più frequente, ottenendo un
         lessico uno-a-uno di $10\,996$ voci;
   \item si apprendono, con lo stesso conteggio, $13$ \emph{cancellazioni}: parole
-        inglesi che nel gloss non compaiono (fra cui \texttt{the}, \texttt{of} e
-        il già citato \texttt{20the});
+        inglesi che nel gloss non compaiono (fra cui \texttt{the} e \texttt{of});
   \item in inferenza si applica il lessico parola per parola, senza guardare il
         contesto.
 \end{enumerate}
@@ -240,23 +217,9 @@ sono parametri oltre alla tabella.
 
 \subsection{Risultati}
 
-Sul test set completo ($8\,109$ righe):
-
-\begin{center}
-\begin{tabular}{lr}
-\toprule
-Metrica & Valore \\
-\midrule
-ROUGE-L & $0{,}9697$ \\
-Exact match & $0{,}5912$ \\
-Non-copy-token accuracy & $0{,}9428$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-Sul sottoinsieme di $2\,000$ prompt usato per la valutazione dei modelli (per
-consentire il confronto diretto con le tabelle del
-Capitolo~\ref{cap:risultati}):
+Sul sottoinsieme di $2\,000$ prompt usato per la valutazione dei modelli, così
+da consentire il confronto diretto con le tabelle del
+Capitolo~\ref{cap:risultati}:
 
 \begin{center}
 \begin{tabular}{lr}
@@ -266,16 +229,12 @@ Metrica & Valore \\
 ROUGE-L & $0{,}9685$ \\
 Exact match & $0{,}5865$ \\
 Gloss F1 & $0{,}9665$ \\
-BLEU (a frase) & $0{,}8846$ \\
+Non-copy-token accuracy & $0{,}9424$ \\
 BLEU (a corpus) & $0{,}8907$ \\
 chrF & $96{,}47$ \\
 \bottomrule
 \end{tabular}
 \end{center}
-
-Le soglie della baseline sono state riselezionate sulla suddivisione interna di
-sviluppo ($90/10$, seed $1234$, ricavata dal solo training set) per escludere che
-il risultato dipenda da una scelta fortunata: il risultato è rimasto invariato.
 
 \subsection{Il controllo minimale: solo maiuscolo}
 
@@ -298,7 +257,7 @@ Il risultato è duplice. Da un lato, il lessico aggiunge un contributo reale
 ($0{,}65 \to 0{,}97$): la baseline non è banale. Dall'altro, e questo è il punto
 scomodo, un ROUGE-L di $0{,}6454$ è ottenibile \emph{senza fare nulla}, e come si
 vedrà nel Capitolo~\ref{cap:risultati} supera il miglior risultato ottenuto con
-reinforcement learning ($0{,}5998$).
+reinforcement learning a partire dal modello base ($0{,}6082$).
 
 \section{Conseguenze per il disegno sperimentale}
 

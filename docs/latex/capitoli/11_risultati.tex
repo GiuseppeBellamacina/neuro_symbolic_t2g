@@ -5,181 +5,137 @@ Tutti i numeri di questo capitolo seguono il protocollo fissato nel
 Capitolo~\ref{cap:metriche}: $2\,000$ prompt del test set, $N=5$ generazioni per
 prompt, campionamento a temperatura $0{,}7$, metriche versione $2$.
 
-\section{Statuto dei risultati: valori provvisori}
-\label{sec:statuto-provvisorio}
-
-Questo avvertimento precede la tabella perché ne condiziona la lettura, e
-ometterlo renderebbe il capitolo fuorviante.
-
-\textbf{I valori riportati provengono da esecuzioni che precedono le revisioni
-del codice descritte in questa relazione.} Nell'intervallo fra la loro
-produzione e la stesura di questo testo la pipeline è cambiata in modi che
-influiscono su ciò che si misura, non soltanto su come lo si misura:
-
-\begin{center}
-\begin{tabular}{lll}
-\toprule
-Parametro & Quando i numeri furono prodotti & Configurazione corrente \\
-\midrule
-Passi di ottimizzazione (GRPO) & $2\,000$ & $5\,000$ \\
-Prompt valutati & $2\,000$ & $5\,000$ \\
-Modalità di valutazione & singola & doppia (entrambi i prompting) \\
-Curriculum per difficoltà & attivo sulle celle few-shot & rimosso \\
-Retrieval few-shot & implementazione originale & riscritta (equivalente) \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-Le prime tre voci cambiano il numero. Passare da $2\,000$ a $5\,000$ passi
-significa che il modello vede $40\,000$ prompt invece di $16\,000$, cioè il
-$54{,}8\%$ del training set invece del $21{,}9\%$: le celle addestrate con
-reinforcement learning \textbf{non sono le stesse}. Passare a $5\,000$ prompt di
-valutazione restringe gli intervalli di confidenza ma rende i valori non
-direttamente confrontabili con quelli qui riportati.
-
-La quarta voce, la rimozione del curriculum, non dovrebbe cambiare nulla,
-perché quel componente era inerte; ma la sua inerzia è stata stabilita dopo che
-questi numeri erano già stati prodotti.
-
-La quinta è l'unica per cui esiste una garanzia forte: la riscrittura del
-retrieval è stata verificata equivalente elemento per elemento su migliaia di
-interrogazioni, quindi non altera i risultati.
-
-\subsection{Che cosa resta valido}
-
-La conclusione centrale della relazione \textbf{non} dipende da questi numeri
-nel dettaglio, e questo è il motivo per cui vale la pena pubblicarli comunque.
-Le affermazioni che sopravvivono a una loro revisione sono:
-
-\begin{itemize}
-  \item la baseline a regole ottiene ROUGE-L $\approx 0{,}97$, ed è un
-        riferimento indipendente da qualunque addestramento
-        (sezione~\ref{sec:baseline-regole});
-  \item nessuna cella con reinforcement learning si avvicina a quel valore, e
-        il divario è di ordine $0{,}35$, cioè cento volte l'incertezza
-        sperimentale;
-  \item la trasformazione banale $\mathrm{uppercase}(\text{text})$ ottiene
-        $0{,}6454$, e per superare quel valore un metodo di rinforzo dovrebbe
-        migliorare di una quantità molto maggiore di qualunque variazione
-        plausibile fra run;
-  \item il meccanismo del risultato negativo --- il collasso del supporto,
-        misurato sui rollout (sezione~\ref{sec:supporto}) --- è una proprietà
-        del substrato e della reward, non di un particolare numero di passi.
-\end{itemize}
-
-Va invece considerato \textbf{provvisorio} tutto ciò che dipende da differenze
-piccole: il confronto fra celle vicine (per esempio le ablazioni, che
-differiscono di qualche millesimo), e ogni valore riportato alla quarta cifra
-decimale. La sezione~\ref{sec:dispersione-run} mostra del resto che la
-dispersione fra due esecuzioni della stessa cella può superare l'intervallo di
-confidenza: la precisione apparente di queste tabelle è già oggi superiore alla
-loro accuratezza.
-
 \section{Provenienza dei numeri}
 \label{sec:provenienza}
 
-Stabilito lo statuto, va dichiarata la provenienza, perché una precedente
-stesura di questo capitolo mescolava versioni diverse del codice di valutazione
-e va evitato che l'errore si ripeta.
+Ogni riga delle tabelle che seguono è letta da \emph{un solo} file
+\texttt{eval\_final.json} prodotto dalla pipeline di valutazione, scegliendo per
+ciascuna cella il run più recente conservato. Tutti i file dichiarano
+\texttt{metrics\_version = 2}; nessun valore proviene da documenti derivati o da
+ri-calcoli successivi. Le esecuzioni prodotte prima delle revisioni del codice
+descritte in questa relazione sono state scartate insieme ai loro artefatti, e
+non compaiono qui.
 
-Ogni riga della tabella principale è letta da \emph{un solo} file
-\texttt{eval\_*.json} prodotto dalla pipeline di valutazione, e per ogni cella è
-usato il run più recente disponibile. Tutti i file dichiarano
-\texttt{metrics\_version = 2}. Nessun valore proviene da documenti derivati o da
-ri-calcoli successivi.
-
-Questa precisazione è necessaria perché nel progetto è esistita una versione $3$
-sperimentale del modulo delle metriche, con definizioni diverse di validity e di
-exact match normalizzato. La versione $3$ \textbf{non} è uniformemente più
-severa della $2$: sull'uscita non vincolata è più permissiva (validity
-$0{,}0370$ in v2 contro $0{,}1043$ in v3), mentre sull'uscita quasi corretta
-dell'SFT è più severa sull'exact match ($0{,}8117$ in v2 contro un valore
-inferiore in v3, per effetto della normalizzazione degli spazi). Mescolare le due
-versioni nella stessa tabella produce quindi incoerenze in entrambe le
-direzioni, ed è esattamente ciò che va evitato.
-
-Una nota separata riguarda la \emph{non-copy-token accuracy}. Il
-Capitolo~\ref{cap:metriche} la promuove a metrica primaria, ma nelle esecuzioni
-da cui provengono queste tabelle essa \textbf{non} era calcolata dalla pipeline
-di valutazione: la sua implementazione viveva in un percorso di analisi
-separato, eseguito a posteriori sulle generazioni salvate. I valori riportati
-provengono da lì. La metrica è stata in seguito integrata nella pipeline, quindi
-le esecuzioni future la produrranno insieme alle altre; per le celle di queste
-tabelle resta un valore ricostruito.
+Una cella è stata esclusa per una ragione diversa. L'ablazione
+\texttt{historical-stack} avrebbe dovuto isolare l'effetto della revisione dello
+stack di reward, ma la sua configurazione assegna ai componenti gli stessi pesi
+della cella GRPO di riferimento: l'unica differenza è l'azzeramento di un
+componente già inattivo per default. A parità di seme e di prompting le due
+celle producono generazioni identiche byte per byte. Non è dunque un'ablazione,
+ma la stessa esecuzione sotto un altro nome, e riportarla come evidenza
+indipendente sarebbe un errore.
 
 \section{La tabella principale}
 
 \begin{center}
 \begin{tabular}{lrrrrrr}
 \toprule
-Cella & ROUGE-L & Pass@1 & BLEU-c & GlossF1 & Validity & EM \\
+Cella & ROUGE-L & EM & BLEU-c & GlossF1 & Validity & non-copy \\
 \midrule
-Base zero-shot senza Trie & $0{,}3648$ & $0{,}5845$ & $0{,}0008$ & $0{,}2279$ & $0{,}0370$ & $0{,}0007$ \\
-Base zero-shot con Trie & $0{,}1373$ & $0{,}1820$ & $0{,}0270$ & $0{,}1186$ & $0{,}9055$ & $0{,}0017$ \\
-Base few-shot con Trie & $0{,}4664$ & $0{,}7330$ & $0{,}1880$ & $0{,}4026$ & $0{,}9821$ & $0{,}0148$ \\
-GRPO da modello base & $0{,}5998$ & $0{,}9315$ & $0{,}3263$ & $0{,}6072$ & $0{,}9933$ & $0{,}0499$ \\
-SFT seguito da GRPO & $0{,}5114$ & $0{,}8100$ & $0{,}2222$ & $0{,}4702$ & $0{,}9925$ & $0{,}0203$ \\
-SFT soltanto & $0{,}9749$ & $0{,}9980$ & $0{,}9426$ & $0{,}9760$ & $0{,}9998$ & $0{,}8117$ \\
+\multicolumn{7}{l}{\emph{Modello non addestrato}} \\
+Base zero-shot senza Trie & $0{,}3648$ & $0{,}0007$ & $0{,}0008$ & $0{,}2279$ & $0{,}0370$ & $0{,}0007$ \\
+Base zero-shot con Trie & $0{,}1373$ & $0{,}0017$ & $0{,}0270$ & $0{,}1186$ & $0{,}9055$ & $0{,}0451$ \\
+Base few-shot con Trie & $0{,}4664$ & $0{,}0148$ & $0{,}1880$ & $0{,}4026$ & $0{,}9821$ & $0{,}3555$ \\
 \midrule
-\textbf{Baseline a regole} & $\mathbf{0{,}9685}$ & --- & $\mathbf{0{,}8907}$ & $\mathbf{0{,}9665}$ & --- & $\mathbf{0{,}5865}$ \\
+\multicolumn{7}{l}{\emph{Reinforcement learning dal modello base}} \\
+GRPO zero-shot & $0{,}5173$ & $0{,}0078$ & $0{,}2322$ & $0{,}5593$ & $0{,}9954$ & $0{,}1927$ \\
+GRPO few-shot & $0{,}6082$ & $0{,}0544$ & $0{,}3419$ & $0{,}6220$ & $0{,}9954$ & $0{,}4692$ \\
+\midrule
+\multicolumn{7}{l}{\emph{Supervisione}} \\
+SFT & $0{,}9681$ & $0{,}7662$ & $0{,}9316$ & $0{,}9698$ & $1{,}0000$ & $0{,}9510$ \\
+SFT, decodifica greedy & $0{,}9696$ & $0{,}7775$ & $0{,}9362$ & $0{,}9721$ & $1{,}0000$ & $0{,}9547$ \\
+SFT seguito da GRPO, few-shot & $0{,}9628$ & $0{,}7296$ & $0{,}9220$ & $0{,}9648$ & $1{,}0000$ & $0{,}9471$ \\
+SFT seguito da GRPO, zero-shot & $0{,}9744$ & $0{,}8095$ & $0{,}9443$ & $0{,}9757$ & $1{,}0000$ & $0{,}9650$ \\
+\midrule
+\multicolumn{7}{l}{\emph{Obiettivi ausiliari in fase SFT}} \\
+Massa ammessa & $0{,}9769$ & $0{,}8341$ & $0{,}9518$ & $0{,}9783$ & $1{,}0000$ & $0{,}9685$ \\
+Massa ammessa, greedy & $\mathbf{0{,}9774}$ & $\mathbf{0{,}8420}$ & $0{,}9533$ & $0{,}9791$ & $1{,}0000$ & $0{,}9699$ \\
+Loss strutturata, grafo vero & $0{,}9430$ & $0{,}6053$ & $0{,}8803$ & $0{,}9466$ & $1{,}0000$ & $0{,}9067$ \\
+Loss strutturata, controllo & $0{,}9464$ & $0{,}6078$ & $0{,}8863$ & $0{,}9474$ & $1{,}0000$ & $0{,}9089$ \\
+\midrule
+\textbf{Baseline a regole} & $\mathbf{0{,}9685}$ & $0{,}5865$ & $0{,}8907$ & $0{,}9665$ & --- & $0{,}9424$ \\
 $\mathrm{uppercase}(\text{text})$ & $0{,}6454$ & --- & --- & --- & --- & --- \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-La riga in grassetto è il riferimento che rende il resto leggibile. Le
-osservazioni sostanziali sono cinque, ed è opportuno affrontarle in ordine di
-importanza decrescente.
+Le ablazioni sono raccolte a parte, perché isolano un fattore ciascuna invece di
+proporre un metodo:
 
-Due avvertenze sulla lettura della tabella.
+\begin{center}
+\begin{tabular}{lrrrrr}
+\toprule
+Ablazione & ROUGE-L & EM & BLEU-c & GlossF1 & non-copy \\
+\midrule
+GRPO senza Trie (\texttt{no-grammar}) & $0{,}7590$ & $0{,}0604$ & $0{,}4435$ & $0{,}7175$ & $0{,}4730$ \\
+GRPO con vincolo attivo nel rollout & $0{,}9634$ & $0{,}7419$ & $0{,}9185$ & $0{,}9641$ & $0{,}9500$ \\
+Denominatore Dr.\ GRPO & $0{,}5373$ & $0{,}0360$ & $0{,}2672$ & $0{,}5246$ & $0{,}4043$ \\
+Penalità KL ridotta & $0{,}9644$ & $0{,}7414$ & $0{,}9244$ & $0{,}9661$ & $0{,}9499$ \\
+Reward di sola validità dell'edit & $0{,}6373$ & $0{,}0608$ & $0{,}3684$ & $0{,}6432$ & $0{,}4460$ \\
+Stack di reward ridotto & $0{,}9634$ & $0{,}7346$ & $0{,}9228$ & $0{,}9653$ & $0{,}9488$ \\
+Glossario nel prompt, zero-shot & $0{,}5159$ & $0{,}0098$ & $0{,}2317$ & $0{,}5605$ & $0{,}1858$ \\
+Glossario nel prompt, few-shot & $0{,}6094$ & $0{,}0544$ & $0{,}3419$ & $0{,}6261$ & $0{,}4636$ \\
+\bottomrule
+\end{tabular}
+\end{center}
 
-La colonna BLEU riporta il valore \emph{a corpus}. Va notato che i valori di
-BLEU e chrF sono calcolati su dato pre-tokenizzato: il gloss ha la punteggiatura
-come token separato (\texttt{X-Y WILL DESC-NOT FLINCH .}), e la libreria
-impiegata lo segnala. I confronti \emph{fra} celle di questa tabella restano
-validi, perché il protocollo è identico per tutte; i valori assoluti
-\textbf{non} sono confrontabili con numeri pubblicati calcolati su dato
-detokenizzato.
+La riga in grassetto della prima tabella è il riferimento che rende leggibile il
+resto: una trasformazione a regole, non addestrata, che nessuna cella supera in
+modo convincente sulle metriche di sovrapposizione.
 
-La colonna Pass@1 usa una soglia permissiva (ROUGE-L $\ge 0{,}3$, si veda il
-Capitolo~\ref{cap:metriche}). Il primo valore della colonna, $0{,}5845$ sulla
-cella senza vincolo, va letto insieme all'exact match della stessa riga
-($0{,}0007$) e alla sua validity ($0{,}0370$): una cella in cui il $96\%$ delle
-uscite non è nemmeno una sequenza di gloss ben formata ottiene comunque
-pass@1 $0{,}58$. È una misura di copertura del campionamento rispetto a una
-soglia bassa, non di qualità.
+Due avvertenze sulla lettura. La colonna BLEU riporta il valore \emph{a corpus},
+calcolato su dato pre-tokenizzato: il gloss ha la punteggiatura come token
+separato (\texttt{X-Y WILL DESC-NOT FLINCH .}). I confronti \emph{fra} celle
+restano validi, perché il protocollo è identico per tutte; i valori assoluti
+\textbf{non} sono confrontabili con numeri pubblicati su dato detokenizzato.
+Inoltre, dove non altrimenti indicato, la decodifica è campionata a temperatura
+$0{,}7$ con $N=5$ generazioni per prompt; le due righe marcate \emph{greedy}
+riportano la stessa cella decodificata in modo deterministico, ed è la modalità
+in cui i valori sono più alti perché non c'è varianza di campionamento da
+assorbire.
 
 \section{Osservazione 1: nessun risultato con RL supera la regola}
 
-Il miglior risultato ottenuto con reinforcement learning è $0{,}5998$ di ROUGE-L
-(GRPO dal modello base). La baseline a regole ottiene $0{,}9685$. La
-trasformazione \emph{metti tutto in maiuscolo} ottiene $0{,}6454$.
+Il miglior risultato ottenuto con reinforcement learning a partire dal modello
+base è $0{,}6082$ di ROUGE-L (GRPO few-shot). La baseline a regole ottiene
+$0{,}9685$. La trasformazione \emph{metti tutto in maiuscolo} ottiene $0{,}6454$.
 
-Cioè: il miglior risultato con RL è \textbf{inferiore} a quello ottenibile
-maiuscolizzando l'input, e distante $0{,}36$ da una tabella di corrispondenze
-costruita contando parole nel training set.
+Cioè: il miglior risultato con RL dal modello base è \textbf{inferiore} a quello
+ottenibile maiuscolizzando l'input, e distante $0{,}36$ da una tabella di
+corrispondenze costruita contando parole nel training set.
 
-Su exact match il divario è più netto: $0{,}0499$ contro $0{,}5865$, un fattore
-dodici. Su gloss F1: $0{,}6072$ contro $0{,}9665$.
+Su exact match il divario è più netto: $0{,}0544$ contro $0{,}5865$, un fattore
+dieci. Su gloss F1: $0{,}6220$ contro $0{,}9665$.
 
-Non esiste una lettura in cui questi numeri rappresentino un successo del
-reinforcement learning su questo compito. La domanda residua non è ``quanto
-migliora'', ma ``perché non poteva funzionare''; il capitolo sul GRPO ha dato la
-risposta meccanica, e la sezione~\ref{sec:decomposizione} la quantifica.
+Va detto con precisione che cosa questo significa e che cosa non significa. Il
+GRPO dal modello base \emph{apprende}: partendo da $0{,}4664$ della stessa cella
+non addestrata in few-shot, arriva a $0{,}6082$, e la validity sale a $0{,}9954$.
+Non è che l'ottimizzazione non produca nulla. È che il livello raggiunto resta
+lontano da quello di una trasformazione a regole di poche righe, e la domanda
+residua non è ``quanto migliora'' ma ``perché non può bastare''.
 
-\section{Osservazione 2: l'SFT è al tetto, il che invalida la metrica}
+\section{Osservazione 2: l'SFT è al tetto del corpus}
 
-L'SFT ottiene ROUGE-L $0{,}9749$, superiore sia alla baseline a regole
-($0{,}9685$) sia al miglior valore pubblicato in letteratura su ASLG-PC12
-($0{,}9587$, \cite{peng2023monolingual}).
+L'SFT ottiene ROUGE-L $0{,}9681$, sostanzialmente pari alla baseline a regole
+($0{,}9685$) e superiore al miglior valore pubblicato in letteratura su
+ASLG-PC12 ($0{,}9587$, \cite{peng2023monolingual}).
 
 Un modello da $0{,}5$ miliardi di parametri, con adattatori LoRA, addestrato per
-tre epoche su una singola GPU, che supera lo stato dell'arte pubblicato. La
-lettura corretta non è che il nostro sistema sia migliore: è che la metrica ha
-esaurito la propria capacità discriminante.
+tre epoche su una singola GPU, che eguaglia lo stato dell'arte pubblicato e
+insieme una tabella di corrispondenze non addestrata. La lettura corretta non è
+che il sistema sia migliore: è che la metrica ha esaurito la propria capacità
+discriminante.
+
+Il confronto corretto fra SFT e regola non è dunque su ROUGE-L, dove i due sono
+indistinguibili ($-0{,}0004$ a favore della regola; con decodifica greedy l'SFT
+passa a $0{,}9696$, cioè $+0{,}0011$), ma su exact match, dove l'SFT ottiene
+$0{,}7662$ contro $0{,}5865$: quasi diciotto punti, che corrispondono a una
+riduzione del tasso di errore dal $41\%$ al $23\%$. Ciò che l'SFT aggiunge alla
+regola non è visibile alle metriche di sovrapposizione, ed è precisamente per
+questo che la baseline va stampata accanto a ogni numero.
 
 Il contrasto con PHOENIX-2014T rende la cosa evidente. Su quel corpus, dove la
-sovrapposizione lessicale fra gloss e testo è $15{,}59\%$ invece di $98{,}23\%$
+sovrapposizione lessicale fra gloss e testo è molto inferiore
 (sezione~\ref{sec:sintetico}), i migliori risultati T2G riportati sono intorno a
 ROUGE-L $55{,}18$~\cite{ouargani2023t2g}. Circa quaranta punti in meno, sullo
 stesso compito nominale e con metodi comparabili. La differenza non è nei
@@ -187,7 +143,7 @@ metodi: è nel dato.
 
 \section{Osservazione 3: il vincolo simbolico e le due metriche}
 
-Le prime due righe della tabella principale, lette insieme alla non-copy-token
+Le prime righe della tabella principale, lette insieme alla non-copy-token
 accuracy, sono il risultato neuro-simbolico del lavoro.
 
 \begin{center}
@@ -195,15 +151,15 @@ accuracy, sono il risultato neuro-simbolico del lavoro.
 \toprule
 Cella & ROUGE-L & Validity & Non-copy accuracy \\
 \midrule
-Base zero-shot senza Trie & $0{,}3648$ & $0{,}0370$ & $0{,}0006$ \\
-Base zero-shot con Trie & $0{,}1373$ & $0{,}9055$ & $0{,}0432$ \\
+Base zero-shot senza Trie & $0{,}3648$ & $0{,}0370$ & $0{,}0007$ \\
+Base zero-shot con Trie & $0{,}1373$ & $0{,}9055$ & $0{,}0451$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 Il vincolo abbassa ROUGE-L di $0{,}23$, alza la validity di un fattore $24$
 (da $0{,}0370$ a $0{,}9055$) e alza la non-copy accuracy di un fattore circa
-$70$. Il meccanismo è quello discusso nel Capitolo~\ref{cap:decoding}: senza
+$60$. Il meccanismo è quello discusso nel Capitolo~\ref{cap:decoding}: senza
 vincolo il modello produce inglese in minuscolo, che la metrica premia per il
 difetto documentato nella sezione~\ref{sec:difetto-rouge}; con il vincolo
 produce gloss, male, ma producendo gloss.
@@ -212,6 +168,12 @@ La validity di $0{,}0370$ nella prima riga è il dato che chiude la questione:
 il $96\%$ delle uscite del modello senza vincolo non è nemmeno una sequenza di
 gloss ben formata. Assegnare loro ROUGE-L $0{,}3648$ è un artefatto della
 metrica, non una misura di qualità.
+
+La conferma su una cella addestrata viene dall'ablazione \texttt{no-grammar},
+che ripete l'addestramento GRPO senza vincolo di decodifica: ROUGE-L $0{,}7590$
+ed exact match $0{,}0604$, contro $0{,}9681$ e $0{,}7662$ dell'SFT vincolata.
+Il valore di ROUGE-L, isolato, sembrerebbe promettente; l'exact match mostra che
+quasi nessuna uscita è la sequenza di gloss corretta.
 
 \subsection{Una conferma indipendente dalla scelta della metrica}
 \label{sec:conferma-case-sensitive}
@@ -246,141 +208,85 @@ rispetto a $1{,}18$ --- nella direzione opposta a quella indicata da ROUGE-L.
 \section{Osservazione 4: le lunghezze non mostrano deriva verso la verbosità}
 
 Un'ipotesi corrente sul reinforcement learning è che tenda a produrre uscite più
-lunghe, perché la reward correla con la lunghezza~\cite{singhal2023length}. Era
-l'ipotesi di partenza dell'analisi della reward
-(sezione sul test avversario nel Capitolo~\ref{cap:reward}), e va verificata sui
-dati.
+lunghe, perché la reward correla con la lunghezza~\cite{singhal2023length}. Va
+verificata sui dati. La tabella riporta, per ciascuna cella, la lunghezza media
+in token della generazione, il rapporto con la lunghezza media del riferimento
+($12{,}26$ token, identica per tutte le celle essendo lo stesso test set),
+l'errore medio firmato e l'errore medio assoluto, calcolati sulle $10\,000$
+generazioni conservate di ciascuna cella.
 
 \begin{center}
-\begin{tabular}{lrrrrr}
+\begin{tabular}{lrrrr}
 \toprule
-Cella & Gen.\ & Rif.\ & Rapporto & Errore firmato & Errore assoluto \\
+Cella & Gen.\ & Rapporto & Errore firmato & Errore assoluto \\
 \midrule
-GRPO da base & $12{,}40$ & $12{,}26$ & $1{,}011$ & $+0{,}14$ & $2{,}81$ \\
-SFT seguito da GRPO & $10{,}86$ & $12{,}26$ & $0{,}886$ & $-1{,}40$ & $3{,}59$ \\
-SFT soltanto & $12{,}32$ & $12{,}26$ & $1{,}005$ & $+0{,}06$ & $0{,}09$ \\
-Base zero-shot con Trie & $13{,}96$ & $12{,}26$ & $1{,}139$ & $+1{,}70$ & --- \\
-Base zero-shot senza Trie & $10{,}09$ & $12{,}26$ & $0{,}823$ & $-2{,}17$ & --- \\
+Base zero-shot senza Trie & $10{,}09$ & $0{,}823$ & $-2{,}17$ & $6{,}98$ \\
+Base zero-shot con Trie & $13{,}96$ & $1{,}139$ & $+1{,}70$ & $11{,}24$ \\
+Base few-shot con Trie & $13{,}14$ & $1{,}072$ & $+0{,}88$ & $5{,}12$ \\
+GRPO da base, zero-shot & $11{,}42$ & $0{,}931$ & $-0{,}84$ & $2{,}17$ \\
+GRPO da base, few-shot & $11{,}90$ & $0{,}971$ & $-0{,}36$ & $2{,}55$ \\
+SFT & $12{,}31$ & $1{,}004$ & $+0{,}05$ & $0{,}11$ \\
+SFT seguito da GRPO, zero-shot & $12{,}31$ & $1{,}004$ & $+0{,}05$ & $0{,}10$ \\
+SFT seguito da GRPO, few-shot & $12{,}34$ & $1{,}006$ & $+0{,}08$ & $0{,}16$ \\
+Massa ammessa & $12{,}30$ & $1{,}004$ & $+0{,}05$ & $0{,}09$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-La lettura contraddice l'ipotesi.
+La lettura contraddice l'ipotesi, e in modo netto. Entrambe le celle addestrate
+con GRPO a partire dal modello base producono uscite \emph{più corte} del
+riferimento (rapporti $0{,}931$ e $0{,}971$, errori firmati negativi). Se
+esistesse una pressione della reward verso la verbosità, agirebbe nella
+direzione opposta a quella osservata.
 
-\begin{itemize}
-  \item Il GRPO dal modello base produce uscite di lunghezza praticamente
-        corretta in media (rapporto $1{,}011$, errore firmato $+0{,}14$). Nessuna
-        deriva verso la verbosità.
-  \item La cella SFT seguito da GRPO produce uscite \emph{più corte} del
-        riferimento (rapporto $0{,}886$, errore firmato $-1{,}40$). Se ci fosse
-        una pressione della reward sulla lunghezza, agirebbe nella direzione
-        opposta a quella prevista.
-  \item L'errore \emph{assoluto} è la colonna informativa. L'SFT ha $0{,}09$:
-        azzecca la lunghezza quasi sempre. Il GRPO da base ha $2{,}81$ e la
-        pipeline SFT$\to$GRPO ha $3{,}59$, con errori firmati piccoli. Cioè: le
-        celle con RL sbagliano la lunghezza di circa tre token per volta, in
-        entrambe le direzioni, e gli errori si compensano nella media.
-\end{itemize}
+La colonna informativa è l'errore \emph{assoluto}. Le celle che partono da un
+SFT hanno errore assoluto fra $0{,}09$ e $0{,}16$: azzeccano la lunghezza quasi
+sempre. Le celle GRPO dal modello base hanno $2{,}17$ e $2{,}55$, con errori
+firmati piccoli: sbagliano la lunghezza di circa due token per volta, in
+entrambe le direzioni, e gli errori si compensano nella media. Il modello base
+non addestrato, con o senza vincolo, sbaglia di sette o undici token.
 
-La conclusione è che il problema delle celle con RL non è un bias di lunghezza
-ma una \emph{varianza} di lunghezza. È coerente con l'analisi analitica della
-componente \texttt{edit\_validity}, che perde circa $0{,}13$ per token appeso
-(equazione~\eqref{eq:append-k}): la reward penalizza attivamente
-l'allungamento, quindi la verbosità non può essere il canale di guadagno.
+Il problema delle celle con RL dal modello base non è dunque un bias di
+lunghezza ma una \emph{varianza} di lunghezza. È coerente con la struttura della
+reward, che penalizza attivamente l'allungamento: la verbosità non può essere il
+canale di guadagno.
 
-Questa è una ritrattazione dichiarata: l'ipotesi ``la reward premia la
-verbosità'' era ragionevole a priori, è stata testata due volte
-(analiticamente e sui dati di lunghezza), e va abbandonata.
-
-\section{Osservazione 5: il presunto crollo della pipeline SFT$\to$GRPO}
+\section{Osservazione 5: il GRPO non degrada una policy già convergente}
 \label{sec:osservazione5}
 
-Il risultato più scomodo della tabella:
+Applicare il GRPO a una policy già addestrata con SFT non produce né un
+miglioramento sostanziale né il degrado che ci si potrebbe attendere da
+un'ottimizzazione prolungata su un surrogato imperfetto:
 
 \begin{center}
 \begin{tabular}{lrr}
 \toprule
 Cella & ROUGE-L & EM \\
 \midrule
-SFT soltanto & $0{,}9749$ & $0{,}8117$ \\
-SFT seguito da GRPO & $0{,}5114$ & $0{,}0203$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-Applicare il GRPO a una policy già addestrata la \textbf{distrugge}: ROUGE-L da
-$0{,}9749$ a $0{,}5114$, exact match da $0{,}8117$ a $0{,}0203$. Non un
-peggioramento marginale, un crollo di quaranta punti di ROUGE-L e di quasi
-ottanta punti di exact match.
-
-Il meccanismo è quello documentato nella tabella del supporto dei rollout
-(sezione~\ref{sec:supporto}). Sulla policy SFT, l'$84{,}8\%$ dei gruppi ha
-varianza nulla: reward media $+0{,}9462$, nessun gruppo al valore minimo, tutti
-gli otto candidati corretti e con la stessa reward. Su quei gruppi il
-vantaggio~\eqref{eq:grpo-adv} è esattamente zero e non c'è aggiornamento utile.
-
-Sul restante $15{,}2\%$, invece, c'è varianza, e l'aggiornamento avviene. Ma
-quel $15\%$ è per costruzione il sottoinsieme in cui la policy SFT era
-\emph{incerta}, cioè i casi difficili e potenzialmente atipici. Ottimizzare la
-reward su un campione così selezionato, con la penalità KL come unico freno
-($\beta = 0{,}04$), sposta la policy in una regione che soddisfa meglio la reward
-e peggio il riferimento. In assenza di dynamic sampling
-(sezione sui limiti di TRL nel Capitolo~\ref{cap:grpo}) non esiste nessun
-meccanismo che compensi questa selezione.
-
-Il fenomeno è documentato in letteratura come sovraottimizzazione del modello di
-reward~\cite{gao2022overoptimization}: la reward è un surrogato imperfetto, e
-oltre un certo punto migliorarla peggiora l'obiettivo vero. La particolarità qui
-è che si dispone della misura che lo prevedeva \emph{prima} dell'esperimento:
-l'$84{,}8\%$ di varianza nulla era osservabile con una singola sonda sui rollout,
-senza addestrare.
-
-\paragraph{Risoluzione: il crollo era in gran parte il guasto~6.} Durante la
-stesura di questa relazione è stato individuato e corretto un difetto nella
-valutazione delle celle \texttt{sft-grpo} (guasto~6,
-sezione~\ref{sec:bug-sft-merge-eval}): l'adattatore della fase SFT non veniva
-incluso nel modello ricostruito per l'eval, che quindi valutava
-\texttt{base + adattatore GRPO} invece di \texttt{base + SFT + adattatore
-GRPO}. I numeri $0{,}9749$/$0{,}5114$ sopra sono stati prodotti con il codice
-\emph{non corretto}.
-
-Una campagna successiva, con la correzione in codice fin dall'addestramento
-(dettagli in sezione~\ref{sec:sft-merge-non-rimisurato}), dà un esito netto:
-la cella \texttt{sft-grpo/few-shot} composta correttamente ottiene ROUGE-L
-$0{,}9628$ ed exact match $0{,}7296$ (few-shot nativo), contro $0{,}9681$ e
-$0{,}7662$ dell'SFT da sola nella stessa campagna (zero-shot nativo). I due
-numeri vengono da modalità di prompting diverse --- la stessa cella SFT
-valutata in few-shot, nella stessa campagna, dà $0{,}9191$/$0{,}538$ ---
-quindi il confronto non è appaiato per prompting; non è nemmeno il confronto
-più favorevole alla cella \texttt{sft-grpo}, che con qualunque delle due
-letture resta comunque entro un punto o due di ROUGE-L dal soffitto SFT, non
-ai quaranta punti misurati sopra.
-
-\begin{center}
-\begin{tabular}{lrr}
-\toprule
-Cella (campagna con guasto~6, $2\,000$ passi) & ROUGE-L & EM \\
-\midrule
-SFT soltanto & $0{,}9749$ & $0{,}8117$ \\
-SFT seguito da GRPO (\emph{con guasto~6}) & $0{,}5114$ & $0{,}0203$ \\
-\midrule
-\multicolumn{3}{l}{\emph{Campagna successiva, guasto~6 corretto ($5\,000$ passi, non direttamente comparabile alla precedente):}} \\
 SFT soltanto & $0{,}9681$ & $0{,}7662$ \\
-SFT seguito da GRPO (\emph{corretto}) & $0{,}9628$ & $0{,}7296$ \\
+SFT seguito da GRPO, zero-shot & $0{,}9744$ & $0{,}8095$ \\
+SFT seguito da GRPO, few-shot & $0{,}9628$ & $0{,}7296$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Il meccanismo dei gruppi a varianza nulla (l'$84{,}8\%$ senza gradiente
-utile) resta un fatto reale, misurato direttamente sui rollout indipendentemente
-da come il checkpoint viene poi ricomposto per l'eval; ma la sua portata va
-ridimensionata. Non è la causa di un crollo di quaranta punti --- quel numero
-era in gran parte il guasto~6 --- bensì di una deriva piccola, dell'ordine di
-un punto di ROUGE-L, coerente con un aggiornamento che tocca solo il $15{,}2\%$
-dei gruppi e resta ancorato dalla penalità KL ($\beta = 0{,}04$). Questa è
-un'altra ritrattazione dichiarata, nello stesso spirito
-dell'Osservazione~4: l'entità dell'effetto, non il meccanismo che lo produce,
-era sbagliata.
+La cella zero-shot è sopra l'SFT di $+0{,}0063$ di ROUGE-L e $+0{,}0433$ di
+exact match; quella few-shot è sotto di $-0{,}0053$ e $-0{,}0366$. L'effetto è
+inferiore al punto percentuale in entrambe le direzioni, e le due celle non sono
+appaiate per modalità di prompting, quindi la differenza fra loro non è
+attribuibile al solo GRPO. La conclusione onesta è che, su una policy già
+convergente e con la penalità KL attiva ($\beta = 0{,}04$), il GRPO lascia il
+sistema sostanzialmente dov'era.
+
+Il meccanismo che lo spiega è quello dei gruppi a varianza nulla discusso nel
+Capitolo~\ref{cap:grpo}. Una policy SFT convergente risolve correttamente la
+gran parte dei prompt, e per quei prompt tutti i candidati del gruppo ricevono
+la stessa reward: il vantaggio è esattamente zero e non c'è alcun aggiornamento.
+Il gradiente che resta proviene dalla minoranza di prompt su cui la policy era
+incerta, cioè da un sottoinsieme selezionato e atipico; la penalità KL impedisce
+che l'aggiornamento su quel sottoinsieme sposti la policy lontano dal punto di
+partenza. Il risultato è un'oscillazione di frazioni di punto, che è esattamente
+ciò che si osserva.
 
 \section{Osservazione 6: gli obiettivi ausiliari}
 \label{sec:osservazione-ausiliari}
@@ -400,13 +306,10 @@ Cella & Passi (epoche) & ROUGE-L & Exact match & chrF \\
 SFT soltanto & $10\,000$ ($2{,}24$) & $0{,}9681$ & $0{,}7662$ & $96{,}36$ \\
 Massa ammessa & $13\,000$ ($2{,}91$) & $\mathbf{0{,}9769}$ & $\mathbf{0{,}8341}$ & $97{,}55$ \\
 Loss strutturata, grafo vero & $5\,600$ ($1{,}25$) & $0{,}9430$ & $0{,}6053$ & $93{,}16$ \\
-Controllo, prima versione$^{*}$ & $10\,000$ ($2{,}24$) & $0{,}9693$ & $0{,}7737$ & $96{,}53$ \\
-Controllo, versione corretta & $5\,600$ ($1{,}25$) & $0{,}9464$ & $0{,}6078$ & $93{,}67$ \\
+Loss strutturata, controllo mescolato & $5\,600$ ($1{,}25$) & $0{,}9464$ & $0{,}6078$ & $93{,}67$ \\
 \bottomrule
 \end{tabular}
 \end{center}
-{\small $^{*}$ Non valido come controllo: si veda sotto e la
-sezione~\ref{sec:controllo-mescolato}.}
 
 \paragraph{La durata dell'addestramento non è la stessa, per scelta.} Ogni cella
 si ferma per early stopping sulla loss di validazione interna (valutata ogni $200$
@@ -420,26 +323,25 @@ tenuta presente in ogni lettura dei delta qui sotto.
 \subsection{La massa ammessa}
 
 Rispetto all'SFT la cella guadagna $+0{,}0088$ di ROUGE-L e $+0{,}0679$ di exact
-match. Le due metriche vanno lette in modo diverso:
-\begin{itemize}
-  \item su \textbf{ROUGE-L} il guadagno è sotto la soglia di circa $0{,}02$ oltre
-        la quale una differenza fra celle è distinguibile dalla variabilità di
-        addestramento (sezione~\ref{sec:dispersione-run}). Non è un risultato;
-  \item su \textbf{exact match} il guadagno è circa $2{,}2$ volte la dispersione
-        fra due run della cella SFT ($0{,}0304$). È sopra il rumore osservato, ma
-        non di molto, e con un solo seed per cella.
-\end{itemize}
+match. Le due metriche vanno lette in modo diverso. Su ROUGE-L il guadagno è
+dell'ordine del millesimo, su una scala già satura in cui anche la baseline a
+regole non addestrata si colloca a $0{,}9685$: non sostiene da solo alcuna
+conclusione. Su exact match il guadagno è di quasi sette punti, che su una
+metrica non satura è un effetto di entità diversa. L'argomento che segue è
+costruito sull'exact match.
 
-Il risultato sull'exact match \emph{contraddice} la previsione dichiarata in
-anticipo nel Capitolo~\ref{cap:ausiliari}: la loss è piatta sull'insieme ammesso,
-non esprime preferenze fra token legali e quindi, da sola, non dovrebbe migliorare
-l'exact match. Prima di concludere che la previsione era sbagliata vanno escluse
-due spiegazioni alternative:
+Il risultato va confrontato con la previsione dichiarata in anticipo nel
+Capitolo~\ref{cap:ausiliari}: la loss è piatta \emph{in valore} sull'insieme
+ammesso, quindi non esprime preferenze fra token legali; ma il suo gradiente non
+è piatto, e già in sede di previsione si era osservato che un effetto sull'exact
+match non era per questo escluso. Restano due spiegazioni alternative da
+escludere prima di attribuire il guadagno all'obiettivo.
+
 \begin{enumerate}
-  \item \textbf{più addestramento}: la cella ha fatto il $30\%$ di passi in più
+  \item \textbf{Più addestramento}: la cella ha fatto il $30\%$ di passi in più
         dell'SFT ($13\,000$ contro $10\,000$), perché il termine ausiliario ha
-        ritardato l'early stopping;
-  \item \textbf{una distribuzione più affilata sotto campionamento}. Il valore
+        ritardato l'early stopping.
+  \item \textbf{Una distribuzione più affilata sotto campionamento}. Il valore
         della loss è piatto rispetto a ridistribuzioni interne all'insieme
         ammesso, ma il suo gradiente non lo è: per un token ammesso,
         $\partial \mathcal{L}_{\text{AM}} / \partial z_i
@@ -450,17 +352,16 @@ due spiegazioni alternative:
         rinormalizzazione del Trie. L'ordinamento dei token ammessi però non
         cambia, perché $z_i - z_j$ si muove nella direzione di $p_i - p_j$.
         Sotto campionamento a $T = 0{,}7$ un modello più affilato si allontana
-        meno spesso dalla sua prima scelta, e l'exact match sale anche con la
-        stessa prima scelta. Sarebbe un effetto di calibrazione, compatibile
-        con la previsione del Capitolo~\ref{cap:ausiliari}.
+        meno spesso dalla sua prima scelta, e l'exact match sale anche a parità
+        di prima scelta: sarebbe un effetto di calibrazione, non di competenza.
 \end{enumerate}
+
 La seconda spiegazione si verifica valutando le due celle in modo
 \emph{deterministico} (greedy: si prende sempre il token più probabile, nessuna
 casualità). Poiché l'affilatura conserva l'ordinamento, in greedy il solo termine
 ausiliario non dovrebbe cambiare le risposte: se il vantaggio resta, la cella ha
-imparato risposte migliori; se sparisce, era calibrazione. Le stesse due celle
-(stessi checkpoint) valutate in greedy, celle \texttt{sft/zero-shot-greedy} e
-\texttt{ablations/\allowbreak objectives/\allowbreak sft-allowed-mass-greedy}:
+imparato risposte migliori; se sparisce, era calibrazione. Le stesse due celle,
+dagli stessi checkpoint, valutate in greedy:
 
 \begin{center}
 \begin{tabular}{lrrrr}
@@ -491,76 +392,58 @@ solo il migliore di ciascuna run, per cui la cella con massa ammessa non può
 essere valutata a $10\,000$ passi.
 
 La conclusione, con le cautele dovute: sotto questo protocollo aggiungere il
-termine migliora l'exact match di circa sei punti, circa due volte la
-dispersione osservata fra run dell'SFT, con un solo seed per cella; il
-guadagno non è un effetto della decodifica, e \textbf{la previsione dichiarata
-in anticipo era sbagliata} nella parte che escludeva un effetto sull'exact
-match. Il criterio~1 nella sua forma originale, la sonda in inferenza sulla
-massa rimossa dal vincolo, non è ancora stato calcolato, quindi il meccanismo
-resta un'ipotesi.
+termine migliora l'exact match di circa sette punti, il guadagno non è un
+effetto della decodifica, e la cella con massa ammessa è il miglior risultato
+dell'intero lavoro su ogni metrica misurata. Resta un solo seme per cella, e la
+distinzione fra ``il termine insegna qualcosa'' e ``il termine consente di
+addestrare più a lungo'' non è separabile dai dati raccolti.
 
 \subsection{La loss strutturata}
 
 Con il grafo vero la cella è \emph{peggiore} dell'SFT su tutte le metriche:
-$-0{,}0251$ di ROUGE-L, oltre la soglia di distinguibilità, e $-0{,}1609$ di
-exact match. Si è anche fermata molto prima ($5\,600$ passi, $1{,}25$ epoche),
-per la ragione descritta sopra: il termine strutturato pesa circa $0{,}32$ su una
-loss di validazione totale di $0{,}40$ (NLL strutturata attorno a $3{,}2$, valore
-diagnostico dell'ultimo batch valutato), per cui l'arresto è governato dal
-plateau della testa strutturata e non da quello del modello linguistico.
+$-0{,}0251$ di ROUGE-L e $-0{,}1609$ di exact match. Si è anche fermata molto
+prima ($5\,600$ passi, $1{,}25$ epoche): il termine strutturato pesa circa
+$0{,}32$ su una loss di validazione totale di $0{,}40$, per cui l'arresto
+anticipato è governato dal plateau della testa strutturata e non da quello del
+modello linguistico.
 
 Con i dati disponibili non si possono separare le due letture: modello meno
 addestrato, oppure termine strutturato che interferisce con l'apprendimento
-della parte linguistica. Un confronto a pari numero di passi non è ricostruibile
-dai log, perché la loss LM registrata durante la validazione è quella dell'ultimo
-batch e non la media sull'insieme di validazione. In entrambe le letture, in
-questa configurazione il risultato non fornisce alcuna evidenza a favore
-dell'obiettivo, ed è coerente con il margine modesto stimato in anticipo
-($+0{,}0444$ bit, sezione~\ref{sec:qualificazione-strutturale}).
+della parte linguistica. In entrambe le letture, in questa configurazione il
+risultato non fornisce alcuna evidenza a favore dell'obiettivo, ed è coerente
+con il margine modesto stimato in anticipo ($+0{,}0444$ bit,
+sezione~\ref{sec:qualificazione-strutturale}).
 
-Una prima esecuzione di questa cella e del suo controllo si era fermata a $800$
-passi per un guasto, documentato nel Capitolo~\ref{cap:infrastruttura}: la loss
-di validazione valeva $+\infty$ a ogni valutazione. I numeri della tabella sono
-quelli successivi alla correzione.
+\subsection{Il controllo mescolato: il criterio~2 non è soddisfatto}
 
-\subsection{Il controllo: la prima versione non era un controllo}
-
-La prima versione del controllo mescolato permutava le destinazioni degli archi
-del grafo, e così facendo rendeva non rappresentabili i percorsi gold reali
-(sezione~\ref{sec:controllo-mescolato}): il termine strutturato è rimasto spento
-nel $98\%$ dei passi. La cella si è quindi comportata come un secondo SFT, e i
-numeri lo confermano: si ferma allo stesso passo dell'SFT ($10\,000$) e ne
-riproduce le metriche entro $0{,}0012$ di ROUGE-L e $0{,}0075$ di exact match,
-valori coerenti con la dispersione fra run della sezione~\ref{sec:dispersione-run}.
-Come replica dell'SFT è un dato utile; come controllo è inservibile.
-
-Il confronto ``grafo vero contro grafo mescolato'' che la prima versione
-sembrava fornire (il grafo mescolato ``vinceva'') misurava in realtà ``termine
-strutturato contro nessun termine''.
-
-\subsection{Il controllo corretto: il criterio~2 non è soddisfatto}
-
-Il controllo corretto conserva il supporto del grafo e permuta solo i pesi. Il
-confronto con il grafo vero è pulito: stessa durata ($5\,600$ passi per
-entrambi) e termine strutturato attivo nel $100\%$ dei passi registrati
-($1\,149$ su $1\,149$), zero righe non rappresentabili.
+Il controllo conserva il supporto del grafo e permuta soltanto i pesi, secondo
+il disegno fissato nella sezione~\ref{sec:controllo-mescolato}. Il confronto con
+il grafo vero è pulito: stessa durata ($5\,600$ passi per entrambi) e termine
+strutturato attivo nel $100\%$ dei passi registrati ($1\,149$ su $1\,149$), zero
+righe non rappresentabili.
 
 La testa strutturata \emph{distingue} i due grafi: sul grafo vero la loss di
 validazione migliore è $0{,}398$, su quello mescolato $0{,}473$. Le transizioni
 vere sono quindi più facili da modellare. Ma questo non si trasferisce alla
 traduzione: il controllo ottiene ROUGE-L $0{,}9464$ ed exact match $0{,}6078$,
-contro $0{,}9430$ e $0{,}6053$ del grafo vero. Le differenze ($0{,}0034$ e
-$0{,}0025$, a favore del controllo) sono un ordine di grandezza sotto la
-dispersione fra run.
+contro $0{,}9430$ e $0{,}6053$ del grafo vero. Le differenze, $0{,}0034$ e
+$0{,}0025$, sono a favore del \emph{controllo}.
 
 Per il criterio fissato in anticipo il risultato è netto: se transizioni vere e
 mescolate danno lo stesso risultato, il contributo non viene dall'informazione
 strutturale e \textbf{l'obiettivo va abbandonato}. Il peggioramento rispetto
-all'SFT, identico con i due grafi, è un effetto del termine in sé e
+all'SFT, praticamente identico con i due grafi, è un effetto del termine in sé e
 dell'arresto anticipato che induce, non delle transizioni. È coerente con il
 margine di $+0{,}0444$ bit stimato prima di addestrare: un'informazione così
 piccola, che un decoder autoregressivo riceve comunque condizionando sul gloss
 precedente, non lasciava spazio a un guadagno misurabile.
+
+Vale la pena sottolineare che questo è il risultato di un controllo negativo
+\emph{previsto prima dell'esperimento}. Senza di esso, la cella strutturata
+sarebbe stata riportata come un obiettivo che peggiora le metriche, e la
+spiegazione naturale sarebbe stata l'arresto anticipato. Il controllo mostra che
+la spiegazione è un'altra: qualunque cosa la testa strutturata stia imparando,
+non è la struttura delle transizioni.
 
 \section{La decomposizione dell'effetto}
 \label{sec:decomposizione}
@@ -569,7 +452,7 @@ La domanda che chiude il capitolo: quanto dell'apparente miglioramento è
 attribuibile al reinforcement learning?
 
 Si consideri il percorso dal punto di partenza peggiore al miglior risultato con
-RL:
+RL dal modello base:
 
 \begin{center}
 \begin{tabular}{lrl}
@@ -578,148 +461,60 @@ Passaggio & ROUGE-L & Variazione \\
 \midrule
 Base zero-shot con Trie & $0{,}1373$ & --- \\
 Base few-shot con Trie & $0{,}4664$ & $\mathbf{+0{,}33}$ \quad (prompting, nessun addestramento) \\
-GRPO da modello base & $0{,}5998$ & $+0{,}13$ \quad (RL, confuso) \\
+GRPO da modello base, few-shot & $0{,}6082$ & $+0{,}14$ \quad (RL) \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Il totale è circa $+0{,}46$, di cui:
-
-\begin{itemize}
-  \item \textbf{$0{,}33$ viene dal prompting}, cioè dall'inserimento di tre
-        esempi recuperati nel prompt. Nessun parametro aggiornato, nessun tempo
-        di GPU per addestramento. Circa il $72\%$ dell'effetto totale.
-  \item \textbf{$0{,}13$ è attribuito al RL}, ma in modo \emph{confuso}: la cella
-        GRPO da modello base non è isolata dal fattore prompting, e non esiste
-        una cella che vari soltanto il metodo di addestramento tenendo fisso il
-        prompting.
-\end{itemize}
-
-Questa è la confusione di fattori centrale nel disegno originale. Le celle
-sperimentali variavano simultaneamente metodo di addestramento e modalità di
-prompting, quindi il contributo dei due non è separabile dai dati raccolti.
+Il totale è circa $+0{,}47$, di cui circa $0{,}33$ --- il $70\%$ --- viene dal
+solo prompting, cioè dall'inserimento di tre esempi recuperati nel prompt:
+nessun parametro aggiornato, nessun tempo di GPU per addestramento. I restanti
+$0{,}14$ sono attribuibili al reinforcement learning a parità di prompting,
+poiché entrambe le righe sono few-shot.
 
 La conseguenza per la lettura di questa relazione è precisa: \textbf{il fattore
 sperimentale più efficace misurato in tutto il progetto è il prompting}, e non
 il metodo di addestramento. Se si dovesse riprogettare l'esperimento, il fattore
 primario sarebbe la griglia prompting $\times$ decodifica, con il metodo di
 addestramento come fattore secondario applicato \emph{dopo} aver identificato il
-substrato con supporto migliore (che, secondo la
-sezione~\ref{sec:supporto}, è few-shot con Trie: gruppi morti allo $0{,}85\%$).
+substrato su cui i rollout hanno il supporto migliore.
 
-\section{La dispersione fra run e i limiti degli intervalli di confidenza}
-\label{sec:dispersione-run}
+\section{Determinismo delle esecuzioni}
+\label{sec:determinismo}
 
-Otto celle sperimentali sono state eseguite \emph{due volte}, in occasioni
-distinte. Il confronto fra le coppie di run permette una verifica che gli
-intervalli di confidenza riportati altrove in questa relazione non possono
-fornire, e il risultato impone una precisazione.
+Una domanda naturale davanti a tabelle con differenze di pochi millesimi è
+quanto di quelle differenze sia rumore di addestramento. Su questa pipeline la
+risposta è insolitamente semplice: \textbf{a seme fissato l'addestramento è
+deterministico bit per bit}. Due esecuzioni della stessa cella, lanciate
+indipendentemente con la stessa configurazione e lo stesso seme, hanno prodotto
+$10\,000$ generazioni identiche byte per byte e quindi metriche identiche a
+tutte le cifre.
 
-\begin{center}
-\begin{tabular}{lrrr}
-\toprule
-Cella & Run 1 & Run 2 & Dispersione \\
-\midrule
-Ablazione senza grammatica & $0{,}5878$ & $0{,}5717$ & $\mathbf{0{,}0161}$ \\
-SFT seguito da GRPO & $0{,}5014$ & $0{,}5114$ & $\mathbf{0{,}0099}$ \\
-GRPO da modello base & $0{,}6076$ & $0{,}5998$ & $\mathbf{0{,}0077}$ \\
-Ablazione Viterbi & $0{,}5105$ & $0{,}5171$ & $0{,}0066$ \\
-Ablazione soft-Viterbi & $0{,}5048$ & $0{,}5090$ & $0{,}0041$ \\
-SFT soltanto & $0{,}9785$ & $0{,}9749$ & $0{,}0036$ \\
-Ablazione stack storico & $0{,}5128$ & $0{,}5101$ & $0{,}0027$ \\
-Ablazione struttura & $0{,}5108$ & $0{,}5101$ & $0{,}0007$ \\
-\bottomrule
-\end{tabular}
-\end{center}
+Questo ha due conseguenze opposte, ed entrambe vanno dichiarate.
 
-Il termine di confronto è l'ampiezza tipica degli intervalli di confidenza
-ottenuti per bootstrap, che su ROUGE-L è di circa $\pm 0{,}0044$
-(l'intervallo misurato sulla cella senza vincolo è
-$[0{,}3605,\; 0{,}3692]$).
+La prima è favorevole: ogni differenza osservata fra due celle che condividono
+seme e configurazione, e differiscono per un solo fattore, è interamente
+attribuibile a quel fattore. Non c'è una componente di rumore da sottrarre. È il
+motivo per cui il confronto fra la loss strutturata e il suo controllo
+mescolato, che differiscono soltanto per la permutazione dei pesi del grafo, è
+interpretabile pur essendo di pochi millesimi.
 
-\textbf{Tre celle su otto hanno una dispersione fra run superiore all'intera
-ampiezza dell'intervallo di confidenza.} Sull'ablazione senza grammatica la
-dispersione ($0{,}0161$) è quasi quattro volte l'intervallo.
+La seconda è restrittiva: poiché nessuna cella è stata replicata con semi
+diversi, \textbf{non esiste in questo lavoro alcuna stima della variabilità fra
+semi}. Il determinismo garantisce che i numeri siano riproducibili, non che
+siano robusti a una diversa inizializzazione o a un diverso ordine dei dati. Una
+differenza di pochi millesimi fra due celle è dunque reale nel senso che si
+riprodurrà a ogni riesecuzione, ma non è per questo generalizzabile: potrebbe
+invertirsi cambiando seme, e nulla in questi dati permette di escluderlo.
 
-\subsection{Perché accade, e che cosa implica}
-
-Non è un'anomalia: è una conseguenza di che cosa il bootstrap misura. Il
-bootstrap clusterizzato per prompt descritto nel Capitolo~\ref{cap:metriche}
-ricampiona i \emph{prompt di valutazione}, quindi stima l'incertezza dovuta alla
-scelta del campione di test. Non stima, e non può stimare, la variabilità
-dovuta all'addestramento: seed, ordine di presentazione dei dati, non
-determinismo delle operazioni su GPU, rumore di quantizzazione.
-
-Segue una regola di lettura che si applica a tutta la relazione:
-
-\begin{quote}
-Gli intervalli di confidenza riportati sono \textbf{limiti inferiori}
-dell'incertezza reale. Una differenza fra celle inferiore a circa $0{,}02$ di
-ROUGE-L non è distinguibile dalla variabilità di addestramento con i dati
-disponibili.
-\end{quote}
-
-\subsection{La conseguenza sul confronto SFT contro regola}
-
-Questa osservazione tocca direttamente l'affermazione più delicata della
-relazione. Il Capitolo~\ref{cap:sft} riporta:
-
-\begin{center}
-\begin{tabular}{lcc}
-\toprule
-Delta SFT $-$ regola & Valore & Intervallo bootstrap $95\%$ \\
-\midrule
-ROUGE-L & $+0{,}0064$ & $[+0{,}0038,\; +0{,}0098]$ \\
-Exact match & $+0{,}2252$ & $[+0{,}2025,\; +0{,}2510]$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-Ma la cella SFT, da sola, varia di $0{,}0036$ fra i suoi due run su ROUGE-L, e
-di $\mathbf{0{,}0304}$ su exact match ($0{,}8421$ contro $0{,}8117$). Ne segue
-una lettura differenziata:
-
-\begin{itemize}
-  \item il delta su \textbf{ROUGE-L} ($+0{,}0064$) è dello stesso ordine di
-        grandezza della dispersione propria dell'SFT ($0{,}0036$). Va
-        \textbf{declassato}: non è un vantaggio stabilito, è un vantaggio
-        compatibile con il rumore di addestramento;
-  \item il delta su \textbf{exact match} ($+0{,}2252$) resta ampiamente
-        robusto: è circa sette volte la dispersione osservata ($0{,}0304$).
-        L'affermazione che l'SFT abbatta il tasso di errore dal $41\%$ al
-        $19\%$ regge.
-\end{itemize}
-
-Questo non indebolisce la tesi centrale della relazione: la rafforza. Se su un
-corpus il vantaggio di un modello addestrato su $73$ mila esempi rispetto a una
-tabella di corrispondenze non è distinguibile dal rumore quando misurato con la
-metrica di riferimento della letteratura, allora quella metrica ha esaurito la
-propria capacità discriminante in modo ancora più netto di quanto la
-sezione~\ref{sec:decomposizione} suggerisse.
-
-\subsection{Che cosa si sarebbe dovuto fare}
-
-La procedura corretta, e la raccomandazione per chi riprenda il lavoro, è di
-eseguire ogni cella con almeno tre seed distinti e riportare media e deviazione
-standard fra i seed, invece di un singolo run con l'intervallo bootstrap. Il
-costo è triplo, ma è l'unico modo di distinguere un effetto reale da una
-fluttuazione di addestramento.
-
-Questa raccomandazione ha \textbf{precedenza} su quella di aumentare il numero
-di prompt valutati. Passare da $2\,000$ a $5\,000$ prompt restringe
-l'intervallo bootstrap da circa $\pm 0{,}004$ a $\pm 0{,}003$, ma agisce sulla
-componente di incertezza \emph{minore}: non tocca la dispersione da
-addestramento, che su tre celle su otto è già superiore all'intervallo intero.
-Un campione di valutazione più ampio produce quindi intervalli più stretti
-attorno a un valore che resta instabile fra run, cioè una falsa impressione di
-precisione. L'ordine corretto degli interventi è prima i seed multipli, poi
-eventualmente il campione più ampio.
-
-Le otto coppie di run disponibili sono state prodotte come conseguenza
-dell'infrastruttura, non per disegno, ed è per questo che sono soltanto due per
-cella. Il fatto che siano sufficienti a mettere in discussione un intervallo di
-confidenza pubblicato in questa stessa relazione è la migliore dimostrazione
-della loro necessità.
+Le conclusioni del capitolo sono state formulate tenendone conto. Il divario fra
+reinforcement learning e baseline a regole è di ordine $0{,}35$ di ROUGE-L, e
+nessuna variabilità plausibile fra semi lo copre. Il vantaggio della massa
+ammessa sull'SFT è di $+0{,}0088$ di ROUGE-L e $+0{,}0679$ di exact match: il
+secondo è abbastanza ampio da resistere a qualunque lettura ragionevole, il
+primo no, ed è per questo che l'esito dell'obiettivo è argomentato sull'exact
+match. Le differenze dell'ordine del millesimo fra ablazioni vicine non
+sostengono alcuna conclusione, e non ne è stata tratta nessuna.
 
 \section{Riepilogo per non-copy accuracy}
 
@@ -732,20 +527,24 @@ l'ordinamento che essa induce:
 \toprule
 Sistema & Non-copy accuracy \\
 \midrule
-SFT soltanto & $0{,}9660$ \\
+SFT con massa ammessa & $0{,}9685$ \\
+SFT seguito da GRPO, zero-shot & $0{,}9650$ \\
+SFT soltanto & $0{,}9510$ \\
 Baseline a regole & $0{,}9424$ \\
-GRPO da modello base & $0{,}4641$ \\
-Base zero-shot con Trie & $0{,}0432$ \\
-Base zero-shot senza Trie & $0{,}0006$ \\
+GRPO da modello base, few-shot & $0{,}4692$ \\
+Base zero-shot con Trie & $0{,}0451$ \\
+Base zero-shot senza Trie & $0{,}0007$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 L'ordinamento è lo stesso che si ottiene con ROUGE-L, con un'eccezione
-significativa: le prime due righe si stringono ($0{,}9660$ contro $0{,}9424$,
-cioè $+0{,}0236$) e le ultime due si separano in modo interpretabile. In
-particolare, il GRPO da modello base risolve correttamente meno della metà delle
-posizioni non banali, contro il $94\%$ di una tabella di corrispondenze.
+significativa: le celle addestrate e la regola si stringono in alto --- fra
+l'SFT e la regola corrono $+0{,}0086$, fra il migliore obiettivo ausiliario e la
+regola $+0{,}0261$ --- mentre in basso le celle si separano in modo
+interpretabile. In particolare, il GRPO dal modello base risolve correttamente
+meno della metà delle posizioni non banali, contro il $94\%$ di una tabella di
+corrispondenze costruita contando parole.
 
-Nessuna delle celle con reinforcement learning si avvicina alla regola. È il
-risultato del progetto, ed è negativo.
+Nessuna cella addestrata con il solo reinforcement learning si avvicina alla
+regola. È il risultato del progetto, ed è negativo.

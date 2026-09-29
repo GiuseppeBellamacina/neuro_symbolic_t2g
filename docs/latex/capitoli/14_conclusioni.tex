@@ -3,268 +3,109 @@
 
 \section{Che cosa è stato stabilito}
 
-Il lavoro non produce un miglioramento delle metriche. Produce cinque
-affermazioni sostenute da misure, che vale la pena enunciare nella loro forma
-più compatta.
+Il lavoro non produce un miglioramento delle metriche. Produce affermazioni
+sostenute da misure, che conviene enunciare nella forma più compatta.
 
 \subsection{Le metriche su ASLG-PC12 sono sature}
 
-Non nel senso vago di ``i punteggi sono alti'', ma nel senso preciso che una
-baseline a regole di poche righe, che non apprende nulla, ottiene ROUGE-L
-$0{,}9697$ e supera ogni risultato ottenuto con reinforcement learning
-(Capitolo~\ref{cap:dataset}). Persino la trasformazione
-$\mathrm{uppercase}(\text{text})$ ottiene $0{,}6454$, cioè batte il miglior
-risultato con RL ($0{,}5998$).
-
-La causa è documentata: il corpus è sintetico
-(sezione~\ref{sec:sintetico}), la sovrapposizione fra token del gloss e del
-testo è $98{,}23\%$ contro il $15{,}59\%$ di un corpus annotato da umani
-\cite{peng2023monolingual}, e conoscere il token sorgente rimuove circa il $90\%$
-dell'incertezza sul gloss ($0{,}856$ bit residui su $8{,}578$).
-
-La metrica stessa contribuisce: l'implementazione di ROUGE-L impiegata è
-insensibile al maiuscolo e spezza i token sui caratteri non alfanumerici, quindi
-assegna $1{,}00$ a un'uscita in minuscolo identica al testo di partenza
+Una baseline a regole di poche righe, che non apprende nulla, ottiene ROUGE-L
+$0{,}9685$ ed exact match $0{,}5865$. È il riferimento obbligato per leggere
+qualsiasi numero del lavoro. La causa è la natura sintetica del corpus
+(sezione~\ref{sec:sintetico}): il gloss è quasi una trasformazione
+deterministica del testo. La metrica stessa contribuisce, perché l'implementazione
+di ROUGE-L impiegata è insensibile al maiuscolo e ai caratteri non alfanumerici
 (sezione~\ref{sec:difetto-rouge}).
 
-Il segno più chiaro della saturazione è che un modello da $0{,}5$ miliardi di
-parametri, con adattatori LoRA, addestrato per tre epoche su una singola GPU,
-supera il miglior valore pubblicato su questo corpus.
+Ne segue un risultato che rafforza la tesi: l'SFT (ROUGE-L $0{,}9681$) \emph{non}
+supera la baseline a regole su ROUGE-L. Il suo unico vantaggio reale è l'exact
+match ($0{,}7662$ contro $0{,}5865$). Dove ROUGE-L è saturo, la metrica che
+discrimina è quella più severa.
 
-\subsection{La domanda di ricerca iniziale era mal posta}
+\subsection{Che cosa compra il vincolo simbolico}
 
-La domanda ``il GRPO migliora la generazione di gloss?'' non è rispondibile su
-ASLG-PC12, perché presuppone che esista un margine di miglioramento su cui il
-reinforcement learning possa agire. Con l'SFT a exact match $0{,}8117$ e validity
-$0{,}9998$, e una baseline a regole a ROUGE-L $0{,}9685$, quel margine non
-esiste.
+Il Trie (Capitolo~\ref{cap:decoding}) fa \emph{crollare} ROUGE-L del modello base
+da $0{,}3648$ a $0{,}1373$, e contemporaneamente porta la validity da $0{,}0370$ a
+$0{,}9055$ e la non-copy-token accuracy da $0{,}0007$ a $0{,}0451$. Il vincolo
+sposta quindi il modello da uscite fuori vocabolario, che la sovrapposizione
+lessicale premia per accidente, a uscite valide che il modello non sa ancora
+comporre. Con il prompt few-shot, il modello vincolato raggiunge ROUGE-L
+$0{,}4664$ e validity $0{,}9821$: quasi tutto il guadagno di questo passaggio
+($+0{,}33$) viene dal prompting, non dall'aggiornamento di parametri.
 
-La domanda si riduce, su questo corpus, a ``il GRPO memorizza una mappa
-quasi-identità meglio dell'SFT?'', che è una questione di ottimizzazione e non
-riguarda la lingua dei segni.
+Il costo che il vincolo impone sulla qualità del contenuto è documentato in
+letteratura~\cite{reddy2603,zhou2604,ye2504}. Su un compito con supporto
+scarso, la conclusione è che vada pagato, perché l'alternativa è un segnale di
+reward non discriminante. Una valutazione del vincolo va fatta su validity e
+supporto dei rollout, non sul solo ROUGE-L.
 
-\subsection{Il risultato negativo ha un meccanismo in tre parti}
+\subsection{La posizione onesta sul GRPO}
 
-Questo è il contributo sostanziale. Non ``il GRPO non ha funzionato'', ma tre
-misure che spiegano \emph{perché} non poteva funzionare.
+La domanda ``il GRPO migliora la generazione di gloss?'' ha su ASLG-PC12 un
+margine molto ridotto in cui rispondere, perché la baseline a regole e l'SFT
+sono già in saturazione. I dati sostengono soltanto quanto segue.
 
-\begin{description}
-  \item[Parte 1: il collasso del supporto.] Il gradiente del GRPO è
-        proporzionale al vantaggio~\eqref{eq:grpo-adv}, che si annulla quando
-        tutti i candidati di un gruppo ricevono la stessa reward. Sul modello
-        base senza vincolo di decodifica il $73{,}9\%$ dei gruppi è morto; sulla
-        policy SFT l'$84{,}8\%$ dei gruppi ha varianza nulla per la ragione
-        opposta, cioè perché tutti i candidati sono corretti
-        (sezione~\ref{sec:supporto}). Il GRPO è schiacciato fra due fallimenti
-        simmetrici, e la finestra utile su un compito quasi deterministico è
-        stretta.
-  \item[Parte 2: la degradazione della pipeline.] Applicare il GRPO alla policy
-SFT porta ROUGE-L da $0{,}9749$ a $0{,}5114$ ed exact match da
-$0{,}8117$ a $0{,}0203$. Il meccanismo è che gli aggiornamenti avvengono
-        soltanto sul $15{,}2\%$ dei gruppi con varianza, che è per costruzione il
-        sottoinsieme in cui la policy era incerta; ottimizzare la reward su un
-        campione così selezionato, con la sola penalità KL come freno, sposta la
-        policy fuori dalla regione corretta. È sovraottimizzazione del
-        surrogato~\cite{gao2022overoptimization}, prevedibile con una singola
-        sonda sui rollout prima di addestrare.
-  \item[Parte 3: la confusione dei fattori.] Dei circa $0{,}47$ di ROUGE-L che
-        separano il punto di partenza peggiore dal miglior risultato con RL,
-        $0{,}33$ vengono dal \emph{prompting} (few-shot con retrieval, nessun
-        parametro aggiornato) e circa $0{,}14$ sono attribuiti al RL in modo non
-        isolato (sezione~\ref{sec:decomposizione}). Il fattore sperimentale più
-        efficace misurato in tutto il progetto non è il metodo di addestramento.
-\end{description}
+Partendo dal modello base, il GRPO migliora molto (ROUGE-L $0{,}6082$ con
+few-shot e $0{,}5173$ con zero-shot, contro $0{,}4664$ e $0{,}1373$ dei
+rispettivi punti di partenza vincolati), ma resta ben al di sotto dell'SFT e
+della baseline a regole. Applicato a una policy SFT già convergente, il GRPO non
+produce né un miglioramento sostanziale né un degrado: SFT$\to$GRPO zero-shot
+($0{,}9744$ / $0{,}8095$) è sopra l'SFT semplice ($0{,}9681$ / $0{,}7662$),
+la variante few-shot ($0{,}9628$ / $0{,}7296$) è di poco sotto, e le differenze
+sono entro frazioni di punto in entrambe le direzioni. Poiché l'addestramento a
+seme fisso è deterministico bit per bit, questo lavoro non dispone di alcuna
+stima della variabilità fra run: le differenze di questa entità non consentono
+di concludere alcunché sulla direzione dell'effetto.
 
-Va aggiunto un chiarimento sui limiti di questa affermazione. TRL~$0{,}24{,}0$
-non implementa il \emph{dynamic sampling} di DAPO~\cite{yu2025dapo}, che scarta i
-gruppi a varianza nulla e ricampiona, né il \emph{clip-higher}; e la variante di
-denominatore effettivamente ottimizzata (\texttt{dapo}) è stata selezionata per
-omissione e non per scelta (sezione~\ref{sec:denominatori}). Quindi nessuna delle
-mitigazioni note contro il collasso del supporto era attiva. Il risultato
-negativo riguarda questa configurazione, non il GRPO in generale.
+\subsection{Gli obiettivi ausiliari}
 
-\subsection{Il vincolo simbolico abilita l'apprendimento senza migliorare le metriche}
-
-Il risultato neuro-simbolico, e il più controintuitivo. Il Trie
-(Capitolo~\ref{cap:decoding}) fa \emph{crollare} ROUGE-L da $0{,}3648$ a
-$0{,}1373$ e contemporaneamente:
-
-\begin{itemize}
-  \item alza la non-copy-token accuracy da $0{,}0006$ a $0{,}0432$, un fattore
-        circa $70$;
-  \item alza la validity da $0{,}0370$ a $0{,}9055$, un fattore $24$;
-  \item porta i gruppi morti dal $73{,}9\%$ al $19{,}9\%$, cioè \emph{crea} il
-        supporto su cui il reinforcement learning può operare.
-\end{itemize}
-
-L'interpretazione: il vincolo restringe la distribuzione generativa alla regione
-in cui la reward è discriminante. Fuori da quella regione i candidati sono tutti
-ugualmente cattivi e il vantaggio li annulla tutti.
-
-La conseguenza pratica ha valore generale. In un esperimento di reinforcement
-learning su uscite strutturate, il vincolo simbolico non è un accessorio di
-qualità: è una precondizione di fattibilità, e va valutato misurando il supporto
-dei rollout invece delle metriche finali. Il costo che il vincolo impone sulla
-qualità del contenuto è reale e documentato in
-letteratura~\cite{reddy2603,zhou2604,ye2504}; la conclusione di questo lavoro è
-che su un compito con supporto scarso quel costo va pagato, perché l'alternativa
-è un gradiente nullo.
-
-\subsection{L'onestà metodologica come parte del risultato}
-
-Quattro ritrattazioni misurate sono documentate in questa relazione, e sono
-parte del contributo.
-
-\begin{enumerate}
-  \item L'ipotesi ``la reward premia la verbosità'', ragionevole a priori e
-        documentata in letteratura~\cite{singhal2023length}, è stata
-        \textbf{refutata} due volte: analiticamente
-        (l'equazione~\eqref{eq:append-k} è decrescente, con perdita misurata di
-        circa $-0{,}13$ per token appeso) ed empiricamente (i rapporti di
-        lunghezza delle celle con RL sono $1{,}011$ e $0{,}886$, cioè non c'è
-        deriva). Il problema delle celle con RL è la varianza di lunghezza, non
-        il bias.
-  \item La stima del prior strutturale è stata \textbf{corretta due volte}
-        prima di arrivare a $+0{,}0444$ bit, per contaminazione fra insiemi e per
-        un backoff mal specificato (sezione~\ref{sec:qualificazione-strutturale}).
-        Un guadagno così piccolo può essere prodotto interamente da un errore di
-        metodo, e chi legge deve sapere che l'errore è stato cercato.
-  \item Le tre componenti di reward basate su Viterbi sono state
-        \textbf{rimosse} dopo aver dimostrato che a lunghezza uguale collassano
-        algebricamente sullo stesso segnale, e che empiricamente restano entro
-        $\pm 0{,}006$ dal valore di controllo
-        (sezione~\ref{sec:reward-rimosse}).
-  \item Il vantaggio dell'SFT sulla baseline a regole misurato con ROUGE-L è
-        stato \textbf{declassato}. Una precedente stesura lo presentava come
-        statisticamente solido sulla base di un intervallo bootstrap che esclude
-        lo zero. Il confronto fra le otto celle eseguite due volte mostra però
-        che la dispersione dovuta al solo addestramento eguaglia o supera quegli
-        intervalli (sezione~\ref{sec:dispersione-run}): il delta su ROUGE-L
-        ($+0{,}0064$) non è distinguibile dal rumore, mentre quello su exact
-        match ($+0{,}2252$) resta robusto.
-  \item Un meccanismo di \textbf{curriculum} per difficoltà, presente in una
-        fase intermedia del progetto, è stato \textbf{rimosso} dopo aver
-        dimostrato che era inerte: i suoi stadi risultavano indistinguibili
-        sulla classe di difficoltà che intendevano graduare, perché i target
-        dichiarati eccedevano la disponibilità del corpus e il codice troncava
-        in silenzio al massimo disponibile. In aggiunta introduceva una
-        frazione elevata di esempi ripetuti negli stadi avanzati.
-\end{enumerate}
-
-Sull'ultimo punto vale la pena estrarre una lezione trasferibile, perché il
-modo in cui il difetto è rimasto nascosto è più interessante del difetto stesso.
-Quel componente aveva test che passavano e un'implementazione priva di errori di
-programmazione. Ciò che mancava era una verifica che il meccanismo producesse
-l'effetto \emph{dichiarato} sui dati \emph{reali}: i test misuravano le
-proporzioni su campioni di poche centinaia di righe, dove il limite di
-disponibilità non si manifesta. La domanda ``questo componente fa quello che
-dice?'' non era mai stata posta in una forma verificabile alla scala di
-produzione.
-
-Alla stessa categoria appartiene una correzione di coerenza interna. Una
-precedente stesura della tabella principale mescolava valori prodotti da due
-versioni diverse del modulo delle metriche, con l'effetto che le colonne di
-sovrapposizione e quella di validity provenivano da codici differenti, e che
-celle diverse pescavano da run differenti. Le tabelle sono state ricostruite da
-fonte unica, dichiarata nella sezione~\ref{sec:provenienza}. L'errore è
-segnalato perché la sua correzione ha spostato la validity della cella senza
-vincolo da $0{,}1043$ a $0{,}0370$, cioè ha \emph{rafforzato} il risultato
-sul vincolo simbolico portando il fattore di miglioramento da circa $9$ a $24$.
-
-Alla stessa categoria appartiene una quinta correzione, la più imbarazzante
-perché riguarda una diagnosi e non una misura. Una precedente stesura dichiarava
-un test permanentemente rosso e ne attribuiva il fallimento a una dipendenza
-dalla rete. Leggendo il corpo del test si è visto che non apre alcuna
-connessione: sostituisce il meccanismo di esecuzione con un oggetto che cattura
-il comando costruito e ne verifica la forma
-(sezione~\ref{sec:test-ssh-ritrattazione}). La causa era stata inferita dal
-\emph{nome} del test invece che dal suo contenuto. La suite è interamente verde,
-e conta $476$ test.
-
-L'errore è dello stesso tipo dei cinque guasti infrastrutturali del
-Capitolo~\ref{cap:infrastruttura}: una spiegazione plausibile adottata senza
-verifica. Che si sia insinuato nel documento che quei guasti descrive è la
-migliore illustrazione di quanto il meccanismo sia difficile da evitare.
+I due obiettivi del Capitolo~\ref{cap:ausiliari} hanno esiti opposti
+(sezione~\ref{sec:osservazione-ausiliari}). La \textbf{massa ammessa} migliora
+l'SFT: ROUGE-L $0{,}9769$ ed exact match $0{,}8341$, contro $0{,}9681$ e
+$0{,}7662$; in valutazione greedy $0{,}9774$ e $0{,}8420$, per cui l'effetto non
+dipende dal campionamento. È l'unico candidato da portare avanti. La
+\textbf{loss strutturata} fallisce il proprio controllo negativo: la cella con
+grafo permutato ($0{,}9464$ / $0{,}6078$) è pari o migliore di quella con il
+grafo vero ($0{,}9430$ / $0{,}6053$), ed entrambe sono peggiori dell'SFT.
+L'informazione sulle transizioni non contribuisce, e l'obiettivo va abbandonato.
 
 \section{Lavoro futuro}
 
-Le direzioni seguenti derivano direttamente dai risultati, in ordine di
-priorità.
-
 \subsection{Cambiare corpus}
 
-La prima e più importante. Il compito T2G va valutato su PHOENIX-2014T, dove la
-sovrapposizione lessicale fra gloss e testo è $15{,}59\%$ invece di $98{,}23\%$
-e i migliori risultati riportati sono intorno a ROUGE-L
-$55{,}18$~\cite{ouargani2023t2g}. Lì esiste un margine reale, e le domande sul
-reinforcement learning diventano rispondibili.
-
-Il \emph{caveat} va dichiarato in anticipo: PHOENIX-2014T è tedesco e riguarda la
-lingua dei segni tedesca. Il cambio di corpus comporta un cambio di lingua
-sorgente, quindi la scelta del modello base e l'analisi degli artefatti vanno
-rifatte da zero. Non è un trasferimento gratuito.
-
-Una direzione più radicale, coerente con la critica al gloss come
-rappresentazione~\cite{yinread2020stmc,yin2021including}, è di abbandonare
-l'intermedio testuale. Esistono lavori che applicano il rinforzo alla traduzione
-della lingua dei segni senza passare per il gloss~\cite{rao2025rvlf}, usando un
-segnale di qualità definito su rappresentazioni visive. In quel contesto il
-problema del supporto dei rollout andrebbe riesaminato da zero, perché lo spazio
-delle uscite e la reward sono di natura completamente diversa; ma la domanda
-sarebbe posta sul compito reale invece che su una sua trascrizione impoverita.
+La direzione più importante è valutare il compito su PHOENIX-2014T, dove i
+migliori risultati riportati sono intorno a ROUGE-L
+$55{,}18$~\cite{ouargani2023t2g} e dunque esiste un margine reale su cui le
+domande sul reinforcement learning diventano rispondibili. Il \emph{caveat} è che
+il corpus è tedesco e riguarda la lingua dei segni tedesca: cambiano lingua
+sorgente, modello base e analisi degli artefatti. Una direzione più radicale,
+coerente con la critica al gloss come rappresentazione~\cite{yinread2020stmc,yin2021including},
+è abbandonare l'intermedio testuale, applicando il rinforzo alla traduzione
+diretta con segnali di qualità visivi~\cite{rao2025rvlf}.
 
 \subsection{Ridisegnare l'esperimento primario}
 
-L'esperimento primario dovrebbe essere una griglia
-\begin{equation}
-  \text{prompting} \times \text{decodifica}
-\end{equation}
-con il metodo di addestramento come fattore \emph{secondario}. La ragione è
-diretta: sono i due fattori con l'effetto misurato più grande
-($+0{,}33$ il prompting, e il vincolo che porta i gruppi morti dal $74\%$ al
-$20\%$), e sono gli unici due che il disegno attuale confonde fra loro.
+L'esperimento primario dovrebbe essere una griglia prompting $\times$
+decodifica, con il metodo di addestramento come fattore secondario: sono i due
+fattori con l'effetto misurato più grande, e il disegno attuale li confonde. Il
+metodo di addestramento va applicato dopo aver identificato il substrato con il
+supporto migliore.
 
-Il metodo di addestramento va applicato \emph{dopo} aver identificato il
-substrato con il supporto migliore, che secondo la
-sezione~\ref{sec:supporto} è few-shot con Trie (gruppi morti allo $0{,}85\%$,
-reward media $-0{,}3233$).
+\subsection{Consolidare la massa ammessa}
 
-\subsection{Eseguire i gate degli obiettivi ausiliari}
-
-I due obiettivi del Capitolo~\ref{cap:ausiliari} sono ora addestrati
-(sezione~\ref{sec:osservazione-ausiliari}), con esiti opposti:
-
-\begin{enumerate}
-  \item la \textbf{massa ammessa} migliora l'exact match di circa sei punti
-        sull'SFT, sia in valutazione campionata ($+0{,}068$) sia in greedy
-        ($+0{,}065$): non è un effetto della decodifica, e contraddice la
-        previsione dichiarata in anticipo. È l'unico candidato da portare avanti.
-        Prima di considerarlo stabilito servono più seed (il guadagno è circa due
-        volte la dispersione osservata fra run) e la sonda in inferenza sulla
-        massa rimossa, che ne verifichi il meccanismo;
-  \item la \textbf{loss strutturata} fallisce il criterio fissato in anticipo:
-        con il controllo corretto (stesso supporto, pesi permutati) le metriche
-        sono identiche a quelle del grafo vero, ed entrambe peggiori dell'SFT.
-        L'informazione sulle transizioni non contribuisce; l'obiettivo va
-        abbandonato, come il margine di $+0{,}0444$ bit lasciava prevedere.
-\end{enumerate}
+Prima di considerare stabilito il risultato della massa ammessa servono più
+seed, poiché l'unica replica disponibile non permette una stima della
+variabilità, e una sonda in inferenza sulla massa rimossa che ne verifichi il
+meccanismo.
 
 \subsection{Il reinforcement learning, se e quando}
 
-L'ordine corretto delle operazioni, ricavato per via negativa da questo lavoro,
-è: prima si stabilisce un substrato con supporto misurato, poi si progetta la
-reward con test avversari, poi si addestra. Non prima.
-
-La verifica di fattibilità è a costo quasi nullo: si generano $G$ candidati su un
-campione di prompt, si calcolano le reward, e si contano i gruppi a varianza
-nulla. Se la frazione è alta, il reinforcement learning non apprenderà,
-indipendentemente dagli iperparametri. È una misura che richiede minuti e che
-avrebbe risparmiato, in questo progetto, una quantità considerevole di tempo di
-GPU.
+Prima di addestrare con reinforcement learning conviene misurare se il segnale
+esiste: si generano $G$ candidati su un campione di prompt, si calcolano le
+reward e si contano i gruppi a varianza nulla. Se la frazione è alta, il
+reinforcement learning non apprenderà indipendentemente dagli iperparametri. La
+misura richiede minuti.
 
 \section{La lezione trasferibile}
-
-Se il lavoro ha un unico insegnamento riutilizzabile, è il seguente.
 
 \begin{quote}
 Prima di ottimizzare una metrica, misurare quanto la si può ottenere senza
@@ -272,12 +113,5 @@ apprendimento; e prima di addestrare con reinforcement learning, misurare se il
 segnale esiste.
 \end{quote}
 
-Le due misure hanno costo trascurabile. La prima è una tabella di
-corrispondenze contata sul training set, che qui ha rivelato ROUGE-L $0{,}9697$ e
-ha reso interpretabile ogni numero successivo. La seconda è una sonda sui
-rollout, che qui ha rivelato il $73{,}9\%$ di gruppi morti prima
-dell'addestramento e l'$84{,}8\%$ di varianza nulla dopo l'SFT, e che avrebbe
-previsto entrambi i risultati negativi.
-
-Nessuna delle due era presente nel disegno originale. Entrambe, in retrospettiva,
-erano le prime cose da fare.
+La prima misura, qui una tabella di regole contata sul training set, ha rivelato
+ROUGE-L $0{,}9685$ e ha reso interpretabile ogni numero successivo.
