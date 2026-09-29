@@ -13,17 +13,19 @@ Ogni riga delle tabelle che seguono è letta da \emph{un solo} file
 ciascuna cella il run più recente conservato. Tutti i file dichiarano
 \texttt{metrics\_version = 2}; nessun valore proviene da documenti derivati o da
 ri-calcoli successivi. Le esecuzioni prodotte prima delle revisioni del codice
-descritte in questa relazione sono state scartate insieme ai loro artefatti, e
-non compaiono qui.
+descritte in questa relazione non compaiono qui: sono prive di un
+identificativo di run e di un riferimento al config che le ha generate, quindi
+non sono attribuibili a nessuna cella sperimentale.
 
-Una cella è stata esclusa per una ragione diversa. L'ablazione
-\texttt{historical-stack} avrebbe dovuto isolare l'effetto della revisione dello
-stack di reward, ma la sua configurazione assegna ai componenti gli stessi pesi
-della cella GRPO di riferimento: l'unica differenza è l'azzeramento di un
-componente già inattivo per default. A parità di seme e di prompting le due
-celle producono generazioni identiche byte per byte. Non è dunque un'ablazione,
-ma la stessa esecuzione sotto un altro nome, e riportarla come evidenza
-indipendente sarebbe un errore.
+Una cella progettata è stata eliminata dal disegno. Doveva isolare l'effetto
+della revisione dello stack di reward mantenendo i pesi storici, ma il suo
+config assegnava ai componenti esattamente gli stessi pesi della cella GRPO di
+riferimento: l'unica differenza era l'azzeramento di un componente già inattivo
+per default. A parità di seme le due celle producono generazioni identiche byte
+per byte, cioè sono la stessa esecuzione sotto due nomi. Lo stack storico
+\emph{è} la configurazione di reward predefinita, quindi non esiste
+un'ablazione che lo isoli e la cella è stata rimossa dal progetto anziché
+riportata come evidenza indipendente.
 
 \section{La tabella principale}
 

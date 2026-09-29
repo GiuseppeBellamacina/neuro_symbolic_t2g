@@ -87,7 +87,6 @@ CONFIG_NAMES: tuple[str, ...] = (
     "ablations-decoding-no-grammar",
     "ablations-decoding-hot-rollout",
     "ablations-rewards-edit-validity",
-    "ablations-rewards-historical-stack",
     "ablations-rewards-lean-stack",
     "ablations-loss-dr-grpo",
     "ablations-loss-low-beta",

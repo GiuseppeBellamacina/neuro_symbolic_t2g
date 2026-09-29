@@ -139,7 +139,7 @@ def test_duplicate_cells_are_flagged(tmp_path):
     )
     _write_eval(
         tmp_path
-        / "qwen25-05b/ablations/rewards/historical-stack/run_1/eval_final.json",
+        / "qwen25-05b/ablations/rewards/duplicate-of-grpo/run_1/eval_final.json",
         rouge_l_mean=0.5173,
         exact_match=0.0078,
     )
@@ -151,7 +151,7 @@ def test_duplicate_cells_are_flagged(tmp_path):
     entries = find_eval_results(tmp_path)
     assert find_duplicate_cells(entries) == [
         [
-            "qwen25-05b/ablations/rewards/historical-stack",
+            "qwen25-05b/ablations/rewards/duplicate-of-grpo",
             "qwen25-05b/grpo/zero-shot",
         ]
     ]

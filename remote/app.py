@@ -146,7 +146,6 @@ CONFIG_MAP: dict[str, str] = {
     "ablations-decoding-no-grammar": "experiments/configs/qwen25-05b/ablations/decoding/no-grammar.yaml",
     "ablations-decoding-hot-rollout": "experiments/configs/qwen25-05b/ablations/decoding/hot-rollout.yaml",
     "ablations-rewards-edit-validity": "experiments/configs/qwen25-05b/ablations/rewards/edit-validity.yaml",
-    "ablations-rewards-historical-stack": "experiments/configs/qwen25-05b/ablations/rewards/historical-stack.yaml",
     "ablations-loss-dr-grpo": "experiments/configs/qwen25-05b/ablations/loss/dr-grpo.yaml",
     "ablations-objectives-sft-allowed-mass": "experiments/configs/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml",
     "ablations-objectives-sft-structured": "experiments/configs/qwen25-05b/ablations/objectives/sft-structured.yaml",

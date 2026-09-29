@@ -90,7 +90,7 @@ neuro_symbolic_t2g/
 │   ├── grpo/{zero-shot,few-shot}.yaml  # RL dal base model
 │   ├── sft-grpo/{zero-shot,few-shot}.yaml  # Pipeline completa SFT→GRPO
 │   └── ablations/
-│       ├── rewards/{edit-validity,historical-stack}.yaml
+│       ├── rewards/{edit-validity,lean-stack}.yaml
 │       ├── loss/dr-grpo.yaml           # Dr-GRPO vs default DAPO
 │       ├── decoding/{no-grammar,hot-rollout}.yaml
 │       └── objectives/{sft-allowed-mass,sft-structured}.yaml

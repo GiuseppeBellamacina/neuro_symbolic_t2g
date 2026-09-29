@@ -74,13 +74,11 @@ presets:
   - id: tier3-rewards-loss
     label: "Tier 3 — Reward e loss"
     description: >-
-      Valore marginale piu' contenuto: edit-validity, historical-stack e
-      lean-stack (riusa l'SFT del Tier 1), dr-grpo, low-beta (idem).
+      Valore marginale piu' contenuto: edit-validity e lean-stack (riusa
+      l'SFT del Tier 1), dr-grpo, low-beta (idem).
     jobs:
       - {type: train, config: ablations-rewards-edit-validity, tag: ablations-rewards-edit-validity}
       - {type: eval, config: ablations-rewards-edit-validity, tag: ablations-rewards-edit-validity}
-      - {type: train, config: ablations-rewards-historical-stack, tag: ablations-rewards-historical-stack}
-      - {type: eval, config: ablations-rewards-historical-stack, tag: ablations-rewards-historical-stack}
       - {type: train, config: ablations-rewards-lean-stack, tag: ablations-rewards-lean-stack}
       - {type: eval, config: ablations-rewards-lean-stack, tag: ablations-rewards-lean-stack}
       - {type: train, config: ablations-loss-dr-grpo, tag: ablations-loss-dr-grpo}
