@@ -1,0 +1,86 @@
+{
+  "model": "sft",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 1,
+      "rouge_l": 1.0,
+      "gold": "COHESION POLICY BE DESC-GOOD EXAMPLE MULTUS LEVEL GOVERNANCE .\n",
+      "prediction": "COHESION POLICY BE DESC-GOOD EXAMPLE MULTUS LEVEL GOVERNANCE .",
+      "prompt": "cohesion policy is a good example of multi level governance .\n"
+    },
+    {
+      "group": "best",
+      "index": 5,
+      "rouge_l": 1.0,
+      "gold": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .\n",
+      "prediction": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .",
+      "prompt": "we see similar packages in america .\n"
+    },
+    {
+      "group": "best",
+      "index": 10,
+      "rouge_l": 1.0,
+      "gold": "THAT BE DESC-BIG MISTAKE THAT X-YOU BE MAKE DESC-HERE .\n",
+      "prediction": "THAT BE DESC-BIG MISTAKE THAT X-YOU BE MAKE DESC-HERE .",
+      "prompt": "that is the big mistake that you are making here .\n"
+    },
+    {
+      "group": "best",
+      "index": 15,
+      "rouge_l": 1.0,
+      "gold": "DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .\n",
+      "prediction": "DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .",
+      "prompt": "the same applies to the consolidation of public finances , which is a prerequisite for sustainable growth .\n"
+    },
+    {
+      "group": "best",
+      "index": 20,
+      "rouge_l": 1.0,
+      "gold": "THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...",
+      "prediction": "THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...",
+      "prompt": "this will make transport in europe safer and more efficient , while promoting environmental protection and energy efficiency too .\n"
+    },
+    {
+      "group": "worst",
+      "index": 400,
+      "rouge_l": 0.0,
+      "gold": "STAGGER !\n",
+      "prediction": "DESC-STARK GAIN ! ! ! ! ! ! ! ! ! !",
+      "prompt": "staggering !\n"
+    },
+    {
+      "group": "worst",
+      "index": 1680,
+      "rouge_l": 0,
+      "gold": ".\n",
+      "prediction": ". ? END , DESC-REFORE , DESC-COLLECTIVE REDRESS MECHANISM MUST INCLUDE DESC-APPROPRIATE SAFEGUARD .",
+      "prompt": ".\n"
+    },
+    {
+      "group": "worst",
+      "index": 1946,
+      "rouge_l": 0.0,
+      "gold": "LELUCHOV . PART IN CELEBRATION ON SLOVAK POLISH BORDER AT BORDER BRIDGE ?\n",
+      "prediction": "LE LUKA V . , 1905 ? 2 ? 1 ? 3 ? 4 ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?...",
+      "prompt": "i took part in celebrations on the slovak polish border at the border bridge of čirč leluchov .\n"
+    },
+    {
+      "group": "worst",
+      "index": 3300,
+      "rouge_l": 0.0,
+      "gold": "IERNA NAD TISOU . LINE FROM VLADIVOSTOK REACH BORDER EU AT ?\n",
+      "prediction": "NADIR NADIR ?TAT ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?...",
+      "prompt": "the broad gauge railway line from vladivostok reaches the border of the eu at čierna nad tisou .\n"
+    },
+    {
+      "group": "worst",
+      "index": 2522,
+      "rouge_l": 0.1111,
+      "gold": "MR MORVAI RECALL SOME DESC-DRAMATIC EVENT .\n",
+      "prediction": "SITUATION BE , DESC-INDEED , DESC-DRASTIC . M OR V AIUD KILLER ?",
+      "prompt": "mrs morvai recalled some dramatic events .\n"
+    }
+  ]
+}

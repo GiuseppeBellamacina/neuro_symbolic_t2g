@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completion Examples — run_20260914_070600</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+  h1 { color: #333; font-size: 1.4em; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  th { background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }
+  tr.best { background: #f9fdf9; }
+  tr.worst { background: #fef9f9; }
+  tr:hover { background: #eef6ff; }
+  .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }
+  .prompt { max-width: 300px; color: #555; font-style: italic; }
+  .diff-del { color: #C44E52; text-decoration: line-through; }
+  .diff-add { color: #1a7a1a; font-weight: bold; }
+  .summary { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Completion Examples — run_20260914_070600</h1>
+<p class="summary">10 examples (5 best, 5 worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  <th>Prompt</th>
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="best">
+    <td class="prompt">staggering !
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">STAGGER !
+</td>
+    <td class="mono">STAGGER !</td>
+</tr><tr class="best">
+    <td class="prompt">european migration network 
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">EUROPEAN MIGRATION NETWORK
+</td>
+    <td class="mono">EUROPEAN MIGRATION NETWORK</td>
+</tr><tr class="best">
+    <td class="prompt">the president called for order 
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">PRESIDENT CALL FOR ORDER
+</td>
+    <td class="mono">PRESIDENT CALL FOR ORDER</td>
+</tr><tr class="best">
+    <td class="prompt">2007 discharge commission 
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">2007 DISCHARGE COMMISSION
+</td>
+    <td class="mono">2007 DISCHARGE COMMISSION</td>
+</tr><tr class="best">
+    <td class="prompt">varvitsiotis report
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">VARVITSIOTUS REPORT
+</td>
+    <td class="mono">VARVITSIOTUS REPORT</td>
+</tr><tr class="worst">
+    <td class="prompt">cohesion policy is a good example of multi level governance .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">COHESION POLICY BE DESC-GOOD EXAMPLE MULTUS LEVEL GOVERNANCE .
+</td>
+    <td class="mono"><span class="diff-del">COHESION</span> <span class="diff-add">C</span> <span class="diff-del">POLICY</span> <span class="diff-add">H</span> <span class="diff-del">BE</span> <span class="diff-add">APOLOGY</span> <span class="diff-del">DESC-GOOD</span> <span class="diff-add">,</span> <span class="diff-del">EXAMPLE</span> <span class="diff-add">M</span> <span class="diff-del">MULTUS</span> <span class="diff-add">U</span> <span class="diff-del">LEVEL</span> <span class="diff-add">L</span> <span class="diff-del">GOVERNANCE</span> <span class="diff-add">T</span> <span class="diff-del">.</span> <span class="diff-add">I</span> <span class="diff-add">L</span> <span class="diff-add">E</span> <span class="diff-add">L</span> <span class="diff-add">E</span> <span class="diff-add">V</span> <span class="diff-add">E</span> <span class="diff-add">L</span> <span class="diff-add">G</span> <span class="diff-add">U</span> <span class="diff-add">APOLOGY</span> <span class="diff-add">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">we see similar packages in america .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .
+</td>
+    <td class="mono"><span class="diff-del">X-WE</span> <span class="diff-add">I.</span> <span class="diff-del">SEE</span> <span class="diff-add">I.</span> <span class="diff-del">DESC-SIMILAR</span> <span class="diff-add">USPASKICH</span> <span class="diff-del">PACKAGE</span> <span class="diff-add">PAKISTAN</span> <span class="diff-del">IN</span> <span class="diff-add">.</span> <span class="diff-del">AMERICA</span> <span class="diff-add">IIUS</span> <span class="diff-del">.</span> <span class="diff-add">PAKISTAN</span> <span class="diff-add">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">that is the big mistake that you are making here .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">THAT BE DESC-BIG MISTAKE THAT X-YOU BE MAKE DESC-HERE .
+</td>
+    <td class="mono"><span class="diff-del">THAT</span> <span class="diff-add">1.1</span> <span class="diff-del">BE</span> <span class="diff-add">1.2</span> <span class="diff-del">DESC-BIG</span> <span class="diff-add">2</span> <span class="diff-del">MISTAKE</span> <span class="diff-del">THAT</span> <span class="diff-del">X-YOU</span> <span class="diff-del">BE</span> <span class="diff-del">MAKE</span> <span class="diff-del">DESC-HERE</span> <span class="diff-del">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">the same applies to the consolidation of public finances , which is a prerequisite for sustainable growth .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .
+</td>
+    <td class="mono"><span class="diff-del">DESC-SAME</span> <span class="diff-add">1.2</span> <span class="diff-del">APPLY</span> <span class="diff-add">3.4</span> <span class="diff-del">TO</span> <span class="diff-del">CONSOLIDATION</span> <span class="diff-del">PUBLIC</span> <span class="diff-del">FINANCES</span> <span class="diff-del">,</span> <span class="diff-del">WHICH</span> <span class="diff-del">BE</span> <span class="diff-del">PREREQUISITE</span> <span class="diff-del">FOR</span> <span class="diff-del">DESC-SUSTAINABLE</span> <span class="diff-del">GROWTH</span> <span class="diff-del">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">for once it will bring some good news to my province , which certainly needs it .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">FOR DESC-ONCE X-IT WILL BRING SOME DESC-GOOD NEWS TO X-MY PROVINCE , WHICH DESC-CERTAINLY NEED X-IT .
+</td>
+    <td class="mono"><span class="diff-del">FOR</span> <span class="diff-add">I</span> <span class="diff-del">DESC-ONCE</span> <span class="diff-add">.</span> <span class="diff-del">X-IT</span> <span class="diff-add">.</span> <span class="diff-del">WILL</span> <span class="diff-add">.</span> <span class="diff-del">BRING</span> <span class="diff-add">1.02</span> <span class="diff-del">SOME</span> <span class="diff-add">1.02</span> <span class="diff-del">DESC-GOOD</span> <span class="diff-add">1.02</span> <span class="diff-del">NEWS</span> <span class="diff-del">TO</span> <span class="diff-del">X-MY</span> <span class="diff-del">PROVINCE</span> <span class="diff-del">,</span> <span class="diff-del">WHICH</span> <span class="diff-del">DESC-CERTAINLY</span> <span class="diff-del">NEED</span> <span class="diff-del">X-IT</span> <span class="diff-del">.</span></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

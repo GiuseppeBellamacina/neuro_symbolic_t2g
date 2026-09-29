@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completion Examples — run_20260913_065606</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+  h1 { color: #333; font-size: 1.4em; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  th { background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }
+  tr.best { background: #f9fdf9; }
+  tr.worst { background: #fef9f9; }
+  tr:hover { background: #eef6ff; }
+  .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }
+  .prompt { max-width: 300px; color: #555; font-style: italic; }
+  .diff-del { color: #C44E52; text-decoration: line-through; }
+  .diff-add { color: #1a7a1a; font-weight: bold; }
+  .summary { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Completion Examples — run_20260913_065606</h1>
+<p class="summary">10 examples (5 best, 5 worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  <th>Prompt</th>
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="best">
+    <td class="prompt">cohesion policy is a good example of multi level governance .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">COHESION POLICY BE DESC-GOOD EXAMPLE MULTUS LEVEL GOVERNANCE .
+</td>
+    <td class="mono">COHESION POLICY BE DESC-GOOD EXAMPLE MULTUS LEVEL GOVERNANCE .</td>
+</tr><tr class="best">
+    <td class="prompt">we see similar packages in america .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .
+</td>
+    <td class="mono">X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .</td>
+</tr><tr class="best">
+    <td class="prompt">the same applies to the consolidation of public finances , which is a prerequisite for sustainable growth .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .
+</td>
+    <td class="mono">DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .</td>
+</tr><tr class="best">
+    <td class="prompt">this will make transport in europe safer and more efficient , while promoting environmental protection and energy efficiency too .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...</td>
+    <td class="mono">THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...</td>
+</tr><tr class="best">
+    <td class="prompt">for once it will bring some good news to my province , which certainly needs it .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">FOR DESC-ONCE X-IT WILL BRING SOME DESC-GOOD NEWS TO X-MY PROVINCE , WHICH DESC-CERTAINLY NEED X-IT .
+</td>
+    <td class="mono">FOR DESC-ONCE X-IT WILL BRING SOME DESC-GOOD NEWS TO X-MY PROVINCE , WHICH DESC-CERTAINLY NEED X-IT .</td>
+</tr><tr class="worst">
+    <td class="prompt">subsidiarity works for europe .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">SUBSIDIARITY WORK FOR EUROPE .
+</td>
+    <td class="mono"><span class="diff-del">SUBSIDIARITY</span> <span class="diff-add">SUSPEND</span> <span class="diff-del">WORK</span> <span class="diff-add">-LRB-</span> <span class="diff-del">FOR</span> <span class="diff-add">EUROPESLOGAN</span> <span class="diff-del">EUROPE</span> <span class="diff-add">X-I</span> <span class="diff-del">.</span> <span class="diff-add">BE</span> <span class="diff-add">DESC-VERY</span> <span class="diff-add">DESC-BENEFICIAL</span> <span class="diff-add">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">staggering !
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">STAGGER !
+</td>
+    <td class="mono"><span class="diff-del">STAGGER</span> <span class="diff-add">DESC-STARK</span> <span class="diff-del">!</span> <span class="diff-add">GLENY</span> <span class="diff-add">!</span></td>
+</tr><tr class="worst">
+    <td class="prompt">.
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">.
+</td>
+    <td class="mono"><span class="diff-del">.</span> <span class="diff-add">X-SHE</span> <span class="diff-add">WILL</span> <span class="diff-add">DESC-NOT</span> <span class="diff-add">FLINCH</span> <span class="diff-add">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">these were some items of news .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">SE BE SOME ITEM NEWS .
+</td>
+    <td class="mono"><span class="diff-del">SE</span> <span class="diff-add">DESC-SEEMINGLY</span> <span class="diff-del">BE</span> <span class="diff-add">DESC-SIGNIFICANT</span> <span class="diff-del">SOME</span> <span class="diff-add">CHANGE</span> <span class="diff-del">ITEM</span> <span class="diff-add">.</span> <span class="diff-del">NEWS</span> <span class="diff-add">,</span> <span class="diff-del">.</span> <span class="diff-add">?</span> <span class="diff-add">,</span> <span class="diff-add">COURSE</span> <span class="diff-add">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">she is very emaciated .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">X-SHE BE DESC-VERY DESC-EMACIATED .
+</td>
+    <td class="mono"><span class="diff-del">X-SHE</span> <span class="diff-add">SHEER</span> <span class="diff-del">BE</span> <span class="diff-add">EMANATE</span> <span class="diff-del">DESC-VERY</span> <span class="diff-add">.</span> <span class="diff-del">DESC-EMACIATED</span> <span class="diff-del">.</span></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

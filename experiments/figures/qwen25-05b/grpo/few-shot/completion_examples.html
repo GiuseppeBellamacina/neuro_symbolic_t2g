@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completion Examples — grpo</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+  h1 { color: #333; font-size: 1.4em; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  th { background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }
+  tr.best { background: #f9fdf9; }
+  tr.worst { background: #fef9f9; }
+  tr:hover { background: #eef6ff; }
+  .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }
+  .prompt { max-width: 300px; color: #555; font-style: italic; }
+  .diff-del { color: #C44E52; text-decoration: line-through; }
+  .diff-add { color: #1a7a1a; font-weight: bold; }
+  .summary { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Completion Examples — grpo</h1>
+<p class="summary">10 examples (5 best, 5 worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  <th>Prompt</th>
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="best">
+    <td class="prompt">we see similar packages in america .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .
+</td>
+    <td class="mono">X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .</td>
+</tr><tr class="best">
+    <td class="prompt">europe must take a different route .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">EUROPE MUST TAKE DESC-DIFFERENT ROUTE .
+</td>
+    <td class="mono">EUROPE MUST TAKE DESC-DIFFERENT ROUTE <span class="diff-del">.</span></td>
+</tr><tr class="best">
+    <td class="prompt">no further comment .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">NO DESC-FURR COMMENT .
+</td>
+    <td class="mono">NO DESC-FURR COMMENT .</td>
+</tr><tr class="best">
+    <td class="prompt">this , of course , requires clarification .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">THIS , COURSE , REQUIRE CLARIFICATION .
+</td>
+    <td class="mono">THIS , COURSE , REQUIRE CLARIFICATION .</td>
+</tr><tr class="best">
+    <td class="prompt">staggering !
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">STAGGER !
+</td>
+    <td class="mono">STAGGER !</td>
+</tr><tr class="worst">
+    <td class="prompt">the socialists and the liberals reneged on their promise .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">DESC-SOCIALIST AND DESC-LIBERAL RENEGE ON X-Y PROMISE .
+</td>
+    <td class="mono"><span class="diff-del">DESC-SOCIALIST</span> <span class="diff-add">SOCIALISTSPOSITION</span> <span class="diff-del">AND</span> <span class="diff-add">LEX</span> <span class="diff-del">DESC-LIBERAL</span> <span class="diff-add">-RRB-</span> <span class="diff-del">RENEGE</span> <span class="diff-add">LIBERALISATION</span> <span class="diff-del">ON</span> <span class="diff-add">POSITION</span> <span class="diff-del">X-Y</span> <span class="diff-add">LEX</span> <span class="diff-del">PROMISE</span> <span class="diff-del">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">these are attempts that have failed in the past because they were not natural historical developments .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">SE BE ATTEMPT THAT HAVE FAIL IN PAST BECAUSE X-Y BE DESC-NOT DESC-NATURAL DESC-HISTORICAL DEVELOPMENT .
+</td>
+    <td class="mono"><span class="diff-del">SE</span> <span class="diff-add">THIS</span> <span class="diff-del">BE</span> <span class="diff-add">TRY</span> <span class="diff-del">ATTEMPT</span> <span class="diff-add">ISWORLD</span> <span class="diff-del">THAT</span> <span class="diff-add">NOTHREE</span> <span class="diff-del">HAVE</span> <span class="diff-add">HISTORY</span> <span class="diff-del">FAIL</span> <span class="diff-add">DEVELOP</span> <span class="diff-del">IN</span> <span class="diff-add">MACHINERY</span> <span class="diff-del">PAST</span> <span class="diff-add">100</span> <span class="diff-del">BECAUSE</span> <span class="diff-add">%</span> <span class="diff-del">X-Y</span> <span class="diff-add">100</span> <span class="diff-del">BE</span> <span class="diff-add">%</span> <span class="diff-del">DESC-NOT</span> <span class="diff-add">100</span> <span class="diff-del">DESC-NATURAL</span> <span class="diff-add">%</span> <span class="diff-del">DESC-HISTORICAL</span> <span class="diff-add">100</span> <span class="diff-del">DEVELOPMENT</span> <span class="diff-add">%</span> <span class="diff-del">.</span> <span class="diff-add">200</span> <span class="diff-add">%</span> <span class="diff-add">200</span> <span class="diff-add">%</span> <span class="diff-add">300</span> <span class="diff-add">%</span> <span class="diff-add">300</span> <span class="diff-add">%</span> <span class="diff-add">400</span> <span class="diff-add">%</span> <span class="diff-add">400</span> <span class="diff-add">%</span> <span class="diff-add">500</span> <span class="diff-add">%</span> <span class="diff-add">500...</span></td>
+</tr><tr class="worst">
+    <td class="prompt">vice president of the commission . that is a huge question .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">THAT BE DESC-HUGE QUESTION .
+</td>
+    <td class="mono"><span class="diff-del">THAT</span> <span class="diff-add">V</span> <span class="diff-del">BE</span> <span class="diff-add">P</span> <span class="diff-del">DESC-HUGE</span> <span class="diff-add">COMMISSION</span> <span class="diff-del">QUESTION</span> <span class="diff-add">BIGTHANK</span> <span class="diff-del">.</span> <span class="diff-add">YOU</span></td>
+</tr><tr class="worst">
+    <td class="prompt">míle buíochas do mhuintir na héireann .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">OCHA DO MHUINTIR NA H?IREANN .
+</td>
+    <td class="mono"><span class="diff-del">OCHA</span> <span class="diff-add">MIEUX</span> <span class="diff-del">DO</span> <span class="diff-add">BU</span> <span class="diff-del">MHUINTIR</span> <span class="diff-add">ICE</span> <span class="diff-del">NA</span> <span class="diff-add">CHAOS</span> <span class="diff-del">H?IREANN</span> <span class="diff-add">NO</span> <span class="diff-del">.</span> <span class="diff-add">HIRE</span> <span class="diff-add">ANNUL</span> <span class="diff-add">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">the swedish presidency has put in a lot of effort .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">SWEDISH PRESIDENCY HAVE PUT IN LOT EFFORT .
+</td>
+    <td class="mono"><span class="diff-del">SWEDISH</span> <span class="diff-add">X-S</span> <span class="diff-del">PRESIDENCY</span> <span class="diff-add">W</span> <span class="diff-del">HAVE</span> <span class="diff-add">P</span> <span class="diff-del">PUT</span> <span class="diff-add">R</span> <span class="diff-del">IN</span> <span class="diff-add">E</span> <span class="diff-del">LOT</span> <span class="diff-add">SPOUSE</span> <span class="diff-del">EFFORT</span> <span class="diff-add">H</span> <span class="diff-del">.</span> <span class="diff-add">AFTERSHOCK</span> <span class="diff-add">123</span> <span class="diff-add">45</span> <span class="diff-add">.</span></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

@@ -1,0 +1,86 @@
+{
+  "model": "run_20260917_105109",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 400,
+      "rouge_l": 1.0,
+      "gold": "STAGGER !\n",
+      "prediction": "STAGGER !",
+      "prompt": "staggering !\n"
+    },
+    {
+      "group": "best",
+      "index": 625,
+      "rouge_l": 1.0,
+      "gold": "BEFORE VOTE ON AMENDMENT 8\n",
+      "prediction": "BEFORE VOTE ON AMENDMENT 8",
+      "prompt": "before the vote on amendment 8 \n"
+    },
+    {
+      "group": "best",
+      "index": 730,
+      "rouge_l": 1.0,
+      "gold": "RECOMMENDATION HARBOR\n",
+      "prediction": "RECOMMENDATION HARBOR",
+      "prompt": "recommendation harbour\n"
+    },
+    {
+      "group": "best",
+      "index": 1151,
+      "rouge_l": 1.0,
+      "gold": "EUROPEAN MIGRATION NETWORK\n",
+      "prediction": "EUROPEAN MIGRATION NETWORK",
+      "prompt": "european migration network \n"
+    },
+    {
+      "group": "best",
+      "index": 1195,
+      "rouge_l": 1.0,
+      "gold": "THIS MAY BE BEGIN .\n",
+      "prediction": "THIS MAY BE BEGIN .",
+      "prompt": "this may be the beginning .\n"
+    },
+    {
+      "group": "worst",
+      "index": 135,
+      "rouge_l": 0.0,
+      "gold": "DESC-SOCIALIST AND DESC-LIBERAL RENEGE ON X-Y PROMISE .\n",
+      "prediction": "SOCIALISTSPOSITION , LIBERALISATION POSITION",
+      "prompt": "the socialists and the liberals reneged on their promise .\n"
+    },
+    {
+      "group": "worst",
+      "index": 160,
+      "rouge_l": 0.0,
+      "gold": "DESC-CURRENT SITUATION BE DESC-ALARMING .\n",
+      "prediction": "CURTAIN STATE ISAAK ALARM .",
+      "prompt": "the current situation is alarming .\n"
+    },
+    {
+      "group": "worst",
+      "index": 385,
+      "rouge_l": 0.0,
+      "gold": "DESC-SECONDLY , DESC-RE BE DESC-ASIAN TIGER .\n",
+      "prediction": "SECONDMARCO , THISTURBIDLEGISLATION .",
+      "prompt": "secondly , there is the asian tiger .\n"
+    },
+    {
+      "group": "worst",
+      "index": 535,
+      "rouge_l": 0.0,
+      "gold": "LET X-WE DESC-NOT FORGET THAT MOST DESC-PERVERSE WAY ELIMINATE MEDIA BE TO INITIATE SELF CENSORSHIP .\n",
+      "prediction": "LEWANDOWSK YANUKOVICH NAZI SLOVAK , NAZI MOLDOVA , NAZI TROJAN ZAHRADIL 1974 -LRB- LEWANDOWSK YANUKOVICH NAZI KONRAD BOR...",
+      "prompt": "let us not forget that the most perverse way of eliminating the media is to initiate self censorship .\n"
+    },
+    {
+      "group": "worst",
+      "index": 770,
+      "rouge_l": 0.0,
+      "gold": "OCHA DO MHUINTIR NA H?IREANN .\n",
+      "prediction": "MILE FROM HEAR INCH .",
+      "prompt": "míle buíochas do mhuintir na héireann .\n"
+    }
+  ]
+}

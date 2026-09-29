@@ -1,0 +1,86 @@
+{
+  "model": "run_20260913_165601",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 400,
+      "rouge_l": 1.0,
+      "gold": "STAGGER !\n",
+      "prediction": "STAGGER !",
+      "prompt": "staggering !\n"
+    },
+    {
+      "group": "best",
+      "index": 732,
+      "rouge_l": 1.0,
+      "gold": "RECOMMENDATION HARBOR\n",
+      "prediction": "RECOMMENDATION HARBOR",
+      "prompt": "recommendation harbour\n"
+    },
+    {
+      "group": "best",
+      "index": 1195,
+      "rouge_l": 1.0,
+      "gold": "THIS MAY BE BEGIN .\n",
+      "prediction": "THIS MAY BE BEGIN .",
+      "prompt": "this may be the beginning .\n"
+    },
+    {
+      "group": "best",
+      "index": 1575,
+      "rouge_l": 1.0,
+      "gold": "PRESIDENT CALL FOR ORDER\n",
+      "prediction": "PRESIDENT CALL FOR ORDER",
+      "prompt": "the president called for order \n"
+    },
+    {
+      "group": "best",
+      "index": 1754,
+      "rouge_l": 1.0,
+      "gold": "DATUM CAN ALL BE DOCUMENT .\n",
+      "prediction": "DATUM CAN ALL BE DOCUMENT .",
+      "prompt": "the data can all be documented .\n"
+    },
+    {
+      "group": "worst",
+      "index": 160,
+      "rouge_l": 0.0,
+      "gold": "DESC-CURRENT SITUATION BE DESC-ALARMING .\n",
+      "prediction": "CURTAIN 100 2013 7 5 6 18 21 101 2013 7 5 6 18 21 101 2013 7 5 6 18 21 101 2013 7 5 6 18 21 101 2013 7 5 6 18 21 101 201...",
+      "prompt": "the current situation is alarming .\n"
+    },
+    {
+      "group": "worst",
+      "index": 165,
+      "rouge_l": 0.0,
+      "gold": "LET X-WE HOPE THAT X-IT WILL BE DESC-EFFECTIVE .\n",
+      "prediction": "LEWANDOWSK YOGHURT ZAHRADIL JAHRE NAPOLETANO VERSUS NAPOLETANO",
+      "prompt": "let us hope that it will be effective .\n"
+    },
+    {
+      "group": "worst",
+      "index": 386,
+      "rouge_l": 0.0,
+      "gold": "DESC-SECONDLY , DESC-RE BE DESC-ASIAN TIGER .\n",
+      "prediction": "SEVENTEEN 10 28 30 42 57 60",
+      "prompt": "secondly , there is the asian tiger .\n"
+    },
+    {
+      "group": "worst",
+      "index": 478,
+      "rouge_l": 0.0,
+      "gold": "LET X-WE DESC-NOT LAPSE INTO DESC-EMOTIONAL DEBATE !\n",
+      "prediction": "LEWANDOWSK YOGHURT NOVOTE NAFTOHAZ NAFTOHAZ EMOTION ALARM !",
+      "prompt": "let us not lapse into an emotional debate !\n"
+    },
+    {
+      "group": "worst",
+      "index": 591,
+      "rouge_l": 0.0,
+      "gold": "DEVELOP COUNTRY BE DESC-NOT GO TO DO X-IT AND DEVELOP COUNTRY BE DESC-EVEN DESC-LESS DESC-LIKELY TO DO DESC-SO .\n",
+      "prediction": "DUE CONSTRUCTION DUE CONSTRUCTION",
+      "prompt": "developed countries are not going to do it and developing countries are even less likely to do so .\n"
+    }
+  ]
+}

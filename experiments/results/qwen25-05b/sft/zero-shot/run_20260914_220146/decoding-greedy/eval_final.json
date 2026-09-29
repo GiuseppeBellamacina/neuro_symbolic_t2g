@@ -1,0 +1,147 @@
+{
+  "rouge_l_mean": 0.969608295166046,
+  "rouge_l_std": 0.0800726252401194,
+  "rouge_l_median": 1.0,
+  "valid_rouge_l_mean": 0.969608295166046,
+  "valid_rouge_l_mean_v3": 0.969608295166046,
+  "bleu_sentence_mean": 0.9318777090791661,
+  "bleu_corpus": 0.9361891029339608,
+  "chrf_sentence_mean": 96.62853507113658,
+  "chrf_corpus": 96.60533683137947,
+  "gloss_f1_sentence_mean": 0.971544768701248,
+  "gloss_f1_micro": 0.972056578813473,
+  "exact_match": 0.7775,
+  "non_copy_token_accuracy": 0.9546524064171124,
+  "non_copy_token_hits": 8926,
+  "non_copy_token_total": 9350,
+  "bigram_log_prob_mean": -84.72915868663787,
+  "bigram_log_prob_std": 30.74042723289854,
+  "validity_rate": 1.0,
+  "valid_count": 2000,
+  "invalid_count": 0,
+  "pass_at_1": 0.998,
+  "reward_breakdown": {
+    "translation_quality_reward": 0.9392165903320921,
+    "gold_structure_reward": 0.8948357655810442,
+    "gloss_order_reward": 0.9352648259365746,
+    "gloss_format_reward": 1.0,
+    "gloss_repetition_reward": 0.99
+  },
+  "detailed_metrics": {
+    "overall_pass_rate": 0.998,
+    "overall_rouge_l": 0.969608295166046,
+    "total_samples": 2000,
+    "valid_samples": 1996,
+    "rouge_l_percentiles": {
+      "25%": 1.0,
+      "50%": 1.0,
+      "75%": 1.0,
+      "90%": 1.0
+    },
+    "error_distribution": {
+      "low_rouge_l": 4
+    }
+  },
+  "error_distribution": {},
+  "total_completions": 2000,
+  "evaluation_report": {
+    "total_samples": 2000,
+    "rouge_l": {
+      "mean": 0.969608295166046,
+      "ci_95": [
+        0.9660781775708494,
+        0.9729587223209866
+      ],
+      "percentiles": {
+        "25%": 1.0,
+        "50%": 1.0,
+        "75%": 1.0,
+        "90%": 1.0
+      }
+    },
+    "bleu": {
+      "corpus": 0.9361891029339608,
+      "sentence_mean": 0.9318777090791661,
+      "ci_95": [
+        0.9254406222034236,
+        0.9383714034118166
+      ]
+    },
+    "chrf": {
+      "corpus": 96.60533683137947,
+      "sentence_mean": 96.62853507113658,
+      "ci_95": [
+        96.28155710226835,
+        96.96670099362699
+      ]
+    },
+    "gloss_f1": {
+      "micro": 0.972056578813473,
+      "sentence_mean": 0.971544768701248,
+      "ci_95": [
+        0.9684013283622575,
+        0.9744976237326828
+      ]
+    },
+    "pass_at_1": {
+      "mean": 0.998,
+      "ci_95": [
+        0.996,
+        0.9995
+      ]
+    },
+    "gloss_validity_rate": 1.0,
+    "error_distribution": {}
+  },
+  "num_samples_evaluated": 2000,
+  "test_set_size": 8109,
+  "num_completions_per_prompt": 1,
+  "best_of_n": false,
+  "prompting": {
+    "mode": "zero-shot",
+    "source": "config"
+  },
+  "metrics_version": 2,
+  "prompt_context_fingerprint": "0f7c569f69f01d8b60173e53c7fe38a0e005b184d63e29cf47a94c55cc8c5ee4",
+  "decoding": {
+    "do_sample": false,
+    "temperature": null,
+    "num_samples": 1
+  },
+  "resumed_from": {
+    "resumed": false,
+    "resume_count": 0,
+    "recovered_prompts": 0
+  },
+  "difficulty_breakdown": {
+    "simple": {
+      "n_prompts": 94,
+      "rouge_l_mean": 0.9249900808411448,
+      "bleu_sentence_mean": 0.8760109701463706,
+      "chrf_sentence_mean": 93.3742903984948,
+      "validity_rate": 1.0,
+      "pass_at_1": 0.9787234042553191
+    },
+    "medium": {
+      "n_prompts": 1430,
+      "rouge_l_mean": 0.9728427757554223,
+      "bleu_sentence_mean": 0.9364965085483058,
+      "chrf_sentence_mean": 96.93181016688109,
+      "validity_rate": 1.0,
+      "pass_at_1": 0.9986013986013986
+    },
+    "hard": {
+      "n_prompts": 476,
+      "rouge_l_mean": 0.9687024231150638,
+      "bleu_sentence_mean": 0.9290344112195298,
+      "chrf_sentence_mean": 96.36008047515685,
+      "validity_rate": 1.0,
+      "pass_at_1": 1.0
+    }
+  },
+  "provenance": {
+    "config": "experiments/configs/qwen25-05b/sft/zero-shot-greedy.yaml",
+    "checkpoint": "experiments/checkpoints/qwen25-05b/sft/zero-shot/run_20260914_220146/final",
+    "results_dir": "experiments/results/qwen25-05b/sft/zero-shot/run_20260914_220146/decoding-greedy"
+  }
+}

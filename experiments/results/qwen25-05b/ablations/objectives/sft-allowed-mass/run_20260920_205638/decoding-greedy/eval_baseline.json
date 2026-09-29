@@ -1,0 +1,147 @@
+{
+  "rouge_l_mean": 0.14461881999671847,
+  "rouge_l_std": 0.202748299855539,
+  "rouge_l_median": 0.04790590935169248,
+  "valid_rouge_l_mean": 0.13022924740704497,
+  "valid_rouge_l_mean_v3": 0.14114153243184596,
+  "bleu_sentence_mean": 0.035141980335725714,
+  "bleu_corpus": 0.025414511422031293,
+  "chrf_sentence_mean": 13.264359363521885,
+  "chrf_corpus": 12.922629850284375,
+  "gloss_f1_sentence_mean": 0.14934857351657962,
+  "gloss_f1_micro": 0.11078827473566578,
+  "exact_match": 0.0025,
+  "non_copy_token_accuracy": 0.046844919786096256,
+  "non_copy_token_hits": 438,
+  "non_copy_token_total": 9350,
+  "bigram_log_prob_mean": -162.6082557182312,
+  "bigram_log_prob_std": 245.4687540419099,
+  "validity_rate": 0.9005,
+  "valid_count": 1801,
+  "invalid_count": 199,
+  "pass_at_1": 0.188,
+  "reward_breakdown": {
+    "translation_quality_reward": -0.7107623600065639,
+    "gold_structure_reward": -0.8708125483944943,
+    "gloss_order_reward": -0.7869528198818927,
+    "gloss_format_reward": 0.9845,
+    "gloss_repetition_reward": 0.40090000000000175
+  },
+  "detailed_metrics": {
+    "overall_pass_rate": 0.1875,
+    "overall_rouge_l": 0.14114153243184596,
+    "total_samples": 2000,
+    "valid_samples": 375,
+    "rouge_l_percentiles": {
+      "25%": 0.0,
+      "50%": 0.03306010928961749,
+      "75%": 0.21052631578947364,
+      "90%": 0.4670588235294123
+    },
+    "error_distribution": {
+      "low_rouge_l": 1426,
+      "excessive_repetition": 199
+    }
+  },
+  "error_distribution": {
+    "excessive_repetition": 199
+  },
+  "total_completions": 2000,
+  "evaluation_report": {
+    "total_samples": 2000,
+    "rouge_l": {
+      "mean": 0.14461881999671847,
+      "ci_95": [
+        0.1363681203986902,
+        0.1546649124130472
+      ],
+      "percentiles": {
+        "25%": 0.0,
+        "50%": 0.04790590935169248,
+        "75%": 0.21052631578947367,
+        "90%": 0.4670588235294123
+      }
+    },
+    "bleu": {
+      "corpus": 0.025414511422031293,
+      "sentence_mean": 0.035141980335725714,
+      "ci_95": [
+        0.03114856069830805,
+        0.03968871309043719
+      ]
+    },
+    "chrf": {
+      "corpus": 12.922629850284375,
+      "sentence_mean": 13.264359363521885,
+      "ci_95": [
+        12.562027979783558,
+        14.08183620564507
+      ]
+    },
+    "gloss_f1": {
+      "micro": 0.11078827473566578,
+      "sentence_mean": 0.14934857351657962,
+      "ci_95": [
+        0.1411972637723992,
+        0.15906243951184326
+      ]
+    },
+    "pass_at_1": {
+      "mean": 0.188,
+      "ci_95": [
+        0.1719875,
+        0.205
+      ]
+    },
+    "gloss_validity_rate": 0.9005,
+    "error_distribution": {
+      "excessive_repetition": 199
+    }
+  },
+  "num_samples_evaluated": 2000,
+  "test_set_size": 8109,
+  "num_completions_per_prompt": 1,
+  "best_of_n": false,
+  "prompting": {
+    "mode": "zero-shot",
+    "source": "config"
+  },
+  "metrics_version": 2,
+  "prompt_context_fingerprint": "0f7c569f69f01d8b60173e53c7fe38a0e005b184d63e29cf47a94c55cc8c5ee4",
+  "decoding": {
+    "do_sample": false,
+    "temperature": null,
+    "num_samples": 1
+  },
+  "resumed_from": {
+    "resumed": false,
+    "resume_count": 0,
+    "recovered_prompts": 0
+  },
+  "difficulty_breakdown": {
+    "simple": {
+      "n_prompts": 94,
+      "rouge_l_mean": 0.23077781059304012,
+      "bleu_sentence_mean": 0.10703009131811297,
+      "chrf_sentence_mean": 21.50216403317218,
+      "validity_rate": 0.9680851063829787,
+      "pass_at_1": 0.35106382978723405
+    },
+    "medium": {
+      "n_prompts": 1430,
+      "rouge_l_mean": 0.14525565927232584,
+      "bleu_sentence_mean": 0.03145039809792833,
+      "chrf_sentence_mean": 13.186860242442544,
+      "validity_rate": 0.916083916083916,
+      "pass_at_1": 0.1853146853146853
+    },
+    "hard": {
+      "n_prompts": 476,
+      "rouge_l_mean": 0.12569103579467486,
+      "bleu_sentence_mean": 0.032035846234267425,
+      "chrf_sentence_mean": 11.870388994186452,
+      "validity_rate": 0.8403361344537815,
+      "pass_at_1": 0.1638655462184874
+    }
+  }
+}

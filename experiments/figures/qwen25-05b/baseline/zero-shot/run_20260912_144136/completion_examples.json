@@ -1,0 +1,86 @@
+{
+  "model": "baseline",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 403,
+      "rouge_l": 1.0,
+      "gold": "STAGGER !\n",
+      "prediction": "STAGGER !",
+      "prompt": "staggering !\n"
+    },
+    {
+      "group": "best",
+      "index": 1153,
+      "rouge_l": 1.0,
+      "gold": "EUROPEAN MIGRATION NETWORK\n",
+      "prediction": "EUROPEAN MIGRATION NETWORK",
+      "prompt": "european migration network \n"
+    },
+    {
+      "group": "best",
+      "index": 1579,
+      "rouge_l": 1.0,
+      "gold": "PRESIDENT CALL FOR ORDER\n",
+      "prediction": "PRESIDENT CALL FOR ORDER",
+      "prompt": "the president called for order \n"
+    },
+    {
+      "group": "best",
+      "index": 2727,
+      "rouge_l": 1.0,
+      "gold": "DELEGATION TO EUROLAT VOTE\n",
+      "prediction": "DELEGATION TO EUROLAT VOTE",
+      "prompt": "delegation to eurolat vote \n"
+    },
+    {
+      "group": "best",
+      "index": 3550,
+      "rouge_l": 1.0,
+      "gold": "LISBON TREATY .\n",
+      "prediction": "LISBON TREATY",
+      "prompt": "the lisbon treaty .\n"
+    },
+    {
+      "group": "worst",
+      "index": 10,
+      "rouge_l": 0.0,
+      "gold": "THAT BE DESC-BIG MISTAKE THAT X-YOU BE MAKE DESC-HERE .\n",
+      "prediction": "I , I .",
+      "prompt": "that is the big mistake that you are making here .\n"
+    },
+    {
+      "group": "worst",
+      "index": 22,
+      "rouge_l": 0.0,
+      "gold": "THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...",
+      "prediction": "SPEED UPON EARTH 102 103 104.82 106 107 108 109 110",
+      "prompt": "this will make transport in europe safer and more efficient , while promoting environmental protection and energy efficiency too .\n"
+    },
+    {
+      "group": "worst",
+      "index": 32,
+      "rouge_l": 0.0,
+      "gold": "DESC-INSTEAD , X-WE HAVE DESC-COMMON FISHERY POLICY THAT HAVE BE DESC-ENVIRONMENTAL DISASTER DESC-ALREADY .\n",
+      "prediction": "0 1 2 3 4 5 6 7 8",
+      "prompt": "instead , we have a common fisheries policy that has been an environmental disaster already .\n"
+    },
+    {
+      "group": "worst",
+      "index": 35,
+      "rouge_l": 0.0,
+      "gold": "IN MEANTIME , PIRATE BE CONTINUE TO CARRY OUT ATTACK .\n",
+      "prediction": "1.1 2018 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 4...",
+      "prompt": "in the meantime , the pirates are continuing to carry out attacks .\n"
+    },
+    {
+      "group": "worst",
+      "index": 41,
+      "rouge_l": 0.0,
+      "gold": "THIS RESOLUTION BE DESC-NOT FOCUS ON PAST , ALTHOUGH X-IT DO DESC-ALSO CONCERN DESC-DEAD .\n",
+      "prediction": "1 2 3",
+      "prompt": "this resolution is not focused on the past , although it does also concern the dead .\n"
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "model": "run_20260913_065606",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 0,
+      "rouge_l": 1.0,
+      "gold": "COHESION POLICY BE DESC-GOOD EXAMPLE MULTUS LEVEL GOVERNANCE .\n",
+      "prediction": "COHESION POLICY BE DESC-GOOD EXAMPLE MULTUS LEVEL GOVERNANCE .",
+      "prompt": "cohesion policy is a good example of multi level governance .\n"
+    },
+    {
+      "group": "best",
+      "index": 5,
+      "rouge_l": 1.0,
+      "gold": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .\n",
+      "prediction": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .",
+      "prompt": "we see similar packages in america .\n"
+    },
+    {
+      "group": "best",
+      "index": 10,
+      "rouge_l": 1.0,
+      "gold": "THAT BE DESC-BIG MISTAKE THAT X-YOU BE MAKE DESC-HERE .\n",
+      "prediction": "THAT BE DESC-BIG MISTAKE THAT X-YOU BE MAKE DESC-HERE .",
+      "prompt": "that is the big mistake that you are making here .\n"
+    },
+    {
+      "group": "best",
+      "index": 15,
+      "rouge_l": 1.0,
+      "gold": "DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .\n",
+      "prediction": "DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .",
+      "prompt": "the same applies to the consolidation of public finances , which is a prerequisite for sustainable growth .\n"
+    },
+    {
+      "group": "best",
+      "index": 20,
+      "rouge_l": 1.0,
+      "gold": "THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...",
+      "prediction": "THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...",
+      "prompt": "this will make transport in europe safer and more efficient , while promoting environmental protection and energy efficiency too .\n"
+    },
+    {
+      "group": "worst",
+      "index": 1680,
+      "rouge_l": 0,
+      "gold": ".\n",
+      "prediction": ".",
+      "prompt": ".\n"
+    },
+    {
+      "group": "worst",
+      "index": 773,
+      "rouge_l": 0.1333,
+      "gold": "OCHA DO MHUINTIR NA H?IREANN .\n",
+      "prediction": "M?NDEZ BU ?C HU MATHIEU NA?VE IRAN .",
+      "prompt": "míle buíochas do mhuintir na héireann .\n"
+    },
+    {
+      "group": "worst",
+      "index": 2990,
+      "rouge_l": 0.1818,
+      "gold": "DESC-MOBILE SATELLITE SERVICE MSS\n",
+      "prediction": "MOBILITY SATURDAY SERVICE M S?TE .",
+      "prompt": "mobile satellite services mss \n"
+    },
+    {
+      "group": "worst",
+      "index": 752,
+      "rouge_l": 0.25,
+      "gold": "N RETAIL TRADE FROM SPAIN ADJUSTMENT FUND ARAG ?\n",
+      "prediction": "MOLDOVA CIUM DESC-GLOBAL ISLAMO ADJUSTMENT FUND ARAB ?",
+      "prompt": "mobilisation of the european globalisation adjustment fund aragón retail trade from spain \n"
+    },
+    {
+      "group": "worst",
+      "index": 9389,
+      "rouge_l": 0.3158,
+      "gold": "KULL VOLCANO ERUPTION IN ICELAND . AFFECT BY CONSEQUENCE EYJAFJALLAJ ?\n",
+      "prediction": "EUROPEAN UNION HAVE BE DESC-HARDLY AFFECT BY CONSEQUENCE EYEPERIOD ? ?",
+      "prompt": "the european union has been heavily affected by the consequences of the eyjafjallajökull volcano eruption in iceland .\n"
+    }
+  ]
+}

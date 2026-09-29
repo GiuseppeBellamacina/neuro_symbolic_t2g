@@ -1,0 +1,86 @@
+{
+  "model": "run_20260917_212556",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 6,
+      "rouge_l": 1.0,
+      "gold": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .\n",
+      "prediction": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .",
+      "prompt": "we see similar packages in america .\n"
+    },
+    {
+      "group": "best",
+      "index": 35,
+      "rouge_l": 1.0,
+      "gold": "IN MEANTIME , PIRATE BE CONTINUE TO CARRY OUT ATTACK .\n",
+      "prediction": "IN MEANTIME , PIRATE BE CONTINUE TO CARRY OUT ATTACK .",
+      "prompt": "in the meantime , the pirates are continuing to carry out attacks .\n"
+    },
+    {
+      "group": "best",
+      "index": 75,
+      "rouge_l": 1.0,
+      "gold": "EUROPE MUST TAKE DESC-DIFFERENT ROUTE .\n",
+      "prediction": "EUROPE MUST TAKE DESC-DIFFERENT ROUTE .",
+      "prompt": "europe must take a different route .\n"
+    },
+    {
+      "group": "best",
+      "index": 160,
+      "rouge_l": 1.0,
+      "gold": "DESC-CURRENT SITUATION BE DESC-ALARMING .\n",
+      "prediction": "DESC-CURRENT SITUATION BE DESC-ALARMING",
+      "prompt": "the current situation is alarming .\n"
+    },
+    {
+      "group": "best",
+      "index": 175,
+      "rouge_l": 1.0,
+      "gold": "X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET !\n",
+      "prediction": "X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET !",
+      "prompt": "we cannot sweep these problems under the carpet !\n"
+    },
+    {
+      "group": "worst",
+      "index": 281,
+      "rouge_l": 0.0,
+      "gold": "X-IT REQUIRE TRANSPARENCY , EXCHANGE INFORMATION , CROSS BORDER COOPERATION AND DESC-FAIR TAX COMPETITION .\n",
+      "prediction": "TRANSLATE INTO AS LINGUISTIC GLOSS WITH AS LINGUISTIC TOKENISM AS FOLLOW ISPERMANENT STATEMENT AS PER AS LINGUISTIC TOKE...",
+      "prompt": "it requires transparency , exchange of information , cross border cooperation and fair tax competition .\n"
+    },
+    {
+      "group": "worst",
+      "index": 771,
+      "rouge_l": 0.0,
+      "gold": "OCHA DO MHUINTIR NA H?IREANN .\n",
+      "prediction": "MIEUX BIOMASS DU MHA INHERITANCE .",
+      "prompt": "míle buíochas do mhuintir na héireann .\n"
+    },
+    {
+      "group": "worst",
+      "index": 866,
+      "rouge_l": 0.0,
+      "gold": "X-WE MUST PAY DESC-MUCH , DESC-MUCH MORE ATTENTION TO CREATE DESC-NEW JOB AND DESC-SECURE EXIST ONE .\n",
+      "prediction": "BE CARETAKER MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA...",
+      "prompt": "we must pay much , much more attention to creating new jobs and securing existing ones .\n"
+    },
+    {
+      "group": "worst",
+      "index": 1018,
+      "rouge_l": 0.0,
+      "gold": "THIS SUMMIT BE DESC-NOT , DESC-HOWEVER , DESC-JUST ANOR SUMMIT , MR ASHTON .\n",
+      "prediction": "X-WE DO NOTHREE , BUT , JUSTIFICATION OF AN ORGANIZATION , MARSAXLOQQ .",
+      "prompt": "this summit is not , however , just another summit , mrs ashton .\n"
+    },
+    {
+      "group": "worst",
+      "index": 1504,
+      "rouge_l": 0.0,
+      "gold": "DESC-HOWEVER , STANDARD BE DESC-ONLY ONE INSTRUMENT FOR HELP INDUSTRY .\n",
+      "prediction": "WHEN , ONLYFAIRBUT , ONLYFAIRBUT , ONLYFAIRBUT",
+      "prompt": "however , standards are only one of the instruments for helping industry .\n"
+    }
+  ]
+}

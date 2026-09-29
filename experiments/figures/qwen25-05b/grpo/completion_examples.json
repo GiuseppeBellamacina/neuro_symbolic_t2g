@@ -1,0 +1,86 @@
+{
+  "model": "grpo",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 6,
+      "rouge_l": 1.0,
+      "gold": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .\n",
+      "prediction": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .",
+      "prompt": "we see similar packages in america .\n"
+    },
+    {
+      "group": "best",
+      "index": 35,
+      "rouge_l": 1.0,
+      "gold": "IN MEANTIME , PIRATE BE CONTINUE TO CARRY OUT ATTACK .\n",
+      "prediction": "IN MEANTIME , PIRATE BE CONTINUE TO CARRY OUT ATTACK .",
+      "prompt": "in the meantime , the pirates are continuing to carry out attacks .\n"
+    },
+    {
+      "group": "best",
+      "index": 75,
+      "rouge_l": 1.0,
+      "gold": "EUROPE MUST TAKE DESC-DIFFERENT ROUTE .\n",
+      "prediction": "EUROPE MUST TAKE DESC-DIFFERENT ROUTE .",
+      "prompt": "europe must take a different route .\n"
+    },
+    {
+      "group": "best",
+      "index": 160,
+      "rouge_l": 1.0,
+      "gold": "DESC-CURRENT SITUATION BE DESC-ALARMING .\n",
+      "prediction": "DESC-CURRENT SITUATION BE DESC-ALARMING .",
+      "prompt": "the current situation is alarming .\n"
+    },
+    {
+      "group": "best",
+      "index": 175,
+      "rouge_l": 1.0,
+      "gold": "X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET !\n",
+      "prediction": "X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET !",
+      "prompt": "we cannot sweep these problems under the carpet !\n"
+    },
+    {
+      "group": "worst",
+      "index": 221,
+      "rouge_l": 0.0,
+      "gold": "SUBSIDIARITY WORK FOR EUROPE .\n",
+      "prediction": "X-S UBICE DESC-VERY DESC-BENEFICIAL .",
+      "prompt": "subsidiarity works for europe .\n"
+    },
+    {
+      "group": "worst",
+      "index": 848,
+      "rouge_l": 0.0,
+      "gold": "DESC-RE BE DESC-SHAMEFUL PARADOX DESC-HERE .\n",
+      "prediction": "HEREBY ISPERMANENT PERIOD .",
+      "prompt": "there is a shameful paradox here .\n"
+    },
+    {
+      "group": "worst",
+      "index": 1313,
+      "rouge_l": 0.0,
+      "gold": "IN 2009 , DESC-MONETARY INSTABILITY COULD HAVE WEAKEN DESC-POLITICAL SOLIDITY EUROPEAN UNION .\n",
+      "prediction": "X-Y BE INCREASE OF POLITICALSPEECH X-WE CANON INCREASE SOIL CYCLE .",
+      "prompt": "in 2009 , monetary instability could have weakened the political solidity of the european union .\n"
+    },
+    {
+      "group": "worst",
+      "index": 1366,
+      "rouge_l": 0.0,
+      "gold": "DESC-PARTICULARLY ENTERPRISE AT FOREFRONT DESC-SUCH DEVELOPMENT MUST BE ENCOURAGE AND REWARD DESC-ACCORDINGLY .\n",
+      "prediction": "SE EMPLOYEESRIGHT ENFORCER ADJUST ACCORDANCE WITH .",
+      "prompt": "particularly enterprises at the forefront of such development must be encouraged and rewarded accordingly .\n"
+    },
+    {
+      "group": "worst",
+      "index": 1680,
+      "rouge_l": 0,
+      "gold": ".\n",
+      "prediction": "X-Y WILL NOTWITHSTANDING FLINCH .",
+      "prompt": ".\n"
+    }
+  ]
+}

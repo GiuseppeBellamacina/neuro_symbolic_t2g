@@ -1,0 +1,86 @@
+{
+  "model": "run_20260915_160558",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 9,
+      "rouge_l": 1.0,
+      "gold": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .\n",
+      "prediction": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .",
+      "prompt": "we see similar packages in america .\n"
+    },
+    {
+      "group": "best",
+      "index": 75,
+      "rouge_l": 1.0,
+      "gold": "EUROPE MUST TAKE DESC-DIFFERENT ROUTE .\n",
+      "prediction": "EUROPE MUST TAKE DESC-DIFFERENT ROUTE .",
+      "prompt": "europe must take a different route .\n"
+    },
+    {
+      "group": "best",
+      "index": 97,
+      "rouge_l": 1.0,
+      "gold": "NO DESC-FURR COMMENT .\n",
+      "prediction": "NO DESC-FURR COMMENT .",
+      "prompt": "no further comment .\n"
+    },
+    {
+      "group": "best",
+      "index": 160,
+      "rouge_l": 1.0,
+      "gold": "DESC-CURRENT SITUATION BE DESC-ALARMING .\n",
+      "prediction": "DESC-CURRENT SITUATION BE DESC-ALARMING .",
+      "prompt": "the current situation is alarming .\n"
+    },
+    {
+      "group": "best",
+      "index": 177,
+      "rouge_l": 1.0,
+      "gold": "X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET !\n",
+      "prediction": "X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET !",
+      "prompt": "we cannot sweep these problems under the carpet !\n"
+    },
+    {
+      "group": "worst",
+      "index": 136,
+      "rouge_l": 0.0,
+      "gold": "DESC-SOCIALIST AND DESC-LIBERAL RENEGE ON X-Y PROMISE .\n",
+      "prediction": "SOCIALISTSPOSITION DISAGREE WITH DESOLATION , LIBERALISM POSITION DISAGREE WITH DESOLATION .",
+      "prompt": "the socialists and the liberals reneged on their promise .\n"
+    },
+    {
+      "group": "worst",
+      "index": 606,
+      "rouge_l": 0.0,
+      "gold": "THAT BE DESC-HUGE QUESTION .\n",
+      "prediction": "? PRESIDENT COMMISSION BIGTHANK YOU .",
+      "prompt": "vice president of the commission . that is a huge question .\n"
+    },
+    {
+      "group": "worst",
+      "index": 808,
+      "rouge_l": 0.0,
+      "gold": "SWEDISH PRESIDENCY HAVE PUT IN LOT EFFORT .\n",
+      "prediction": "X-S W SLEEP HISTORIAN 100 % .",
+      "prompt": "the swedish presidency has put in a lot of effort .\n"
+    },
+    {
+      "group": "worst",
+      "index": 849,
+      "rouge_l": 0.0,
+      "gold": "DESC-RE BE DESC-SHAMEFUL PARADOX DESC-HERE .\n",
+      "prediction": "HEREBY ISLAND OF SHAPE OF SHAM ANONYMITY .",
+      "prompt": "there is a shameful paradox here .\n"
+    },
+    {
+      "group": "worst",
+      "index": 869,
+      "rouge_l": 0.0,
+      "gold": "X-WE MUST PAY DESC-MUCH , DESC-MUCH MORE ATTENTION TO CREATE DESC-NEW JOB AND DESC-SECURE EXIST ONE .\n",
+      "prediction": "BE CARE MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCHA MUCH...",
+      "prompt": "we must pay much , much more attention to creating new jobs and securing existing ones .\n"
+    }
+  ]
+}

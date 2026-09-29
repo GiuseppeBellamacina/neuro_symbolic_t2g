@@ -1,0 +1,86 @@
+{
+  "model": "run_20260913_065606",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 0,
+      "rouge_l": 1.0,
+      "gold": "COHESION POLICY BE DESC-GOOD EXAMPLE MULTUS LEVEL GOVERNANCE .\n",
+      "prediction": "COHESION POLICY BE DESC-GOOD EXAMPLE MULTUS LEVEL GOVERNANCE .",
+      "prompt": "cohesion policy is a good example of multi level governance .\n"
+    },
+    {
+      "group": "best",
+      "index": 5,
+      "rouge_l": 1.0,
+      "gold": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .\n",
+      "prediction": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .",
+      "prompt": "we see similar packages in america .\n"
+    },
+    {
+      "group": "best",
+      "index": 15,
+      "rouge_l": 1.0,
+      "gold": "DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .\n",
+      "prediction": "DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .",
+      "prompt": "the same applies to the consolidation of public finances , which is a prerequisite for sustainable growth .\n"
+    },
+    {
+      "group": "best",
+      "index": 20,
+      "rouge_l": 1.0,
+      "gold": "THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...",
+      "prediction": "THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...",
+      "prompt": "this will make transport in europe safer and more efficient , while promoting environmental protection and energy efficiency too .\n"
+    },
+    {
+      "group": "best",
+      "index": 25,
+      "rouge_l": 1.0,
+      "gold": "FOR DESC-ONCE X-IT WILL BRING SOME DESC-GOOD NEWS TO X-MY PROVINCE , WHICH DESC-CERTAINLY NEED X-IT .\n",
+      "prediction": "FOR DESC-ONCE X-IT WILL BRING SOME DESC-GOOD NEWS TO X-MY PROVINCE , WHICH DESC-CERTAINLY NEED X-IT .",
+      "prompt": "for once it will bring some good news to my province , which certainly needs it .\n"
+    },
+    {
+      "group": "worst",
+      "index": 223,
+      "rouge_l": 0.0,
+      "gold": "SUBSIDIARITY WORK FOR EUROPE .\n",
+      "prediction": "SUSPEND -LRB- EUROPESLOGAN X-I BE DESC-VERY DESC-BENEFICIAL .",
+      "prompt": "subsidiarity works for europe .\n"
+    },
+    {
+      "group": "worst",
+      "index": 402,
+      "rouge_l": 0.0,
+      "gold": "STAGGER !\n",
+      "prediction": "DESC-STARK GLENY !",
+      "prompt": "staggering !\n"
+    },
+    {
+      "group": "worst",
+      "index": 1680,
+      "rouge_l": 0,
+      "gold": ".\n",
+      "prediction": "X-SHE WILL DESC-NOT FLINCH .",
+      "prompt": ".\n"
+    },
+    {
+      "group": "worst",
+      "index": 4187,
+      "rouge_l": 0.0,
+      "gold": "SE BE SOME ITEM NEWS .\n",
+      "prediction": "DESC-SEEMINGLY DESC-SIGNIFICANT CHANGE . , ? , COURSE .",
+      "prompt": "these were some items of news .\n"
+    },
+    {
+      "group": "worst",
+      "index": 6131,
+      "rouge_l": 0.0,
+      "gold": "X-SHE BE DESC-VERY DESC-EMACIATED .\n",
+      "prediction": "SHEER EMANATE .",
+      "prompt": "she is very emaciated .\n"
+    }
+  ]
+}

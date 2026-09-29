@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completion Examples — grpo</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+  h1 { color: #333; font-size: 1.4em; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  th { background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }
+  tr.best { background: #f9fdf9; }
+  tr.worst { background: #fef9f9; }
+  tr:hover { background: #eef6ff; }
+  .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }
+  .prompt { max-width: 300px; color: #555; font-style: italic; }
+  .diff-del { color: #C44E52; text-decoration: line-through; }
+  .diff-add { color: #1a7a1a; font-weight: bold; }
+  .summary { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Completion Examples — grpo</h1>
+<p class="summary">10 examples (5 best, 5 worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  <th>Prompt</th>
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="best">
+    <td class="prompt">we see similar packages in america .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .
+</td>
+    <td class="mono">X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .</td>
+</tr><tr class="best">
+    <td class="prompt">in the meantime , the pirates are continuing to carry out attacks .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">IN MEANTIME , PIRATE BE CONTINUE TO CARRY OUT ATTACK .
+</td>
+    <td class="mono">IN MEANTIME , PIRATE BE CONTINUE TO CARRY OUT ATTACK .</td>
+</tr><tr class="best">
+    <td class="prompt">europe must take a different route .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">EUROPE MUST TAKE DESC-DIFFERENT ROUTE .
+</td>
+    <td class="mono">EUROPE MUST TAKE DESC-DIFFERENT ROUTE .</td>
+</tr><tr class="best">
+    <td class="prompt">the current situation is alarming .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">DESC-CURRENT SITUATION BE DESC-ALARMING .
+</td>
+    <td class="mono">DESC-CURRENT SITUATION BE DESC-ALARMING .</td>
+</tr><tr class="best">
+    <td class="prompt">we cannot sweep these problems under the carpet !
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET !
+</td>
+    <td class="mono">X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET !</td>
+</tr><tr class="worst">
+    <td class="prompt">subsidiarity works for europe .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">SUBSIDIARITY WORK FOR EUROPE .
+</td>
+    <td class="mono"><span class="diff-del">SUBSIDIARITY</span> <span class="diff-add">X-S</span> <span class="diff-del">WORK</span> <span class="diff-add">UBICE</span> <span class="diff-del">FOR</span> <span class="diff-add">DESC-VERY</span> <span class="diff-del">EUROPE</span> <span class="diff-add">DESC-BENEFICIAL</span> .</td>
+</tr><tr class="worst">
+    <td class="prompt">there is a shameful paradox here .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">DESC-RE BE DESC-SHAMEFUL PARADOX DESC-HERE .
+</td>
+    <td class="mono"><span class="diff-del">DESC-RE</span> <span class="diff-add">HEREBY</span> <span class="diff-del">BE</span> <span class="diff-add">ISPERMANENT</span> <span class="diff-del">DESC-SHAMEFUL</span> <span class="diff-add">PERIOD</span> <span class="diff-del">PARADOX</span> <span class="diff-add">.</span> <span class="diff-del">DESC-HERE</span> <span class="diff-del">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">in 2009 , monetary instability could have weakened the political solidity of the european union .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">IN 2009 , DESC-MONETARY INSTABILITY COULD HAVE WEAKEN DESC-POLITICAL SOLIDITY EUROPEAN UNION .
+</td>
+    <td class="mono"><span class="diff-del">IN</span> <span class="diff-add">X-Y</span> <span class="diff-del">2009</span> <span class="diff-add">BE</span> <span class="diff-del">,</span> <span class="diff-add">INCREASE</span> <span class="diff-del">DESC-MONETARY</span> <span class="diff-add">OF</span> <span class="diff-del">INSTABILITY</span> <span class="diff-add">POLITICALSPEECH</span> <span class="diff-del">COULD</span> <span class="diff-add">X-WE</span> <span class="diff-del">HAVE</span> <span class="diff-add">CANON</span> <span class="diff-del">WEAKEN</span> <span class="diff-add">INCREASE</span> <span class="diff-del">DESC-POLITICAL</span> <span class="diff-add">SOIL</span> <span class="diff-del">SOLIDITY</span> <span class="diff-add">CYCLE</span> <span class="diff-del">EUROPEAN</span> <span class="diff-add">.</span> <span class="diff-del">UNION</span> <span class="diff-del">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">particularly enterprises at the forefront of such development must be encouraged and rewarded accordingly .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">DESC-PARTICULARLY ENTERPRISE AT FOREFRONT DESC-SUCH DEVELOPMENT MUST BE ENCOURAGE AND REWARD DESC-ACCORDINGLY .
+</td>
+    <td class="mono"><span class="diff-del">DESC-PARTICULARLY</span> <span class="diff-add">SE</span> <span class="diff-del">ENTERPRISE</span> <span class="diff-add">EMPLOYEESRIGHT</span> <span class="diff-del">AT</span> <span class="diff-add">ENFORCER</span> <span class="diff-del">FOREFRONT</span> <span class="diff-add">ADJUST</span> <span class="diff-del">DESC-SUCH</span> <span class="diff-add">ACCORDANCE</span> <span class="diff-del">DEVELOPMENT</span> <span class="diff-add">WITH</span> <span class="diff-del">MUST</span> <span class="diff-add">.</span> <span class="diff-del">BE</span> <span class="diff-del">ENCOURAGE</span> <span class="diff-del">AND</span> <span class="diff-del">REWARD</span> <span class="diff-del">DESC-ACCORDINGLY</span> <span class="diff-del">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">.
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">.
+</td>
+    <td class="mono"><span class="diff-del">.</span> <span class="diff-add">X-Y</span> <span class="diff-add">WILL</span> <span class="diff-add">NOTWITHSTANDING</span> <span class="diff-add">FLINCH</span> <span class="diff-add">.</span></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

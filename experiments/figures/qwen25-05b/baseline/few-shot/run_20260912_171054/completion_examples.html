@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completion Examples — baseline</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+  h1 { color: #333; font-size: 1.4em; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  th { background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }
+  tr.best { background: #f9fdf9; }
+  tr.worst { background: #fef9f9; }
+  tr:hover { background: #eef6ff; }
+  .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }
+  .prompt { max-width: 300px; color: #555; font-style: italic; }
+  .diff-del { color: #C44E52; text-decoration: line-through; }
+  .diff-add { color: #1a7a1a; font-weight: bold; }
+  .summary { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Completion Examples — baseline</h1>
+<p class="summary">10 examples (5 best, 5 worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  <th>Prompt</th>
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="best">
+    <td class="prompt">we see similar packages in america .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .
+</td>
+    <td class="mono">X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA <span class="diff-del">.</span></td>
+</tr><tr class="best">
+    <td class="prompt">this , of course , requires clarification .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">THIS , COURSE , REQUIRE CLARIFICATION .
+</td>
+    <td class="mono">THIS , COURSE , REQUIRE CLARIFICATION <span class="diff-del">.</span></td>
+</tr><tr class="best">
+    <td class="prompt">staggering !
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">STAGGER !
+</td>
+    <td class="mono">STAGGER <span class="diff-del">!</span></td>
+</tr><tr class="best">
+    <td class="prompt">so much for solidarity .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">DESC-SO DESC-MUCH FOR SOLIDARITY .
+</td>
+    <td class="mono">DESC-SO DESC-MUCH FOR SOLIDARITY <span class="diff-del">.</span> <span class="diff-add">!</span></td>
+</tr><tr class="best">
+    <td class="prompt">before the vote on amendment 8 
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">BEFORE VOTE ON AMENDMENT 8
+</td>
+    <td class="mono">BEFORE VOTE ON AMENDMENT 8</td>
+</tr><tr class="worst">
+    <td class="prompt">unfortunately , this is what is going on on the internet .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">DESC-UNFORTUNATELY , THIS BE WHAT BE GO ON ON INTERNET .
+</td>
+    <td class="mono"><span class="diff-del">DESC-UNFORTUNATELY</span> <span class="diff-add">UNHAPPINESS</span> <span class="diff-del">,</span> <span class="diff-add">!</span> <span class="diff-del">THIS</span> <span class="diff-del">BE</span> <span class="diff-del">WHAT</span> <span class="diff-del">BE</span> <span class="diff-del">GO</span> <span class="diff-del">ON</span> <span class="diff-del">ON</span> <span class="diff-del">INTERNET</span> <span class="diff-del">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">unfortunately , no cure exists at the moment , and prevention and treatment related knowledge is limited .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">DESC-UNFORTUNATELY , NO CURE EXIST AT MOMENT , AND PREVENTION AND TREATMENT RELATE KNOWLEDGE BE LIMIT .
+</td>
+    <td class="mono"><span class="diff-del">DESC-UNFORTUNATELY</span> <span class="diff-add">UNTO</span> <span class="diff-del">,</span> <span class="diff-add">-LRB-</span> <span class="diff-del">NO</span> <span class="diff-add">UNTO</span> <span class="diff-del">CURE</span> <span class="diff-add">-RRB-</span> <span class="diff-del">EXIST</span> <span class="diff-add">-LRB-</span> <span class="diff-del">AT</span> <span class="diff-add">UNTO</span> <span class="diff-del">MOMENT</span> <span class="diff-add">-LRB-</span> <span class="diff-del">,</span> <span class="diff-add">UNTO</span> <span class="diff-del">AND</span> <span class="diff-add">-RRB-</span> <span class="diff-del">PREVENTION</span> <span class="diff-add">-LRB-</span> <span class="diff-del">AND</span> <span class="diff-add">UNTO</span> <span class="diff-del">TREATMENT</span> <span class="diff-add">-LRB-</span> <span class="diff-del">RELATE</span> <span class="diff-add">UNTO</span> <span class="diff-del">KNOWLEDGE</span> <span class="diff-add">-RRB-</span> <span class="diff-del">BE</span> <span class="diff-add">-LRB-</span> <span class="diff-del">LIMIT</span> <span class="diff-add">UNTO</span> <span class="diff-del">.</span> <span class="diff-add">-LRB-</span> <span class="diff-add">UNTO</span> <span class="diff-add">-RRB-</span></td>
+</tr><tr class="worst">
+    <td class="prompt">are we already forgetting the swift case , involving the transmission of data gathered by the us authorities ?
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">BE X-WE DESC-ALREADY FORGET SWIFT CASE , INVOLVE TRANSMISSION DATUM GAR BY X-WE AUTHORITY ?
+</td>
+    <td class="mono"><span class="diff-del">BE</span> <span class="diff-add">YESVOTE</span> <span class="diff-del">X-WE</span> <span class="diff-add">NOVUS</span> <span class="diff-del">DESC-ALREADY</span> <span class="diff-add">ASCRIBE</span> <span class="diff-del">FORGET</span> <span class="diff-del">SWIFT</span> <span class="diff-del">CASE</span> <span class="diff-del">,</span> <span class="diff-del">INVOLVE</span> <span class="diff-del">TRANSMISSION</span> <span class="diff-del">DATUM</span> <span class="diff-del">GAR</span> <span class="diff-del">BY</span> <span class="diff-del">X-WE</span> <span class="diff-del">AUTHORITY</span> <span class="diff-del">?</span></td>
+</tr><tr class="worst">
+    <td class="prompt">neither have we heard anything about the famous progressive equality policy .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">NEIR HAVE X-WE HEAR ANYTHING ABOUT DESC-FAMOUS DESC-PROGRESSIVE EQUALITY POLICY .
+</td>
+    <td class="mono"><span class="diff-del">NEIR</span> <span class="diff-add">NIEBLER</span> <span class="diff-del">HAVE</span> <span class="diff-add">DAWDLE</span> <span class="diff-del">X-WE</span> <span class="diff-add">WOOL</span> <span class="diff-del">HEAR</span> <span class="diff-add">GLOVE</span> <span class="diff-del">ANYTHING</span> <span class="diff-del">ABOUT</span> <span class="diff-del">DESC-FAMOUS</span> <span class="diff-del">DESC-PROGRESSIVE</span> <span class="diff-del">EQUALITY</span> <span class="diff-del">POLICY</span> <span class="diff-del">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">legislation governing the financial sector should have the effect of blunting rather than exacerbating economic cycles .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">LEGISLATION GOVERN DESC-FINANCIAL SECTOR SHOULD HAVE EFFECT DESC-BLUNT DESC-RAR THAN EXACERBATE DESC-ECONOMIC CYCLE .
+</td>
+    <td class="mono"><span class="diff-del">LEGISLATION</span> <span class="diff-add">LEG</span> <span class="diff-del">GOVERN</span> <span class="diff-add">ISOLATION</span> <span class="diff-del">DESC-FINANCIAL</span> <span class="diff-add">GLOSS</span> <span class="diff-del">SECTOR</span> <span class="diff-add">LAW</span> <span class="diff-del">SHOULD</span> <span class="diff-add">REBECCA</span> <span class="diff-del">HAVE</span> <span class="diff-add">DECK</span> <span class="diff-del">EFFECT</span> <span class="diff-add">BELL</span> <span class="diff-del">DESC-BLUNT</span> <span class="diff-add">TONNE</span> <span class="diff-del">DESC-RAR</span> <span class="diff-add">GLASS</span> <span class="diff-del">THAN</span> <span class="diff-del">EXACERBATE</span> <span class="diff-del">DESC-ECONOMIC</span> <span class="diff-del">CYCLE</span> <span class="diff-del">.</span></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

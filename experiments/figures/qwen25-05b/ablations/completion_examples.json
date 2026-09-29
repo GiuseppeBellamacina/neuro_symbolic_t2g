@@ -1,0 +1,86 @@
+{
+  "model": "ablations",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 5,
+      "rouge_l": 1.0,
+      "gold": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .\n",
+      "prediction": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .",
+      "prompt": "we see similar packages in america .\n"
+    },
+    {
+      "group": "best",
+      "index": 75,
+      "rouge_l": 1.0,
+      "gold": "EUROPE MUST TAKE DESC-DIFFERENT ROUTE .\n",
+      "prediction": "EUROPE MUST TAKE DESC-DIFFERENT ROUTE .",
+      "prompt": "europe must take a different route .\n"
+    },
+    {
+      "group": "best",
+      "index": 160,
+      "rouge_l": 1.0,
+      "gold": "DESC-CURRENT SITUATION BE DESC-ALARMING .\n",
+      "prediction": "DESC-CURRENT SITUATION BE DESC-ALARMING .",
+      "prompt": "the current situation is alarming .\n"
+    },
+    {
+      "group": "best",
+      "index": 175,
+      "rouge_l": 1.0,
+      "gold": "X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET !\n",
+      "prediction": "X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET  !",
+      "prompt": "we cannot sweep these problems under the carpet !\n"
+    },
+    {
+      "group": "best",
+      "index": 225,
+      "rouge_l": 1.0,
+      "gold": "X-WE IN PARLIAMENT SHOULD DESC-WELCOME THAT .\n",
+      "prediction": "X-WE IN PARLIAMENT SHOULD DESC-WELCOME THAT .",
+      "prompt": "we in parliament should welcome that .\n"
+    },
+    {
+      "group": "worst",
+      "index": 220,
+      "rouge_l": 0.0,
+      "gold": "SUBSIDIARITY WORK FOR EUROPE .\n",
+      "prediction": "SUBNIKARITY X-IT BE DESC-WEBANKED  .",
+      "prompt": "subsidiarity works for europe .\n"
+    },
+    {
+      "group": "worst",
+      "index": 1680,
+      "rouge_l": 0,
+      "gold": ".\n",
+      "prediction": ".",
+      "prompt": ".\n"
+    },
+    {
+      "group": "worst",
+      "index": 3552,
+      "rouge_l": 0.0,
+      "gold": "LISBON TREATY .\n",
+      "prediction": "lisbongreement .",
+      "prompt": "the lisbon treaty .\n"
+    },
+    {
+      "group": "worst",
+      "index": 5336,
+      "rouge_l": 0.0,
+      "gold": "DESC-EXTERNALLY , AS DESC-WELL AS DESC-DOMESTICALLY , X-WE DISDAIN REPRESENTATIVE GOVERNMENT AND X-WE BE DESC-CONTEMPTUO...",
+      "prediction": "EXTRE-. DESWELL-ASC . REBELENT-ASC . REBECHE . REBECHE . DEPENDENT-ASC . RESPECTIVE-ASC . REBECHE . DEPENDENT-ASC . RESP...",
+      "prompt": "externally , as well as domestically , we disdain representative government and we are contemptuous of the democratic will .\n"
+    },
+    {
+      "group": "worst",
+      "index": 9286,
+      "rouge_l": 0.0,
+      "gold": "KEEP DESC-INTERNATIONAL TRADE FLOW BE DESC-VITAL FOR EU AND DESC-OR EXPORT ORIENT COUNTRY .\n",
+      "prediction": "K-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-KE-K...",
+      "prompt": "keeping international trade flowing is vital for the eu and other exports oriented countries .\n"
+    }
+  ]
+}

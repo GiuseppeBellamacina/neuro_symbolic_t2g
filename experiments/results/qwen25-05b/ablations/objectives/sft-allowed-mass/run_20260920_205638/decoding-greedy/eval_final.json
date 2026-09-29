@@ -1,0 +1,147 @@
+{
+  "rouge_l_mean": 0.977446834460383,
+  "rouge_l_std": 0.0744775027235054,
+  "rouge_l_median": 1.0,
+  "valid_rouge_l_mean": 0.977446834460383,
+  "valid_rouge_l_mean_v3": 0.977446834460383,
+  "bleu_sentence_mean": 0.9504878451016731,
+  "bleu_corpus": 0.9532615300497891,
+  "chrf_sentence_mean": 97.61954340077745,
+  "chrf_corpus": 97.63209632955925,
+  "gloss_f1_sentence_mean": 0.9785724374844722,
+  "gloss_f1_micro": 0.97913061182938,
+  "exact_match": 0.842,
+  "non_copy_token_accuracy": 0.9699465240641711,
+  "non_copy_token_hits": 9069,
+  "non_copy_token_total": 9350,
+  "bigram_log_prob_mean": -84.51078268814086,
+  "bigram_log_prob_std": 30.44152685955215,
+  "validity_rate": 1.0,
+  "valid_count": 2000,
+  "invalid_count": 0,
+  "pass_at_1": 0.9975,
+  "reward_breakdown": {
+    "translation_quality_reward": 0.954893668920766,
+    "gold_structure_reward": 0.9178997279467099,
+    "gloss_order_reward": 0.9509934699556915,
+    "gloss_format_reward": 1.0,
+    "gloss_repetition_reward": 0.9905
+  },
+  "detailed_metrics": {
+    "overall_pass_rate": 0.9975,
+    "overall_rouge_l": 0.977446834460383,
+    "total_samples": 2000,
+    "valid_samples": 1995,
+    "rouge_l_percentiles": {
+      "25%": 1.0,
+      "50%": 1.0,
+      "75%": 1.0,
+      "90%": 1.0
+    },
+    "error_distribution": {
+      "low_rouge_l": 5
+    }
+  },
+  "error_distribution": {},
+  "total_completions": 2000,
+  "evaluation_report": {
+    "total_samples": 2000,
+    "rouge_l": {
+      "mean": 0.977446834460383,
+      "ci_95": [
+        0.9739488527212034,
+        0.9806696063324984
+      ],
+      "percentiles": {
+        "25%": 1.0,
+        "50%": 1.0,
+        "75%": 1.0,
+        "90%": 1.0
+      }
+    },
+    "bleu": {
+      "corpus": 0.9532615300497891,
+      "sentence_mean": 0.9504878451016731,
+      "ci_95": [
+        0.9446119469980361,
+        0.9564412805725379
+      ]
+    },
+    "chrf": {
+      "corpus": 97.63209632955925,
+      "sentence_mean": 97.61954340077745,
+      "ci_95": [
+        97.30836343020269,
+        97.93441334690247
+      ]
+    },
+    "gloss_f1": {
+      "micro": 0.97913061182938,
+      "sentence_mean": 0.9785724374844722,
+      "ci_95": [
+        0.9756052721859645,
+        0.9815018265350121
+      ]
+    },
+    "pass_at_1": {
+      "mean": 0.9975,
+      "ci_95": [
+        0.995,
+        0.9995
+      ]
+    },
+    "gloss_validity_rate": 1.0,
+    "error_distribution": {}
+  },
+  "num_samples_evaluated": 2000,
+  "test_set_size": 8109,
+  "num_completions_per_prompt": 1,
+  "best_of_n": false,
+  "prompting": {
+    "mode": "zero-shot",
+    "source": "config"
+  },
+  "metrics_version": 2,
+  "prompt_context_fingerprint": "0f7c569f69f01d8b60173e53c7fe38a0e005b184d63e29cf47a94c55cc8c5ee4",
+  "decoding": {
+    "do_sample": false,
+    "temperature": null,
+    "num_samples": 1
+  },
+  "resumed_from": {
+    "resumed": false,
+    "resume_count": 0,
+    "recovered_prompts": 0
+  },
+  "difficulty_breakdown": {
+    "simple": {
+      "n_prompts": 94,
+      "rouge_l_mean": 0.9372563606606159,
+      "bleu_sentence_mean": 0.896185815009186,
+      "chrf_sentence_mean": 94.59937090712164,
+      "validity_rate": 1.0,
+      "pass_at_1": 0.9787234042553191
+    },
+    "medium": {
+      "n_prompts": 1430,
+      "rouge_l_mean": 0.9798072451591449,
+      "bleu_sentence_mean": 0.9544462513959766,
+      "chrf_sentence_mean": 97.852912226076,
+      "validity_rate": 1.0,
+      "pass_at_1": 0.9979020979020979
+    },
+    "hard": {
+      "n_prompts": 476,
+      "rouge_l_mean": 0.9782924589098551,
+      "bleu_sentence_mean": 0.9493195044038575,
+      "chrf_sentence_mean": 97.51487700209412,
+      "validity_rate": 1.0,
+      "pass_at_1": 1.0
+    }
+  },
+  "provenance": {
+    "config": "experiments/configs/qwen25-05b/ablations/objectives/sft-allowed-mass-greedy.yaml",
+    "checkpoint": "experiments/checkpoints/qwen25-05b/ablations/objectives/sft-allowed-mass/run_20260920_205638/final",
+    "results_dir": "experiments/results/qwen25-05b/ablations/objectives/sft-allowed-mass/run_20260920_205638/decoding-greedy"
+  }
+}

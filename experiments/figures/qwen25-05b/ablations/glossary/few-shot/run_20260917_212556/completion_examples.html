@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completion Examples — run_20260917_212556</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+  h1 { color: #333; font-size: 1.4em; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  th { background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }
+  tr.best { background: #f9fdf9; }
+  tr.worst { background: #fef9f9; }
+  tr:hover { background: #eef6ff; }
+  .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }
+  .prompt { max-width: 300px; color: #555; font-style: italic; }
+  .diff-del { color: #C44E52; text-decoration: line-through; }
+  .diff-add { color: #1a7a1a; font-weight: bold; }
+  .summary { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Completion Examples — run_20260917_212556</h1>
+<p class="summary">10 examples (5 best, 5 worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  <th>Prompt</th>
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="best">
+    <td class="prompt">we see similar packages in america .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .
+</td>
+    <td class="mono">X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .</td>
+</tr><tr class="best">
+    <td class="prompt">in the meantime , the pirates are continuing to carry out attacks .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">IN MEANTIME , PIRATE BE CONTINUE TO CARRY OUT ATTACK .
+</td>
+    <td class="mono">IN MEANTIME , PIRATE BE CONTINUE TO CARRY OUT ATTACK .</td>
+</tr><tr class="best">
+    <td class="prompt">europe must take a different route .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">EUROPE MUST TAKE DESC-DIFFERENT ROUTE .
+</td>
+    <td class="mono">EUROPE MUST TAKE DESC-DIFFERENT ROUTE .</td>
+</tr><tr class="best">
+    <td class="prompt">the current situation is alarming .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">DESC-CURRENT SITUATION BE DESC-ALARMING .
+</td>
+    <td class="mono">DESC-CURRENT SITUATION BE DESC-ALARMING <span class="diff-del">.</span></td>
+</tr><tr class="best">
+    <td class="prompt">we cannot sweep these problems under the carpet !
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET !
+</td>
+    <td class="mono">X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET !</td>
+</tr><tr class="worst">
+    <td class="prompt">it requires transparency , exchange of information , cross border cooperation and fair tax competition .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">X-IT REQUIRE TRANSPARENCY , EXCHANGE INFORMATION , CROSS BORDER COOPERATION AND DESC-FAIR TAX COMPETITION .
+</td>
+    <td class="mono"><span class="diff-del">X-IT</span> <span class="diff-add">TRANSLATE</span> <span class="diff-del">REQUIRE</span> <span class="diff-add">INTO</span> <span class="diff-del">TRANSPARENCY</span> <span class="diff-add">AS</span> <span class="diff-del">,</span> <span class="diff-add">LINGUISTIC</span> <span class="diff-del">EXCHANGE</span> <span class="diff-add">GLOSS</span> <span class="diff-del">INFORMATION</span> <span class="diff-add">WITH</span> <span class="diff-del">,</span> <span class="diff-add">AS</span> <span class="diff-del">CROSS</span> <span class="diff-add">LINGUISTIC</span> <span class="diff-del">BORDER</span> <span class="diff-add">TOKENISM</span> <span class="diff-del">COOPERATION</span> <span class="diff-add">AS</span> <span class="diff-del">AND</span> <span class="diff-add">FOLLOW</span> <span class="diff-del">DESC-FAIR</span> <span class="diff-add">ISPERMANENT</span> <span class="diff-del">TAX</span> <span class="diff-add">STATEMENT</span> <span class="diff-del">COMPETITION</span> <span class="diff-add">AS</span> <span class="diff-del">.</span> <span class="diff-add">PER</span> <span class="diff-add">AS</span> <span class="diff-add">LINGUISTIC</span> <span class="diff-add">TOKE...</span></td>
+</tr><tr class="worst">
+    <td class="prompt">míle buíochas do mhuintir na héireann .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">OCHA DO MHUINTIR NA H?IREANN .
+</td>
+    <td class="mono"><span class="diff-del">OCHA</span> <span class="diff-add">MIEUX</span> <span class="diff-del">DO</span> <span class="diff-add">BIOMASS</span> <span class="diff-del">MHUINTIR</span> <span class="diff-add">DU</span> <span class="diff-del">NA</span> <span class="diff-add">MHA</span> <span class="diff-del">H?IREANN</span> <span class="diff-add">INHERITANCE</span> .</td>
+</tr><tr class="worst">
+    <td class="prompt">we must pay much , much more attention to creating new jobs and securing existing ones .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">X-WE MUST PAY DESC-MUCH , DESC-MUCH MORE ATTENTION TO CREATE DESC-NEW JOB AND DESC-SECURE EXIST ONE .
+</td>
+    <td class="mono"><span class="diff-del">X-WE</span> <span class="diff-add">BE</span> <span class="diff-del">MUST</span> <span class="diff-add">CARETAKER</span> <span class="diff-del">PAY</span> <span class="diff-add">MUCHA</span> <span class="diff-del">DESC-MUCH</span> <span class="diff-add">MUCHA</span> <span class="diff-del">,</span> <span class="diff-add">MUCHA</span> <span class="diff-del">DESC-MUCH</span> <span class="diff-add">MUCHA</span> <span class="diff-del">MORE</span> <span class="diff-add">MUCHA</span> <span class="diff-del">ATTENTION</span> <span class="diff-add">MUCHA</span> <span class="diff-del">TO</span> <span class="diff-add">MUCHA</span> <span class="diff-del">CREATE</span> <span class="diff-add">MUCHA</span> <span class="diff-del">DESC-NEW</span> <span class="diff-add">MUCHA</span> <span class="diff-del">JOB</span> <span class="diff-add">MUCHA</span> <span class="diff-del">AND</span> <span class="diff-add">MUCHA</span> <span class="diff-del">DESC-SECURE</span> <span class="diff-add">MUCHA</span> <span class="diff-del">EXIST</span> <span class="diff-add">MUCHA</span> <span class="diff-del">ONE</span> <span class="diff-add">MUCHA</span> <span class="diff-del">.</span> <span class="diff-add">MUCHA</span> <span class="diff-add">MUCHA</span> <span class="diff-add">MUCHA</span> <span class="diff-add">MUCHA...</span></td>
+</tr><tr class="worst">
+    <td class="prompt">this summit is not , however , just another summit , mrs ashton .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">THIS SUMMIT BE DESC-NOT , DESC-HOWEVER , DESC-JUST ANOR SUMMIT , MR ASHTON .
+</td>
+    <td class="mono"><span class="diff-del">THIS</span> <span class="diff-add">X-WE</span> <span class="diff-del">SUMMIT</span> <span class="diff-add">DO</span> <span class="diff-del">BE</span> <span class="diff-add">NOTHREE</span> <span class="diff-del">DESC-NOT</span> <span class="diff-add">,</span> <span class="diff-del">,</span> <span class="diff-add">BUT</span> <span class="diff-del">DESC-HOWEVER</span> <span class="diff-add">,</span> <span class="diff-del">,</span> <span class="diff-add">JUSTIFICATION</span> <span class="diff-del">DESC-JUST</span> <span class="diff-add">OF</span> <span class="diff-del">ANOR</span> <span class="diff-add">AN</span> <span class="diff-del">SUMMIT</span> <span class="diff-add">ORGANIZATION</span> , <span class="diff-del">MR</span> <span class="diff-add">MARSAXLOQQ</span> <span class="diff-del">ASHTON</span> <span class="diff-add">.</span> <span class="diff-del">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">however , standards are only one of the instruments for helping industry .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">DESC-HOWEVER , STANDARD BE DESC-ONLY ONE INSTRUMENT FOR HELP INDUSTRY .
+</td>
+    <td class="mono"><span class="diff-del">DESC-HOWEVER</span> <span class="diff-add">WHEN</span> , <span class="diff-del">STANDARD</span> <span class="diff-add">ONLYFAIRBUT</span> <span class="diff-del">BE</span> <span class="diff-add">,</span> <span class="diff-del">DESC-ONLY</span> <span class="diff-add">ONLYFAIRBUT</span> <span class="diff-del">ONE</span> <span class="diff-add">,</span> <span class="diff-del">INSTRUMENT</span> <span class="diff-add">ONLYFAIRBUT</span> <span class="diff-del">FOR</span> <span class="diff-del">HELP</span> <span class="diff-del">INDUSTRY</span> <span class="diff-del">.</span></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

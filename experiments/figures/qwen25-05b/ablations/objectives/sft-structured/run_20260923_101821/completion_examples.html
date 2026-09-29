@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completion Examples — run_20260923_101821</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+  h1 { color: #333; font-size: 1.4em; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  th { background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }
+  tr.best { background: #f9fdf9; }
+  tr.worst { background: #fef9f9; }
+  tr:hover { background: #eef6ff; }
+  .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }
+  .prompt { max-width: 300px; color: #555; font-style: italic; }
+  .diff-del { color: #C44E52; text-decoration: line-through; }
+  .diff-add { color: #1a7a1a; font-weight: bold; }
+  .summary { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Completion Examples — run_20260923_101821</h1>
+<p class="summary">10 examples (5 best, 5 worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  <th>Prompt</th>
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="best">
+    <td class="prompt">we see similar packages in america .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .
+</td>
+    <td class="mono">X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .</td>
+</tr><tr class="best">
+    <td class="prompt">that is the big mistake that you are making here .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">THAT BE DESC-BIG MISTAKE THAT X-YOU BE MAKE DESC-HERE .
+</td>
+    <td class="mono">THAT BE DESC-BIG MISTAKE THAT X-YOU BE MAKE DESC-HERE .</td>
+</tr><tr class="best">
+    <td class="prompt">the same applies to the consolidation of public finances , which is a prerequisite for sustainable growth .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .
+</td>
+    <td class="mono">DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .</td>
+</tr><tr class="best">
+    <td class="prompt">this will make transport in europe safer and more efficient , while promoting environmental protection and energy efficiency too .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...</td>
+    <td class="mono">THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...</td>
+</tr><tr class="best">
+    <td class="prompt">for once it will bring some good news to my province , which certainly needs it .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">FOR DESC-ONCE X-IT WILL BRING SOME DESC-GOOD NEWS TO X-MY PROVINCE , WHICH DESC-CERTAINLY NEED X-IT .
+</td>
+    <td class="mono">FOR DESC-ONCE X-IT WILL BRING SOME DESC-GOOD NEWS TO X-MY PROVINCE , WHICH DESC-CERTAINLY NEED X-IT .</td>
+</tr><tr class="worst">
+    <td class="prompt">.
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">.
+</td>
+    <td class="mono">.</td>
+</tr><tr class="worst">
+    <td class="prompt">nothing !
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">NOTHING !
+</td>
+    <td class="mono"><span class="diff-del">NOTHING</span> <span class="diff-add">NO</span> <span class="diff-del">!</span> <span class="diff-add">THING</span> <span class="diff-add">!</span></td>
+</tr><tr class="worst">
+    <td class="prompt">míle buíochas do mhuintir na héireann .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.1176</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">OCHA DO MHUINTIR NA H?IREANN .
+</td>
+    <td class="mono"><span class="diff-del">OCHA</span> <span class="diff-add">M?NDEZ</span> <span class="diff-del">DO</span> <span class="diff-add">BU</span> <span class="diff-del">MHUINTIR</span> <span class="diff-add">?C</span> <span class="diff-del">NA</span> <span class="diff-add">HU</span> <span class="diff-del">H?IREANN</span> <span class="diff-add">?R?MQI</span> <span class="diff-del">.</span> <span class="diff-add">NA?VE</span> <span class="diff-add">?R?MQI</span> <span class="diff-add">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">mrs malmström , please forgive my frankness .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.1818</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">M , PLEASE FORGIVE X-MY FRANKNESS .
+</td>
+    <td class="mono"><span class="diff-del">M</span> <span class="diff-add">MR</span> <span class="diff-del">,</span> <span class="diff-add">MALMSTR</span> <span class="diff-del">PLEASE</span> <span class="diff-add">?</span> <span class="diff-del">FORGIVE</span> <span class="diff-add">PLEASE</span> <span class="diff-del">X-MY</span> <span class="diff-add">FOMENT</span> <span class="diff-del">FRANKNESS</span> <span class="diff-add">MYANMAR</span> .</td>
+</tr><tr class="worst">
+    <td class="prompt">it discovered and reported serious failures of supervision , which resulted in the nationalisation of a bank in 200i am referring to banco português de negócios and banco privado português .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.2174</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">CIO AND BANCO PRIVADO PORTUGU?S . SUPERVISION , WHICH RESULT IN NATIONALISATION BANK IN 200US BE REFER TO BANCO PORTUGU?...</td>
+    <td class="mono"><span class="diff-del">CIO</span> <span class="diff-add">QUEIRà?X-POSS</span> <span class="diff-del">AND</span> <span class="diff-add">DE</span> <span class="diff-del">BANCO</span> <span class="diff-add">NEGATIVITY</span> <span class="diff-del">PRIVADO</span> <span class="diff-add">E</span> <span class="diff-del">PORTUGU?S</span> <span class="diff-add">BAN</span> <span class="diff-del">.</span> <span class="diff-add">DO</span> <span class="diff-del">SUPERVISION</span> <span class="diff-add">PORTUGUESE</span> <span class="diff-del">,</span> <span class="diff-add">DE</span> <span class="diff-del">WHICH</span> <span class="diff-add">NEGOTIATION</span> <span class="diff-del">RESULT</span> <span class="diff-add">E</span> <span class="diff-del">IN</span> <span class="diff-add">BAN</span> <span class="diff-del">NATIONALISATION</span> <span class="diff-add">DO</span> <span class="diff-del">BANK</span> <span class="diff-add">PRIVATISATION</span> IN 200US BE REFER TO <span class="diff-del">BANCO</span> <span class="diff-add">BAN</span> <span class="diff-del">PORTUGU?...</span> <span class="diff-add">COLOMBIAN...</span></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

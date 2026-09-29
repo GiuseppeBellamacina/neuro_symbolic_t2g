@@ -1,0 +1,86 @@
+{
+  "model": "run_20260915_052556",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 5,
+      "rouge_l": 1.0,
+      "gold": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .\n",
+      "prediction": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .",
+      "prompt": "we see similar packages in america .\n"
+    },
+    {
+      "group": "best",
+      "index": 36,
+      "rouge_l": 1.0,
+      "gold": "IN MEANTIME , PIRATE BE CONTINUE TO CARRY OUT ATTACK .\n",
+      "prediction": "IN MEANTIME , PIRATE BE CONTINUE TO CARRY OUT ATTACK  .",
+      "prompt": "in the meantime , the pirates are continuing to carry out attacks .\n"
+    },
+    {
+      "group": "best",
+      "index": 75,
+      "rouge_l": 1.0,
+      "gold": "EUROPE MUST TAKE DESC-DIFFERENT ROUTE .\n",
+      "prediction": "EUROPE MUST TAKE DESC-DIFFERENT ROUTE  .",
+      "prompt": "europe must take a different route .\n"
+    },
+    {
+      "group": "best",
+      "index": 160,
+      "rouge_l": 1.0,
+      "gold": "DESC-CURRENT SITUATION BE DESC-ALARMING .\n",
+      "prediction": "DESC-CURRENT SITUATION BE DESC-ALARMING .",
+      "prompt": "the current situation is alarming .\n"
+    },
+    {
+      "group": "best",
+      "index": 175,
+      "rouge_l": 1.0,
+      "gold": "X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET !\n",
+      "prediction": "X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET  !",
+      "prompt": "we cannot sweep these problems under the carpet !\n"
+    },
+    {
+      "group": "worst",
+      "index": 223,
+      "rouge_l": 0.0,
+      "gold": "SUBSIDIARITY WORK FOR EUROPE .\n",
+      "prediction": "SUBNI-LARI X-IT BE DESC-VERY DESC-BENEFICIAL  .",
+      "prompt": "subsidiarity works for europe .\n"
+    },
+    {
+      "group": "worst",
+      "index": 609,
+      "rouge_l": 0.0,
+      "gold": "THAT BE DESC-HUGE QUESTION .\n",
+      "prediction": "? PRESIDENT COMMISSION GREAT QUANTIFY  .",
+      "prompt": "vice president of the commission . that is a huge question .\n"
+    },
+    {
+      "group": "worst",
+      "index": 1680,
+      "rouge_l": 0,
+      "gold": ".\n",
+      "prediction": ".",
+      "prompt": ".\n"
+    },
+    {
+      "group": "worst",
+      "index": 2994,
+      "rouge_l": 0.0,
+      "gold": "DESC-MOBILE SATELLITE SERVICE MSS\n",
+      "prediction": "X-MODELSATellite SERVICES MXS",
+      "prompt": "mobile satellite services mss \n"
+    },
+    {
+      "group": "worst",
+      "index": 3312,
+      "rouge_l": 0.0,
+      "gold": "DESC-SOMETIMES DESC-EVEN DESC-SMALL STEP CAN LEAD TO DESC-BIG ACHIEVEMENT .\n",
+      "prediction": "X-TIMEX . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . ...",
+      "prompt": "sometimes even small steps can lead to big achievements .\n"
+    }
+  ]
+}

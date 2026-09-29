@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completion Examples — baseline</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+  h1 { color: #333; font-size: 1.4em; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  th { background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }
+  tr.best { background: #f9fdf9; }
+  tr.worst { background: #fef9f9; }
+  tr:hover { background: #eef6ff; }
+  .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }
+  .prompt { max-width: 300px; color: #555; font-style: italic; }
+  .diff-del { color: #C44E52; text-decoration: line-through; }
+  .diff-add { color: #1a7a1a; font-weight: bold; }
+  .summary { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Completion Examples — baseline</h1>
+<p class="summary">10 examples (5 best, 5 worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  <th>Prompt</th>
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="best">
+    <td class="prompt">staggering !
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">STAGGER !
+</td>
+    <td class="mono">STAGGER !</td>
+</tr><tr class="best">
+    <td class="prompt">european migration network 
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">EUROPEAN MIGRATION NETWORK
+</td>
+    <td class="mono">EUROPEAN MIGRATION NETWORK</td>
+</tr><tr class="best">
+    <td class="prompt">the president called for order 
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">PRESIDENT CALL FOR ORDER
+</td>
+    <td class="mono">PRESIDENT CALL FOR ORDER</td>
+</tr><tr class="best">
+    <td class="prompt">delegation to eurolat vote 
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">DELEGATION TO EUROLAT VOTE
+</td>
+    <td class="mono">DELEGATION TO EUROLAT VOTE</td>
+</tr><tr class="best">
+    <td class="prompt">the lisbon treaty .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">LISBON TREATY .
+</td>
+    <td class="mono">LISBON TREATY <span class="diff-del">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">that is the big mistake that you are making here .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">THAT BE DESC-BIG MISTAKE THAT X-YOU BE MAKE DESC-HERE .
+</td>
+    <td class="mono"><span class="diff-del">THAT</span> <span class="diff-add">I</span> <span class="diff-del">BE</span> <span class="diff-add">,</span> <span class="diff-del">DESC-BIG</span> <span class="diff-add">I</span> <span class="diff-del">MISTAKE</span> <span class="diff-add">.</span> <span class="diff-del">THAT</span> <span class="diff-del">X-YOU</span> <span class="diff-del">BE</span> <span class="diff-del">MAKE</span> <span class="diff-del">DESC-HERE</span> <span class="diff-del">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">this will make transport in europe safer and more efficient , while promoting environmental protection and energy efficiency too .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...</td>
+    <td class="mono"><span class="diff-del">THIS</span> <span class="diff-add">SPEED</span> <span class="diff-del">WILL</span> <span class="diff-add">UPON</span> <span class="diff-del">MAKE</span> <span class="diff-add">EARTH</span> <span class="diff-del">TRANSPORT</span> <span class="diff-add">102</span> <span class="diff-del">IN</span> <span class="diff-add">103</span> <span class="diff-del">EUROPE</span> <span class="diff-add">104.82</span> <span class="diff-del">DESC-SAFER</span> <span class="diff-add">106</span> <span class="diff-del">AND</span> <span class="diff-add">107</span> <span class="diff-del">MORE</span> <span class="diff-add">108</span> <span class="diff-del">DESC-EFFICIENT</span> <span class="diff-add">109</span> <span class="diff-del">,</span> <span class="diff-add">110</span> <span class="diff-del">WHILE</span> <span class="diff-del">PROMOTE</span> <span class="diff-del">DESC-ENVIRONMENTAL</span> <span class="diff-del">PROTECTION</span> <span class="diff-del">AND</span> <span class="diff-del">...</span></td>
+</tr><tr class="worst">
+    <td class="prompt">instead , we have a common fisheries policy that has been an environmental disaster already .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">DESC-INSTEAD , X-WE HAVE DESC-COMMON FISHERY POLICY THAT HAVE BE DESC-ENVIRONMENTAL DISASTER DESC-ALREADY .
+</td>
+    <td class="mono"><span class="diff-del">DESC-INSTEAD</span> <span class="diff-add">0</span> <span class="diff-del">,</span> <span class="diff-add">1</span> <span class="diff-del">X-WE</span> <span class="diff-add">2</span> <span class="diff-del">HAVE</span> <span class="diff-add">3</span> <span class="diff-del">DESC-COMMON</span> <span class="diff-add">4</span> <span class="diff-del">FISHERY</span> <span class="diff-add">5</span> <span class="diff-del">POLICY</span> <span class="diff-add">6</span> <span class="diff-del">THAT</span> <span class="diff-add">7</span> <span class="diff-del">HAVE</span> <span class="diff-add">8</span> <span class="diff-del">BE</span> <span class="diff-del">DESC-ENVIRONMENTAL</span> <span class="diff-del">DISASTER</span> <span class="diff-del">DESC-ALREADY</span> <span class="diff-del">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">in the meantime , the pirates are continuing to carry out attacks .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">IN MEANTIME , PIRATE BE CONTINUE TO CARRY OUT ATTACK .
+</td>
+    <td class="mono"><span class="diff-del">IN</span> <span class="diff-add">1.1</span> <span class="diff-del">MEANTIME</span> <span class="diff-add">2018</span> <span class="diff-del">,</span> <span class="diff-add">3</span> <span class="diff-del">PIRATE</span> <span class="diff-add">4</span> <span class="diff-del">BE</span> <span class="diff-add">5</span> <span class="diff-del">CONTINUE</span> <span class="diff-add">6</span> <span class="diff-del">TO</span> <span class="diff-add">7</span> <span class="diff-del">CARRY</span> <span class="diff-add">8</span> <span class="diff-del">OUT</span> <span class="diff-add">9</span> <span class="diff-del">ATTACK</span> <span class="diff-add">10</span> <span class="diff-del">.</span> <span class="diff-add">11</span> <span class="diff-add">12</span> <span class="diff-add">13</span> <span class="diff-add">14</span> <span class="diff-add">15</span> <span class="diff-add">16</span> <span class="diff-add">17</span> <span class="diff-add">18</span> <span class="diff-add">19</span> <span class="diff-add">20</span> <span class="diff-add">21</span> <span class="diff-add">22</span> <span class="diff-add">23</span> <span class="diff-add">24</span> <span class="diff-add">25</span> <span class="diff-add">26</span> <span class="diff-add">27</span> <span class="diff-add">28</span> <span class="diff-add">29</span> <span class="diff-add">30</span> <span class="diff-add">31</span> <span class="diff-add">32</span> <span class="diff-add">33</span> <span class="diff-add">34</span> <span class="diff-add">35</span> <span class="diff-add">36</span> <span class="diff-add">37</span> <span class="diff-add">38</span> <span class="diff-add">39</span> <span class="diff-add">40</span> <span class="diff-add">41</span> <span class="diff-add">4...</span></td>
+</tr><tr class="worst">
+    <td class="prompt">this resolution is not focused on the past , although it does also concern the dead .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">THIS RESOLUTION BE DESC-NOT FOCUS ON PAST , ALTHOUGH X-IT DO DESC-ALSO CONCERN DESC-DEAD .
+</td>
+    <td class="mono"><span class="diff-del">THIS</span> <span class="diff-add">1</span> <span class="diff-del">RESOLUTION</span> <span class="diff-add">2</span> <span class="diff-del">BE</span> <span class="diff-add">3</span> <span class="diff-del">DESC-NOT</span> <span class="diff-del">FOCUS</span> <span class="diff-del">ON</span> <span class="diff-del">PAST</span> <span class="diff-del">,</span> <span class="diff-del">ALTHOUGH</span> <span class="diff-del">X-IT</span> <span class="diff-del">DO</span> <span class="diff-del">DESC-ALSO</span> <span class="diff-del">CONCERN</span> <span class="diff-del">DESC-DEAD</span> <span class="diff-del">.</span></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

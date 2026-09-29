@@ -1,0 +1,154 @@
+{
+  "rouge_l_mean": 0.9768975139445935,
+  "rouge_l_std": 0.0743201824626095,
+  "rouge_l_median": 1.0,
+  "valid_rouge_l_mean": 0.9768975139445935,
+  "valid_rouge_l_mean_v3": 0.9768975139445935,
+  "bleu_sentence_mean": 0.9491401853658794,
+  "bleu_corpus": 0.9518406331098924,
+  "chrf_sentence_mean": 97.54620104341257,
+  "chrf_corpus": 97.54896175828478,
+  "gloss_f1_sentence_mean": 0.9779840244819463,
+  "gloss_f1_micro": 0.9783299883161874,
+  "exact_match": 0.8341,
+  "non_copy_token_accuracy": 0.9684919786096257,
+  "non_copy_token_hits": 45277,
+  "non_copy_token_total": 46750,
+  "bigram_log_prob_mean": -84.57308355827331,
+  "bigram_log_prob_std": 30.65851193952059,
+  "validity_rate": 1.0,
+  "valid_count": 10000,
+  "invalid_count": 0,
+  "pass_at_1": 0.9985,
+  "reward_breakdown": {
+    "translation_quality_reward": 0.9537950278891887,
+    "gold_structure_reward": 0.914889551387667,
+    "gloss_order_reward": 0.9496468719075437,
+    "gloss_format_reward": 1.0,
+    "gloss_repetition_reward": 0.9901
+  },
+  "detailed_metrics": {
+    "overall_pass_rate": 0.9981,
+    "overall_rouge_l": 0.9768975139445935,
+    "total_samples": 10000,
+    "valid_samples": 9981,
+    "rouge_l_percentiles": {
+      "25%": 1.0,
+      "50%": 1.0,
+      "75%": 1.0,
+      "90%": 1.0
+    },
+    "error_distribution": {
+      "low_rouge_l": 19
+    }
+  },
+  "error_distribution": {},
+  "total_completions": 10000,
+  "evaluation_report": {
+    "total_samples": 10000,
+    "rouge_l": {
+      "mean": 0.9768975139445935,
+      "ci_95": [
+        0.9753252420843286,
+        0.9782627136748537
+      ],
+      "percentiles": {
+        "25%": 1.0,
+        "50%": 1.0,
+        "75%": 1.0,
+        "90%": 1.0
+      }
+    },
+    "bleu": {
+      "corpus": 0.9518406331098924,
+      "sentence_mean": 0.9491401853658794,
+      "ci_95": [
+        0.9462577068890674,
+        0.9515373225072136
+      ]
+    },
+    "chrf": {
+      "corpus": 97.54896175828478,
+      "sentence_mean": 97.54620104341257,
+      "ci_95": [
+        97.39678225309356,
+        97.67920907398751
+      ]
+    },
+    "gloss_f1": {
+      "micro": 0.9783299883161874,
+      "sentence_mean": 0.9779840244819463,
+      "ci_95": [
+        0.9765765778206326,
+        0.979235415871296
+      ]
+    },
+    "pass_at_1": {
+      "mean": 0.9981,
+      "ci_95": [
+        0.9972,
+        0.9989
+      ]
+    },
+    "gloss_validity_rate": 1.0,
+    "error_distribution": {}
+  },
+  "pass_at_k": {
+    "pass@1": 0.9985,
+    "pass@2": 0.9985,
+    "pass@3": 0.9985,
+    "pass@4": 0.9985,
+    "pass@5": 0.9985
+  },
+  "num_samples_evaluated": 2000,
+  "test_set_size": 8109,
+  "num_completions_per_prompt": 5,
+  "best_of_n": false,
+  "prompting": {
+    "mode": "zero-shot",
+    "source": "config"
+  },
+  "metrics_version": 2,
+  "prompt_context_fingerprint": "e2a03f9f861a96a9adacf10bbdab01267ccfd8e1eb36693de37c5ac93d685504",
+  "decoding": {
+    "do_sample": true,
+    "temperature": 0.7,
+    "num_samples": 5
+  },
+  "resumed_from": {
+    "resumed": false,
+    "resume_count": 0,
+    "recovered_prompts": 0
+  },
+  "difficulty_breakdown": {
+    "simple": {
+      "n_prompts": 94,
+      "rouge_l_mean": 0.9435189869232421,
+      "bleu_sentence_mean": 0.8987877750261806,
+      "chrf_sentence_mean": 94.78712214377856,
+      "validity_rate": 1.0,
+      "pass_at_1": 0.9893617021276596
+    },
+    "medium": {
+      "n_prompts": 1430,
+      "rouge_l_mean": 0.9791307540747226,
+      "bleu_sentence_mean": 0.953171944723592,
+      "chrf_sentence_mean": 97.78217479935795,
+      "validity_rate": 1.0,
+      "pass_at_1": 0.9986013986013986
+    },
+    "hard": {
+      "n_prompts": 476,
+      "rouge_l_mean": 0.9767799680494721,
+      "bleu_sentence_mean": 0.946971510345717,
+      "chrf_sentence_mean": 97.38214840804217,
+      "validity_rate": 1.0,
+      "pass_at_1": 1.0
+    }
+  },
+  "provenance": {
+    "config": "experiments/configs/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml",
+    "checkpoint": "experiments/checkpoints/qwen25-05b/ablations/objectives/sft-allowed-mass/run_20260920_205638/final",
+    "results_dir": "experiments/results/qwen25-05b/ablations/objectives/sft-allowed-mass/run_20260920_205638"
+  }
+}

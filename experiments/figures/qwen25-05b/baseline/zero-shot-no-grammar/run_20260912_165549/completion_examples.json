@@ -1,0 +1,86 @@
+{
+  "model": "baseline",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 730,
+      "rouge_l": 1.0,
+      "gold": "RECOMMENDATION HARBOR\n",
+      "prediction": "recommendation harbor",
+      "prompt": "recommendation harbour\n"
+    },
+    {
+      "group": "best",
+      "index": 1151,
+      "rouge_l": 1.0,
+      "gold": "EUROPEAN MIGRATION NETWORK\n",
+      "prediction": "EUROPEAN MIGRATION NETWORK",
+      "prompt": "european migration network \n"
+    },
+    {
+      "group": "best",
+      "index": 2301,
+      "rouge_l": 1.0,
+      "gold": "2007 DISCHARGE COMMISSION\n",
+      "prediction": "2007 DISCHARGE Commission",
+      "prompt": "2007 discharge commission \n"
+    },
+    {
+      "group": "best",
+      "index": 4945,
+      "rouge_l": 1.0,
+      "gold": "COMMUNITY MEDIA IN EUROPE\n",
+      "prediction": "COMMUNITY MEDIA  \nIN EUROPE",
+      "prompt": "community media in europe \n"
+    },
+    {
+      "group": "best",
+      "index": 7342,
+      "rouge_l": 1.0,
+      "gold": "NOTHING !\n",
+      "prediction": "nothing",
+      "prompt": "nothing !\n"
+    },
+    {
+      "group": "worst",
+      "index": 35,
+      "rouge_l": 0.0,
+      "gold": "IN MEANTIME , PIRATE BE CONTINUE TO CARRY OUT ATTACK .\n",
+      "prediction": "the pirates ; carrying ; attacks",
+      "prompt": "in the meantime , the pirates are continuing to carry out attacks .\n"
+    },
+    {
+      "group": "worst",
+      "index": 40,
+      "rouge_l": 0.0,
+      "gold": "THIS RESOLUTION BE DESC-NOT FOCUS ON PAST , ALTHOUGH X-IT DO DESC-ALSO CONCERN DESC-DEAD .\n",
+      "prediction": "thisresolution,unfocussedonthepast;althoughitdoesalsoconcernthedead .",
+      "prompt": "this resolution is not focused on the past , although it does also concern the dead .\n"
+    },
+    {
+      "group": "worst",
+      "index": 51,
+      "rouge_l": 0.0,
+      "gold": "X-YOU CAN BE DESC-SURE THAT .\n",
+      "prediction": "yes",
+      "prompt": "you can be sure of that .\n"
+    },
+    {
+      "group": "worst",
+      "index": 66,
+      "rouge_l": 0.0,
+      "gold": "THANK X-YOU DESC-VERY DESC-MUCH AND DESC-GOOD LUCK IN DESC-DIFFICULT TIME UPHEAVAL .\n",
+      "prediction": "thanks, goodbye, trouble, hard, tough, crisis",
+      "prompt": "thank you very much and good luck in a difficult time of upheaval .\n"
+    },
+    {
+      "group": "worst",
+      "index": 75,
+      "rouge_l": 0.0,
+      "gold": "EUROPE MUST TAKE DESC-DIFFERENT ROUTE .\n",
+      "prediction": "road / path / way / path / road",
+      "prompt": "europe must take a different route .\n"
+    }
+  ]
+}

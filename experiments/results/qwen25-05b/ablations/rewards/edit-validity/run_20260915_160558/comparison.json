@@ -1,0 +1,49 @@
+{
+  "decoding": {
+    "do_sample": true,
+    "temperature": 0.7,
+    "num_samples": 5
+  },
+  "baseline": {
+    "rouge_l_mean": 0.46644487100375553,
+    "valid_rouge_l_mean": 0.4580955078127883,
+    "pass_at_1": 0.733,
+    "exact_match": 0.0148,
+    "validity_rate": 0.9821,
+    "bleu_sentence_mean": 0.1882284537595403,
+    "bleu_corpus": 0.1879894896885455,
+    "chrf_sentence_mean": 44.681735366180845,
+    "chrf_corpus": 41.88947583020762,
+    "gloss_f1_sentence_mean": 0.44388904890443254,
+    "gloss_f1_micro": 0.4026239422921695,
+    "bigram_log_prob_mean": -114.85280079631805
+  },
+  "checkpoint": {
+    "rouge_l_mean": 0.6372908852193173,
+    "valid_rouge_l_mean": 0.6349966380325277,
+    "pass_at_1": 0.9425,
+    "exact_match": 0.0608,
+    "validity_rate": 0.9964,
+    "bleu_sentence_mean": 0.35210716017219795,
+    "bleu_corpus": 0.3684012318316652,
+    "chrf_sentence_mean": 60.59646583808153,
+    "chrf_corpus": 58.356269336287255,
+    "gloss_f1_sentence_mean": 0.6625465489902501,
+    "gloss_f1_micro": 0.6431699961377587,
+    "bigram_log_prob_mean": -95.06117230501175
+  },
+  "delta": {
+    "rouge_l_mean": 0.17084601421556178,
+    "valid_rouge_l_mean": 0.1769011302197394,
+    "pass_at_1": 0.20950000000000002,
+    "exact_match": 0.046,
+    "validity_rate": 0.01429999999999998,
+    "bleu_sentence_mean": 0.16387870641265764,
+    "bleu_corpus": 0.18041174214311967,
+    "chrf_sentence_mean": 15.914730471900683,
+    "chrf_corpus": 16.466793506079632,
+    "gloss_f1_sentence_mean": 0.21865750008581758,
+    "gloss_f1_micro": 0.2405460538455892,
+    "bigram_log_prob_mean": 19.791628491306298
+  }
+}

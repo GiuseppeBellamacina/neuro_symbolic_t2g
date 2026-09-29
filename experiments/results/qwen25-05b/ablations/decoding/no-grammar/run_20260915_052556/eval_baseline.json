@@ -1,0 +1,159 @@
+{
+  "rouge_l_mean": 0.5417847603981759,
+  "rouge_l_std": 0.2206288727143004,
+  "rouge_l_median": 0.5454545454545454,
+  "valid_rouge_l_mean": 0.4119731318067729,
+  "valid_rouge_l_mean_v3": 0.4547370871620975,
+  "bleu_sentence_mean": 0.1737489159499615,
+  "bleu_corpus": 0.1834800158632082,
+  "chrf_sentence_mean": 49.132274182749995,
+  "chrf_corpus": 47.22284775265399,
+  "gloss_f1_sentence_mean": 0.4379997226859545,
+  "gloss_f1_micro": 0.4226299520283362,
+  "exact_match": 0.0139,
+  "non_copy_token_accuracy": 0.26481283422459895,
+  "non_copy_token_hits": 12380,
+  "non_copy_token_total": 46750,
+  "bigram_log_prob_mean": -109.07323632507324,
+  "bigram_log_prob_std": 102.06236773671206,
+  "validity_rate": 0.7604,
+  "valid_count": 7604,
+  "invalid_count": 2396,
+  "pass_at_1": 0.853,
+  "reward_breakdown": {
+    "translation_quality_reward": 0.08356952079635263,
+    "bleu_reward": -0.6525021681000726,
+    "gold_structure_reward": -0.5607583714866963,
+    "gloss_order_reward": -0.3141410276112413,
+    "verifier_scaled_reward": -0.7191816493444669,
+    "gloss_format_reward": -0.0322,
+    "gloss_repetition_reward": 0.8716299999999993
+  },
+  "detailed_metrics": {
+    "overall_pass_rate": 0.7025,
+    "overall_rouge_l": 0.4547370871620975,
+    "total_samples": 10000,
+    "valid_samples": 7025,
+    "rouge_l_percentiles": {
+      "25%": 0.16216216216216217,
+      "50%": 0.5161290322580646,
+      "75%": 0.6956521739130435,
+      "90%": 0.8333333333333333
+    },
+    "error_distribution": {
+      "out_of_vocab_tokens": 2345,
+      "low_rouge_l": 579,
+      "excessive_repetition": 51
+    }
+  },
+  "error_distribution": {
+    "out_of_vocab_tokens": 2345,
+    "excessive_repetition": 51
+  },
+  "total_completions": 10000,
+  "evaluation_report": {
+    "total_samples": 10000,
+    "rouge_l": {
+      "mean": 0.5417847603981759,
+      "ci_95": [
+        0.5372260985822432,
+        0.5457177524128378
+      ],
+      "percentiles": {
+        "25%": 0.380952380952381,
+        "50%": 0.5454545454545454,
+        "75%": 0.7000000000000001,
+        "90%": 0.8333333333333333
+      }
+    },
+    "bleu": {
+      "corpus": 0.1834800158632082,
+      "sentence_mean": 0.1737489159499615,
+      "ci_95": [
+        0.169290025197144,
+        0.17790981206708217
+      ]
+    },
+    "chrf": {
+      "corpus": 47.22284775265399,
+      "sentence_mean": 49.132274182749995,
+      "ci_95": [
+        48.74788770027412,
+        49.52517074135306
+      ]
+    },
+    "gloss_f1": {
+      "micro": 0.4226299520283362,
+      "sentence_mean": 0.4379997226859545,
+      "ci_95": [
+        0.4332650211981254,
+        0.4426143087982759
+      ]
+    },
+    "pass_at_1": {
+      "mean": 0.854,
+      "ci_95": [
+        0.8467,
+        0.8605
+      ]
+    },
+    "gloss_validity_rate": 0.7604,
+    "error_distribution": {
+      "out_of_vocab_tokens": 2345,
+      "excessive_repetition": 51
+    }
+  },
+  "pass_at_k": {
+    "pass@1": 0.853,
+    "pass@2": 0.939,
+    "pass@3": 0.9615,
+    "pass@4": 0.971,
+    "pass@5": 0.979
+  },
+  "num_samples_evaluated": 2000,
+  "test_set_size": 8109,
+  "num_completions_per_prompt": 5,
+  "best_of_n": false,
+  "prompting": {
+    "mode": "few-shot",
+    "source": "config"
+  },
+  "metrics_version": 2,
+  "prompt_context_fingerprint": "3ca97596de4dd6db11497665cec470bc691f434545bbfb9fe8c00e2daf044a21",
+  "decoding": {
+    "do_sample": true,
+    "temperature": 0.7,
+    "num_samples": 5
+  },
+  "resumed_from": {
+    "resumed": false,
+    "resume_count": 0,
+    "recovered_prompts": 0
+  },
+  "difficulty_breakdown": {
+    "simple": {
+      "n_prompts": 94,
+      "rouge_l_mean": 0.6539699981008481,
+      "bleu_sentence_mean": 0.3228052727068831,
+      "chrf_sentence_mean": 61.134036768957216,
+      "validity_rate": 0.8702127659574468,
+      "pass_at_1": 0.8617021276595744
+    },
+    "medium": {
+      "n_prompts": 1430,
+      "rouge_l_mean": 0.5486281195487005,
+      "bleu_sentence_mean": 0.1770344844783609,
+      "chrf_sentence_mean": 49.704724544324556,
+      "validity_rate": 0.7681118881118881,
+      "pass_at_1": 0.8545454545454545
+    },
+    "hard": {
+      "n_prompts": 476,
+      "rouge_l_mean": 0.49907170172317383,
+      "bleu_sentence_mean": 0.13444290643155427,
+      "chrf_sentence_mean": 45.04242187149976,
+      "validity_rate": 0.715546218487395,
+      "pass_at_1": 0.8466386554621849
+    }
+  }
+}

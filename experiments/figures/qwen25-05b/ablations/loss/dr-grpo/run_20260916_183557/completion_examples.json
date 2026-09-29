@@ -1,0 +1,86 @@
+{
+  "model": "run_20260916_183557",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 161,
+      "rouge_l": 1.0,
+      "gold": "DESC-CURRENT SITUATION BE DESC-ALARMING .\n",
+      "prediction": "DESC-CURRENT SITUATION BE DESC-ALARMING",
+      "prompt": "the current situation is alarming .\n"
+    },
+    {
+      "group": "best",
+      "index": 285,
+      "rouge_l": 1.0,
+      "gold": "THIS , COURSE , REQUIRE CLARIFICATION .\n",
+      "prediction": "THIS , COURSE , REQUIRE CLARIFICATION .",
+      "prompt": "this , of course , requires clarification .\n"
+    },
+    {
+      "group": "best",
+      "index": 400,
+      "rouge_l": 1.0,
+      "gold": "STAGGER !\n",
+      "prediction": "STAGGER",
+      "prompt": "staggering !\n"
+    },
+    {
+      "group": "best",
+      "index": 524,
+      "rouge_l": 1.0,
+      "gold": "DESC-SO DESC-MUCH FOR SOLIDARITY .\n",
+      "prediction": "DESC-SO DESC-MUCH FOR SOLIDARITY !",
+      "prompt": "so much for solidarity .\n"
+    },
+    {
+      "group": "best",
+      "index": 625,
+      "rouge_l": 1.0,
+      "gold": "BEFORE VOTE ON AMENDMENT 8\n",
+      "prediction": "BEFORE VOTE ON AMENDMENT 8",
+      "prompt": "before the vote on amendment 8 \n"
+    },
+    {
+      "group": "worst",
+      "index": 222,
+      "rouge_l": 0.0,
+      "gold": "SUBSIDIARITY WORK FOR EUROPE .\n",
+      "prediction": "SUBSIDIARY I THINK E.U. ISWORLD .",
+      "prompt": "subsidiarity works for europe .\n"
+    },
+    {
+      "group": "worst",
+      "index": 283,
+      "rouge_l": 0.0,
+      "gold": "X-IT REQUIRE TRANSPARENCY , EXCHANGE INFORMATION , CROSS BORDER COOPERATION AND DESC-FAIR TAX COMPETITION .\n",
+      "prediction": "TRANSLATION AS LAG U SELL GROSS?TETE HAYTHAN GROSS?TETE CLOUT TEC RABBI KINNOCK E NOSIDE WISH ME GOODBYE .",
+      "prompt": "it requires transparency , exchange of information , cross border cooperation and fair tax competition .\n"
+    },
+    {
+      "group": "worst",
+      "index": 608,
+      "rouge_l": 0.0,
+      "gold": "THAT BE DESC-HUGE QUESTION .\n",
+      "prediction": "? PRESIDENT COMMISSION 10 20",
+      "prompt": "vice president of the commission . that is a huge question .\n"
+    },
+    {
+      "group": "worst",
+      "index": 805,
+      "rouge_l": 0.0,
+      "gold": "SWEDISH PRESIDENCY HAVE PUT IN LOT EFFORT .\n",
+      "prediction": "X-S W SLEEP HISTORIAN .",
+      "prompt": "the swedish presidency has put in a lot of effort .\n"
+    },
+    {
+      "group": "worst",
+      "index": 1380,
+      "rouge_l": 0.0,
+      "gold": "DESC-HOWEVER , THIS GIVE X-I OPPORTUNITY TO DISCUSS DESC-CURRENT SITUATION AT END DEBATE .\n",
+      "prediction": "TOOTH THOUGHT ANGLE ANGLE ANGLE",
+      "prompt": "however , this gives me the opportunity to discuss the current situation at the end of the debate .\n"
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "model": "ablations",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 318,
+      "rouge_l": 1.0,
+      "gold": "TWO COMMISSIONER FOR ONE REPORT , WHAT HONOR !\n",
+      "prediction": "two commissioner for one report, what honor !",
+      "prompt": "two commissioners for one report , what an honour !\n"
+    },
+    {
+      "group": "best",
+      "index": 400,
+      "rouge_l": 1.0,
+      "gold": "STAGGER !\n",
+      "prediction": "stagger !",
+      "prompt": "staggering !\n"
+    },
+    {
+      "group": "best",
+      "index": 730,
+      "rouge_l": 1.0,
+      "gold": "RECOMMENDATION HARBOR\n",
+      "prediction": "recommendation harbor",
+      "prompt": "recommendation harbour\n"
+    },
+    {
+      "group": "best",
+      "index": 822,
+      "rouge_l": 1.0,
+      "gold": "VOTE WILL TAKE PLACE AT END DEBATE .\n",
+      "prediction": "vote will take place at end debate .",
+      "prompt": "the vote will take place at the end of the debates .\n"
+    },
+    {
+      "group": "best",
+      "index": 1151,
+      "rouge_l": 1.0,
+      "gold": "EUROPEAN MIGRATION NETWORK\n",
+      "prediction": "european migration network",
+      "prompt": "european migration network \n"
+    },
+    {
+      "group": "worst",
+      "index": 65,
+      "rouge_l": 0.0,
+      "gold": "THANK X-YOU DESC-VERY DESC-MUCH AND DESC-GOOD LUCK IN DESC-DIFFICULT TIME UPHEAVAL .\n",
+      "prediction": "thx thx va kah-luht lai ma hoo-kun yah-tan o yah-ku-dhul .",
+      "prompt": "thank you very much and good luck in a difficult time of upheaval .\n"
+    },
+    {
+      "group": "worst",
+      "index": 72,
+      "rouge_l": 0.0,
+      "gold": "DESC-ONLY DESC-N CAN X-WE TALK ABOUT MORE DESC-FINANCIAL RESOURCE .\n",
+      "prediction": "waa laaah tahay ku saad ah maddu ugu uu fihihi .",
+      "prompt": "only then can we talk about more financial resources .\n"
+    },
+    {
+      "group": "worst",
+      "index": 96,
+      "rouge_l": 0.0,
+      "gold": "NO DESC-FURR COMMENT .\n",
+      "prediction": "n o f u r p e b l y c o m p l i e n g .",
+      "prompt": "no further comment .\n"
+    },
+    {
+      "group": "worst",
+      "index": 122,
+      "rouge_l": 0.0,
+      "gold": "INCLUDE X-Y IN DESC-NEW DIRECTIVE WILL DESC-ACTUALLY DESTROY X-Y DESC-ENTREPRENEURIAL DRIVE .\n",
+      "prediction": "includefromnewdirectivewillactuallydestroytheirentrepreneurialdrive .",
+      "prompt": "including them in the new directive will actually destroy their entrepreneurial drive .\n"
+    },
+    {
+      "group": "worst",
+      "index": 125,
+      "rouge_l": 0.0,
+      "gold": "X-WE MUST STAND DESC-UP FOR PRINCIPLE SUBSIDIARITY .\n",
+      "prediction": "wéli kíyí wánsuǒ gōnglǐ yīshì sújùshì .",
+      "prompt": "we must stand up for the principle of subsidiarity .\n"
+    }
+  ]
+}

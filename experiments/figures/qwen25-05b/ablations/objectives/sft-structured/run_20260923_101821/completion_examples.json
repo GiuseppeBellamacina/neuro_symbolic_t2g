@@ -1,0 +1,86 @@
+{
+  "model": "run_20260923_101821",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 5,
+      "rouge_l": 1.0,
+      "gold": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .\n",
+      "prediction": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .",
+      "prompt": "we see similar packages in america .\n"
+    },
+    {
+      "group": "best",
+      "index": 11,
+      "rouge_l": 1.0,
+      "gold": "THAT BE DESC-BIG MISTAKE THAT X-YOU BE MAKE DESC-HERE .\n",
+      "prediction": "THAT BE DESC-BIG MISTAKE THAT X-YOU BE MAKE DESC-HERE .",
+      "prompt": "that is the big mistake that you are making here .\n"
+    },
+    {
+      "group": "best",
+      "index": 18,
+      "rouge_l": 1.0,
+      "gold": "DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .\n",
+      "prediction": "DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .",
+      "prompt": "the same applies to the consolidation of public finances , which is a prerequisite for sustainable growth .\n"
+    },
+    {
+      "group": "best",
+      "index": 20,
+      "rouge_l": 1.0,
+      "gold": "THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...",
+      "prediction": "THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...",
+      "prompt": "this will make transport in europe safer and more efficient , while promoting environmental protection and energy efficiency too .\n"
+    },
+    {
+      "group": "best",
+      "index": 25,
+      "rouge_l": 1.0,
+      "gold": "FOR DESC-ONCE X-IT WILL BRING SOME DESC-GOOD NEWS TO X-MY PROVINCE , WHICH DESC-CERTAINLY NEED X-IT .\n",
+      "prediction": "FOR DESC-ONCE X-IT WILL BRING SOME DESC-GOOD NEWS TO X-MY PROVINCE , WHICH DESC-CERTAINLY NEED X-IT .",
+      "prompt": "for once it will bring some good news to my province , which certainly needs it .\n"
+    },
+    {
+      "group": "worst",
+      "index": 1680,
+      "rouge_l": 0,
+      "gold": ".\n",
+      "prediction": ".",
+      "prompt": ".\n"
+    },
+    {
+      "group": "worst",
+      "index": 7341,
+      "rouge_l": 0.0,
+      "gold": "NOTHING !\n",
+      "prediction": "NO THING !",
+      "prompt": "nothing !\n"
+    },
+    {
+      "group": "worst",
+      "index": 770,
+      "rouge_l": 0.1176,
+      "gold": "OCHA DO MHUINTIR NA H?IREANN .\n",
+      "prediction": "M?NDEZ BU ?C HU ?R?MQI NA?VE ?R?MQI .",
+      "prompt": "míle buíochas do mhuintir na héireann .\n"
+    },
+    {
+      "group": "worst",
+      "index": 3382,
+      "rouge_l": 0.1818,
+      "gold": "M , PLEASE FORGIVE X-MY FRANKNESS .\n",
+      "prediction": "MR MALMSTR ? PLEASE FOMENT MYANMAR .",
+      "prompt": "mrs malmström , please forgive my frankness .\n"
+    },
+    {
+      "group": "worst",
+      "index": 6802,
+      "rouge_l": 0.2174,
+      "gold": "CIO AND BANCO PRIVADO PORTUGU?S . SUPERVISION , WHICH RESULT IN NATIONALISATION BANK IN 200US BE REFER TO BANCO PORTUGU?...",
+      "prediction": "QUEIRà?X-POSS DE NEGATIVITY E BAN DO PORTUGUESE DE NEGOTIATION E BAN DO PRIVATISATION IN 200US BE REFER TO BAN COLOMBIAN...",
+      "prompt": "it discovered and reported serious failures of supervision , which resulted in the nationalisation of a bank in 200i am referring to banco português de negócios and banco privado português .\n"
+    }
+  ]
+}

@@ -1,0 +1,154 @@
+{
+  "rouge_l_mean": 0.9464267979494116,
+  "rouge_l_std": 0.09625678240582232,
+  "rouge_l_median": 1.0,
+  "valid_rouge_l_mean": 0.9464267979494116,
+  "valid_rouge_l_mean_v3": 0.9464267979494116,
+  "bleu_sentence_mean": 0.8821856626636929,
+  "bleu_corpus": 0.8863430509896751,
+  "chrf_sentence_mean": 93.89501488335505,
+  "chrf_corpus": 93.67280991561447,
+  "gloss_f1_sentence_mean": 0.9477247895178335,
+  "gloss_f1_micro": 0.9474266290426198,
+  "exact_match": 0.6078,
+  "non_copy_token_accuracy": 0.9089197860962567,
+  "non_copy_token_hits": 42492,
+  "non_copy_token_total": 46750,
+  "bigram_log_prob_mean": -85.94470039768218,
+  "bigram_log_prob_std": 31.1960362338398,
+  "validity_rate": 1.0,
+  "valid_count": 10000,
+  "invalid_count": 0,
+  "pass_at_1": 0.9975,
+  "reward_breakdown": {
+    "translation_quality_reward": 0.89285359589883,
+    "gold_structure_reward": 0.7795942878300871,
+    "gloss_order_reward": 0.8830222806235092,
+    "gloss_format_reward": 1.0,
+    "gloss_repetition_reward": 0.9901
+  },
+  "detailed_metrics": {
+    "overall_pass_rate": 0.9976,
+    "overall_rouge_l": 0.9464267979494116,
+    "total_samples": 10000,
+    "valid_samples": 9976,
+    "rouge_l_percentiles": {
+      "25%": 0.9142857142857143,
+      "50%": 1.0,
+      "75%": 1.0,
+      "90%": 1.0
+    },
+    "error_distribution": {
+      "low_rouge_l": 24
+    }
+  },
+  "error_distribution": {},
+  "total_completions": 10000,
+  "evaluation_report": {
+    "total_samples": 10000,
+    "rouge_l": {
+      "mean": 0.9464267979494116,
+      "ci_95": [
+        0.9444852749573496,
+        0.9483451337651457
+      ],
+      "percentiles": {
+        "25%": 0.9142857142857143,
+        "50%": 1.0,
+        "75%": 1.0,
+        "90%": 1.0
+      }
+    },
+    "bleu": {
+      "corpus": 0.8863430509896751,
+      "sentence_mean": 0.8821856626636929,
+      "ci_95": [
+        0.878378775504142,
+        0.8858714858841757
+      ]
+    },
+    "chrf": {
+      "corpus": 93.67280991561447,
+      "sentence_mean": 93.89501488335505,
+      "ci_95": [
+        93.69893249502884,
+        94.0871831386127
+      ]
+    },
+    "gloss_f1": {
+      "micro": 0.9474266290426198,
+      "sentence_mean": 0.9477247895178335,
+      "ci_95": [
+        0.945939696375666,
+        0.9494653210309209
+      ]
+    },
+    "pass_at_1": {
+      "mean": 0.9976,
+      "ci_95": [
+        0.9966,
+        0.9985
+      ]
+    },
+    "gloss_validity_rate": 1.0,
+    "error_distribution": {}
+  },
+  "pass_at_k": {
+    "pass@1": 0.9975,
+    "pass@2": 0.9985,
+    "pass@3": 0.9985,
+    "pass@4": 0.9985,
+    "pass@5": 0.9985
+  },
+  "num_samples_evaluated": 2000,
+  "test_set_size": 8109,
+  "num_completions_per_prompt": 5,
+  "best_of_n": false,
+  "prompting": {
+    "mode": "zero-shot",
+    "source": "config"
+  },
+  "metrics_version": 2,
+  "prompt_context_fingerprint": "e2a03f9f861a96a9adacf10bbdab01267ccfd8e1eb36693de37c5ac93d685504",
+  "decoding": {
+    "do_sample": true,
+    "temperature": 0.7,
+    "num_samples": 5
+  },
+  "resumed_from": {
+    "resumed": false,
+    "resume_count": 0,
+    "recovered_prompts": 0
+  },
+  "difficulty_breakdown": {
+    "simple": {
+      "n_prompts": 94,
+      "rouge_l_mean": 0.9077563098839694,
+      "bleu_sentence_mean": 0.8302813243575098,
+      "chrf_sentence_mean": 91.20378436961262,
+      "validity_rate": 1.0,
+      "pass_at_1": 0.9787234042553191
+    },
+    "medium": {
+      "n_prompts": 1430,
+      "rouge_l_mean": 0.9495553039872696,
+      "bleu_sentence_mean": 0.8868240073599722,
+      "chrf_sentence_mean": 94.21598509405769,
+      "validity_rate": 1.0,
+      "pass_at_1": 0.9986013986013986
+    },
+    "hard": {
+      "n_prompts": 476,
+      "rouge_l_mean": 0.9446647438401988,
+      "bleu_sentence_mean": 0.8785011561197895,
+      "chrf_sentence_mean": 93.4622171249244,
+      "validity_rate": 1.0,
+      "pass_at_1": 0.9978991596638656
+    }
+  },
+  "provenance": {
+    "config": "experiments/configs/qwen25-05b/ablations/objectives/sft-structured-shuffled.yaml",
+    "checkpoint": "experiments/checkpoints/qwen25-05b/ablations/objectives/sft-structured-shuffled/run_20260925_192053/final",
+    "results_dir": "experiments/results/qwen25-05b/ablations/objectives/sft-structured-shuffled/run_20260925_192053"
+  }
+}

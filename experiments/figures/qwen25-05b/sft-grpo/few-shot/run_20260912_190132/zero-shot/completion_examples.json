@@ -1,0 +1,86 @@
+{
+  "model": "run_20260912_190132",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 0,
+      "rouge_l": 1.0,
+      "gold": "COHESION POLICY BE DESC-GOOD EXAMPLE MULTUS LEVEL GOVERNANCE .\n",
+      "prediction": "COHESION POLICY BE DESC-GOOD EXAMPLE MULTUS LEVEL GOVERNANCE .",
+      "prompt": "cohesion policy is a good example of multi level governance .\n"
+    },
+    {
+      "group": "best",
+      "index": 5,
+      "rouge_l": 1.0,
+      "gold": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .\n",
+      "prediction": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .",
+      "prompt": "we see similar packages in america .\n"
+    },
+    {
+      "group": "best",
+      "index": 10,
+      "rouge_l": 1.0,
+      "gold": "THAT BE DESC-BIG MISTAKE THAT X-YOU BE MAKE DESC-HERE .\n",
+      "prediction": "THAT BE DESC-BIG MISTAKE THAT X-YOU BE MAKE DESC-HERE .",
+      "prompt": "that is the big mistake that you are making here .\n"
+    },
+    {
+      "group": "best",
+      "index": 15,
+      "rouge_l": 1.0,
+      "gold": "DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .\n",
+      "prediction": "DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .",
+      "prompt": "the same applies to the consolidation of public finances , which is a prerequisite for sustainable growth .\n"
+    },
+    {
+      "group": "best",
+      "index": 20,
+      "rouge_l": 1.0,
+      "gold": "THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...",
+      "prediction": "THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...",
+      "prompt": "this will make transport in europe safer and more efficient , while promoting environmental protection and energy efficiency too .\n"
+    },
+    {
+      "group": "worst",
+      "index": 1680,
+      "rouge_l": 0,
+      "gold": ".\n",
+      "prediction": ".",
+      "prompt": ".\n"
+    },
+    {
+      "group": "worst",
+      "index": 1945,
+      "rouge_l": 0.0,
+      "gold": "LELUCHOV . PART IN CELEBRATION ON SLOVAK POLISH BORDER AT BORDER BRIDGE ?\n",
+      "prediction": "IRRELEVANCE LE LUKA ? ?",
+      "prompt": "i took part in celebrations on the slovak polish border at the border bridge of čirč leluchov .\n"
+    },
+    {
+      "group": "worst",
+      "index": 3300,
+      "rouge_l": 0.0,
+      "gold": "IERNA NAD TISOU . LINE FROM VLADIVOSTOK REACH BORDER EU AT ?\n",
+      "prediction": "ZEITUNG NADIR S?TE ? ?",
+      "prompt": "the broad gauge railway line from vladivostok reaches the border of the eu at čierna nad tisou .\n"
+    },
+    {
+      "group": "worst",
+      "index": 771,
+      "rouge_l": 0.1176,
+      "gold": "OCHA DO MHUINTIR NA H?IREANN .\n",
+      "prediction": "M?NDEZ BU ?C HU MOUTH ?R?MQI NA?VE IRAN .",
+      "prompt": "míle buíochas do mhuintir na héireann .\n"
+    },
+    {
+      "group": "worst",
+      "index": 2991,
+      "rouge_l": 0.1818,
+      "gold": "DESC-MOBILE SATELLITE SERVICE MSS\n",
+      "prediction": "MOBILITY SATURDAY SERVICE M S?TE",
+      "prompt": "mobile satellite services mss \n"
+    }
+  ]
+}

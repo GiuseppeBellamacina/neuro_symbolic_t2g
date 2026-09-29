@@ -1,0 +1,86 @@
+{
+  "model": "run_20260915_083119",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 0,
+      "rouge_l": 1.0,
+      "gold": "COHESION POLICY BE DESC-GOOD EXAMPLE MULTUS LEVEL GOVERNANCE .\n",
+      "prediction": "COHESION POLICY BE DESC-GOOD EXAMPLE MULTUS LEVEL GOVERNANCE .",
+      "prompt": "cohesion policy is a good example of multi level governance .\n"
+    },
+    {
+      "group": "best",
+      "index": 5,
+      "rouge_l": 1.0,
+      "gold": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .\n",
+      "prediction": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .",
+      "prompt": "we see similar packages in america .\n"
+    },
+    {
+      "group": "best",
+      "index": 10,
+      "rouge_l": 1.0,
+      "gold": "THAT BE DESC-BIG MISTAKE THAT X-YOU BE MAKE DESC-HERE .\n",
+      "prediction": "THAT BE DESC-BIG MISTAKE THAT X-YOU BE MAKE DESC-HERE .",
+      "prompt": "that is the big mistake that you are making here .\n"
+    },
+    {
+      "group": "best",
+      "index": 15,
+      "rouge_l": 1.0,
+      "gold": "DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .\n",
+      "prediction": "DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .",
+      "prompt": "the same applies to the consolidation of public finances , which is a prerequisite for sustainable growth .\n"
+    },
+    {
+      "group": "best",
+      "index": 20,
+      "rouge_l": 1.0,
+      "gold": "THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...",
+      "prediction": "THIS WILL MAKE TRANSPORT IN EUROPE DESC-SAFER AND MORE DESC-EFFICIENT , WHILE PROMOTE DESC-ENVIRONMENTAL PROTECTION AND ...",
+      "prompt": "this will make transport in europe safer and more efficient , while promoting environmental protection and energy efficiency too .\n"
+    },
+    {
+      "group": "worst",
+      "index": 1680,
+      "rouge_l": 0,
+      "gold": ".\n",
+      "prediction": "X-POSS . WILL DESC-NOT FLINCH .",
+      "prompt": ".\n"
+    },
+    {
+      "group": "worst",
+      "index": 3302,
+      "rouge_l": 0.0588,
+      "gold": "IERNA NAD TISOU . LINE FROM VLADIVOSTOK REACH BORDER EU AT ?\n",
+      "prediction": "BROADBAND GAG ERIKA FROM V LODGE SV OK ?TRE ?SUPPORT . ZAHRADIL AD TUSCANY . ? ?TRE ?SUPPORT . NADIR S?TE OUZKà12 ? ? ?T...",
+      "prompt": "the broad gauge railway line from vladivostok reaches the border of the eu at čierna nad tisou .\n"
+    },
+    {
+      "group": "worst",
+      "index": 772,
+      "rouge_l": 0.1053,
+      "gold": "OCHA DO MHUINTIR NA H?IREANN .\n",
+      "prediction": "MIEUX BU ?C HOUSING NA?VE IRAN . HIRE ANNEX . BE DO M?NDEZ .",
+      "prompt": "míle buíochas do mhuintir na héireann .\n"
+    },
+    {
+      "group": "worst",
+      "index": 4515,
+      "rouge_l": 0.1429,
+      "gold": "REPORT PRODUS\n",
+      "prediction": "REPORT PROD X-I X-S SAY ABOUT STABILITY PACT IN 2002 ?",
+      "prompt": "report prodi\n"
+    },
+    {
+      "group": "worst",
+      "index": 8135,
+      "rouge_l": 0.16,
+      "gold": "VEZ , JUDGE AFIUN X-I MUST BE DESC-FREE DESC-IMMEDIATELY .\n",
+      "prediction": "E PRESIDENT CHAUVINIST EAFRD USURPATION AFIRST UNIQUENESS DESC-NEGATIVE ATTITUDE TOWARDS DESC-HUMAN RIGHTS .",
+      "prompt": "es president chávez , judge afiuni must be freed immediately .\n"
+    }
+  ]
+}

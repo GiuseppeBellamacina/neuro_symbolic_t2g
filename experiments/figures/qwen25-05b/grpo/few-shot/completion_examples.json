@@ -1,0 +1,86 @@
+{
+  "model": "grpo",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 6,
+      "rouge_l": 1.0,
+      "gold": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .\n",
+      "prediction": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .",
+      "prompt": "we see similar packages in america .\n"
+    },
+    {
+      "group": "best",
+      "index": 78,
+      "rouge_l": 1.0,
+      "gold": "EUROPE MUST TAKE DESC-DIFFERENT ROUTE .\n",
+      "prediction": "EUROPE MUST TAKE DESC-DIFFERENT ROUTE",
+      "prompt": "europe must take a different route .\n"
+    },
+    {
+      "group": "best",
+      "index": 96,
+      "rouge_l": 1.0,
+      "gold": "NO DESC-FURR COMMENT .\n",
+      "prediction": "NO DESC-FURR COMMENT .",
+      "prompt": "no further comment .\n"
+    },
+    {
+      "group": "best",
+      "index": 285,
+      "rouge_l": 1.0,
+      "gold": "THIS , COURSE , REQUIRE CLARIFICATION .\n",
+      "prediction": "THIS , COURSE , REQUIRE CLARIFICATION .",
+      "prompt": "this , of course , requires clarification .\n"
+    },
+    {
+      "group": "best",
+      "index": 400,
+      "rouge_l": 1.0,
+      "gold": "STAGGER !\n",
+      "prediction": "STAGGER !",
+      "prompt": "staggering !\n"
+    },
+    {
+      "group": "worst",
+      "index": 135,
+      "rouge_l": 0.0,
+      "gold": "DESC-SOCIALIST AND DESC-LIBERAL RENEGE ON X-Y PROMISE .\n",
+      "prediction": "SOCIALISTSPOSITION LEX -RRB- LIBERALISATION POSITION LEX",
+      "prompt": "the socialists and the liberals reneged on their promise .\n"
+    },
+    {
+      "group": "worst",
+      "index": 362,
+      "rouge_l": 0.0,
+      "gold": "SE BE ATTEMPT THAT HAVE FAIL IN PAST BECAUSE X-Y BE DESC-NOT DESC-NATURAL DESC-HISTORICAL DEVELOPMENT .\n",
+      "prediction": "THIS TRY ISWORLD NOTHREE HISTORY DEVELOP MACHINERY 100 % 100 % 100 % 100 % 200 % 200 % 300 % 300 % 400 % 400 % 500 % 500...",
+      "prompt": "these are attempts that have failed in the past because they were not natural historical developments .\n"
+    },
+    {
+      "group": "worst",
+      "index": 605,
+      "rouge_l": 0.0,
+      "gold": "THAT BE DESC-HUGE QUESTION .\n",
+      "prediction": "V P COMMISSION BIGTHANK YOU",
+      "prompt": "vice president of the commission . that is a huge question .\n"
+    },
+    {
+      "group": "worst",
+      "index": 773,
+      "rouge_l": 0.0,
+      "gold": "OCHA DO MHUINTIR NA H?IREANN .\n",
+      "prediction": "MIEUX BU ICE CHAOS NO HIRE ANNUL .",
+      "prompt": "míle buíochas do mhuintir na héireann .\n"
+    },
+    {
+      "group": "worst",
+      "index": 807,
+      "rouge_l": 0.0,
+      "gold": "SWEDISH PRESIDENCY HAVE PUT IN LOT EFFORT .\n",
+      "prediction": "X-S W P R E SPOUSE H AFTERSHOCK 123 45 .",
+      "prompt": "the swedish presidency has put in a lot of effort .\n"
+    }
+  ]
+}

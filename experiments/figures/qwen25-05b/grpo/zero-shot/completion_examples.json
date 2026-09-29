@@ -1,0 +1,86 @@
+{
+  "model": "grpo",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 401,
+      "rouge_l": 1.0,
+      "gold": "STAGGER !\n",
+      "prediction": "STAGGER !",
+      "prompt": "staggering !\n"
+    },
+    {
+      "group": "best",
+      "index": 1575,
+      "rouge_l": 1.0,
+      "gold": "PRESIDENT CALL FOR ORDER\n",
+      "prediction": "PRESIDENT CALL FOR ORDER",
+      "prompt": "the president called for order \n"
+    },
+    {
+      "group": "best",
+      "index": 2300,
+      "rouge_l": 1.0,
+      "gold": "2007 DISCHARGE COMMISSION\n",
+      "prediction": "2007 DISCHARGE COMMISSION",
+      "prompt": "2007 discharge commission \n"
+    },
+    {
+      "group": "best",
+      "index": 3490,
+      "rouge_l": 1.0,
+      "gold": "VARVITSIOTUS REPORT\n",
+      "prediction": "VARVITSIOTUS REPORT",
+      "prompt": "varvitsiotis report\n"
+    },
+    {
+      "group": "best",
+      "index": 3553,
+      "rouge_l": 1.0,
+      "gold": "LISBON TREATY .\n",
+      "prediction": "LISBON TREATY",
+      "prompt": "the lisbon treaty .\n"
+    },
+    {
+      "group": "worst",
+      "index": 3,
+      "rouge_l": 0.0,
+      "gold": "COHESION POLICY BE DESC-GOOD EXAMPLE MULTUS LEVEL GOVERNANCE .\n",
+      "prediction": "C H APOLOGY , M U L T I L E L E V E L G U APOLOGY .",
+      "prompt": "cohesion policy is a good example of multi level governance .\n"
+    },
+    {
+      "group": "worst",
+      "index": 5,
+      "rouge_l": 0.0,
+      "gold": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .\n",
+      "prediction": "I AMISOM , MAMMAL .",
+      "prompt": "we see similar packages in america .\n"
+    },
+    {
+      "group": "worst",
+      "index": 10,
+      "rouge_l": 0.0,
+      "gold": "THAT BE DESC-BIG MISTAKE THAT X-YOU BE MAKE DESC-HERE .\n",
+      "prediction": "1.1 1.2",
+      "prompt": "that is the big mistake that you are making here .\n"
+    },
+    {
+      "group": "worst",
+      "index": 15,
+      "rouge_l": 0.0,
+      "gold": "DESC-SAME APPLY TO CONSOLIDATION PUBLIC FINANCES , WHICH BE PREREQUISITE FOR DESC-SUSTAINABLE GROWTH .\n",
+      "prediction": "1.1 2.15 3.25",
+      "prompt": "the same applies to the consolidation of public finances , which is a prerequisite for sustainable growth .\n"
+    },
+    {
+      "group": "worst",
+      "index": 27,
+      "rouge_l": 0.0,
+      "gold": "FOR DESC-ONCE X-IT WILL BRING SOME DESC-GOOD NEWS TO X-MY PROVINCE , WHICH DESC-CERTAINLY NEED X-IT .\n",
+      "prediction": "I , . I , .",
+      "prompt": "for once it will bring some good news to my province , which certainly needs it .\n"
+    }
+  ]
+}
