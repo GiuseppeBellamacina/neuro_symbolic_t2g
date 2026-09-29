@@ -201,3 +201,30 @@ def test_non_copy_accuracy_is_a_column():
     from src.utils.ablation_summary import METRICS
 
     assert "non_copy_token_accuracy" in {key for key, _ in METRICS}
+
+
+def test_comparison_chart_stays_a_normal_size_with_chrf_present(tmp_path):
+    """chrF runs 0-100. Drawn against the 0-1 axis, its value labels landed
+    ~90x above the plot and bbox_inches="tight" grew the PNG to 3795 x 75823
+    px. Only 0-1 metrics are drawn now, and the size follows the row count."""
+    from PIL import Image
+
+    from src.utils.ablation_summary import plot_ablation_comparison
+
+    entries = [
+        {
+            "config_name": f"qwen25-05b/ablations/g/c{i:02d}",
+            "metrics": {
+                "ROUGE-L": 0.9,
+                "Exact Match": 0.7,
+                "Non-copy": 0.9,
+                "chrF2 (corpus)": 96.0,
+                "chrF2 (sent)": 95.0,
+            },
+        }
+        for i in range(21)
+    ]
+    out = tmp_path / "c.png"
+    plot_ablation_comparison(entries, out)
+    width, height = Image.open(out).size
+    assert width < 2400 and height < 1600, (width, height)

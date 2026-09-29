@@ -30,6 +30,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+from src.utils import chart_style
+from src.utils.run_paths import cell_sort_key
+
 logger = logging.getLogger(__name__)
 
 # Metrics to extract (key in eval JSON → display label)
@@ -116,7 +119,9 @@ def find_eval_results(results_dir: Path) -> list[dict]:
         logger.warning("Results directory not found: %s", results_dir)
         return entries
 
-    for config_name, eval_dirs in sorted(_discover_cells(results_dir).items()):
+    for config_name, eval_dirs in sorted(
+        _discover_cells(results_dir).items(), key=lambda kv: cell_sort_key(kv[0])
+    ):
         # One entry per run, oldest first (run_<timestamp> sorts
         # chronologically): the latest run is the one reported.
         latest_run = eval_dirs[-1]
@@ -262,60 +267,91 @@ def build_csv(entries: list[dict]) -> str:
 
 
 def plot_ablation_comparison(entries: list[dict], output_path: Path) -> None:
-    """Generate a grouped bar chart comparing metrics across configs."""
+    """Small multiples: one horizontal-bar panel per key metric, cells as rows.
+
+    Three panels, all on the same 0-1 scale: ROUGE-L (saturated on this corpus:
+    an untrained lexical rule reaches 0.9685), exact match and non-copy-token
+    accuracy (the two that still discriminate). Metrics on another scale — chrF
+    runs 0-100 — are never drawn on the same axis: plotted against a 0-1 axis,
+    their labels landed ~90x above it and ``bbox_inches="tight"`` grew the
+    figure to 3795 x 75823 px to include them. The exact values live in
+    ``ablation_summary.md`` / ``.csv``; the chart is for the shape.
+    """
     if not entries:
         logger.warning("No entries to plot")
         return
 
-    # Use the primary metrics (not deltas) for the chart. Only plot metrics
-    # that are actually present in at least one entry, so older eval JSONs
-    # (without BLEU/chrF/gloss-F1) render gracefully instead of showing a
-    # wall of zero bars.
-    chart_labels = [
+    panels = [
         label
-        for _, label in METRICS
-        if label != "Bigram LP"
-        and any(e["metrics"].get(label) is not None for e in entries)
+        for label in ("ROUGE-L", "Exact Match", "Non-copy")
+        if any(e["metrics"].get(label) is not None for e in entries)
     ]
-    if not chart_labels:
-        chart_labels = ["ROUGE-L", "Pass@1"]
+    if not panels:
+        logger.warning("No 0-1 metric to plot")
+        return
 
-    n_metrics = len(chart_labels)
-    n_configs = len(entries)
-    config_names = [e["config_name"] for e in entries]
+    ordered = sorted(entries, key=lambda e: cell_sort_key(e["config_name"]))
+    names = [e["config_name"] for e in ordered]
+    y = np.arange(len(ordered))
 
-    x = np.arange(n_configs)
-    width = 0.8 / n_metrics
+    row_in = 0.32  # altezza di riga in pollici: 48 px a 150 dpi
+    fig, axes = plt.subplots(
+        1,
+        len(panels),
+        sharey=True,
+        figsize=(3.2 * len(panels) + 3.6, 1.2 + row_in * len(ordered)),
+        facecolor=chart_style.SURFACE,
+    )
+    axes = np.atleast_1d(axes)
 
-    fig, ax = plt.subplots(figsize=(max(14, n_configs * 1.5), 7))
-
-    for i, label in enumerate(chart_labels):
-        values = [e["metrics"].get(label, 0.0) or 0.0 for e in entries]
-        bars = ax.bar(x + i * width - 0.4 + width / 2, values, width, label=label)
-        # Add value labels on top of bars
-        for bar, val in zip(bars, values):
-            if val > 0.001:
+    for ax, label in zip(axes, panels):
+        ax.set_facecolor(chart_style.SURFACE)
+        values = [e["metrics"].get(label) for e in ordered]
+        present = [i for i, v in enumerate(values) if v is not None]
+        # Barra al 50% della riga: <= 24 px, il resto è aria fra righe vicine.
+        ax.barh(
+            [y[i] for i in present],
+            [values[i] for i in present],
+            height=0.5,
+            color=chart_style.SERIES_1,
+            zorder=2,
+        )
+        for i, v in enumerate(values):
+            if v is None:
                 ax.text(
-                    bar.get_x() + bar.get_width() / 2,
-                    bar.get_height() + 0.005,
-                    f"{val:.3f}",
-                    ha="center",
-                    va="bottom",
-                    fontsize=7,
-                    rotation=45,
+                    0.01, i, "n/d", va="center", fontsize=8, color=chart_style.INK_MUTED
                 )
+        ax.set_xlim(0, 1)
+        ax.set_xticks([0, 0.25, 0.5, 0.75, 1])
+        ax.set_xticklabels(["0", ".25", ".50", ".75", "1"])
+        ax.grid(axis="x", color=chart_style.GRID, linewidth=0.8, zorder=0)
+        ax.set_title(label, loc="left", fontsize=11, color=chart_style.INK, pad=8)
+        for side in ("top", "right", "bottom"):
+            ax.spines[side].set_visible(False)
+        ax.spines["left"].set_color(chart_style.BASELINE)
+        ax.tick_params(colors=chart_style.INK_MUTED, labelsize=8, length=0)
 
-    ax.set_xlabel("Config")
-    ax.set_ylabel("Score")
-    ax.set_title("Ablation Study — Cross-Config Comparison")
-    ax.set_xticks(x)
-    ax.set_xticklabels(config_names, rotation=45, ha="right")
-    ax.legend(loc="upper right")
-    ax.set_ylim(0, 1.05)
-    ax.grid(axis="y", alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close()
+    axes[0].set_yticks(y)
+    axes[0].set_yticklabels(names, fontsize=8.5, color=chart_style.INK_SECONDARY)
+    axes[0].invert_yaxis()
+
+    fig.suptitle(
+        "Latest run of each cell",
+        x=0.01,
+        ha="left",
+        fontsize=12,
+        color=chart_style.INK,
+    )
+    fig.text(
+        0.01,
+        0.005,
+        "Values in ablation_summary.md. All panels share the 0-1 scale.",
+        fontsize=8,
+        color=chart_style.INK_MUTED,
+    )
+    fig.tight_layout(rect=(0, 0.02, 1, 0.97), w_pad=3)
+    fig.savefig(output_path, dpi=150, facecolor=chart_style.SURFACE)
+    plt.close(fig)
     logger.info("Bar chart saved to %s", output_path)
 
 

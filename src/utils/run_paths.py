@@ -25,7 +25,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-__all__ = ["cell_from_config", "eval_output_location", "split_checkpoint_path"]
+__all__ = [
+    "cell_from_config",
+    "cell_sort_key",
+    "eval_output_location",
+    "split_checkpoint_path",
+]
 
 
 def _after_last(parts: tuple[str, ...], anchor: str) -> tuple[str, ...] | None:
@@ -133,3 +138,27 @@ def eval_output_location(
             f"cella={location[0]!r}, run={location[1]!r}"
         )
     return location
+
+
+#: Ordine di lettura delle famiglie di celle dentro un modello: prima i
+#: riferimenti, poi i metodi dal più semplice, infine le ablazioni.
+_FAMILY_ORDER = ("baseline", "sft", "sft-grpo", "grpo", "ablations")
+
+
+def cell_sort_key(cell: str) -> tuple[str, int, str]:
+    """Chiave d'ordinamento di una cella (``qwen25-05b/grpo/few-shot``).
+
+    Per modello, poi per famiglia (baseline -> sft -> sft-grpo -> grpo ->
+    ablazioni), poi alfabetico. Tabelle e grafici la condividono, così una cella
+    occupa la stessa posizione ovunque e i modelli restano raggruppati.
+
+    Examples:
+        >>> sorted(["m/grpo/a", "m/ablations/x", "m/baseline/z"], key=cell_sort_key)
+        ['m/baseline/z', 'm/grpo/a', 'm/ablations/x']
+    """
+    parts = cell.split("/")
+    family = parts[1] if len(parts) > 1 else ""
+    rank = (
+        _FAMILY_ORDER.index(family) if family in _FAMILY_ORDER else len(_FAMILY_ORDER)
+    )
+    return (parts[0], rank, cell)

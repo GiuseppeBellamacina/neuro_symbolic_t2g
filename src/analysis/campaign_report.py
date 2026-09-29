@@ -68,7 +68,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from src.utils import chart_style
 from src.utils.metrics import PRIMARY_METRICS, SATURATED_OVERLAP_METRICS
+from src.utils.run_paths import cell_sort_key
 
 logger = logging.getLogger(__name__)
 
@@ -391,6 +393,14 @@ def discover_runs(results_dir: Path) -> dict:
             factors["method"] = "baseline"
             sources["method"] = "eval file kind (no-checkpoint baseline)"
 
+        # Il modello è il primo segmento del percorso: ogni cella vive sotto
+        # results/<modello>/. Dedurlo dal nome riusciva solo con un marcatore
+        # di metodo nel nome, e senza il modello nella tipologia due modelli
+        # con la stessa cella collassavano in una sola (l'altra superseded).
+        factors["model_tag"] = rel.parts[0]
+        sources["model_tag"] = "first path segment (results/<model>/...)"
+        cell_path = "/".join(part for part in rel.parts[:-1] if part != run_id)
+
         timestamp = _parse_run_timestamp(run_id)
         ts_source = "run directory name" if timestamp else None
         if timestamp is None:
@@ -410,6 +420,7 @@ def discover_runs(results_dir: Path) -> dict:
             {
                 "path": rel_str,
                 "cell": cell,
+                "cell_path": cell_path,
                 "run_id": run_id,
                 "kind": kind,
                 "factors": factors,
@@ -440,7 +451,13 @@ def select_latest(runs: list[dict]) -> tuple[list[dict], list[dict]]:
     groups: dict[tuple, list[dict]] = {}
     for run in runs:
         f = run["factors"]
-        key = (f["method"], f["variant"], f["prompting"], f["grammar"])
+        key = (
+            f["model_tag"],
+            f["method"],
+            f["variant"],
+            f["prompting"],
+            f["grammar"],
+        )
         groups.setdefault(key, []).append(run)
 
     selected: list[dict] = []
@@ -495,7 +512,11 @@ def build_comparisons(
         groups: dict[tuple, list[dict]] = {}
         for run in selected:
             f = run["factors"]
-            groups.setdefault(tuple(f[o] for o in other), []).append(run)
+            # Il modello fa parte del gruppo ma non è un fattore appaiabile:
+            # un confronto fra due modelli diversi confonderebbe l'effetto del
+            # fattore con quello del modello.
+            key = (f["model_tag"], *(f[o] for o in other))
+            groups.setdefault(key, []).append(run)
 
         factor_pairs: list[dict] = []
         blocked_groups: list[list[dict]] = []
@@ -678,7 +699,8 @@ def _make_comparison(factor: str, a: dict, b: dict, warnings: list[str]) -> dict
             "path": a["path"],
             "timestamp": a["timestamp"],
             "factors": {
-                k: fa[k] for k in ("method", "variant", "prompting", "grammar")
+                k: fa[k]
+                for k in ("model_tag", "method", "variant", "prompting", "grammar")
             },
             "num_samples_evaluated": na,
             "metrics_version": va,
@@ -687,7 +709,8 @@ def _make_comparison(factor: str, a: dict, b: dict, warnings: list[str]) -> dict
             "path": b["path"],
             "timestamp": b["timestamp"],
             "factors": {
-                k: fb[k] for k in ("method", "variant", "prompting", "grammar")
+                k: fb[k]
+                for k in ("model_tag", "method", "variant", "prompting", "grammar")
             },
             "num_samples_evaluated": nb,
             "metrics_version": vb,
@@ -865,9 +888,12 @@ def build_markdown(
     lines.append(f"## Ablation matrix overview — {lbl}")
     lines.append("")
     lines.append(
-        "`—` = typology not present. `*` = multiple runs collapsed, "
-        "latest shown. `unknown` columns/rows exist because the "
-        "factor was not deducible — see the deduction table."
+        "One row per cell (its path under `results/`), one column per "
+        "prompting mode that has at least one value. `—` = the cell was "
+        "not evaluated in that mode. `*` = multiple runs collapsed, latest "
+        "shown. Each cell's own `eval_baseline` (the base model in that "
+        "cell's context) is not a row here: it repeats the `baseline/` "
+        "cells and stays in the paired comparisons below."
     )
     lines.append("")
     lines.extend(_matrix_table(selected, matrix_metric))
@@ -947,37 +973,71 @@ def build_markdown(
     return "\n".join(lines) + "\n"
 
 
-def _matrix_table(selected: list[dict], metric: str) -> list[str]:
-    """Tabella Markdown della matrice (righe method/variant, colonne prompting)."""
-    prompting_cols = ["zero-shot", "few-shot", UNKNOWN]
-    rows: dict[tuple[str, str], dict[str, dict]] = {}
-    for r in selected:
-        f = r["factors"]
-        row = (f["method"], f["variant"])
-        rows.setdefault(row, {}).setdefault(f["prompting"], {})[f["grammar"]] = r
+_PROMPTING_ORDER = ["zero-shot", "few-shot", UNKNOWN]
 
-    header = (
-        "| method | variant | "
-        + " | ".join(f"prompting={p}" for p in prompting_cols)
-        + " |"
-    )
-    lines = [header, "|---|---|" + "---|" * len(prompting_cols)]
-    for method, variant in sorted(rows, key=str):
-        cells = []
-        for p in prompting_cols:
-            grammars = rows[(method, variant)].get(p)
-            if not grammars:
-                cells.append("—")
+
+def _overview(
+    selected: list[dict], metric: str
+) -> tuple[list[str], list[str], list[list[float | None]], list[list[str]]]:
+    """Righe = celle (percorso), colonne = modalità di prompting con almeno un dato.
+
+    Stessa vista per la tabella Markdown e per ``campaign_matrix.png``, così le
+    due non possono divergere.
+
+    Le ``eval_baseline`` delle singole celle restano fuori da questa vista: sono
+    il modello base valutato nel contesto di ogni cella, identico fra celle con
+    lo stesso contesto, e comparivano come una riga "baseline / <cella>" per
+    ognuna. Il modello base è già nelle tre celle ``baseline/``; le eval_baseline
+    restano nel JSON e nei confronti appaiati ("training effect").
+
+    Una colonna senza alcun valore non viene mostrata: ``prompting=unknown`` era
+    una colonna sempre vuota.
+
+    Returns:
+        (celle, colonne, valori, annotazioni). ``None`` = tipologia assente.
+    """
+    by_cell: dict[str, dict[str, list[dict]]] = {}
+    for r in selected:
+        if r["kind"] == "baseline":
+            continue
+        by_cell.setdefault(r["cell_path"], {}).setdefault(
+            r["factors"]["prompting"], []
+        ).append(r)
+
+    cells = sorted(by_cell, key=cell_sort_key)
+    cols = [p for p in _PROMPTING_ORDER if any(p in by_cell[c] for c in cells)]
+    values: list[list[float | None]] = []
+    annots: list[list[str]] = []
+    for c in cells:
+        row_v: list[float | None] = []
+        row_a: list[str] = []
+        for p in cols:
+            members = by_cell[c].get(p)
+            if not members:
+                row_v.append(None)
+                row_a.append("—")
                 continue
             # Niente medie (ricomputare valori è vietato): si mostra il run
             # più recente e si marca il collasso di più run con '*'.
-            latest = max(grammars.values(), key=lambda r: r["timestamp"] or "")
-            marker = "*" if len(grammars) > 1 else ""
-            val = latest["metrics"].get(metric)
-            cells.append(
-                _fmt_metric(val) + marker if val is not None else "n/a" + marker
-            )
-        lines.append(f"| {method} | {variant or '—'} | " + " | ".join(cells) + " |")
+            latest = max(members, key=lambda r: r["timestamp"] or "")
+            mark = "*" if len(members) > 1 else ""
+            v = latest["metrics"].get(metric)
+            row_v.append(v)
+            row_a.append(("n/a" if v is None else _fmt_metric(v)) + mark)
+        values.append(row_v)
+        annots.append(row_a)
+    return cells, cols, values, annots
+
+
+def _matrix_table(selected: list[dict], metric: str) -> list[str]:
+    """Tabella Markdown della matrice (righe = celle, colonne = prompting)."""
+    cells, cols, _values, annots = _overview(selected, metric)
+    lines = [
+        "| cell | " + " | ".join(cols) + " |",
+        "|---|" + "---|" * len(cols),
+    ]
+    for c, row in zip(cells, annots):
+        lines.append(f"| {c} | " + " | ".join(row) + " |")
     return lines
 
 
@@ -1051,64 +1111,95 @@ def plot_pairwise_deltas(comparisons: list[dict], output_path: Path) -> bool:
 def plot_matrix(
     selected: list[dict], output_path: Path, metric: str = "rouge_l_mean"
 ) -> bool:
-    """Vista d'insieme della matrice: heatmap method/variant × prompting."""
-    if not selected:
+    """Vista d'insieme: heatmap celle × modalità di prompting.
+
+    Rampa a un solo tono (più scuro = più alto) su scala fissa 0-1, così il
+    colore di una cella si confronta fra un report e l'altro; spazi di 2 px nel
+    colore della superficie fra le caselle; colonne in alto e orizzontali.
+    """
+    cells, cols, values, annots = _overview(selected, metric)
+    if not cells:
         return False
-    lbl = METRIC_LABELS.get(metric, metric)
-    prompting_cols = ["zero-shot", "few-shot", UNKNOWN]
-    rows: dict[tuple[str, str], dict[str, list[dict]]] = {}
-    for r in selected:
-        f = r["factors"]
-        rows.setdefault((f["method"], f["variant"]), {}).setdefault(
-            f["prompting"], []
-        ).append(r)
-
-    row_keys = sorted(rows, key=str)
-    values = []
-    annots = []
-    for rk in row_keys:
-        row_vals = []
-        row_ann = []
-        for p in prompting_cols:
-            members = rows[rk].get(p)
-            if not members:
-                row_vals.append(float("nan"))
-                row_ann.append("—")
-                continue
-            latest = max(members, key=lambda r: r["timestamp"] or "")
-            v = latest["metrics"].get(metric)
-            row_vals.append(float("nan") if v is None else v)
-            mark = "*" if len(members) > 1 else ""
-            row_ann.append("n/a" + mark if v is None else f"{v:.3f}" + mark)
-        values.append(row_vals)
-        annots.append(row_ann)
-
     import numpy as np
 
-    arr = np.array(values, dtype=float)
-    fig, ax = plt.subplots(
-        figsize=(1.9 + 2.1 * len(prompting_cols), 0.75 + 0.6 * len(row_keys))
+    lbl = METRIC_LABELS.get(metric, metric)
+    cmap = chart_style.sequential_cmap()
+    arr = np.ma.masked_invalid(
+        np.array(
+            [[np.nan if v is None else v for v in row] for row in values], dtype=float
+        )
     )
-    im = ax.imshow(arr, cmap="YlGnBu", aspect="auto", vmin=0, vmax=1)
-    ax.set_xticks(range(len(prompting_cols)))
-    ax.set_xticklabels([f"prompting={p}" for p in prompting_cols])
-    ax.set_yticks(range(len(row_keys)))
-    ax.set_yticklabels([f"{m}" + (f" / {v}" if v else "") for m, v in row_keys])
-    for i in range(len(row_keys)):
-        for j in range(len(prompting_cols)):
-            # Il grigio esplicito per tipologie mancanti: i buchi della
-            # matrice devono saltare all'occhio, non sembrare zeri.
-            if j >= 0 and annots[i][j] == "—":
-                ax.text(j, i, "—", ha="center", va="center", color="grey")
+
+    row_in = 0.32
+    fig, ax = plt.subplots(
+        figsize=(4.2 + 1.35 * len(cols), 1.3 + row_in * len(cells)),
+        facecolor=chart_style.SURFACE,
+    )
+    ax.set_facecolor(chart_style.SURFACE)
+    mesh = ax.pcolormesh(
+        arr,
+        cmap=cmap,
+        vmin=0,
+        vmax=1,
+        edgecolors=chart_style.SURFACE,
+        linewidth=2,
+    )
+    for i in range(len(cells)):
+        for j in range(len(cols)):
+            v = values[i][j]
+            if v is None:
+                ax.text(
+                    j + 0.5,
+                    i + 0.5,
+                    "—",
+                    ha="center",
+                    va="center",
+                    fontsize=9,
+                    color=chart_style.INK_MUTED,
+                )
                 continue
-            color = (
-                "white" if (not np.isnan(arr[i, j]) and arr[i, j] > 0.6) else "black"
+            fill = cmap(float(v))
+            hex_fill = "#{:02x}{:02x}{:02x}".format(*(int(255 * c) for c in fill[:3]))
+            ax.text(
+                j + 0.5,
+                i + 0.5,
+                annots[i][j],
+                ha="center",
+                va="center",
+                fontsize=9,
+                color=chart_style.ink_on(hex_fill),
             )
-            ax.text(j, i, annots[i][j], ha="center", va="center", color=color)
-    ax.set_title(f"Ablation matrix — {lbl} ('*' = multiple runs, latest shown)")
-    fig.colorbar(im, ax=ax, shrink=0.8)
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+
+    ax.set_xlim(0, len(cols))
+    ax.set_ylim(len(cells), 0)
+    ax.xaxis.tick_top()
+    ax.set_xticks([j + 0.5 for j in range(len(cols))])
+    ax.set_xticklabels(cols, fontsize=9.5, color=chart_style.INK_SECONDARY)
+    ax.set_yticks([i + 0.5 for i in range(len(cells))])
+    ax.set_yticklabels(cells, fontsize=8.5, color=chart_style.INK_SECONDARY)
+    ax.tick_params(length=0, pad=6)
+    for side in ax.spines.values():
+        side.set_visible(False)
+
+    cbar = fig.colorbar(mesh, ax=ax, fraction=0.035, pad=0.03)
+    cbar.outline.set_visible(False)
+    cbar.ax.tick_params(labelsize=8, colors=chart_style.INK_MUTED, length=0)
+    starred = any("*" in a for row in annots for a in row)
+    fig.suptitle(
+        f"{lbl} by cell and prompting mode",
+        x=0.01,
+        ha="left",
+        fontsize=12,
+        color=chart_style.INK,
+    )
+    note = (
+        "Latest run per cell. Per-cell base-model evals are in the paired comparisons."
+    )
+    if starred:
+        note += " '*' = several runs collapsed, latest shown."
+    fig.text(0.01, 0.005, note, fontsize=8, color=chart_style.INK_MUTED)
+    fig.tight_layout(rect=(0, 0.02, 1, 0.96))
+    fig.savefig(output_path, dpi=150, facecolor=chart_style.SURFACE)
     plt.close(fig)
     logger.info("Matrix plot saved to %s", output_path)
     return True

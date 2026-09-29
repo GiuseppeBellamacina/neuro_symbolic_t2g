@@ -470,3 +470,95 @@ def test_nested_cells_do_not_collapse_into_one_typology(tmp_path):
         )
     discovered = discover_runs(tmp_path)
     assert len({r["cell"] for r in discovered["runs"]}) == 3
+
+
+def test_two_models_with_the_same_cell_are_both_kept(tmp_path):
+    """The model is part of the typology. Without it, qwen25-15b/sft-grpo/
+    few-shot and qwen25-05b/sft-grpo/few-shot deduce identical factors and
+    one of the two was marked superseded and vanished from the report."""
+    from src.analysis.campaign_report import _overview
+
+    for model, rouge in (("qwen25-05b", 0.96), ("qwen25-15b", 0.98)):
+        make_eval(
+            tmp_path,
+            f"{model}/sft-grpo/few-shot",
+            "run_20260101_000000",
+            "eval_final.json",
+            {"rouge_l_mean": rouge, "prompting": {"mode": "few-shot"}},
+        )
+    selected, superseded = select_latest(discover_runs(tmp_path)["runs"])
+    assert superseded == []
+    assert {r["factors"]["model_tag"] for r in selected} == {"qwen25-05b", "qwen25-15b"}
+    cells, _cols, values, _ann = _overview(selected, "rouge_l_mean")
+    assert cells == ["qwen25-05b/sft-grpo/few-shot", "qwen25-15b/sft-grpo/few-shot"]
+    assert values == [[0.96], [0.98]]
+
+
+def test_pairs_never_cross_models(tmp_path):
+    """A pair across two models would attribute the model's effect to the
+    factor under comparison."""
+    make_eval(
+        tmp_path,
+        "qwen25-05b/sft/zero-shot",
+        "run_20260101_000000",
+        "eval_final.json",
+        {"prompting": {"mode": "zero-shot"}},
+    )
+    make_eval(
+        tmp_path,
+        "qwen25-15b/sft/zero-shot",
+        "run_20260101_000000",
+        "eval_final.json",
+        {"prompting": {"mode": "few-shot"}},
+    )
+    selected, _ = select_latest(discover_runs(tmp_path)["runs"])
+    comparisons, _missing, _warn = build_comparisons(selected)
+    for c in comparisons:
+        assert c["a"]["factors"]["model_tag"] == c["b"]["factors"]["model_tag"]
+
+
+def test_overview_drops_empty_columns_and_per_cell_baselines(tmp_path):
+    """The overview shows cells. A column with no value at all (the old
+    always-empty prompting=unknown) is not drawn, and each cell's
+    eval_baseline — the base model again, once per cell — is not a row."""
+    from src.analysis.campaign_report import _overview
+
+    make_eval(
+        tmp_path,
+        "qwen25-05b/grpo/few-shot",
+        "run_20260101_000000",
+        "eval_final.json",
+        {"prompting": {"mode": "few-shot"}},
+    )
+    make_eval(
+        tmp_path,
+        "qwen25-05b/grpo/few-shot",
+        "run_20260101_000000",
+        "eval_baseline.json",
+        {"prompting": {"mode": "few-shot"}},
+    )
+    selected, _ = select_latest(discover_runs(tmp_path)["runs"])
+    cells, cols, _values, _ann = _overview(selected, "rouge_l_mean")
+    assert cells == ["qwen25-05b/grpo/few-shot"]
+    assert cols == ["few-shot"]
+
+
+def test_matrix_png_size_follows_the_row_count(tmp_path):
+    """One row per cell at a fixed height: 21 cells must not make a poster."""
+    from PIL import Image
+
+    from src.analysis.campaign_report import plot_matrix
+
+    for i in range(21):
+        make_eval(
+            tmp_path,
+            f"qwen25-05b/ablations/g/c{i:02d}",
+            "run_20260101_000000",
+            "eval_final.json",
+            {"prompting": {"mode": "few-shot"}},
+        )
+    selected, _ = select_latest(discover_runs(tmp_path)["runs"])
+    out = tmp_path / "m.png"
+    assert plot_matrix(selected, out)
+    width, height = Image.open(out).size
+    assert width < 1600 and height < 1600, (width, height)
