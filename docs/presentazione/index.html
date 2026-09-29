@@ -1,0 +1,971 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GRPO e vincoli rigidi</title>
+<style>
+/* Palette di riferimento (tema chiaro, pensato per la proiezione). */
+:root {
+  --surface: #fcfcfb;
+  --plane: #f3f2ee;
+  --ink: #0b0b0b;
+  --ink2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --base: #c3c2b7;
+  --accent: #2a78d6;
+  --accent-100: #cde2fb;
+  --accent-200: #9ec5f4;
+  --accent-600: #184f95;
+  --accent-700: #0d366b;
+  --neutral: #c3c2b7;
+  --neg: #d03b3b;
+  --neg-100: #f6d6d3;
+  --good: #0ca30c;
+  --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #0d0d0d; overflow: hidden; }
+body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: antialiased; }
+
+/* Palcoscenico 1600x900 scalato alla finestra. */
+#stage {
+  position: absolute; left: 50%; top: 50%;
+  width: 1600px; height: 900px;
+  transform-origin: 0 0;
+  background: var(--surface);
+  overflow: hidden;
+}
+.slide {
+  position: absolute; inset: 0;
+  padding: 72px 96px 90px;
+  display: none;
+  flex-direction: column;
+}
+.slide.active { display: flex; }
+
+.kicker {
+  font-size: 19px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--muted); font-weight: 600; margin-bottom: 14px;
+}
+h1 { font-size: 76px; line-height: 1.05; margin: 0 0 28px; font-weight: 650; letter-spacing: -.01em; }
+h2 { font-size: 50px; line-height: 1.12; margin: 0 0 40px; font-weight: 650; letter-spacing: -.005em; max-width: 1400px; }
+p { margin: 0; }
+.lead { font-size: 32px; line-height: 1.35; color: var(--ink2); }
+.body { font-size: 31px; line-height: 1.4; color: var(--ink); }
+.small { font-size: 22px; line-height: 1.4; color: var(--ink2); }
+.foot {
+  position: absolute; left: 96px; right: 96px; bottom: 44px;
+  font-size: 20px; color: var(--muted); line-height: 1.4;
+}
+.mono { font-family: var(--mono); }
+.em { color: var(--accent-600); font-weight: 650; }
+.spacer { flex: 1; }
+
+/* Rivelazione per passi. */
+[data-step] { transition: opacity .45s ease, transform .45s ease; }
+[data-step]:not(.on) { opacity: 0; transform: translateY(14px); pointer-events: none; }
+[data-until].gone { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  [data-step], .fill, .chip { transition: none !important; }
+}
+
+/* Chip dei token e dei gloss. */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 30px;
+  padding: 8px 16px; border-radius: 8px;
+  background: var(--plane); border: 2px solid var(--grid);
+  color: var(--ink); white-space: pre;
+  transition: background .35s, border-color .35s, opacity .35s, color .35s;
+}
+.chip .sp { color: var(--muted); }
+.chip.gloss { background: var(--accent-100); border-color: var(--accent-200); color: var(--accent-700); }
+.chip.ghost { background: transparent; border-style: dashed; border-color: var(--accent); color: var(--accent-600); }
+.chip.bad { background: var(--neg-100); border-color: var(--neg); color: #7a1f1f; }
+.chips { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.arrow { font-size: 34px; color: var(--muted); }
+
+/* Maschera: ammessi e vietati si distinguono solo al passo marcato. */
+.mask.marked .chip.yes { background: var(--accent-100); border-color: var(--accent); color: var(--accent-700); }
+.mask.marked .chip.no { opacity: .35; text-decoration: line-through; }
+.mask .chip .tick { display: none; font-family: var(--sans); font-size: 22px; font-weight: 700; }
+.mask.marked .chip .tick { display: inline; }
+
+/* Card. */
+.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 36px; }
+.card { background: var(--plane); border-radius: 14px; padding: 32px 36px; }
+.card h3 { margin: 0 0 12px; font-size: 32px; }
+.card .q { font-size: 26px; color: var(--ink2); margin-bottom: 18px; }
+.card .d { font-size: 26px; line-height: 1.4; }
+.card .d + .d { margin-top: 10px; }
+
+/* Righe etichetta / testo. */
+.rows { display: flex; flex-direction: column; gap: 36px; }
+.row { display: grid; grid-template-columns: 240px 1fr; gap: 28px; align-items: baseline; }
+.row .lbl { font-size: 23px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 650; }
+.row .txt { font-size: 34px; line-height: 1.35; }
+
+/* Grafici a barre orizzontali. */
+.bars { display: flex; flex-direction: column; gap: 14px; }
+.bar { display: grid; grid-template-columns: 430px 1fr 120px; align-items: center; gap: 20px; }
+.bar .name { font-size: 25px; color: var(--ink2); text-align: right; line-height: 1.2; }
+.bar .name small { display: block; font-size: 18px; color: var(--muted); }
+.bar .track { position: relative; height: 34px; }
+.bar .track::before { content: ""; position: absolute; left: 0; top: -6px; bottom: -6px; width: 2px; background: var(--base); }
+.bar .fill {
+  position: absolute; left: 0; top: 5px; height: 24px; width: 0;
+  background: var(--neutral); border-radius: 0 4px 4px 0;
+  transition: width .8s cubic-bezier(.2,.7,.2,1);
+}
+.bar.emph .fill { background: var(--accent); }
+.bar .val { font-size: 25px; font-variant-numeric: tabular-nums; color: var(--ink); }
+.bar.emph .val { font-weight: 700; }
+.bar .ghost {
+  position: absolute; top: -4px; height: 42px; width: 0;
+  border-left: 3px dashed var(--accent-600); display: none;
+}
+.bar .ghost span {
+  position: absolute; right: 12px; top: -32px; white-space: nowrap;
+  font-size: 19px; color: var(--accent-600); font-weight: 650;
+}
+.bars .group { font-size: 19px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 650; margin: 10px 0 -2px 450px; }
+.slide.active .bar:not([data-step]) .fill,
+.slide.active .bar.on .fill { width: var(--w); }
+.slide.active .ghostmark.marked .ghost { display: block; }
+.axis { display: grid; grid-template-columns: 430px 1fr 120px; gap: 20px; font-size: 18px; color: var(--muted); }
+.axis .ticks { display: flex; justify-content: space-between; border-top: 1px solid var(--grid); padding-top: 6px; }
+
+/* Barre raggruppate (due serie). */
+.gbars { display: flex; flex-direction: column; gap: 26px; }
+.gbar { display: grid; grid-template-columns: 260px 1fr; gap: 24px; align-items: center; }
+.gbar .name { font-size: 27px; text-align: right; color: var(--ink2); }
+.gbar .pair { display: flex; flex-direction: column; gap: 8px; }
+.gline { display: grid; grid-template-columns: 1fr 110px; gap: 16px; align-items: center; }
+.gline .track { position: relative; height: 26px; border-left: 2px solid var(--base); }
+.gline .fill { position: absolute; left: 0; top: 3px; height: 20px; width: 0; border-radius: 0 4px 4px 0; background: var(--neutral); transition: width .8s cubic-bezier(.2,.7,.2,1); }
+.gline.b .fill { background: var(--accent); }
+.gline .val { font-size: 23px; font-variant-numeric: tabular-nums; }
+.gline.b .val { font-weight: 700; }
+.slide.active .gbar:not([data-step]) .fill, .slide.active .gbar.on .fill { width: var(--w); }
+.legend { display: flex; gap: 30px; font-size: 22px; color: var(--ink2); margin: -18px 0 26px 284px; }
+.legend i { display: inline-block; width: 18px; height: 18px; border-radius: 4px; vertical-align: -2px; margin-right: 8px; }
+
+/* Tabelle. */
+table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.tbl { width: 100%; font-size: 24px; }
+.tbl th { font-size: 18px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 650; text-align: right; padding: 0 10px 12px; }
+.tbl th:first-child, .tbl td:first-child { text-align: left; }
+.tbl td { padding: 11px 10px; border-top: 1px solid var(--grid); text-align: right; }
+.tbl tr.ref td { color: var(--ink2); background: var(--plane); }
+.tbl td.read { text-align: left; color: var(--ink2); font-size: 22px; }
+.tbl .blk td { border-top: none; padding-top: 22px; font-size: 18px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 650; }
+
+/* Tabella delle reward: celle a scala divergente, testo sempre in inchiostro. */
+.rw { width: 100%; font-size: 23px; }
+.rw th { font-size: 17px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 650; padding: 0 6px 10px; text-align: center; }
+.rw td { padding: 0; text-align: center; }
+.rw td .c { margin: 3px; padding: 12px 4px; border-radius: 6px; font-variant-numeric: tabular-nums; transition: box-shadow .3s; }
+.rw td.cand { text-align: left; padding-right: 14px; }
+.rw td.cand .t { font-family: var(--mono); font-size: 22px; }
+.rw td.cand .n { font-size: 17px; color: var(--muted); }
+.rw td.tot .c { font-weight: 700; border: 2px solid var(--ink); }
+.rw .key.marked .c { box-shadow: 0 0 0 4px var(--ink); }
+.callouts { position: relative; height: 60px; margin-top: 22px; }
+.callouts > p { position: absolute; left: 0; top: 0; font-size: 28px; }
+
+/* Vantaggio del GRPO: barre divergenti attorno allo zero. */
+.adv { display: flex; flex-direction: column; gap: 16px; margin-top: 30px; }
+.adv[data-step]:not(.on) { display: none; }
+.adv .r { display: grid; grid-template-columns: 400px 1fr 190px; gap: 18px; align-items: center; }
+.adv .nm { font-family: var(--mono); font-size: 21px; white-space: nowrap; text-align: right; color: var(--ink2); }
+.adv .tr { position: relative; height: 36px; }
+.adv .zero { position: absolute; left: 50%; top: -8px; bottom: -8px; width: 2px; background: var(--base); }
+.adv .f { position: absolute; top: 6px; height: 24px; background: var(--neutral); }
+.adv .f.pos { left: 50%; border-radius: 0 4px 4px 0; }
+.adv .f.neg { right: 50%; border-radius: 4px 0 0 4px; }
+.adv .v { font-size: 24px; font-variant-numeric: tabular-nums; }
+.adv .a { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.adv .a.up { color: var(--accent-600); }
+.adv .a.down { color: var(--neg); }
+.meanline { position: absolute; top: -14px; height: 220px; width: 0; border-left: 3px dashed var(--ink); }
+.meanline span { position: absolute; top: -34px; left: -60px; width: 120px; text-align: center; font-size: 19px; font-weight: 650; }
+
+/* Trie: stato del cammino. */
+.walk .out { min-height: 76px; gap: 6px; }
+.walk .out .chip.start { margin-left: 26px; }
+.walk .panel { display: grid; grid-template-columns: 420px 1fr; gap: 40px; margin-top: 44px; align-items: start; }
+.walk .count { font-size: 104px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: var(--accent-600); }
+.walk .of { font-size: 24px; color: var(--muted); margin-top: 10px; }
+.walk .state { font-size: 32px; line-height: 1.35; }
+.walk .eos { margin-top: 18px; font-size: 25px; color: var(--ink2); }
+.walk .eos b { font-weight: 700; }
+.walk .meter { margin-top: 28px; height: 14px; background: var(--grid); border-radius: 7px; overflow: hidden; }
+.walk .meter i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .5s; }
+
+/* Numeri grandi. */
+.big { font-size: 64px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* Lista numerata. */
+.nlist { display: flex; flex-direction: column; gap: 32px; counter-reset: n; }
+.nlist > div { display: grid; grid-template-columns: 60px 1fr; gap: 18px; font-size: 33px; line-height: 1.35; }
+.nlist > div::before { counter-increment: n; content: counter(n); font-weight: 700; color: var(--accent-600); font-size: 34px; }
+
+/* Diagramma dei supporti. */
+.switches { display: flex; flex-direction: column; gap: 26px; }
+.sw { display: grid; grid-template-columns: 250px 1fr; gap: 24px; align-items: center; }
+.sw .lbl { font-size: 22px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 650; text-align: right; }
+.opts { display: flex; gap: 12px; flex-wrap: wrap; }
+.opt { font-size: 25px; padding: 10px 18px; border-radius: 999px; border: 2px solid var(--grid); background: var(--plane); }
+.opt.hot { border-color: var(--accent); background: var(--accent-100); color: var(--accent-700); }
+.model { display: inline-block; font-size: 28px; padding: 16px 26px; border-radius: 12px; background: var(--ink); color: var(--surface); font-weight: 600; margin-bottom: 36px; }
+
+/* Cromo della presentazione. */
+#progress { position: absolute; left: 0; bottom: 0; height: 5px; background: var(--accent); width: 0; }
+#counter { position: absolute; right: 36px; bottom: 16px; font-size: 16px; color: var(--muted); font-variant-numeric: tabular-nums; }
+#notes {
+  position: fixed; left: 0; right: 0; bottom: 0; max-height: 34vh; overflow: auto;
+  background: rgba(13,13,13,.94); color: #fff; padding: 18px 28px 22px;
+  font: 19px/1.5 var(--sans); display: none; z-index: 5;
+}
+#notes.show { display: block; }
+#notes b { color: #9ec5f4; font-weight: 650; }
+.aside { display: none; }
+.keys { font-size: 18px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="stage">
+
+<!-- 1 -->
+<section class="slide" data-title="Titolo">
+  <div class="kicker">Ricevimento · stato del lavoro</div>
+  <h1>Il GRPO può insegnare<br>un vincolo rigido?</h1>
+  <p class="lead">Fase 1 · traduzione inglese → gloss ASL con Qwen2.5-0.5B</p>
+  <div class="spacer"></div>
+  <p class="body">Giuseppe Bellamacina</p>
+  <p class="keys" style="margin-top:14px">→ avanti · ← indietro · F schermo intero · N note · P finestra relatore</p>
+  <aside class="aside">Questa è la prima fase di un progetto più ampio: capire se il GRPO riesce ad allineare un modello a produrre output strutturati che rispettano una grammatica o un vincolo rigido, con o senza supporti. Il text-to-gloss è il banco di prova. Parlo per circa venti minuti, poi il resto è discussione.</aside>
+</section>
+
+<!-- 2 -->
+<section class="slide" data-title="La domanda">
+  <div class="kicker">La domanda</div>
+  <h2>Output strutturato, sotto un vincolo che non ammette eccezioni</h2>
+  <div class="rows">
+    <div class="row" data-step="1"><div class="lbl">Vincolo</div><div class="txt">Ogni parola dell'uscita deve stare in un vocabolario chiuso di <b>15 472 gloss</b></div></div>
+    <div class="row" data-step="2"><div class="lbl">Supporti</div><div class="txt">Esempi nel prompt · Trie in decodifica · SFT prima del GRPO</div></div>
+    <div class="row" data-step="3"><div class="lbl">Domanda</div><div class="txt">Il GRPO arriva al vincolo da solo? E quali supporti servono?</div></div>
+  </div>
+  <p class="foot">Banco di prova: ASLG-PC12, 87 710 coppie inglese–gloss ASL.</p>
+  <aside class="aside">Tre cose da fissare. Il vincolo è un vocabolario chiuso: un'uscita è corretta nella forma solo se ogni token è un gloss esistente. I supporti sono le leve che il disegno sperimentale accende e spegne. La domanda è se il GRPO, con la sua reward, porti il modello dentro il vincolo, e quanto aiuto gli serva.</aside>
+</section>
+
+<!-- 3 -->
+<section class="slide" data-title="Il compito">
+  <div class="kicker">Il compito</div>
+  <h2>Da una frase inglese a una sequenza di gloss</h2>
+  <div class="chips" style="gap:18px">
+    <span class="chip">they</span><span class="chip">will</span><span class="chip">not</span><span class="chip">flinch</span><span class="chip">.</span>
+  </div>
+  <div class="arrow" style="margin:22px 0 22px 8px" data-step="1">↓</div>
+  <div class="chips" style="gap:18px" data-step="1">
+    <span class="chip gloss">X-Y</span><span class="chip gloss">WILL</span><span class="chip gloss">DESC-NOT</span><span class="chip gloss">FLINCH</span><span class="chip gloss">.</span>
+  </div>
+  <div class="rows" style="margin-top:44px">
+    <div class="row" data-step="2"><div class="lbl">X-</div><div class="txt">pronomi: <span class="mono">X-Y</span> = they, <span class="mono">X-WE</span> = we, <span class="mono">X-I</span> = I</div></div>
+    <div class="row" data-step="2"><div class="lbl">DESC-</div><div class="txt">descrittori: negazioni, avverbi, aggettivi</div></div>
+    <div class="row" data-step="3"><div class="lbl">Il resto</div><div class="txt">spesso è la parola inglese in maiuscolo: il <b>62 %</b> dei token del corpus</div></div>
+  </div>
+  <aside class="aside">Il gloss è una trascrizione lessicale della lingua dei segni, non la lingua dei segni. Due convenzioni lo rendono riconoscibile: X- per i pronomi e DESC- per i descrittori. L'ultima riga anticipa il punto che condiziona tutto: il corpus è quasi una copia in maiuscolo, perché è stato generato da regole.</aside>
+</section>
+
+<!-- 4 -->
+<section class="slide" data-title="Come si misura">
+  <div class="kicker">Come si misura</div>
+  <h2>Due domande diverse per ogni uscita</h2>
+  <div class="cards">
+    <div class="card" data-step="1">
+      <h3>Struttura</h3>
+      <div class="q">Rispetta il vincolo?</div>
+      <div class="d"><b>Validità stretta</b>: tutti i token sono gloss del vocabolario</div>
+    </div>
+    <div class="card" data-step="2">
+      <h3>Contenuto</h3>
+      <div class="q">È la traduzione giusta?</div>
+      <div class="d"><b>Exact match</b>: identica al riferimento</div>
+      <div class="d"><b>Non-copy</b>: corretta dove il gloss <i>non</i> è la parola in maiuscolo</div>
+    </div>
+  </div>
+  <div data-step="3" style="margin-top:40px">
+    <p class="body">ROUGE-L ignora maiuscole e punteggiatura:
+      <span class="mono">cat sat</span> contro <span class="mono">CAT SAT</span> = <b>1,00</b>;
+      la copia dell'inglese contro il gloss = <b>0,60</b>.</p>
+    <p class="small" style="margin-top:10px">Lo riportiamo solo per confronto con la letteratura.</p>
+  </div>
+  <aside class="aside">Tengo separati i due assi per tutta la presentazione. La non-copy accuracy è l'unica metrica di contenuto che non si satura: guarda solo le posizioni dove tradurre richiede qualcosa di più che mettere in maiuscolo. ROUGE-L, la metrica usata in letteratura su questo corpus, premia la copia: una frase inglese copiata prende 0,60.</aside>
+</section>
+
+<!-- 5 -->
+<section class="slide" data-title="Il disegno">
+  <div class="kicker">Il disegno</div>
+  <h2>Un modello, e supporti da accendere e spegnere</h2>
+  <div><span class="model">Qwen2.5-0.5B-Instruct + LoRA</span></div>
+  <div class="switches">
+    <div class="sw" data-step="1"><div class="lbl">Prompt</div><div class="opts"><span class="opt">0 esempi</span><span class="opt hot">3 esempi recuperati</span></div></div>
+    <div class="sw" data-step="2"><div class="lbl">Decodifica</div><div class="opts"><span class="opt">libera</span><span class="opt hot">Trie</span></div></div>
+    <div class="sw" data-step="3"><div class="lbl">Addestramento</div><div class="opts"><span class="opt">nessuno</span><span class="opt hot">SFT</span><span class="opt hot">GRPO</span><span class="opt hot">SFT → GRPO</span><span class="opt hot">SFT + termine ausiliario</span></div></div>
+  </div>
+  <p class="foot">2 000 frasi di test × 5 generazioni · un seme per cella · a seme fisso l'addestramento è deterministico bit per bit</p>
+  <aside class="aside">Ogni cella sperimentale è una combinazione di questi interruttori. Una nota importante sul metodo: ripetere una cella con lo stesso seme dà generazioni identiche byte per byte, quindi ogni differenza fra due celle che cambiano un solo fattore è dovuta a quel fattore. Il rovescio: con un seme solo non ho una stima della variabilità fra semi.</aside>
+</section>
+
+<!-- 6 -->
+<section class="slide" data-title="La maschera">
+  <div class="kicker">Il vincolo · 1 di 3</div>
+  <h2>A ogni passo, solo i token che continuano un gloss</h2>
+  <p class="body" style="margin-bottom:26px">Già scritto: <span class="chip gloss">X-Y</span> &nbsp;— il modello propone il prossimo token:</p>
+  <div class="chips mask" data-mark="1" style="gap:16px">
+    <span class="chip no"><span class="sp">␣</span>will <span class="tick">✕</span></span>
+    <span class="chip yes"><span class="sp">␣</span>WILL <span class="tick">✓</span></span>
+    <span class="chip no"><span class="sp">␣</span>Will <span class="tick">✕</span></span>
+    <span class="chip no"><span class="sp">␣</span>shall <span class="tick">✕</span></span>
+    <span class="chip yes"><span class="sp">␣</span>MUST <span class="tick">✓</span></span>
+    <span class="chip no"><span class="sp">␣</span>not <span class="tick">✕</span></span>
+    <span class="chip no"><span class="sp">␣</span>the <span class="tick">✕</span></span>
+    <span class="chip no"><span class="sp">␣</span>THE <span class="tick">✕</span></span>
+    <span class="chip yes"><span class="sp">␣</span>DESC <span class="tick">✓</span></span>
+    <span class="chip no">. <span class="tick">✕</span></span>
+    <span class="chip yes"><span class="sp">␣</span>. <span class="tick">✓</span></span>
+    <span class="chip no">\n <span class="tick">✕</span></span>
+  </div>
+  <p class="small" style="margin-top:22px" data-step="1">✓ ammesso · ✕ vietato: il suo logit va a −∞ e non può essere scelto</p>
+  <p class="body" style="margin-top:40px" data-step="2">Dopo <span class="mono">X-Y</span> restano <b class="em">1 553</b> token su <b>151 643</b>.</p>
+  <p class="foot">Token e verdetti calcolati con il tokenizer di Qwen e il Trie del progetto. ␣ = spazio iniziale del token.</p>
+  <aside class="aside">Il Trie è un albero di prefissi costruito sul vocabolario gloss. A ogni passo di generazione dice quali token portano ancora a un gloss valido; tutti gli altri logit vengono messi a meno infinito. Notate THE: è vietato perché nessun gloss comincia così, dato che nel corpus l'articolo viene cancellato. E il punto senza spazio è vietato, quello con lo spazio no: lo spazio conta, ed è il tema della prossima slide.</aside>
+</section>
+
+<!-- 7 -->
+<section class="slide" data-title="Due radici">
+  <div class="kicker">Il vincolo · 2 di 3</div>
+  <h2>Lo spazio fa parte del token: servono due radici</h2>
+  <div class="rows">
+    <div class="row" data-step="1"><div class="lbl">Tokenizer</div>
+      <div class="txt"><span class="chip">WILL</span> <span class="arrow">→</span> <span class="chip">W</span> <span class="chip">ILL</span> <span class="small">2 token</span>
+        &nbsp;&nbsp;&nbsp; <span class="chip"><span class="sp">␣</span>WILL</span> <span class="arrow">→</span> <span class="chip"><span class="sp">␣</span>WILL</span> <span class="small">1 token</span></div></div>
+    <div class="row" data-step="2"><div class="lbl">Una radice</div>
+      <div class="txt"><span class="chip gloss">HOW</span> + <span class="chip">EVER</span> + <span class="chip">Y</span> <span class="arrow">→</span> <span class="chip bad">HOWEVERY ✕</span>
+        <p class="small" style="margin-top:10px">HOW è un gloss, EVER è l'inizio di EVERY: senza lo spazio si incollano in un gloss che non esiste</p></div></div>
+    <div class="row" data-step="3"><div class="lbl">Due radici</div>
+      <div class="txt"><span class="chip gloss">HOW</span> + <span class="chip gloss"><span class="sp">␣</span>EVERY</span> <span class="arrow">→</span> <span class="chip gloss">HOW</span> <span class="chip gloss"><span class="sp">␣</span>EVERY</span> ✓
+        <p class="small" style="margin-top:10px">dopo un gloss finito si riparte solo da un token con lo spazio · <b>root</b>: primo token, senza spazio · <b>space_root</b>: ogni gloss successivo</p></div></div>
+  </div>
+  <p class="foot">819 gloss sono un token solo: con una radice sola ogni coppia poteva fondersi.</p>
+  <aside class="aside">Il tokenizer BPE incorpora lo spazio nel token che segue: WILL da solo diventa due token, con lo spazio davanti è un token unico. Con una sola radice, alla fine di un gloss il Trie accettava di nuovo i token senza spazio, e così nascevano parole inesistenti come HOWEVERY, che abbiamo davvero visto in uscita. La soluzione: ogni gloss è inserito due volte, senza spazio nella radice usata solo per il primo token, e con lo spazio in quella da cui riparte ogni gloss successivo.</aside>
+</section>
+
+<!-- 8 -->
+<section class="slide walk" data-title="Il cammino nel Trie" data-hook="trie" data-steps="10">
+  <div class="kicker">Il vincolo · 3 di 3</div>
+  <h2>Il cammino nel Trie, token per token</h2>
+  <div class="chips out" id="walk-out"></div>
+  <div class="panel">
+    <div>
+      <div class="count" id="walk-count">1 392</div>
+      <div class="of">token ammessi al prossimo passo<br>su 151 643</div>
+    </div>
+    <div>
+      <div class="state" id="walk-state"></div>
+      <div class="eos" id="walk-eos"></div>
+    </div>
+  </div>
+  <p class="foot">Conteggi reali del processore del progetto sulla frase dell'esempio.</p>
+  <aside class="aside">Seguiamo la frase di prima un token alla volta. Il numero grande è quanti token il Trie lascia scegliere al passo successivo. Guardate cosa succede dentro un gloss lungo: dopo FL restano 21 continuazioni, dopo FLIN una sola. E la fine della sequenza è ammessa solo quando l'ultimo gloss è completo: non si può chiudere a metà di DESC o di FLINCH.</aside>
+</section>
+
+<!-- 9 -->
+<section class="slide" data-title="La reward">
+  <div class="kicker">Il segnale · 1 di 3</div>
+  <h2>La reward: sette controlli, ciascuno da −1 a +1</h2>
+  <div class="bars" id="rw-weights"></div>
+  <p class="foot">Somma pesata delle sette componenti; pesi dal config di base.</p>
+  <aside class="aside">La reward non è una rete neurale: sono sette controlli deterministici, ognuno mappato fra meno uno e più uno, e poi sommati con questi pesi. Tre guardano la sovrapposizione con il riferimento, uno la plausibilità della sequenza nel corpus, uno l'ordine, e due sono di igiene: tutti i token devono essere gloss, e niente ripetizioni in loop.</aside>
+</section>
+
+<!-- 10 -->
+<section class="slide" data-title="Quattro candidati">
+  <div class="kicker">Il segnale · 2 di 3</div>
+  <h2>Ogni controllo copre il punto cieco di un altro</h2>
+  <p class="body" style="margin:-16px 0 20px">Riferimento: <span class="mono em">X-Y WILL DESC-NOT FLINCH .</span></p>
+  <table class="rw" id="rw-table"></table>
+  <div class="callouts">
+    <p data-step="2" data-until="2"><b>Plausibile non vuol dire corretto</b>: FALL è una sequenza normale del corpus.</p>
+    <p data-step="3" data-until="3"><b>ROUGE-L premia la copia</b> dell'inglese; format e plausibilità la puniscono.</p>
+    <p data-step="4" data-until="4"><b>Tutti gloss validi, ma in loop</b>: lo ferma solo il controllo sulle ripetizioni.</p>
+    <p data-step="5">L'ordine finale è quello giusto: corretto &gt; un errore &gt; copia &gt; loop.</p>
+  </div>
+  <p class="foot">Valori calcolati con le funzioni di reward del progetto e la matrice dei bigrammi del training set.</p>
+  <aside class="aside">Stessa frase, quattro candidati. Il candidato con un gloss sbagliato prende uno pieno sulla struttura: la componente di plausibilità non sa cosa sia corretto, sa solo cosa è normale nel corpus. La copia dell'inglese prende una reward ROUGE-L positiva, più zero virgola due, ma format e struttura la affossano. La ripetizione passa il format, perché sono tutti gloss validi, e la ferma il controllo sulle ripetizioni. Nessuna componente basta da sola.</aside>
+</section>
+
+<!-- 11 -->
+<section class="slide" data-title="Il vantaggio">
+  <div class="kicker">Il segnale · 3 di 3</div>
+  <h2>Il GRPO impara dalle differenze dentro il gruppo</h2>
+  <div class="adv" id="adv-a" data-until="2"></div>
+  <div class="adv" id="adv-b" data-step="3"></div>
+  <p class="body" style="margin-top:34px" data-step="2" data-until="2">Vantaggio = (reward − media del gruppo) / deviazione standard: sale chi sta sopra, scende chi sta sotto.</p>
+  <p class="body" style="margin-top:34px" data-step="3">Otto candidati identici: vantaggio zero per tutti, <b>nessun aggiornamento</b> da quella frase.</p>
+  <p class="foot">Nel training il gruppo è di 8 candidati per frase; qui 4 per leggibilità.</p>
+  <aside class="aside">Il GRPO non ha una rete di valore: il gruppo stesso fa da riferimento. Per ogni frase genera otto candidati, calcola la reward, e sposta la probabilità verso chi sta sopra la media del gruppo. Il caso limite è decisivo per il seguito: se gli otto candidati sono identici, sono tutti sulla media, il vantaggio è zero e quella frase non insegna nulla.</aside>
+</section>
+
+<!-- 12 -->
+<section class="slide" data-title="Il riferimento">
+  <div class="kicker">Risultati · il riferimento</div>
+  <h2>Una regola senza apprendimento fa ROUGE-L 0,97</h2>
+  <div class="bars" id="ref-bars"></div>
+  <div class="axis" style="margin-top:6px"><div></div><div class="ticks"><span>0</span><span>0,25</span><span>0,50</span><span>0,75</span><span>1</span></div><div></div></div>
+  <p class="body" style="margin-top:36px" data-step="4">Testo e gloss condividono il <b>98 %</b> dei token (PHOENIX-2014T: 16 %). Le metriche di sovrapposizione sono <b>sature</b>.</p>
+  <p class="foot">Regola: lessico parola → gloss e 13 parole cancellate, stimati sul solo training set · exact match 0,5865.</p>
+  <aside class="aside">Prima dei modelli, il riferimento che cambia la lettura di tutto il resto. Mettere l'input in maiuscolo fa già 0,65. Una regola di poche righe, stimata sul training set, fa 0,9685: più del miglior risultato pubblicato su questo corpus. Il motivo è che ASLG-PC12 è sintetico, generato da regole. Da qui in avanti ogni numero va letto accanto a questa riga.</aside>
+</section>
+
+<!-- 13 -->
+<section class="slide" data-title="Struttura">
+  <div class="kicker">Risultati · struttura</div>
+  <h2>Il vincolo lo garantisce il Trie, non il GRPO</h2>
+  <div class="bars" id="strict-bars"></div>
+  <div class="axis" style="margin-top:6px"><div></div><div class="ticks"><span>0</span><span>25 %</span><span>50 %</span><span>75 %</span><span>100 %</span></div><div></div></div>
+  <p class="foot">Uscite fatte interamente di gloss del vocabolario. La validity delle tabelle accetta anche uscite con metà dei token validi.</p>
+  <aside class="aside">Questa è la slide che risponde alla domanda di fondo sul lato della struttura. Senza Trie, il GRPO porta la quota di uscite interamente valide da 11 a 19 per cento. Se usassi la validity permissiva, quella che accetta metà dei token validi, vedreste 0,99: il GRPO impara l'aspetto di un gloss, maiuscole e prefissi, ma non il vocabolario chiuso. Con il Trie siamo fra il 98 e il 100 per cento per costruzione, qualunque sia il modello.</aside>
+</section>
+
+<!-- 14 -->
+<section class="slide" data-title="Solo SFT">
+  <div class="kicker">Risultati · solo SFT</div>
+  <h2>Stesso ROUGE-L della regola, +18 punti di exact match</h2>
+  <div class="legend"><span><i style="background:var(--neutral)"></i>Regola (non addestrata)</span><span><i style="background:var(--accent)"></i>SFT</span></div>
+  <div class="gbars" id="sft-bars"></div>
+  <p class="body" style="margin-top:36px" data-step="4">Cosa aggiunge l'SFT: il <b>contesto</b>. La copula (is, are → BE) si tiene o si cancella a seconda della frase; una regola sceglie una volta per tutte.</p>
+  <aside class="aside">L'SFT e la regola sono indistinguibili su ROUGE-L. La differenza si vede solo sull'exact match: gli errori scendono dal 41 al 23 per cento. Il vantaggio viene da ciò che una regola senza contesto non può fare, per esempio decidere se tenere o cancellare la copula. Questo è il livello del contenuto: il tetto del corpus su ROUGE-L, ma non su exact match.</aside>
+</section>
+
+<!-- 15 -->
+<section class="slide" data-title="Solo GRPO">
+  <div class="kicker">Risultati · solo GRPO</div>
+  <h2>Il GRPO impara, ma resta sotto «tutto maiuscolo»</h2>
+  <div class="bars" id="grpo-bars"></div>
+  <div class="axis" style="margin-top:6px"><div></div><div class="ticks"><span>0</span><span>0,25</span><span>0,50</span><span>0,75</span><span>1</span></div><div></div></div>
+  <p class="body" style="margin-top:34px" data-step="5">Exact match: <b>0,0544</b> few-shot, <b>0,0078</b> zero-shot, contro 0,5865 della regola.</p>
+  <p class="small" style="margin-top:12px" data-step="6">Dal modello base zero-shot (0,14) al GRPO few-shot (0,61) il ROUGE-L sale di 0,47: 0,33 li danno i tre esempi nel prompt, senza addestramento.</p>
+  <aside class="aside">Partendo dal modello base con il Trie e gli esempi nel prompt, il GRPO porta il ROUGE-L da 0,47 a 0,61. Impara, quindi. Ma resta sotto la trasformazione banale del mettere tutto in maiuscolo, e l'exact match resta vicino a zero. E la leva più efficace di tutto questo percorso è il prompt, non l'addestramento.</aside>
+</section>
+
+<!-- 16 -->
+<section class="slide" data-title="Perché">
+  <div class="kicker">Risultati · perché</div>
+  <h2>Dal modello base il segnale c'è; dopo l'SFT quasi no</h2>
+  <p class="small" style="margin:-22px 0 22px 450px">Gruppi senza gradiente, media sull'intera run</p>
+  <div class="bars" id="zero-bars"></div>
+  <div class="axis" style="margin-top:6px"><div></div><div class="ticks"><span>0</span><span>25 %</span><span>50 %</span><span>75 %</span><span>100 %</span></div><div></div></div>
+  <p class="small" style="margin-top:28px" data-step="7">Con sette controlli continui due candidati diversi non prendono quasi mai la stessa reward: il gruppo si ferma solo se gli otto candidati sono identici.</p>
+  <p class="foot">Il GRPO vede 5 000 frasi, il 7 % del training set; l'SFT arriva a 2,24 epoche.</p>
+  <aside class="aside">Il dato viene dai log di training. Dal modello base meno del sei per cento dei gruppi resta senza gradiente, anche senza Trie: il segnale c'è. Il limite del GRPO dal modello base è quanto può imparare vedendo il sette per cento del training set una volta sola. Dopo l'SFT invece fra il 61 e il 71 per cento dei gruppi è fermo, perché gli otto candidati sono la stessa frase. Alzare la temperatura dei rollout li diversifica e scende al 27 per cento, ma il risultato finale non cambia.</aside>
+</section>
+
+<!-- 17 -->
+<section class="slide" data-title="SFT seguito da GRPO">
+  <div class="kicker">Risultati · SFT seguito da GRPO</div>
+  <h2>Dopo l'SFT, il GRPO lascia tutto dov'era</h2>
+  <table class="tbl" style="width:1100px">
+    <tr><th>Cella</th><th>ROUGE-L</th><th>Exact match</th><th>Δ ROUGE-L · Δ EM, in punti</th></tr>
+    <tr class="ref"><td>SFT</td><td>0,9681</td><td>0,7662</td><td>—</td></tr>
+    <tr data-step="1"><td>SFT → GRPO, zero-shot</td><td>0,9744</td><td>0,8095</td><td>+0,6 · +4,3</td></tr>
+    <tr data-step="2"><td>SFT → GRPO, few-shot</td><td>0,9628</td><td>0,7296</td><td>−0,5 · −3,7</td></tr>
+  </table>
+  <p class="body" style="margin-top:44px" data-step="3">Un punto in su o in giù: con il 61–71 % dei gruppi fermi c'è poco da imparare.</p>
+  <p class="small" style="margin-top:12px" data-step="3">Le due celle differiscono anche per il prompt, e con un seme solo il segno della differenza non è interpretabile.</p>
+  <aside class="aside">Applicare il GRPO a una policy già addestrata con SFT non la migliora in modo sostanziale e non la rovina. Oscilla di un punto nelle due direzioni. È coerente con la slide precedente: la maggior parte dei gruppi non produce gradiente, e la penalità KL tiene fermo il resto.</aside>
+</section>
+
+<!-- 18 -->
+<section class="slide" data-title="Obiettivi ausiliari">
+  <div class="kicker">Risultati · obiettivi ausiliari</div>
+  <h2>Un termine in più nell'SFT: uno aiuta, l'altro no</h2>
+  <div class="cards">
+    <div class="card" data-step="1">
+      <h3>Massa ammessa</h3>
+      <div class="q">Spinge la probabilità sui token che il Trie ammette</div>
+      <div class="gbars" id="am-bars" style="gap:16px"></div>
+      <p class="small" style="margin-top:16px">La miglior cella del lavoro su ogni metrica.</p>
+    </div>
+    <div class="card" data-step="3">
+      <h3>Loss strutturata</h3>
+      <div class="q">Premia le transizioni fra gloss tipiche del corpus</div>
+      <div class="gbars" id="st-bars" style="gap:16px"></div>
+      <p class="small" style="margin-top:16px">Il controllo con i pesi mescolati fa uguale: l'effetto non viene dalle transizioni.</p>
+    </div>
+  </div>
+  <p class="foot">Exact match. Massa ammessa: 13 000 passi contro 10 000 dell'SFT; con un seme non si separa l'effetto del termine da quello dell'addestramento più lungo.</p>
+  <aside class="aside">Due termini ausiliari aggiunti alla loss dell'SFT. Il primo, la massa ammessa, chiede al modello di mettere tutta la probabilità sui token che il Trie consente: porta l'exact match da 0,77 a 0,83, e il vantaggio resta identico in decodifica greedy, quindi non è un effetto del campionamento. Il secondo premia le transizioni fra gloss; l'avevo dotato di un controllo negativo prima di lanciarlo, lo stesso grafo con i pesi mescolati. Il controllo fa uguale, quindi l'obiettivo va abbandonato.</aside>
+</section>
+
+<!-- 19 -->
+<section class="slide" data-title="Ablazioni">
+  <div class="kicker">Risultati · ablazioni</div>
+  <h2>Un fattore alla volta: quasi nulla si muove</h2>
+  <table class="tbl" id="abl-table"></table>
+  <aside class="aside">Ogni ablazione cambia un solo fattore rispetto alla sua cella di riferimento. Dal modello base, l'unica che peggiora chiaramente è il denominatore di Dr. GRPO; senza Trie il ROUGE-L sale solo perché il modello può copiare. Dopo l'SFT niente si muove oltre un punto e mezzo. Con un seme solo, le differenze così piccole non le interpreto.</aside>
+</section>
+
+<!-- 20 -->
+<section class="slide" data-title="Scoperte">
+  <div class="kicker">In sintesi</div>
+  <h2>Cosa abbiamo scoperto</h2>
+  <div class="nlist">
+    <div data-step="1">Il corpus è quasi una copia: una regola fa ROUGE-L 0,97. Contano exact match e non-copy.</div>
+    <div data-step="2">Il Trie garantisce il vincolo; il GRPO da solo ne impara solo l'aspetto (19 % contro ≈100 %).</div>
+    <div data-step="3">Dal modello base il GRPO ha segnale e impara, ma resta sotto baseline banali.</div>
+    <div data-step="4">Dopo l'SFT il GRPO ha poco segnale (61–71 % di gruppi fermi) e non sposta la policy.</div>
+    <div data-step="5">La massa ammessa migliora l'SFT (+7 punti di exact match); la loss strutturata no.</div>
+  </div>
+  <aside class="aside">Cinque punti da portare via. Il primo cambia il modo di leggere i numeri su questo corpus. Il secondo è la risposta sul lato della struttura. Il terzo e il quarto spiegano il GRPO nei due regimi. Il quinto è il risultato positivo del lavoro, da consolidare con più semi.</aside>
+</section>
+
+<!-- 21 -->
+<section class="slide" data-title="Strade abbandonate">
+  <div class="kicker">Strade abbandonate</div>
+  <h2>Provate e lasciate, ciascuna per un motivo</h2>
+  <div class="rows">
+    <div class="row" data-step="1"><div class="lbl">GrammarLLM</div><div class="txt">Un automa a pila per una lingua che è una sequenza piatta di gloss: sovradimensionato, e con conflitti LL(1) sui gloss che iniziano con una cifra. Il Trie basta.</div></div>
+    <div class="row" data-step="2"><div class="lbl">Viterbi</div><div class="txt">Tre reward basate su percorsi di Viterbi: a parità di lunghezza danno lo stesso segnale.</div></div>
+    <div class="row" data-step="3"><div class="lbl">Loss strutturata</div><div class="txt">Non supera il proprio controllo mescolato.</div></div>
+  </div>
+  <aside class="aside">Tre direzioni su cui ho speso tempo e che ho chiuso. GrammarLLM usava un automa a pila, che è lo strumento giusto per una grammatica con annidamento; qui la lingua è una sequenza piatta di gloss, e un Trie fa lo stesso lavoro. Le reward di Viterbi erano tre formule diverse che, a parità di lunghezza, collassano sullo stesso segnale. La loss strutturata l'abbiamo appena vista.</aside>
+</section>
+
+<!-- 22 -->
+<section class="slide" data-title="Risposta per questa fase">
+  <div class="kicker">Risposta per questa fase</div>
+  <h2>GRPO e vincoli rigidi: cosa sappiamo</h2>
+  <div class="rows">
+    <div class="row" data-step="1"><div class="lbl">Struttura</div><div class="txt">Da solo il GRPO impara l'aspetto del vincolo, non il vincolo. Con il Trie il vincolo è garantito.</div></div>
+    <div class="row" data-step="2"><div class="lbl">Contenuto</div><div class="txt">Da solo il GRPO non arriva all'SFT; dopo l'SFT non aggiunge.</div></div>
+    <div class="row" data-step="3"><div class="lbl">Limiti</div><div class="txt">Un seme per cella · corpus sintetico e saturo · un solo modello, da 0,5B.</div></div>
+  </div>
+  <div class="spacer"></div>
+  <p class="lead" data-step="4">Grazie.</p>
+  <aside class="aside">La risposta per questa fase, sui due assi. Sulla struttura: senza un vincolo in decodifica il GRPO si avvicina alla forma ma non la rispetta; con il Trie la rispetta per costruzione. Sul contenuto: il GRPO da solo non raggiunge la supervisione, e dopo la supervisione non aggiunge. I limiti sono dichiarati: un seme, un corpus saturo, un modello piccolo.</aside>
+</section>
+
+<div id="progress"></div>
+<div id="counter"></div>
+</div>
+<div id="notes"></div>
+
+<script>
+"use strict";
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Dati. Un solo posto per ogni numero delle slide: eval_final.json delle run
+   conservate, i log di training, e i calcoli fatti con le funzioni reali del
+   progetto (reward, tokenizer, Trie).
+   ───────────────────────────────────────────────────────────────────────── */
+const D = {
+  rule: { rouge: 0.9685, em: 0.5865, noncopy: 0.9424 },
+  upper: 0.6454,
+  sota: 0.9587,
+  sft: { rouge: 0.9681, em: 0.7662, noncopy: 0.9510, emGreedy: 0.7775 },
+  am: { em: 0.8341, emGreedy: 0.8420 },
+  structured: { emTrue: 0.6053, emShuffled: 0.6078 },
+  grpo: {
+    baseFew: 0.4664, few: 0.6082, zero: 0.5173,
+  },
+  strict: [
+    { g: "Senza Trie" },
+    { name: "Modello base", sub: "zero-shot", v: 0.0138 },
+    { name: "Modello base", sub: "few-shot", v: 0.1147 },
+    { name: "GRPO", sub: "few-shot", v: 0.1941, emph: true, ghost: 0.9899, ghostLabel: "validity permissiva 0,99" },
+    { g: "Con Trie" },
+    { name: "Modello base", sub: "zero-shot", v: 0.9869 },
+    { name: "GRPO", sub: "few-shot", v: 0.9988, emph: true },
+    { name: "SFT", sub: "zero-shot", v: 0.9999 },
+  ],
+  zeroStd: [
+    { g: "GRPO dal modello base" },
+    { name: "zero-shot, con Trie", v: 0.005, emph: true },
+    { name: "few-shot, con Trie", v: 0.036, emph: true },
+    { name: "few-shot, senza Trie", v: 0.056, emph: true },
+    { g: "SFT seguito da GRPO" },
+    { name: "zero-shot", v: 0.708, emph: true },
+    { name: "few-shot", v: 0.610, emph: true },
+    { name: "few-shot, rollout più caldi", v: 0.273, emph: true },
+  ],
+  weights: [
+    ["Sovrapposizione", "ROUGE-L", 0.20],
+    ["N-grammi in comune", "BLEU", 0.20],
+    ["Sequenza plausibile nel corpus", "plausibilità (bigrammi)", 0.20],
+    ["Ordine dei gloss", "distanza di edit", 0.10],
+    ["Sovrapposizione × plausibilità", "verifier", 0.10],
+    ["Tutti i token sono gloss", "format", 0.10],
+    ["Niente ripetizioni in loop", "repetition", 0.10],
+  ],
+  // src/rewards/t2g_rewards.py sul riferimento "X-Y WILL DESC-NOT FLINCH ."
+  rewardCols: ["ROUGE-L", "BLEU", "plausib.", "ordine", "verifier", "format", "ripetiz."],
+  rewardKeys: ["translation", "bleu", "gold_structure", "gloss_order", "verifier_scaled", "format", "repetition"],
+  candidates: [
+    { name: "corretto", text: "X-Y WILL DESC-NOT FLINCH .", s: { translation: 1, bleu: 1, gold_structure: 1, gloss_order: 1, verifier_scaled: 1, format: 1, repetition: 1 }, total: 1.0, keys: [] },
+    { name: "un gloss sbagliato", text: "X-Y WILL DESC-NOT FALL .", s: { translation: 0.6667, bleu: -0.4285, gold_structure: 1, gloss_order: 0.6, verifier_scaled: 0.6667, format: 1, repetition: 1 }, total: 0.5743, keys: ["gold_structure"] },
+    { name: "copia dell'inglese", text: "they will not flinch .", s: { translation: 0.2, bleu: -0.8925, gold_structure: -1, gloss_order: -0.6, verifier_scaled: -1, format: -0.5, repetition: 1 }, total: -0.4485, keys: ["translation", "format"] },
+    { name: "ripetizione", text: "X-Y X-Y X-Y X-Y X-Y", s: { translation: -0.5, bleu: -0.8925, gold_structure: -0.8551, gloss_order: -0.6, verifier_scaled: -0.9638, format: 1, repetition: -1 }, total: -0.6059, keys: ["format", "repetition"] },
+  ],
+  // GlossVocabularyLogitsProcessor._allowed_after_prefix, tokenizer Qwen2.5.
+  walk: [
+    { tok: "X", n: 1392, eos: true, state: "Inizio: si parte dalla radice <b>root</b>, token senza spazio." },
+    { tok: "-Y", n: 1562, eos: true, state: "<span class='mono'>X</span> è già un gloss: si può continuare in <span class='mono'>X-Y</span> o iniziarne un altro." },
+    { tok: " WILL", n: 1553, eos: true, state: "Gloss finito: il prossimo parte da <b>space_root</b>, con lo spazio." },
+    { tok: " DESC", n: 1552, eos: true, state: "Gloss finito: di nuovo da <b>space_root</b>." },
+    { tok: "-N", n: 36, eos: false, state: "<span class='mono'>DESC</span> non è un gloss: solo le sue continuazioni." },
+    { tok: "OT", n: 1583, eos: true, state: "<span class='mono'>DESC-N</span> è già un gloss: si può continuare o chiudere." },
+    { tok: " FL", n: 1554, eos: true, state: "Gloss finito: <b>space_root</b>." },
+    { tok: "IN", n: 21, eos: false, state: "Dentro <span class='mono'>FLINCH</span>: le parole che iniziano per FL." },
+    { tok: "CH", n: 1, eos: false, state: "Una sola continuazione possibile." },
+    { tok: " .", n: 1551, eos: true, state: "Gloss finito: <b>space_root</b>." },
+    { tok: null, n: 1551, eos: true, state: "Fine della sequenza: ammessa, l'ultimo gloss è completo." },
+  ],
+  vocabTokens: 151643,
+  ablations: [
+    { blk: "Dal modello base · riferimento GRPO few-shot" },
+    { ref: true, name: "GRPO few-shot", r: 0.6082, e: 0.0544, read: "" },
+    { name: "Senza Trie", r: 0.7590, e: 0.0604, read: "ROUGE-L sale perché può copiare; solo il 19 % è tutto gloss" },
+    { name: "Denominatore Dr. GRPO", r: 0.5373, e: 0.0360, read: "peggiora" },
+    { name: "Solo la reward edit-validity", r: 0.6373, e: 0.0608, read: "una componente fa quanto sette" },
+    { name: "Glossario nel prompt", r: 0.6094, e: 0.0544, read: "nessun effetto" },
+    { blk: "Dopo l'SFT · riferimento SFT → GRPO few-shot" },
+    { ref: true, name: "SFT → GRPO few-shot", r: 0.9628, e: 0.7296, read: "" },
+    { name: "Rollout più caldi (T = 1,3)", r: 0.9634, e: 0.7419, read: "più segnale, stesso risultato" },
+    { name: "Penalità KL ridotta", r: 0.9644, e: 0.7414, read: "nessun effetto" },
+    { name: "Reward a 4 componenti", r: 0.9634, e: 0.7346, read: "nessun effetto" },
+  ],
+};
+
+const it = (v, d = 4) => v.toFixed(d).replace(".", ",");
+const pct = (v, d = 1) => (v * 100).toFixed(d).replace(".", ",") + " %";
+const sign = (v, d = 2) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(d).replace(".", ",");
+const thin = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+
+/* ── Costruttori dei grafici ─────────────────────────────────────────── */
+function hbars(el, rows, { max = 1, fmt = (v) => it(v), stepFrom = 0, stepwise = true } = {}) {
+  let k = stepFrom;
+  el.innerHTML = rows.map((r) => {
+    if (r.g) return `<div class="group">${r.g}</div>`;
+    const st = stepwise ? ` data-step="${++k}"` : "";
+    const ghost = r.ghost !== undefined
+      ? `<div class="ghost" style="left:${(r.ghost / max) * 100}%"><span>${r.ghostLabel}</span></div>` : "";
+    return `<div class="bar${r.emph ? " emph" : ""}${ghost ? " ghostmark" : ""}"${st} style="--w:${(r.v / max) * 100}%">
+      <div class="name">${r.name}${r.sub ? `<small>${r.sub}</small>` : ""}</div>
+      <div class="track"><div class="fill"></div>${ghost}</div>
+      <div class="val">${fmt(r.v)}</div></div>`;
+  }).join("");
+  return k;
+}
+
+function gbars(el, groups, { max = 1, fmt = (v) => it(v), stepFrom = 0, stepwise = true } = {}) {
+  let k = stepFrom;
+  el.innerHTML = groups.map((g) => {
+    const st = stepwise ? ` data-step="${++k}"` : "";
+    return `<div class="gbar"${st}><div class="name">${g.name}</div><div class="pair">
+      <div class="gline a" style="--w:${(g.a / max) * 100}%"><div class="track"><div class="fill"></div></div><div class="val">${fmt(g.a)}</div></div>
+      <div class="gline b" style="--w:${(g.b / max) * 100}%"><div class="track"><div class="fill"></div></div><div class="val">${fmt(g.b)}</div></div>
+    </div></div>`;
+  }).join("");
+}
+
+// Scala divergente per le celle di reward: blu sopra zero, rosso sotto, grigio a zero.
+function divergent(v) {
+  const a = Math.min(1, Math.abs(v));
+  if (a < 0.02) return "#f0efec";
+  const [r, g, b] = v > 0 ? [42, 120, 214] : [208, 59, 59];
+  return `rgba(${r},${g},${b},${0.12 + 0.5 * a})`;
+}
+
+/* ── Slide 9: pesi ───────────────────────────────────────────────────── */
+hbars(document.getElementById("rw-weights"),
+  D.weights.map(([name, sub, w]) => ({ name, sub, v: w, emph: true })),
+  { max: 0.25, fmt: (v) => it(v, 2), stepwise: false });
+
+/* ── Slide 10: tabella delle reward ──────────────────────────────────── */
+(function () {
+  const head = `<tr><th style="text-align:left">Candidato</th>${D.rewardCols.map((c) => `<th>${c}</th>`).join("")}<th>Totale</th></tr>`;
+  const body = D.candidates.map((c, i) => {
+    const cells = D.rewardKeys.map((k) => {
+      const key = c.keys.includes(k);
+      return `<td class="${key ? "key" : ""}"${key ? ` data-mark="${i + 1}" data-unmark="${i + 1}"` : ""}><div class="c" style="background:${divergent(c.s[k])}">${sign(c.s[k])}</div></td>`;
+    }).join("");
+    return `<tr data-step="${i + 1}"><td class="cand"><div class="t">${c.text}</div><div class="n">${c.name}</div></td>${cells}
+      <td class="tot"><div class="c" style="background:${divergent(c.total)}">${sign(c.total)}</div></td></tr>`;
+  }).join("");
+  document.getElementById("rw-table").innerHTML = head + body;
+})();
+
+/* ── Slide 11: vantaggio ─────────────────────────────────────────────── */
+(function () {
+  const r = D.candidates.map((c) => c.total);
+  const mean = r.reduce((a, b) => a + b, 0) / r.length;
+  // deviazione standard campionaria, come torch.std usato da TRL
+  const sd = Math.sqrt(r.reduce((a, b) => a + (b - mean) ** 2, 0) / (r.length - 1));
+  const half = 50; // percento della traccia per unità di reward
+  const row = (name, v, adv, stepAdv) => {
+    const w = Math.abs(v) * half;
+    const cls = v >= 0 ? "pos" : "neg";
+    const a = adv === null ? "" :
+      `<span class="a ${adv > 0.01 ? "up" : adv < -0.01 ? "down" : ""}"${stepAdv ? ` data-step="${stepAdv}"` : ""}>${adv > 0.01 ? "▲" : adv < -0.01 ? "▼" : ""} A ${sign(adv)}</span>`;
+    return `<div class="r"><div class="nm">${name}</div><div class="tr"><div class="zero"></div>
+      <div class="f ${cls}" style="width:${w}%;${v >= 0 ? "" : ""}"></div>__MEAN__</div>
+      <div><span class="v">${sign(v)}</span> &nbsp;${a}</div></div>`;
+  };
+  const meanLine = (m, label, step) =>
+    `<div class="meanline"${step ? ` data-step="${step}"` : ""} style="left:${50 + m * half}%"><span>${label}</span></div>`;
+  const a = D.candidates.map((c, i) =>
+    row(c.text, c.total, (c.total - mean) / sd, 2).replace("__MEAN__", i === 0 ? meanLine(mean, "media " + sign(mean), 1) : ""));
+  document.getElementById("adv-a").innerHTML = a.join("");
+  const b = [0, 1, 2, 3].map((i) =>
+    row("X-Y WILL DESC-NOT FLINCH .", 1, null, null).replace("__MEAN__", i === 0 ? meanLine(1, "media +1,00", 0) : "")
+      .replace('<span class="v">+1,00</span> &nbsp;', '<span class="v">+1,00</span> &nbsp;<span class="a">A 0,00</span>'));
+  document.getElementById("adv-b").innerHTML = b.join("");
+})();
+
+/* ── Slide 12: riferimento ───────────────────────────────────────────── */
+hbars(document.getElementById("ref-bars"), [
+  { name: "Tutto in maiuscolo", sub: "nessuna trasformazione", v: D.upper },
+  { name: "Miglior risultato pubblicato", sub: "Peng et al. 2023", v: D.sota },
+  { name: "Regola", sub: "lessico + 13 cancellazioni", v: D.rule.rouge, emph: true },
+]);
+
+/* ── Slide 13: struttura ─────────────────────────────────────────────── */
+(function () {
+  const el = document.getElementById("strict-bars");
+  hbars(el, D.strict, { fmt: (v) => pct(v) });
+  // la riga del GRPO senza Trie rivela la validity permissiva in un passo a sé
+  const rows = [...el.querySelectorAll(".bar")];
+  rows.forEach((b, i) => b.setAttribute("data-step", i < 3 ? i + 1 : i + 2));
+  const g = el.querySelector(".ghostmark");
+  g.setAttribute("data-mark", "4");
+})();
+
+/* ── Slide 14: SFT contro regola ─────────────────────────────────────── */
+gbars(document.getElementById("sft-bars"), [
+  { name: "ROUGE-L", a: D.rule.rouge, b: D.sft.rouge },
+  { name: "Exact match", a: D.rule.em, b: D.sft.em },
+  { name: "Non-copy", a: D.rule.noncopy, b: D.sft.noncopy },
+]);
+
+/* ── Slide 15: solo GRPO ─────────────────────────────────────────────── */
+hbars(document.getElementById("grpo-bars"), [
+  { name: "Modello base + Trie", sub: "few-shot, nessun addestramento", v: D.grpo.baseFew },
+  { name: "GRPO", sub: "few-shot", v: D.grpo.few, emph: true },
+  { name: "Tutto in maiuscolo", v: D.upper },
+  { name: "Regola", v: D.rule.rouge },
+]);
+
+/* ── Slide 16: gruppi senza gradiente ────────────────────────────────── */
+hbars(document.getElementById("zero-bars"), D.zeroStd, { fmt: (v) => pct(v) });
+
+/* ── Slide 18: obiettivi ausiliari ───────────────────────────────────── */
+(function () {
+  const lg = (a, b) => `<div class="legend" style="margin:0 0 12px 0">
+    <span><i style="background:var(--neutral)"></i>${a}</span><span><i style="background:var(--accent)"></i>${b}</span></div>`;
+  const am = document.getElementById("am-bars");
+  gbars(am, [
+    { name: "Campionata", a: D.sft.em, b: D.am.em },
+    { name: "Greedy", a: D.sft.emGreedy, b: D.am.emGreedy },
+  ], { stepwise: false });
+  am.querySelectorAll(".gbar").forEach((g, i) => g.setAttribute("data-step", String(i + 1)));
+  am.insertAdjacentHTML("afterbegin", lg("SFT", "+ massa ammessa"));
+  am.querySelectorAll(".gbar .name").forEach((n) => (n.style.fontSize = "22px"));
+  am.querySelectorAll(".gbar").forEach((g) => (g.style.gridTemplateColumns = "150px 1fr"));
+
+  const st = document.getElementById("st-bars");
+  gbars(st, [
+    { name: "Grafo vero", a: D.sft.em, b: D.structured.emTrue },
+    { name: "Controllo", a: D.sft.em, b: D.structured.emShuffled },
+  ], { stepwise: false });
+  st.querySelectorAll(".gbar").forEach((g, i) => g.setAttribute("data-step", String(i + 3)));
+  st.insertAdjacentHTML("afterbegin", lg("SFT", "+ loss strutturata"));
+  st.querySelectorAll(".gbar .name").forEach((n) => (n.style.fontSize = "22px"));
+  st.querySelectorAll(".gbar").forEach((g) => (g.style.gridTemplateColumns = "150px 1fr"));
+})();
+
+/* ── Slide 19: ablazioni ─────────────────────────────────────────────── */
+(function () {
+  let step = 0;
+  const html = [`<tr><th>Fattore cambiato</th><th>ROUGE-L</th><th>Exact match</th><th style="text-align:left;padding-left:24px">Lettura</th></tr>`];
+  for (const a of D.ablations) {
+    if (a.blk) { step++; html.push(`<tr class="blk" data-step="${step}"><td colspan="4">${a.blk}</td></tr>`); continue; }
+    html.push(`<tr class="${a.ref ? "ref" : ""}" data-step="${step}"><td>${a.name}</td><td>${it(a.r)}</td><td>${it(a.e)}</td><td class="read" style="padding-left:24px">${a.read}</td></tr>`);
+  }
+  document.getElementById("abl-table").innerHTML = html.join("");
+})();
+
+/* ── Hook della slide 8: cammino nel Trie ────────────────────────────── */
+const HOOKS = {
+  trie(slide, step) {
+    const w = D.walk;
+    const chip = (t, cls = "") => {
+      const sp = t.startsWith(" ");
+      return `<span class="chip ${cls}${sp ? " start" : ""}">${sp ? '<span class="sp">␣</span>' : ""}${sp ? t.slice(1) : t}</span>`;
+    };
+    const done = w.slice(0, step).map((s) => chip(s.tok, "gloss"));
+    const nxt = w[step].tok ? chip(w[step].tok, "ghost") : '<span class="chip ghost">fine</span>';
+    document.getElementById("walk-out").innerHTML = done.join("") + nxt;
+    const s = w[step];
+    document.getElementById("walk-count").textContent = thin(s.n);
+    document.getElementById("walk-state").innerHTML = s.state;
+    document.getElementById("walk-eos").innerHTML = `Chiudere qui la sequenza: <b>${s.eos ? "ammesso" : "vietato"}</b>`;
+  },
+};
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Motore della presentazione.
+   ───────────────────────────────────────────────────────────────────────── */
+const stage = document.getElementById("stage");
+const slides = [...document.querySelectorAll(".slide")];
+const notesEl = document.getElementById("notes");
+let cur = 0, step = 0, presenter = null, t0 = null;
+
+function stepsOf(s) {
+  let n = +(s.dataset.steps || 0);
+  s.querySelectorAll("[data-step],[data-mark]").forEach((el) => {
+    n = Math.max(n, +(el.dataset.step || 0), +(el.dataset.mark || 0));
+  });
+  return n;
+}
+
+function fit() {
+  const k = Math.min(innerWidth / 1600, innerHeight / 900);
+  stage.style.transform = `translate(-50%,-50%) scale(${k})`;
+  stage.style.transformOrigin = "50% 50%";
+  stage.style.left = "50%"; stage.style.top = "50%";
+}
+
+function render() {
+  slides.forEach((s, i) => s.classList.toggle("active", i === cur));
+  const s = slides[cur];
+  s.querySelectorAll("[data-step]").forEach((el) => el.classList.toggle("on", step >= +el.dataset.step));
+  s.querySelectorAll("[data-mark]").forEach((el) => {
+    const on = step >= +el.dataset.mark && (el.dataset.unmark === undefined || step <= +el.dataset.unmark);
+    el.classList.toggle("marked", on);
+  });
+  s.querySelectorAll("[data-until]").forEach((el) => el.classList.toggle("gone", step > +el.dataset.until));
+  if (s.dataset.hook) HOOKS[s.dataset.hook](s, step);
+  document.getElementById("progress").style.width = ((cur + 1) / slides.length) * 100 + "%";
+  document.getElementById("counter").textContent = `${cur + 1} / ${slides.length}`;
+  const note = s.querySelector(".aside");
+  notesEl.innerHTML = `<b>${cur + 1}. ${s.dataset.title}</b> — ${note ? note.innerHTML : ""}`;
+  history.replaceState(null, "", `#${cur + 1}` + (step ? `.${step}` : ""));
+  renderPresenter();
+}
+
+function next() {
+  if (step < stepsOf(slides[cur])) step++;
+  else if (cur < slides.length - 1) { cur++; step = 0; }
+  if (t0 === null) t0 = Date.now();
+  render();
+}
+function prev() {
+  if (step > 0) step--;
+  else if (cur > 0) { cur--; step = stepsOf(slides[cur]); }
+  render();
+}
+function go(n, st = 0) {
+  cur = Math.max(0, Math.min(slides.length - 1, n));
+  step = Math.max(0, Math.min(stepsOf(slides[cur]), st));
+  render();
+}
+
+function onKey(e) {
+  if (e.altKey || e.ctrlKey || e.metaKey) return;
+  const k = e.key;
+  if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"].includes(k)) { e.preventDefault(); next(); }
+  else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace"].includes(k)) { e.preventDefault(); prev(); }
+  else if (k === "Home") go(0);
+  else if (k === "End") go(slides.length - 1);
+  else if (k === "f" || k === "F") {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen().catch(() => {});
+  }
+  else if (k === "n" || k === "N") notesEl.classList.toggle("show");
+  else if (k === "p" || k === "P") openPresenter();
+}
+
+/* Finestra relatore: aperta dalla pagina stessa (stessa origine anche da
+   file://), aggiornata direttamente da qui. Le note stanno lì e non sul
+   proiettore quando lo schermo è duplicato. */
+function openPresenter() {
+  if (presenter && !presenter.closed) { presenter.focus(); return; }
+  presenter = window.open("", "presenter-t2g", "width=1100,height=720");
+  if (!presenter) return;
+  presenter.document.write(`<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Relatore</title>
+  <style>
+    body{margin:0;font:20px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;background:#fcfcfb;color:#0b0b0b}
+    header{display:flex;justify-content:space-between;align-items:center;padding:16px 28px;border-bottom:1px solid #e1e0d9}
+    #pt{font-size:40px;font-weight:700;font-variant-numeric:tabular-nums}
+    #pn{font-size:22px;color:#52514e}
+    main{padding:22px 28px}
+    #ptitle{font-size:30px;font-weight:650;margin-bottom:10px}
+    #pnotes{font-size:26px;line-height:1.5}
+    #pnext{margin-top:26px;color:#898781;font-size:20px}
+    .btns{display:flex;gap:12px}
+    button{font:inherit;padding:10px 22px;border-radius:8px;border:1px solid #c3c2b7;background:#f3f2ee;cursor:pointer}
+  </style></head><body>
+  <header><div id="pn"></div><div id="pt">00:00</div><div class="btns"><button id="bp">←</button><button id="bn">→</button></div></header>
+  <main><div id="ptitle"></div><div id="pnotes"></div><div id="pnext"></div></main></body></html>`);
+  presenter.document.close();
+  presenter.addEventListener("keydown", onKey);
+  presenter.document.getElementById("bp").onclick = prev;
+  presenter.document.getElementById("bn").onclick = next;
+  if (t0 === null) t0 = Date.now();
+  renderPresenter();
+}
+
+function renderPresenter() {
+  if (!presenter || presenter.closed) return;
+  const d = presenter.document;
+  const s = slides[cur];
+  d.getElementById("pn").textContent = `Slide ${cur + 1} / ${slides.length} · passo ${step} / ${stepsOf(s)}`;
+  d.getElementById("ptitle").textContent = s.dataset.title;
+  const note = s.querySelector(".aside");
+  d.getElementById("pnotes").innerHTML = note ? note.innerHTML : "";
+  const nx = slides[cur + 1];
+  d.getElementById("pnext").textContent = nx ? `Prossima: ${nx.dataset.title}` : "Ultima slide";
+}
+
+setInterval(() => {
+  if (!presenter || presenter.closed || t0 === null) return;
+  const sec = Math.floor((Date.now() - t0) / 1000);
+  presenter.document.getElementById("pt").textContent =
+    String(Math.floor(sec / 60)).padStart(2, "0") + ":" + String(sec % 60).padStart(2, "0");
+}, 1000);
+
+stage.addEventListener("click", (e) => {
+  const r = stage.getBoundingClientRect();
+  if (e.clientX - r.left < r.width / 3) prev(); else next();
+});
+addEventListener("keydown", onKey);
+addEventListener("resize", fit);
+addEventListener("hashchange", () => {
+  const m = location.hash.match(/^#(\d+)(?:\.(\d+))?$/);
+  if (m && (+m[1] - 1 !== cur || +(m[2] || 0) !== step)) go(+m[1] - 1, +(m[2] || 0));
+});
+
+fit();
+{
+  const m = location.hash.match(/^#(\d+)(?:\.(\d+))?$/);
+  if (m) go(+m[1] - 1, +(m[2] || 0)); else render();
+}
+</script>
+</body>
+</html>
