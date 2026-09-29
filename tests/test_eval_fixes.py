@@ -323,3 +323,59 @@ def test_dedupe_idempotent_no_handlers():
     before = logging.getLogger("huggingface_hub").handlers[:]
     dedupe_library_loggers()
     assert logging.getLogger("huggingface_hub").handlers == before
+
+
+def test_cached_baseline_reuse_across_ablation_groups(tmp_path):
+    """Nested layout: a cell reuses the baseline of a cell in ANOTHER group.
+
+    Cells nest as deep as their config (``<tag>/<gruppo>/<cella>/run_*``).
+    Anchoring the cross-cell search on ``parent.parent`` resolved to the
+    GROUP directory, so ``ablations/glossary/few-shot`` could not see the
+    identical baseline already computed by ``ablations/rewards/edit-validity``
+    and re-evaluated it — ~28 GPU-min per miss, nine times over the campaign.
+    """
+    results = tmp_path / "experiments" / "results"
+    donor = results / "qwen25-05b/ablations/rewards/edit-validity/run_20260915_160558"
+    taker = results / "qwen25-05b/ablations/glossary/few-shot/run_20260917_212556"
+    donor.mkdir(parents=True)
+    taker.mkdir(parents=True)
+    _write_baseline(donor, fingerprint=_fingerprint())
+
+    load, _ = _import_helpers()
+    out = load(taker, num_samples=5, max_samples=500, fingerprint=_fingerprint())
+    assert out is not None
+    _baseline, _generations, source = out
+    assert source == donor
+
+
+def test_cached_baseline_reuse_finds_eval_subdirectory(tmp_path):
+    """A baseline cached inside an eval sub-directory (``results_subdir``,
+    e.g. ``decoding-greedy``) is reachable: the search looks for the baseline
+    FILE, not for directories named ``run_*``."""
+    results = tmp_path / "experiments" / "results"
+    donor = results / "qwen25-05b/sft/zero-shot/run_20260914_220146/decoding-greedy"
+    taker = results / "qwen25-05b/ablations/objectives/sft-am/run_1/decoding-greedy"
+    donor.mkdir(parents=True)
+    taker.mkdir(parents=True)
+    _write_baseline(donor, fingerprint=_fingerprint())
+
+    load, _ = _import_helpers()
+    out = load(taker, num_samples=5, max_samples=500, fingerprint=_fingerprint())
+    assert out is not None
+    assert out[2] == donor
+
+
+def test_cached_baseline_across_groups_still_rejects_stale_context(tmp_path):
+    """Widening the search must not widen what counts as compatible: a cell
+    in another group with a DIFFERENT prompt context is still refused."""
+    results = tmp_path / "experiments" / "results"
+    donor = results / "qwen25-05b/ablations/rewards/edit-validity/run_1"
+    taker = results / "qwen25-05b/ablations/glossary/zero-shot/run_1"
+    donor.mkdir(parents=True)
+    taker.mkdir(parents=True)
+    _write_baseline(donor, fingerprint="few-shot-context-not-matching")
+
+    load, _ = _import_helpers()
+    assert (
+        load(taker, num_samples=5, max_samples=500, fingerprint=_fingerprint()) is None
+    )

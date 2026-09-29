@@ -427,16 +427,21 @@ def _load_cached_baseline(
     fingerprint: str,
     filename: str = "eval_baseline.json",
 ) -> tuple[dict[str, Any], list[dict[str, Any]] | None, Path] | None:
-    """Load a compatible cached baseline JSON — this run first,
-    then SIBLING runs of the same model tag (newest first), then runs under
-    OTHER model tags (cross-tag, fingerprint-guarded — ablation cells share
-    the same base-model baseline).
+    """Load a compatible cached baseline JSON — this run first, then SIBLING
+    runs of the same cell (newest first), then EVERY other eval under
+    ``experiments/results`` (fingerprint-guarded — ablation cells share the
+    same base-model baseline).
 
     The base-model baseline is identical for every run of the same prompt
     context (same base model, dataset, prompting, decoding): re-evaluating
     it (~28 min GPU on 500 prompts) for each new training run is pure waste.
-    Sibling reuse is guarded by the compatibility checks in
-    :func:`_try_cached_baseline`.
+    Reuse is guarded by the compatibility checks in
+    :func:`_try_cached_baseline`: the fingerprint covers everything that
+    changes the baseline GENERATIONS, and the checks cover decoding and prompt
+    count. It deliberately does NOT cover the reward weights, so a reused
+    baseline carries the donor cell's ``reward_breakdown``. That field is
+    telemetry: the reward plots are built from the checkpoint's own breakdown
+    and the cell's own weights, and no reported metric reads it.
 
     Args:
         results_dir: Run directory to search first.
@@ -458,6 +463,7 @@ def _load_cached_baseline(
         return *cached, Path(results_dir)
 
     # Sibling run dirs of the same model tag, newest first
+    seen = {Path(results_dir).resolve()}
     parent = Path(results_dir).parent
     if parent.is_dir():
         siblings = sorted(
@@ -469,6 +475,7 @@ def _load_cached_baseline(
             key=lambda d: d.stat().st_mtime,
             reverse=True,
         )
+        seen.update(d.resolve() for d in siblings)
         for d in siblings:
             cached = _try_cached_baseline(
                 d, num_samples, max_samples, fingerprint, filename
@@ -476,28 +483,39 @@ def _load_cached_baseline(
             if cached is not None:
                 return *cached, d
 
-    # Cross-tag: altre tag modello sotto experiments/results/. La baseline e'
-    # lo STESSO base model (nessun peso addestrato) valutato con lo stesso
-    # prompt context — ri-valutarla per ogni tag e' spreco (~28 GPU-min
-    # ciascuna); il fingerprint del contesto in _try_cached_baseline
-    # garantisce il match esatto.
-    results_root = parent.parent
-    if results_root.is_dir():
-        for tag_dir in sorted(
-            (t for t in results_root.iterdir() if t.is_dir() and t != parent),
-            key=lambda t: t.stat().st_mtime,
-            reverse=True,
-        ):
-            for d in sorted(
-                (r for r in tag_dir.glob("run_*") if r.is_dir()),
-                key=lambda r: r.stat().st_mtime,
-                reverse=True,
-            ):
-                cached = _try_cached_baseline(
-                    d, num_samples, max_samples, fingerprint, filename
-                )
-                if cached is not None:
-                    return *cached, d
+    # Ogni altra eval sotto experiments/results/. La baseline e' lo STESSO
+    # base model (nessun peso addestrato) valutato con lo stesso prompt
+    # context — ri-valutarla e' spreco (~28 GPU-min ciascuna); il fingerprint
+    # del contesto in _try_cached_baseline garantisce il match esatto.
+    #
+    # L'ancora e' la radice ``results``: fermarsi a ``parent.parent``, come
+    # faceva la versione precedente, era corretto solo nel layout piatto
+    # (``results/<tag>/run_*``). Nel layout annidato
+    # (``results/<tag>/<gruppo>/<cella>/run_*``) risolveva alla directory del
+    # GRUPPO, quindi il riuso funzionava solo fra celle dello stesso gruppo e
+    # la stessa identica baseline e' stata ricalcolata nove volte. Si cercano
+    # direttamente i file di baseline invece delle directory ``run_*``, cosi'
+    # anche le eval in sotto-directory (``run_*/<results_subdir>/``) entrano
+    # nella cache.
+    # Senza una radice ``results`` fra gli antenati non si allarga la ricerca:
+    # un rglob su una directory arbitraria pescherebbe baseline da alberi
+    # estranei. In quel caso valgono solo questa run e le sue sorelle.
+    results_root = next(
+        (a for a in Path(results_dir).resolve().parents if a.name == "results"),
+        None,
+    )
+    if results_root is not None and results_root.is_dir():
+        candidates = [
+            p.parent
+            for p in results_root.rglob(filename)
+            if p.is_file() and p.parent.resolve() not in seen
+        ]
+        for d in sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True):
+            cached = _try_cached_baseline(
+                d, num_samples, max_samples, fingerprint, filename
+            )
+            if cached is not None:
+                return *cached, d
     return None
 
 
