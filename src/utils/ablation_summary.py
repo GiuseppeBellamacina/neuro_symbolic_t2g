@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -91,6 +92,13 @@ def _discover_cells(results_dir: Path) -> dict[str, list[Path]]:
         parent = eval_file.parent
         if parent.name.startswith("run_"):
             continue  # already covered above
+        # A dir that also CONTAINS run_* cells below it is not a cell itself:
+        # its loose eval_*.json are leftovers from the pre-run_* layout, and
+        # admitting them adds a phantom row (e.g. "qwen25-05b/sft" beside the
+        # real "qwen25-05b/sft/zero-shot") carrying superseded numbers.
+        if any(d.is_dir() for d in parent.rglob("run_*")):
+            logger.debug("Skipping legacy loose evals under %s", parent)
+            continue
         config_name = parent.relative_to(results_dir).as_posix()
         cells.setdefault(config_name, [])
     return cells
@@ -200,7 +208,36 @@ def build_summary_table(entries: list[dict]) -> str:
                 values.append("—")
         rows.append(f"| {name} | " + " | ".join(values) + " |")
 
+    duplicates = find_duplicate_cells(entries)
+    if duplicates:
+        rows.append("")
+        rows.append(
+            "**Celle duplicate** — identiche su ogni metrica, quindi lo stesso "
+            "esperimento sotto due nomi: non sono ablazioni indipendenti e non "
+            "vanno contate due volte."
+        )
+        for group in duplicates:
+            rows.append("- " + " ≡ ".join(f"`{n}`" for n in group))
+
     return "\n".join(rows)
+
+
+def find_duplicate_cells(entries: list[dict]) -> list[list[str]]:
+    """Group cells whose absolute metrics coincide to the printed precision.
+
+    Two configs that differ only by inert keys (a weight re-stated at its
+    default, a renamed output dir) train the same policy from the same seed and
+    produce the same numbers. Reported side by side they read as independent
+    evidence, so the table has to say they are not.
+    """
+    groups: dict[tuple, list[str]] = {}
+    for entry in entries:
+        key = tuple(
+            round(entry["metrics"][label], 4) if label in entry["metrics"] else None
+            for _, label in METRICS
+        )
+        groups.setdefault(key, []).append(entry["config_name"])
+    return [sorted(names) for names in groups.values() if len(names) > 1]
 
 
 def build_csv(entries: list[dict]) -> str:
@@ -283,6 +320,12 @@ def plot_ablation_comparison(entries: list[dict], output_path: Path) -> None:
 
 
 def main() -> None:
+    # The table header carries a non-ASCII marker; a cp1252 console (Windows
+    # default) would raise on print and lose the whole run before the files
+    # are written.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(
         description="Aggregate eval results into ablation summary table + chart"
     )

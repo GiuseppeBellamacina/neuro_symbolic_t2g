@@ -352,7 +352,7 @@ def test_noise_delta_flagged_not_presented_as_result(tmp_path):
     comparisons, _, _ = build_comparisons(selected)
     d = comparisons[0]["deltas"]["rouge_l_mean"]
     assert abs(d["delta"]) == 0.003
-    assert d["interpretation"].startswith("NOISE")
+    assert d["interpretation"].startswith("NOT GENERALIZABLE")
     assert str(NOISE_THRESHOLD) in d["interpretation"]
 
 
@@ -430,3 +430,35 @@ def test_json_report_shape(tmp_path):
         "reward_stack",
         "rl_objective",
     }
+
+
+def test_nested_cells_do_not_collapse_into_one_typology(tmp_path):
+    """Cells nest as deep as their config path. Taking the first path segment
+    as the cell name collapsed every nested cell onto the model tag: one
+    typology, everything else marked superseded, and a matrix that put
+    different cells on the same row."""
+    from src.analysis.campaign_report import _split_cell_and_run, discover_runs
+
+    assert _split_cell_and_run(
+        ("qwen25-05b", "sft", "zero-shot", "run_1", "eval_final.json")
+    ) == ("qwen25-05b-sft-zero-shot", "run_1")
+    # an eval-only subdir of a run is a distinct typology: own metrics
+    assert _split_cell_and_run(
+        ("qwen25-05b", "sft", "zero-shot", "run_1", "decoding-greedy", "e.json")
+    ) == ("qwen25-05b-sft-zero-shot-decoding-greedy", "run_1")
+    # the flat baseline family keeps working
+    assert _split_cell_and_run(
+        ("qwen25-05b-baseline-zero-shot", "zero_shot_1", "eval_zero_shot.json")
+    ) == ("qwen25-05b-baseline-zero-shot", "zero_shot_1")
+    # loose evals with no run segment are the pre-run_* layout: skipped
+    assert _split_cell_and_run(("qwen25-05b", "sft", "eval_final.json"))[0] is None
+
+    for cell in ("sft/zero-shot", "grpo/zero-shot", "sft-grpo/few-shot"):
+        path = tmp_path / "qwen25-05b" / cell / "run_1" / "eval_final.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            json.dumps({"rouge_l_mean": 0.9, "num_samples_evaluated": 2000}),
+            encoding="utf-8",
+        )
+    discovered = discover_runs(tmp_path)
+    assert len({r["cell"] for r in discovered["runs"]}) == 3

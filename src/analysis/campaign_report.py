@@ -41,10 +41,10 @@ Avvertenze obbligatorie incluse nell'output (§ del report):
   - ``metrics_version`` per run + avviso se diversa;
   - data di ogni run (dal nome della run dir, fallback mtime del file
     dichiarato come tale): run di campagne diverse non sono confrontabili;
-  - soglia di interpretabilità: la dispersione fra due esecuzioni della
-    stessa cella può superare l'intervallo di confidenza (misurato: fino a
-    0.0161 ROUGE-L contro CI ±0.0044) → delta < NOISE_THRESHOLD marcati
-    esplicitamente come rumore, mai presentati come risultati.
+  - soglia di interpretabilità: a seme fissato l'addestramento è
+    deterministico bit per bit, quindi non esiste una stima di variabilità
+    fra semi → delta < NOISE_THRESHOLD marcati esplicitamente come non
+    generalizzabili, mai presentati come risultati.
 
 Output (default sotto ``experiments/figures/``):
     - ``campaign_report.json`` — struttura leggibile da altri strumenti;
@@ -59,6 +59,7 @@ import argparse
 import json
 import logging
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -71,10 +72,13 @@ from src.utils.metrics import PRIMARY_METRICS, SATURATED_OVERLAP_METRICS
 
 logger = logging.getLogger(__name__)
 
-# Soglia di interpretabilità dei delta (scala [0,1]). MISURATA, non scelta a
-# piacere: la dispersione fra due esecuzioni della stessa cella arriva a
-# 0.0161 ROUGE-L contro un CI di ±0.0044, quindi qualunque delta sotto ~0.02
-# non è distinguibile dalla variazione run-to-run.
+# Soglia di interpretabilità dei delta (scala [0,1]). Due esecuzioni della
+# stessa cella con la stessa configurazione e lo stesso seme producono
+# generazioni identiche byte per byte: la dispersione fra run è nulla, quindi
+# NON è quella che la soglia protegge. Nessuna cella è stata replicata con
+# semi diversi, per cui non esiste alcuna stima di variabilità fra semi: un
+# delta sotto ~0.02 si riprodurrà a ogni riesecuzione ma non è per questo
+# generalizzabile, e potrebbe invertirsi cambiando seme.
 NOISE_THRESHOLD = 0.02
 
 # Metriche lette dai JSON: (chiave, etichetta, scala). Nessuna metrica è
@@ -164,6 +168,29 @@ FACTOR_DEDUCTION_DOC = [
 def _tokens_to_string(tokens: list[str]) -> str:
     """Ricomposizione dei token rimanenti in un'etichetta variante."""
     return "-".join(t for t in tokens if t)
+
+
+def _split_cell_and_run(parts: tuple[str, ...]) -> tuple[str | None, str]:
+    """Separa il nome cella dall'identificativo di run in un percorso di eval.
+
+    Le celle non stanno tutte alla stessa profondità: la famiglia baseline è
+    piatta (``qwen25-05b-baseline-zero-shot/zero_shot_<ts>/``) mentre le celle
+    sperimentali sono annidate quanto il loro config (``qwen25-05b/sft/
+    zero-shot/run_<ts>/``). Prendere ``parts[0]`` come cella, com'era prima,
+    collassava tutte le celle annidate su ``qwen25-05b``: una sola tipologia,
+    tutti gli altri run marcati superseded, e la matrice risultante
+    accostava celle diverse come se fossero la stessa.
+
+    L'ancora è il segmento di run (``run_*`` / ``zero_shot_*``): tutto ciò che
+    lo precede è la cella, tutto ciò che lo segue è una variante di sola
+    valutazione dello stesso checkpoint (per esempio ``decoding-greedy``) e
+    va tenuta distinta, perché ha metriche proprie.
+    """
+    for i, part in enumerate(parts[:-1]):
+        if part.startswith("run_") or part.startswith("zero_shot_"):
+            cell_parts = list(parts[:i]) + list(parts[i + 1 : -1])
+            return ("-".join(cell_parts) or parts[0], part)
+    return (None, "")
 
 
 def deduce_cell_factors(cell: str) -> tuple[dict, dict]:
@@ -305,10 +332,12 @@ def discover_runs(results_dir: Path) -> dict:
 
     for eval_path in sorted(results_dir.rglob("eval_*.json")):
         rel = eval_path.relative_to(results_dir)
-        # Layout atteso: <cella>/<run_id>/eval_<ckpt>[__mode].json
+        # Layout atteso: <cella>/<run_id>/[<sub-eval>/]eval_<ckpt>[__mode].json
         if len(rel.parts) < 3:
             continue
-        cell, run_id = rel.parts[0], rel.parts[-2]
+        cell, run_id = _split_cell_and_run(rel.parts)
+        if cell is None:
+            continue
         rel_str = str(rel).replace("\\", "/")
 
         try:
@@ -606,9 +635,10 @@ def _make_comparison(factor: str, a: dict, b: dict, warnings: list[str]) -> dict
         scale = METRIC_SCALES[key]
         if scale == "0-1" and abs(delta) < NOISE_THRESHOLD:
             interpretation = (
-                f"NOISE (|delta| < {NOISE_THRESHOLD}): below run-to-run "
-                "dispersion — measured same-cell spread up to 0.0161 vs CI "
-                "±0.0044 — do NOT interpret"
+                f"NOT GENERALIZABLE (|delta| < {NOISE_THRESHOLD}): "
+                "reproducible (training is bit-deterministic at fixed seed) "
+                "but single-seed, so it may invert under another seed — "
+                "do NOT interpret"
             )
         else:
             interpretation = (
@@ -688,8 +718,10 @@ def build_json_report(
         "noise_threshold": {
             "value": NOISE_THRESHOLD,
             "scale": "0-1 metrics",
-            "rationale": "measured same-cell dispersion up to 0.0161 ROUGE-L "
-            "vs CI ±0.0044: deltas below this threshold are not interpretable",
+            "rationale": "training is bit-deterministic at fixed seed, so "
+            "same-cell dispersion is zero; but no cell was replicated across "
+            "seeds, so deltas below this threshold are reproducible yet not "
+            "generalizable",
         },
         "runs": [{k: v for k, v in r.items() if k != "_mtime"} for r in selected],
         "superseded_runs": superseded,
@@ -734,11 +766,13 @@ def build_markdown(
     lines.append("## ⚠️ Mandatory caveats — read before any conclusion")
     lines.append("")
     lines.append(
-        f"1. **Noise threshold {NOISE_THRESHOLD}** (metrics on the [0,1] scale): "
-        "measured dispersion between two executions of the SAME cell reaches "
-        "0.0161 ROUGE-L against a CI of ±0.0044. **Deltas below "
-        f"{NOISE_THRESHOLD} are marked NOISE and are not interpretable** — a "
-        "delta of 0.003 is not a result."
+        f"1. **Interpretability threshold {NOISE_THRESHOLD}** (metrics on the "
+        "[0,1] scale): training is bit-deterministic at a fixed seed — two "
+        "executions of the same cell produce byte-identical generations — so "
+        "there is no run-to-run noise. But no cell was replicated across "
+        f"seeds, so **deltas below {NOISE_THRESHOLD} are reproducible yet not "
+        "generalizable**: they may invert under another seed. A delta of "
+        "0.003 is not a result."
     )
     lines.append(
         "2. **Prompt counts** (`num_samples_evaluated`) are shown for every "
@@ -1086,6 +1120,12 @@ def plot_matrix(
 
 
 def main() -> None:
+    # Console output carries non-ASCII markers; a cp1252 console (Windows
+    # default) would raise on print and lose the run after the files are
+    # written but before the summary is shown.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(
         description=(
             "Campaign report: paired cross-factor comparisons of eval runs "
@@ -1176,10 +1216,13 @@ def main() -> None:
         for e in discovered["excluded"]:
             print(f"      - {e['path']}")
 
-    print(f"\n  ⚠️  Noise threshold: deltas < {NOISE_THRESHOLD} on [0,1] metrics")
     print(
-        "      are NOT interpretable (same-cell dispersion up to 0.0161 vs "
-        "CI ±0.0044)."
+        f"\n  ⚠️  Interpretability threshold: deltas < {NOISE_THRESHOLD} on "
+        "[0,1] metrics"
+    )
+    print(
+        "      are reproducible (bit-deterministic at fixed seed) but "
+        "single-seed, so NOT generalizable."
     )
     if warnings:
         print(f"\n  ⚠️  {len(warnings)} pairing warning(s):")

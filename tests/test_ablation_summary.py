@@ -110,3 +110,51 @@ def test_find_eval_results_empty_dir_returns_empty_list(tmp_path):
 
 def test_find_eval_results_missing_dir_returns_empty_list(tmp_path):
     assert find_eval_results(tmp_path / "does-not-exist") == []
+
+
+def test_discover_cells_ignores_loose_evals_above_run_dirs(tmp_path):
+    """Leftover eval_*.json in a dir that also holds run_* cells below it are
+    from the pre-run_* layout and must not become a phantom cell of their own:
+    they carry superseded numbers for a cell already reported by its run_*."""
+    _write_eval(
+        tmp_path / "qwen25-05b/sft/zero-shot/run_1/eval_final.json",
+        rouge_l_mean=0.9681,
+    )
+    _write_eval(tmp_path / "qwen25-05b/sft/eval_final.json", rouge_l_mean=0.9825)
+    cells = _discover_cells(tmp_path)
+    assert set(cells) == {"qwen25-05b/sft/zero-shot"}
+    entries = find_eval_results(tmp_path)
+    assert [e["config_name"] for e in entries] == ["qwen25-05b/sft/zero-shot"]
+
+
+def test_duplicate_cells_are_flagged(tmp_path):
+    """Two configs that differ only by inert keys produce identical metrics;
+    reported side by side they would read as independent evidence."""
+    from src.utils.ablation_summary import build_summary_table, find_duplicate_cells
+
+    _write_eval(
+        tmp_path / "qwen25-05b/grpo/zero-shot/run_1/eval_final.json",
+        rouge_l_mean=0.5173,
+        exact_match=0.0078,
+    )
+    _write_eval(
+        tmp_path
+        / "qwen25-05b/ablations/rewards/historical-stack/run_1/eval_final.json",
+        rouge_l_mean=0.5173,
+        exact_match=0.0078,
+    )
+    _write_eval(
+        tmp_path / "qwen25-05b/sft/zero-shot/run_1/eval_final.json",
+        rouge_l_mean=0.9681,
+        exact_match=0.7662,
+    )
+    entries = find_eval_results(tmp_path)
+    assert find_duplicate_cells(entries) == [
+        [
+            "qwen25-05b/ablations/rewards/historical-stack",
+            "qwen25-05b/grpo/zero-shot",
+        ]
+    ]
+    table = build_summary_table(entries)
+    assert "Celle duplicate" in table
+    assert "qwen25-05b/sft/zero-shot`" not in table.split("Celle duplicate")[1]
