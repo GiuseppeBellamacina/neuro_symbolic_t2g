@@ -158,3 +158,12 @@ def test_duplicate_cells_are_flagged(tmp_path):
     table = build_summary_table(entries)
     assert "Celle duplicate" in table
     assert "qwen25-05b/sft/zero-shot`" not in table.split("Celle duplicate")[1]
+
+
+def test_non_copy_accuracy_is_a_column():
+    """Overlap metrics saturate on this corpus (an untrained lexical rule
+    reaches ROUGE-L 0.9685), so the one column that still discriminates must
+    be in the table."""
+    from src.utils.ablation_summary import METRICS
+
+    assert "non_copy_token_accuracy" in {key for key, _ in METRICS}

@@ -37,6 +37,12 @@ METRICS = [
     ("valid_rouge_l_mean", "Valid ROUGE-L ⭐"),
     ("pass_at_1", "Pass@1"),
     ("exact_match", "Exact Match"),
+    # Su questo corpus le metriche di sovrapposizione sono sature: una regola
+    # a lessico non addestrata arriva a ROUGE-L 0.9685. La non-copy-token
+    # accuracy guarda solo le posizioni in cui il gloss NON copia la sorgente,
+    # quindi e' l'unica colonna che non si satura, e la tabella non puo'
+    # ometterla.
+    ("non_copy_token_accuracy", "Non-copy"),
     ("validity_rate", "Validity"),
     ("bleu_sentence_mean", "BLEU (sent)"),
     ("bleu_corpus", "BLEU (corpus)"),

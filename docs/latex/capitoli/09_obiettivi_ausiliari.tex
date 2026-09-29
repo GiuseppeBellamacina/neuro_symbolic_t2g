@@ -123,32 +123,40 @@ diretta: \emph{sapere il gloss precedente aggiunge informazione, dato che si
 conosce già il token sorgente?}
 
 La domanda è formulabile in modo esatto con l'entropia
-condizionale~\eqref{eq:cond-entropy}. La stima è stata condotta su $21\,917$
-token esclusi dall'addestramento, con una strategia di \emph{backoff} a tre
-livelli
+condizionale~\eqref{eq:cond-entropy}. I conteggi sono stimati sul solo training
+set e la media è calcolata sui $24\,324$ token allineati del test, con una
+strategia di \emph{backoff} a tre livelli
 \begin{equation}
   (\texttt{prev}, \texttt{src}) \;\to\; \texttt{src} \;\to\; \text{unigramma}
 \end{equation}
-per gestire le combinazioni non osservate.
+per gestire le combinazioni non osservate. Il calcolo vive in
+\texttt{src/analysis/transition\_entropy.py} ed è eseguibile da terminale, senza
+GPU.
 
 \begin{center}
 \begin{tabular}{lr}
 \toprule
 Quantità & Valore \\
 \midrule
-$H(\text{gloss} \mid \text{src})$ & $0{,}8560$ bit \\
-$H(\text{gloss} \mid \text{src}, \text{prev})$ & $0{,}8116$ bit \\
+$H(\text{gloss} \mid \text{src})$ & $0{,}6736$ bit \\
+$H(\text{gloss} \mid \text{src}, \text{prev})$ & $0{,}6277$ bit \\
 \midrule
-Guadagno & $+0{,}0444$ bit \\
-Frazione dell'incertezza residua rimossa & $5{,}19\%$ \\
+Guadagno & $+0{,}0459$ bit \\
+Frazione dell'incertezza residua rimossa & $6{,}8\%$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Il gloss precedente aggiunge $0{,}0444$ bit, cioè rimuove circa il $5\%$
-dell'incertezza che resta dopo aver visto il token sorgente. Non è zero: esiste
-un prior strutturale reale. Ma è piccolo, e fissa un limite superiore realistico
-a quanto un termine di transizione possa contribuire.
+Il gloss precedente aggiunge circa $0{,}046$ bit, cioè rimuove qualche punto
+percentuale dell'incertezza che resta dopo aver visto il token sorgente. Non è
+zero: esiste un prior strutturale reale. Ma è piccolo, e fissa un limite
+superiore realistico a quanto un termine di transizione possa contribuire.
+
+Delle tre quantità della tabella la sola robusta è il \emph{guadagno}: è una
+differenza fra due stime che condividono lo stesso backoff, quindi gran parte
+dell'errore di stima si cancella. I due livelli assoluti dipendono invece dalla
+politica di smoothing adottata per i contesti non osservati, e non vanno citati
+come costanti del corpus.
 
 \subsection{Il caveat, dichiarato}
 
@@ -158,11 +166,11 @@ gloss hanno la stessa lunghezza.
 
 Questo è problematico in modo specifico. Il fenomeno linguistico più rilevante
 identificato nell'analisi dell'SFT (sezione~\ref{sec:sft-vs-regola-analisi}) è la
-cancellazione contestuale della copula \texttt{BE}, responsabile del $65\%$ dei
-casi in cui l'SFT batte la baseline a regole. Ma una cancellazione \emph{cambia
-la lunghezza}: quei casi stanno per costruzione fuori dal sottoinsieme allineato.
+cancellazione contestuale della copula \texttt{BE}. Ma una cancellazione
+\emph{cambia la lunghezza}: quei casi stanno per costruzione fuori dal
+sottoinsieme allineato.
 
-Il valore $+0{,}0444$ bit è dunque una stima ottenuta dove il fenomeno di
+Il valore $+0{,}046$ bit è dunque una stima ottenuta dove il fenomeno di
 interesse non c'è. Potrebbe sottostimare o sovrastimare il vero contributo. È una
 limitazione del metodo di stima, non un difetto dell'implementazione, e la sua
 risoluzione richiederebbe un allineamento non monotono fra le due sequenze.
@@ -238,7 +246,7 @@ negativo}: il grafo mescolato, che ha lo stesso supporto ma pesi privi di
 significato, ottiene $0{,}9464/0{,}6078$, cioè marginalmente \emph{sopra} il
 grafo vero. L'effetto dell'obiettivo strutturato non è quindi attribuibile alla
 struttura delle transizioni, coerentemente con il guadagno informativo di soli
-$0{,}0444$ bit stimato nella sezione~\ref{sec:qualificazione-strutturale}. Un
+$0{,}046$ bit stimato nella sezione~\ref{sec:qualificazione-strutturale}. Un
 obiettivo ausiliario va promosso non perché è implementato e i test passano, ma
 perché una previsione derivata dalla sua forma funzionale è verificata da un
 controllo: qui è vero per la massa ammessa e falso per la loss strutturata.

@@ -187,24 +187,38 @@ validi, perché il protocollo è identico per tutte; i valori assoluti di BLEU e
 chrF \textbf{non} sono confrontabili con numeri pubblicati su dato
 detokenizzato.
 
-\section{Incertezza: bootstrap clusterizzato}
+\section{Incertezza: due fonti, nessuna delle due quantificata}
 
-Tutti gli intervalli di confidenza riportati in questa relazione sono ottenuti
-per bootstrap, con una precisazione necessaria: il ricampionamento è
-\textbf{clusterizzato per prompt}.
+Le tabelle del capitolo sui risultati riportano valori puntuali, senza
+intervalli. È una scelta, e va motivata, perché le fonti di incertezza sono due
+e hanno statuto molto diverso.
 
-La ragione è che la valutazione genera $N=5$ uscite per ogni prompt. Le cinque
-uscite dello stesso prompt non sono osservazioni indipendenti: condividono la
-frase di ingresso, la sua difficoltà e il suo riferimento. Ricampionare le
-singole uscite come se fossero indipendenti gonfierebbe la dimensione effettiva
-del campione di un fattore fino a cinque, restituendo intervalli di confidenza
-artificialmente stretti.
+La prima è la \textbf{varianza di campionamento sul test set}: i $2\,000$ prompt
+sono un campione, e su un campione diverso i numeri sarebbero leggermente
+diversi. È quantificabile per bootstrap, con una precisazione necessaria: il
+ricampionamento andrebbe \textbf{clusterizzato per prompt}. La valutazione
+genera infatti $N=5$ uscite per prompt, e le cinque uscite dello stesso prompt
+non sono osservazioni indipendenti --- condividono la frase di ingresso, la sua
+difficoltà e il suo riferimento. Ricampionare le singole uscite come se fossero
+indipendenti gonfierebbe la dimensione effettiva del campione di un fattore fino
+a cinque, restituendo intervalli artificialmente stretti. Il bootstrap
+clusterizzato ricampiona i \emph{prompt} con reimmissione, portandosi dietro
+tutte le uscite di ciascun prompt selezionato.
 
-Il bootstrap clusterizzato ricampiona i \emph{prompt} con reimmissione,
-portandosi dietro tutte le uscite di ciascun prompt selezionato. È la procedura
-corretta in presenza di questa struttura a gruppi, e produce intervalli più
-larghi e onesti. Gli intervalli riportati nella sezione sul confronto fra SFT e
-baseline a regole (Capitolo~\ref{cap:sft}) sono calcolati in questo modo.
+La seconda è la \textbf{variabilità fra semi}, ed è quella che conta davvero per
+confrontare due celle. Questa relazione \textbf{non la quantifica}: a seme
+fissato l'addestramento è deterministico bit per bit
+(sezione~\ref{sec:determinismo}), quindi ripetere una cella non produce alcuna
+dispersione, e nessuna cella è stata replicata con semi diversi.
+
+Riportare solo la prima darebbe un'impressione di precisione fuorviante:
+l'intervallo di campionamento su $2\,000$ prompt è stretto, ma non dice nulla su
+quanto un risultato si riprodurrebbe cambiando inizializzazione. Le conclusioni
+del lavoro sono state perciò formulate su divari abbastanza ampi da non
+dipendere da questa distinzione --- il divario fra reinforcement learning e
+baseline a regole è di ordine $0{,}35$ di ROUGE-L, quello fra massa ammessa e
+SFT semplice di quasi sette punti di exact match --- e nessuna conclusione è
+tratta da differenze dell'ordine del millesimo.
 
 \section{Il protocollo di valutazione, riassunto}
 
@@ -219,7 +233,7 @@ Parametro & Valore \\
 Prompt valutati & $2\,000$ (dal test set) \\
 Generazioni per prompt & $N = 5$ \\
 Strategia di decodifica & campionamento, $\tau = 0{,}7$ \\
-Intervalli di confidenza & bootstrap clusterizzato per prompt \\
+Incertezza riportata & nessuna (si veda sopra) \\
 Riferimento obbligatorio & baseline a regole \\
 \bottomrule
 \end{tabular}

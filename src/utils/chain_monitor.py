@@ -144,16 +144,25 @@ class JobInfo:
 
 
 def _run(cmd: str) -> str:
-    """Run a shell command and return stdout."""
+    """Run a shell command and return stdout.
+
+    ``errors="replace"`` non e' decorativo: i log che questo monitor legge
+    contengono barre tqdm fatte di caratteri a blocchi, e su una console la cui
+    codepage non li rappresenta il thread lettore di ``subprocess`` muore con
+    UnicodeDecodeError. In quel caso ``stdout`` resta ``None``, non "", per cui
+    serve anche la guardia: il monitor deve degradare a "nessun output", mai
+    interrompere la sorveglianza di un job per una barra di avanzamento.
+    """
     try:
         r = subprocess.run(
             cmd,
             shell=True,
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=10,
         )
-        return r.stdout.strip()
+        return (r.stdout or "").strip()
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return ""
 

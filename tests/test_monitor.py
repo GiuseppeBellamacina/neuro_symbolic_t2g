@@ -555,3 +555,44 @@ def test_high_precision_callback_sft_logs_have_no_reward_avg(monkeypatch, capsys
     assert all("reward_avg" not in k for k in captured)
     assert all("reward" not in k for k in captured)
     assert captured[-1]["loss"] == 3.0
+
+
+def test_run_survives_undecodable_command_output(monkeypatch):
+    """Tqdm bars are block characters. On a console whose codepage cannot
+    represent them, subprocess's reader thread dies and `stdout` comes back
+    None rather than "". The monitor must degrade to "no output", never raise:
+    a progress bar is not a reason to stop watching a job."""
+    import subprocess as sp
+
+    from src.utils import chain_monitor as cm
+
+    class _NoStdout:
+        stdout = None
+        stderr = ""
+        returncode = 1
+
+    monkeypatch.setattr(sp, "run", lambda *a, **k: _NoStdout())
+    assert cm._run("whatever") == ""
+
+
+def test_run_decodes_with_replacement(monkeypatch):
+    """The decode must not be strict: undecodable bytes are replaced, so the
+    lines around a broken progress bar are still parsed."""
+    import subprocess as sp
+
+    captured = {}
+
+    from src.utils import chain_monitor as cm
+
+    class _Ok:
+        stdout = "Evaluating:  45%|��| 17/38\n"
+        stderr = ""
+        returncode = 0
+
+    def _fake_run(*args, **kwargs):
+        captured.update(kwargs)
+        return _Ok()
+
+    monkeypatch.setattr(sp, "run", _fake_run)
+    assert "17/38" in cm._run("tail -n 5 x.log")
+    assert captured.get("errors") == "replace"
