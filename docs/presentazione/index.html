@@ -269,6 +269,9 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .aside { display: none; }
 .keys { font-size: 18px; color: var(--muted); }
 </style>
+  <link rel="stylesheet" href="katex/katex.min.css">
+  <script src="katex/katex.min.js"></script>
+  <script src="katex/auto-render.min.js"></script>
 </head>
 <body>
 <div id="stage">
@@ -542,23 +545,28 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
 <!-- 18 -->
 <section class="slide" data-title="Obiettivi ausiliari">
   <div class="kicker">Risultati · obiettivi ausiliari</div>
-  <h2>Un termine in più nell'SFT: uno aiuta, l'altro no</h2>
-  <div class="cards">
-    <div class="card" data-step="1">
-      <h3>Massa ammessa</h3>
-      <div class="q">Spinge la probabilità sui token che il Trie ammette</div>
-      <div class="gbars" id="am-bars" style="gap:16px"></div>
-      <p class="small" style="margin-top:16px">La miglior cella del lavoro su ogni metrica.</p>
+  <h2>Un termine in più nell'SFT: la massa ammessa aiuta</h2>
+  <div class="cards" style="grid-template-columns:1.1fr .9fr;gap:28px">
+    <div class="card" data-step="1" style="padding:26px 28px">
+      <h3>Cosa fa</h3>
+      <div class="q" style="margin-bottom:6px">Penalizza la probabilità sui token che il Trie eliminerebbe</div>
+      <div style="display:flex;gap:12px">
+        <div id="am-a"></div>
+        <div id="am-b" data-step="2"></div>
+      </div>
+      <div data-step="2" style="font-size:25px;margin-top:6px">$$\mathcal{L}=\mathcal{L}_{\mathrm{CE}}+\lambda\,\bigl(-\log P_A\bigr)$$</div>
+      <p class="small" style="margin:0" data-step="2">$P_A=\sum_{v\in A_t}p_\theta(v\mid x,y_{&lt;t})=1-m_t$, con $m_t$ la massa sui vietati: $m_t$ alta, perdita alta.</p>
+      <p class="small" data-step="3" style="margin:8px 0 0">Sul logit: $\partial\mathcal{L}/\partial z_i=-p_i\,\frac{1-P_A}{P_A}$ se $i\in A_t$, $+p_i$ se vietato. Piatta sulle probabilità, non sui logit: i più probabili salgono di più. La softmax somma a 1, quindi la massa persa dai vietati va agli ammessi.</p>
     </div>
-    <div class="card" data-step="3">
-      <h3>Loss strutturata</h3>
-      <div class="q">Premia le transizioni fra gloss tipiche del corpus</div>
-      <div class="gbars" id="st-bars" style="gap:16px"></div>
-      <p class="small" style="margin-top:16px">Il controllo con i pesi mescolati fa uguale: l'effetto non viene dalle transizioni.</p>
+    <div class="card" data-step="4" style="padding:26px 28px">
+      <h3>Campionata e greedy</h3>
+      <div class="gbars" id="am-bars" style="gap:12px"></div>
+      <p class="small" style="margin-top:14px" data-step="5"><b>Campionata</b>: a ogni passo il token è estratto a caso dalla distribuzione (T = 0,7), quindi può uscire anche uno poco probabile.</p>
+      <p class="small" style="margin-top:8px" data-step="6"><b>Greedy</b>: si prende sempre il più probabile, senza caso. Il guadagno c'è in entrambe: non nasce dall'estrazione.</p>
     </div>
   </div>
-  <p class="foot">Exact match. Massa ammessa: 13 000 passi contro 10 000 dell'SFT; con un seme non si separa l'effetto del termine da quello dell'addestramento più lungo.</p>
-  <aside class="aside">Due termini ausiliari aggiunti alla loss dell'SFT. Il primo, la massa ammessa, chiede al modello di mettere tutta la probabilità sui token che il Trie consente: porta l'exact match da 0,77 a 0,83, e il vantaggio resta identico in decodifica greedy, quindi non è un effetto del campionamento. Il secondo premia le transizioni fra gloss; l'avevo dotato di un controllo negativo prima di lanciarlo, lo stesso grafo con i pesi mescolati. Il controllo fa uguale, quindi l'obiettivo va abbandonato.</aside>
+  <p class="foot">Schema illustrativo. Exact match; massa ammessa: 13 000 passi contro 10 000 dell'SFT, con un seme non si separa dal training più lungo.</p>
+  <aside class="aside">Schema a un passo di generazione. A sinistra l'SFT: parte della probabilità è su token che il Trie vieta, per esempio parole inglesi come "the". Il termine ausiliario aggiunge alla loss il logaritmo negativo della somma delle probabilità dei token ammessi, e la spinge da 0,60 a 0,92 nell'esempio (valori illustrativi). Non decide quale token ammesso vincere: alza solo la somma, quindi non riordina i candidati. Il gradiente sul logit è proporzionale a p_i: la perdita è piatta sulle probabilità ma non sui logit, quindi i token già probabili salgono di più e l'insieme ammesso si affila. La massa non viene spostata a mano: la softmax somma sempre a 1, quindi ciò che escono i vietati finisce sugli ammessi. A destra la differenza fra i due modi di valutare. Campionata: a ogni passo il token è estratto a caso dalla distribuzione, a temperatura 0,7, quindi anche un token poco probabile può uscire. Greedy: si sceglie sempre il più probabile, senza caso. Il guadagno resta quasi identico nei due modi, 0,77 a 0,83 e 0,78 a 0,84, quindi non dipende dall'estrazione.</aside>
 </section>
 
 <!-- 19 -->
@@ -578,7 +586,7 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
     <div data-step="2">Il Trie garantisce il vincolo; il GRPO da solo ne impara solo l'aspetto (19 % contro ≈100 %).</div>
     <div data-step="3">Dal modello base il GRPO ha segnale e impara, ma resta sotto baseline banali.</div>
     <div data-step="4">Dopo l'SFT il GRPO ha poco segnale (61–71 % di gruppi fermi) e non sposta la policy.</div>
-    <div data-step="5">La massa ammessa migliora l'SFT (+7 punti di exact match); la loss strutturata no.</div>
+    <div data-step="5">La massa ammessa migliora l'SFT (+7 punti di exact match).</div>
   </div>
   <aside class="aside">Cinque punti da portare via. Il primo cambia il modo di leggere i numeri su questo corpus. Il secondo è la risposta sul lato della struttura. Il terzo e il quarto spiegano il GRPO nei due regimi. Il quinto è il risultato positivo del lavoro, da consolidare con più semi.</aside>
 </section>
@@ -590,9 +598,8 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   <div class="rows">
     <div class="row" data-step="1"><div class="lbl">GrammarLLM</div><div class="txt">Un automa a pila per una lingua che è una sequenza piatta di gloss: sovradimensionato, e con conflitti LL(1) sui gloss che iniziano con una cifra. Il Trie basta.</div></div>
     <div class="row" data-step="2"><div class="lbl">Viterbi</div><div class="txt">Tre reward basate su percorsi di Viterbi: a parità di lunghezza danno lo stesso segnale.</div></div>
-    <div class="row" data-step="3"><div class="lbl">Loss strutturata</div><div class="txt">Non supera il proprio controllo mescolato.</div></div>
   </div>
-  <aside class="aside">Tre direzioni su cui ho speso tempo e che ho chiuso. GrammarLLM usava un automa a pila, che è lo strumento giusto per una grammatica con annidamento; qui la lingua è una sequenza piatta di gloss, e un Trie fa lo stesso lavoro. Le reward di Viterbi erano tre formule diverse che, a parità di lunghezza, collassano sullo stesso segnale. La loss strutturata l'abbiamo appena vista.</aside>
+  <aside class="aside">Due direzioni su cui ho speso tempo e che ho chiuso. GrammarLLM usava un automa a pila, che è lo strumento giusto per una grammatica con annidamento; qui la lingua è una sequenza piatta di gloss, e un Trie fa lo stesso lavoro. Le reward di Viterbi erano tre formule diverse che, a parità di lunghezza, collassano sullo stesso segnale.</aside>
 </section>
 
 <!-- 22 -->
@@ -628,7 +635,6 @@ const D = {
   sota: 0.9587,
   sft: { rouge: 0.9681, em: 0.7662, noncopy: 0.9510, emGreedy: 0.7775 },
   am: { em: 0.8341, emGreedy: 0.8420 },
-  structured: { emTrue: 0.6053, emShuffled: 0.6078 },
   grpo: {
     baseFew: 0.4664, few: 0.6082, zero: 0.5173,
   },
@@ -826,25 +832,34 @@ hbars(document.getElementById("zero-bars"), D.zeroStd, { fmt: (v) => pct(v) });
 (function () {
   const lg = (a, b) => `<div class="legend" style="margin:0 0 12px 0">
     <span><i style="background:var(--neutral)"></i>${a}</span><span><i style="background:var(--accent)"></i>${b}</span></div>`;
+  // Schema: distribuzione a un passo, prima e dopo il termine (valori illustrativi).
+  function panel(id, title, p) {
+    const tok = ["HOUSE", "HOME", "TREE", "the", "is", ","], K = 170, base = 105, slot = 56, w = 6 * slot;
+    let g = "";
+    p.forEach((v, i) => {
+      const yes = i < 3, h = v * K, x = i * slot + 8;
+      g += `<rect x="${x}" y="${base - h}" width="40" height="${h}" rx="3" fill="${yes ? "var(--accent)" : "var(--neutral)"}"/>`
+        + `<text x="${x + 20}" y="${base + 20}" text-anchor="middle" font-family="var(--mono)" font-size="17" fill="${yes ? "var(--accent-700)" : "var(--muted)"}">${tok[i]}</text>`;
+    });
+    const mass = p.slice(0, 3).reduce((a, b) => a + b, 0).toFixed(2).replace(".", ",");
+    document.getElementById(id).innerHTML = `<div style="font-size:21px;font-weight:650;margin-bottom:4px">${title}</div>`
+      + `<svg viewBox="0 0 ${w} 127" width="${w}" height="127" style="display:block;overflow:visible"><line x1="0" y1="${base}" x2="${w}" y2="${base}" stroke="var(--base)" stroke-width="2"/>${g}</svg>`
+      + `<div style="font-size:20px;color:var(--ink2);margin-top:4px">massa ammessa <span style="color:var(--accent-700)">$P_A=${mass.replace(",", "{,}")}$</span></div>`;
+  }
+  panel("am-a", "SFT", [0.34, 0.18, 0.08, 0.20, 0.12, 0.08]);
+  panel("am-b", "+ massa ammessa", [0.54, 0.27, 0.11, 0.04, 0.025, 0.015]);
   const am = document.getElementById("am-bars");
   gbars(am, [
     { name: "Campionata", a: D.sft.em, b: D.am.em },
     { name: "Greedy", a: D.sft.emGreedy, b: D.am.emGreedy },
   ], { stepwise: false });
-  am.querySelectorAll(".gbar").forEach((g, i) => g.setAttribute("data-step", String(i + 1)));
+  am.querySelectorAll(".gbar").forEach((g, i) => g.setAttribute("data-step", String(i + 4)));
   am.insertAdjacentHTML("afterbegin", lg("SFT", "+ massa ammessa"));
   am.querySelectorAll(".gbar .name").forEach((n) => (n.style.fontSize = "22px"));
   am.querySelectorAll(".gbar").forEach((g) => (g.style.gridTemplateColumns = "150px 1fr"));
-
-  const st = document.getElementById("st-bars");
-  gbars(st, [
-    { name: "Grafo vero", a: D.sft.em, b: D.structured.emTrue },
-    { name: "Controllo", a: D.sft.em, b: D.structured.emShuffled },
-  ], { stepwise: false });
-  st.querySelectorAll(".gbar").forEach((g, i) => g.setAttribute("data-step", String(i + 3)));
-  st.insertAdjacentHTML("afterbegin", lg("SFT", "+ loss strutturata"));
-  st.querySelectorAll(".gbar .name").forEach((n) => (n.style.fontSize = "22px"));
-  st.querySelectorAll(".gbar").forEach((g) => (g.style.gridTemplateColumns = "150px 1fr"));
+  renderMathInElement(document.getElementById("am-a").closest(".card"), {
+    delimiters: [{ left: "$$", right: "$$", display: true }, { left: "$", right: "$", display: false }],
+  });
 })();
 
 /* ── Slide 19: ablazioni ─────────────────────────────────────────────── */
