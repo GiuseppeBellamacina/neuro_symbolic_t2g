@@ -69,6 +69,29 @@ emessi in successione \emph{senza} spazio, e la loro concatenazione
 gloss successivo al primo può iniziare solo da un token che include lo spazio,
 il confine di parola è esplicito nella struttura del Trie.
 
+\subsection{Rapporto con lo stato dell'arte}
+
+Il Trie di prefissi a livello di token non è una novità: è la struttura con cui
+GENRE~\cite{decao2021genre} vincola la generazione ai nomi di un insieme chiuso
+di entità, e la stessa idea, in forma di automa, è alla base di
+Outlines~\cite{willard2023outlines} e di Synchromesh~\cite{poesia2022synchromesh}.
+Il disallineamento fra i confini di parola del vincolo e i sotto-token del
+modello è noto e trattato in DOMINO~\cite{beurerkellner2024domino}; l'effetto
+dello spazio iniziale sulla qualità dei token strutturati è misurato da
+Hamilton e Mimno~\cite{hamilton2025lostinspace}. Un lavoro recente costruisce un
+solo Trie a livello di carattere per insiemi finiti di stringhe~\cite{xu2026trieautomata}.
+
+La doppia radice è invece una soluzione \emph{locale} a un caso specifico:
+sequenze di più elementi di un lessico chiuso, separati da spazio, con un
+tokenizzatore che codifica lo spazio nel token successivo. Nelle fonti
+consultate non ho trovato questa costruzione descritta con un nome proprio;
+d'altra parte l'idea (distinguere il punto d'ingresso a inizio stringa da quello
+dopo uno spazio) è una conseguenza diretta della tokenizzazione BPE e
+compare, in forma implicita, nella gestione dello spazio iniziale delle
+librerie di decodifica vincolata. La relazione non la presenta quindi come
+contributo originale, ma come adattamento necessario del Trie noto a questo
+tokenizzatore.
+
 \subsection{Numeri della costruzione}
 
 \begin{center}
