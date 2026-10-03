@@ -216,7 +216,7 @@ CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARG
 ## 6. Chain / Pipeline orchestration
 
 > **Questa è la parte centrale.** La catena è un file `~/.chain_state/job_chain`
-> (una entry `type:config:tag[:extra]` per riga, es. `train:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:sft-grpo-few-shot`).
+> (una entry `type:config:tag[:extra]` per riga, es. `train:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:aslg-pc12-sft-grpo-few-shot`).
 > Un **tick one-shot idempotente** (`cluster/chain_tick.sh`) la fa avanzare di
 > un passo per invocazione e NON esiste più un daemon long-lived da tenere vivo.
 
@@ -464,8 +464,11 @@ t2g-gpu   # nvidia-smi sul nodo del job attivo
 Gli output sono organizzati `experiments/<kind>/<dataset>/<modello>/<cella>/run_<ts>/`
 (dataset PRIMA del modello: i numeri sono confrontabili solo dentro lo stesso
 dataset, e lo stesso confine vale per adapter SFT e cache della baseline).
-I tag dei job ASLG-PC12 restano quelli storici (`grpo-few-shot`); le celle degli
-altri dataset sono prefissate (`phoenix-2014t-grpo-few-shot`).
+Il tag di ogni job comincia con il dataset (`aslg-pc12-grpo-few-shot`,
+`phoenix-2014t-grpo-few-shot`), così come il nome della run su wandb
+(`aslg-pc12-qwen25-05b-grpo-few-shot`). I tag senza prefisso di ASLG-PC12
+delle catene precedenti non sono più riconosciuti: una catena vecchia va
+riaccodata.
 
 Su un clone del cluster con il layout vecchio (`experiments/<kind>/qwen25-05b/`),
 nell'ordine:

@@ -54,5 +54,5 @@ training:
   log_dir: "experiments/logs/aslg-pc12/qwen25-05b/ablations/glossary/zero-shot"
 
 wandb:
-  run_name: "qwen25-05b-abl-glossary-zero-shot"
-  tags: ["T2G", "ablation", "glossary", "zero-shot", "trie"]
+  run_name: "aslg-pc12-qwen25-05b-ablations-glossary-zero-shot"
+  tags: ["T2G", "ASLG-PC12", "qwen25-05b", "ablation", "glossary", "zero-shot", "trie"]

@@ -60,4 +60,4 @@ retrieval:
 # --- Weights & Biases ---
 wandb:
   run_name: "phoenix-2014t-qwen25-05b"
-  tags: ["T2G", "constrained-decoding", "Qwen2.5-0.5B", "DGS", "PHOENIX-2014T"]
+  tags: ["T2G", "PHOENIX-2014T", "qwen25-05b", "constrained-decoding", "DGS"]

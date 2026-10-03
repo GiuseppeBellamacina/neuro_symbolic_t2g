@@ -206,14 +206,14 @@ def test_split_cell_and_tag_with_dataset_segment() -> None:
         "qwen25-05b",
         "ablations/loss/dr-grpo",
     )
-    # Legacy (senza dataset) = ASLG-PC12, stesso tag.
+    # Legacy (senza dataset) = ASLG-PC12, stesso tag con il prefisso.
     assert split_cell("qwen25-05b/grpo/few-shot") == (
         "aslg-pc12",
         "qwen25-05b",
         "grpo/few-shot",
     )
-    assert cell_tag("qwen25-05b/grpo/few-shot") == "grpo-few-shot"
-    assert cell_tag("aslg-pc12/qwen25-05b/grpo/few-shot") == "grpo-few-shot"
+    assert cell_tag("qwen25-05b/grpo/few-shot") == "aslg-pc12-grpo-few-shot"
+    assert cell_tag("aslg-pc12/qwen25-05b/grpo/few-shot") == "aslg-pc12-grpo-few-shot"
     assert cell_tag("phoenix-2014t/qwen25-05b/grpo/few-shot") == (
         "phoenix-2014t-grpo-few-shot"
     )
@@ -248,3 +248,37 @@ def test_phoenix_baseline_eval_lands_in_phoenix_tree() -> None:
         "phoenix-2014t/qwen25-05b/baseline/zero-shot",
         "run_20261002_000000",
     )
+
+
+def test_job_tag_and_wandb_name_always_start_with_the_dataset() -> None:
+    """Tag del job, nome della run wandb e primi tag wandb seguono UNA regola
+    per tutti i dataset, ASLG-PC12 compreso: nella TUI e su wandb ogni job
+    dice a quale dataset appartiene."""
+    from src.utils.config import resolve_config
+    from src.utils.run_paths import cell_tag, split_cell
+
+    display = {
+        "aslg-pc12": "ASLG-PC12",
+        "phoenix-2014t": "PHOENIX-2014T",
+        "wos-46985": "WOS-46985",
+        "conll-2003": "CoNLL-2003",
+    }
+    configs = sorted(Path("experiments/configs").rglob("*.yaml"))
+    assert configs
+    for path in configs:
+        cell = cell_from_config(path)
+        dataset, model, rest = split_cell(cell)
+        wandb_cfg = resolve_config(str(path))["wandb"]
+        expected = f"{dataset}-{model}" + (
+            "" if rest == "base" else "-" + rest.replace("/", "-")
+        )
+        assert wandb_cfg["run_name"] == expected, path
+        assert wandb_cfg["tags"][:3] == ["T2G", display[dataset], model], path
+        if rest != "base":
+            assert cell_tag(cell).startswith(f"{dataset}-"), path
+
+
+def cell_from_config(path):  # noqa: D103 - alias locale per il test sopra
+    from src.utils.run_paths import cell_from_config as _cfc
+
+    return _cfc(path)

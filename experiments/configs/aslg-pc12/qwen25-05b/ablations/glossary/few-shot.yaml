@@ -31,5 +31,5 @@ training:
   log_dir: "experiments/logs/aslg-pc12/qwen25-05b/ablations/glossary/few-shot"
 
 wandb:
-  run_name: "qwen25-05b-abl-glossary-few-shot"
-  tags: ["T2G", "ablation", "glossary", "few-shot", "retrieval", "trie"]
+  run_name: "aslg-pc12-qwen25-05b-ablations-glossary-few-shot"
+  tags: ["T2G", "ASLG-PC12", "qwen25-05b", "ablation", "glossary", "few-shot", "retrieval", "trie"]

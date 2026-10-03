@@ -67,5 +67,5 @@ evaluation:
   best_of_n: false # niente selezione oracle sulla cella supervisionata
 
 wandb:
-  run_name: "qwen25-05b-sft-zero-shot"
-  tags: ["T2G", "sft", "zero-shot", "trie"]
+  run_name: "aslg-pc12-qwen25-05b-sft-zero-shot"
+  tags: ["T2G", "ASLG-PC12", "qwen25-05b", "sft", "zero-shot", "trie"]

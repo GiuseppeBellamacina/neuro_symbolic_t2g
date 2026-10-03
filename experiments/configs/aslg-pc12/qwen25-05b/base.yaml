@@ -313,5 +313,5 @@ retrieval:
 # --- Weights & Biases ---
 wandb:
   project: "neuro-symbolic-t2g"
-  run_name: "qwen25-05b"
-  tags: ["T2G", "constrained-decoding", "Qwen2.5-0.5B", "ASL"]
+  run_name: "aslg-pc12-qwen25-05b"
+  tags: ["T2G", "ASLG-PC12", "qwen25-05b", "constrained-decoding", "ASL"]

@@ -2,7 +2,7 @@
 # ============================================================================
 # Pulizia selettiva — rimuove checkpoints, logs, results, figures e log SLURM
 # di UNA cella. Accetta:
-#   - il TAG di pipeline (es. grpo-few-shot, ablations-decoding-no-grammar,
+#   - il TAG di pipeline (es. aslg-pc12-grpo-few-shot, aslg-pc12-ablations-decoding-no-grammar,
 #     phoenix-2014t-grpo-few-shot): lo stesso dei job SLURM train-<TAG>;
 #   - il path della cella (es. phoenix-2014t/qwen25-05b/grpo/few-shot), cioe'
 #     il path del config sotto experiments/configs/ senza .yaml.
@@ -19,8 +19,8 @@
 #
 # Uso:
 #   bash cluster/clean_model.sh                    # lista le celle presenti
-#   bash cluster/clean_model.sh grpo-few-shot      # dry-run
-#   bash cluster/clean_model.sh grpo-few-shot --all # cancella davvero
+#   bash cluster/clean_model.sh aslg-pc12-grpo-few-shot      # dry-run
+#   bash cluster/clean_model.sh aslg-pc12-grpo-few-shot --all # cancella davvero
 # ============================================================================
 
 set -euo pipefail
@@ -37,7 +37,7 @@ for arg in "$@"; do
         --help|-h)
             echo "Uso: bash cluster/clean_model.sh <TAG|CELLA> [--all]"
             echo ""
-            echo "TAG   = tag del job (es. grpo-few-shot, phoenix-2014t-grpo-few-shot)"
+            echo "TAG   = tag del job (es. aslg-pc12-grpo-few-shot, phoenix-2014t-grpo-few-shot)"
             echo "CELLA = path sotto experiments/configs/ senza .yaml"
             echo "        (es. aslg-pc12/qwen25-05b/ablations/decoding/no-grammar)"
             echo "Senza argomenti: lista le celle con dei run"

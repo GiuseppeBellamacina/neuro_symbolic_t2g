@@ -18,4 +18,4 @@ evaluation:
 
 wandb:
   run_name: "phoenix-2014t-qwen25-05b-baseline-zero-shot-no-grammar"
-  tags: ["T2G", "PHOENIX-2014T", "baseline", "zero-shot", "no-grammar", "unconstrained", "eval-only"]
+  tags: ["T2G", "PHOENIX-2014T", "qwen25-05b", "baseline", "zero-shot", "no-grammar", "unconstrained", "eval-only"]

@@ -45,5 +45,5 @@ training:
   log_dir: "experiments/logs/aslg-pc12/qwen25-05b/ablations/decoding/full-vocab-trie"
 
 wandb:
-  run_name: "qwen25-05b-abl-decoding-full-vocab-trie"
-  tags: ["T2G", "ablation", "decoding", "full-vocab", "data-leak", "few-shot", "retrieval", "trie"]
+  run_name: "aslg-pc12-qwen25-05b-ablations-decoding-full-vocab-trie"
+  tags: ["T2G", "ASLG-PC12", "qwen25-05b", "ablation", "decoding", "full-vocab", "data-leak", "few-shot", "retrieval", "trie"]

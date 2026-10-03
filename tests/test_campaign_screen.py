@@ -20,7 +20,9 @@ def test_zero_shot_no_grammar_config_exists():
         "experiments/configs/aslg-pc12/qwen25-05b/baseline/zero-shot-no-grammar.yaml"
     )
     assert cfg["grammar"]["enabled"] is False
-    assert cfg["wandb"]["run_name"] == "qwen25-05b-baseline-zero-shot-no-grammar"
+    assert (
+        cfg["wandb"]["run_name"] == "aslg-pc12-qwen25-05b-baseline-zero-shot-no-grammar"
+    )
     # eval-only: nessun output_dir (eredita una sezione training parziale da base)
     assert "output_dir" not in cfg["training"]
 

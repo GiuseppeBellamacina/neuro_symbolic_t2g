@@ -31,5 +31,5 @@ evaluation:
   dual_prompting: false
 
 wandb:
-  run_name: "qwen25-05b-baseline-zero-shot-no-grammar"
-  tags: ["T2G", "baseline", "zero-shot", "no-grammar", "unconstrained", "eval-only"]
+  run_name: "aslg-pc12-qwen25-05b-baseline-zero-shot-no-grammar"
+  tags: ["T2G", "ASLG-PC12", "qwen25-05b", "baseline", "zero-shot", "no-grammar", "unconstrained", "eval-only"]

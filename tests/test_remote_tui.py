@@ -103,7 +103,7 @@ TIMESERIES_REWARD_BODY = {
 # Risultati eval (contratto GET /results): una run con reward breakdown
 # completo (7 componenti, format/repetition sature come nei run reali).
 RESULTS_BODY = {
-    "config": "sft-grpo-few-shot",
+    "config": "aslg-pc12-sft-grpo-few-shot",
     "results_dir": "experiments/results/qwen25-05b-sft-grpo",
     "runs": [
         {
@@ -170,8 +170,8 @@ def _default_handler(request: httpx.Request) -> httpx.Response:
                 **MONITOR_BODY,
                 "started_now": True,
                 "queued": [
-                    "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:sft-grpo-few-shot",
-                    "eval:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:sft-grpo-few-shot",
+                    "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:aslg-pc12-sft-grpo-few-shot",
+                    "eval:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:aslg-pc12-sft-grpo-few-shot",
                 ],
             },
         )
@@ -596,7 +596,7 @@ def test_start_job_screen_submits_to_start_endpoint():
             payload = json.loads(batch_calls[0].read())
             assert payload["start_now"] is True
             assert [j["type"] for j in payload["jobs"]] == ["train", "eval"]
-            assert payload["jobs"][0]["config"] == "sft-grpo-few-shot"
+            assert payload["jobs"][0]["config"] == "aslg-pc12-sft-grpo-few-shot"
 
     asyncio.run(_run())
 
@@ -628,7 +628,7 @@ def test_start_job_screen_without_eval_uses_start_endpoint():
             assert start_calls, "POST /jobs/start non chiamato"
             payload = json.loads(start_calls[0].read())
             assert payload["type"] == "train"
-            assert payload["config"] == "sft-grpo-few-shot"
+            assert payload["config"] == "aslg-pc12-sft-grpo-few-shot"
             # nessun batch in questo flusso
             assert not any(r.url.path == "/jobs/batch" for r in recorder.requests)
 
@@ -650,8 +650,12 @@ def test_batch_start_screen_submits_selected_configs():
             await pilot.pause()
             assert isinstance(app.screen, tui.BatchStartScreen)
             # Seleziona due config
-            app.screen.query_one("#cfg-sft-grpo-few-shot", tui.Checkbox).value = True
-            app.screen.query_one("#cfg-grpo-few-shot", tui.Checkbox).value = True
+            app.screen.query_one(
+                "#cfg-aslg-pc12-sft-grpo-few-shot", tui.Checkbox
+            ).value = True
+            app.screen.query_one("#cfg-aslg-pc12-grpo-few-shot", tui.Checkbox).value = (
+                True
+            )
             await pilot.pause()
             submit = app.screen.query_one("#submit", tui.Button)
             submit.press()
@@ -679,10 +683,10 @@ def test_batch_start_screen_submits_selected_configs():
                 "eval",
             ]
             assert [j["config"] for j in payload["jobs"]] == [
-                "sft-grpo-few-shot",
-                "sft-grpo-few-shot",
-                "grpo-few-shot",
-                "grpo-few-shot",
+                "aslg-pc12-sft-grpo-few-shot",
+                "aslg-pc12-sft-grpo-few-shot",
+                "aslg-pc12-grpo-few-shot",
+                "aslg-pc12-grpo-few-shot",
             ]
 
     asyncio.run(_run())
@@ -1007,7 +1011,9 @@ def test_results_screen_renders_metrics_and_reward_bars():
             if request.url.path == "/results":
                 if request.url.params.get("config"):
                     return httpx.Response(200, json=RESULTS_BODY)
-                return httpx.Response(200, json={"results_dirs": ["sft-grpo-few-shot"]})
+                return httpx.Response(
+                    200, json={"results_dirs": ["aslg-pc12-sft-grpo-few-shot"]}
+                )
             return _default_handler(request)
 
         client, _ = _client(handler=handler)
@@ -1051,8 +1057,16 @@ def _fake_presets():
             label="Alpha",
             description="primo preset",
             jobs=(
-                JobDef(type="train", config="grpo-zero-shot", tag="grpo-zero-shot"),
-                JobDef(type="eval", config="grpo-zero-shot", tag="grpo-zero-shot"),
+                JobDef(
+                    type="train",
+                    config="aslg-pc12-grpo-zero-shot",
+                    tag="aslg-pc12-grpo-zero-shot",
+                ),
+                JobDef(
+                    type="eval",
+                    config="aslg-pc12-grpo-zero-shot",
+                    tag="aslg-pc12-grpo-zero-shot",
+                ),
             ),
         ),
         PresetDef(
@@ -1061,7 +1075,9 @@ def _fake_presets():
             description="secondo preset",
             jobs=(
                 JobDef(
-                    type="eval", config="baseline-zero-shot", tag="baseline-zero-shot"
+                    type="eval",
+                    config="aslg-pc12-baseline-zero-shot",
+                    tag="aslg-pc12-baseline-zero-shot",
                 ),
             ),
         ),
@@ -1116,12 +1132,20 @@ def test_presets_screen_add_reorder_and_launch_append(monkeypatch):
             assert len(batch_requests) == 1
             body = json.loads(batch_requests[0].content)
             assert body["jobs"] == [
-                {"type": "train", "config": "grpo-zero-shot", "tag": "grpo-zero-shot"},
-                {"type": "eval", "config": "grpo-zero-shot", "tag": "grpo-zero-shot"},
+                {
+                    "type": "train",
+                    "config": "aslg-pc12-grpo-zero-shot",
+                    "tag": "aslg-pc12-grpo-zero-shot",
+                },
                 {
                     "type": "eval",
-                    "config": "baseline-zero-shot",
-                    "tag": "baseline-zero-shot",
+                    "config": "aslg-pc12-grpo-zero-shot",
+                    "tag": "aslg-pc12-grpo-zero-shot",
+                },
+                {
+                    "type": "eval",
+                    "config": "aslg-pc12-baseline-zero-shot",
+                    "tag": "aslg-pc12-baseline-zero-shot",
                 },
             ]
             assert body["start_now"] is True
@@ -1172,13 +1196,13 @@ def test_presets_screen_replace_mode_ticks_and_returns_to_dashboard(monkeypatch)
                     "jobs": [
                         {
                             "type": "train",
-                            "config": "grpo-zero-shot",
-                            "tag": "grpo-zero-shot",
+                            "config": "aslg-pc12-grpo-zero-shot",
+                            "tag": "aslg-pc12-grpo-zero-shot",
                         },
                         {
                             "type": "eval",
-                            "config": "grpo-zero-shot",
-                            "tag": "grpo-zero-shot",
+                            "config": "aslg-pc12-grpo-zero-shot",
+                            "tag": "aslg-pc12-grpo-zero-shot",
                         },
                     ]
                 }

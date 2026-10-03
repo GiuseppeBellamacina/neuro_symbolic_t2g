@@ -34,5 +34,5 @@ evaluation:
   dual_prompting: false
 
 wandb:
-  run_name: "qwen25-05b-baseline-few-shot"
-  tags: ["T2G", "baseline", "few-shot", "retrieval", "trie", "eval-only"]
+  run_name: "aslg-pc12-qwen25-05b-baseline-few-shot"
+  tags: ["T2G", "ASLG-PC12", "qwen25-05b", "baseline", "few-shot", "retrieval", "trie", "eval-only"]

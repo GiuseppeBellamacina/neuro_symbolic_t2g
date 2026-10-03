@@ -23,8 +23,9 @@
 #   3. riscrive i path dei config nei file di .chain_state (job_chain,
 #      last_job, chain_stopped, chain_errors), con backup *.pre-dataset-layout.
 #
-# I tag dei job ASLG-PC12 NON cambiano (grpo-few-shot resta grpo-few-shot),
-# quindi retry, monitor e preset continuano a funzionare.
+# Lo script sposta solo i path. I tag dei job ASLG-PC12 oggi hanno il prefisso
+# del dataset (aslg-pc12-grpo-few-shot): le entry di .chain_state con i tag
+# vecchi senza prefisso vanno riaccodate dopo la migrazione.
 #
 # Sicurezza: rifiuta di procedere con un job SLURM attivo/pending (spostare la
 # directory di un job in esecuzione lo romperebbe) e, per ogni kind, se la

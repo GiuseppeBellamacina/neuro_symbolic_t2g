@@ -24,5 +24,5 @@ training:
   log_dir: "experiments/logs/conll-2003/qwen25-05b/ablations/decoding/no-grammar"
 
 wandb:
-  run_name: "conll-2003-qwen25-05b-abl-decoding-no-grammar"
-  tags: ["T2G-framework", "CoNLL-2003", "ablation", "decoding", "no-grammar", "few-shot"]
+  run_name: "conll-2003-qwen25-05b-ablations-decoding-no-grammar"
+  tags: ["T2G", "CoNLL-2003", "qwen25-05b", "ablation", "decoding", "no-grammar", "few-shot"]

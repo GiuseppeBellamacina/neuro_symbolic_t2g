@@ -76,28 +76,28 @@ except ImportError:  # script diretto (`python remote/tui.py`): remote/ e' sys.p
 # ── Config noti al driver (stessi nomi di remote/app.py:CONFIG_MAP) ──────────
 
 CONFIG_NAMES: tuple[str, ...] = (
-    "sft-grpo-few-shot",
-    "sft-grpo-zero-shot",
-    "sft-zero-shot",
-    "grpo-few-shot",
-    "grpo-zero-shot",
-    "baseline-zero-shot",
-    "baseline-zero-shot-no-grammar",
-    "baseline-few-shot",
-    "ablations-decoding-no-grammar",
-    "ablations-decoding-hot-rollout",
-    "ablations-rewards-edit-validity",
-    "ablations-rewards-lean-stack",
-    "ablations-loss-dr-grpo",
-    "ablations-loss-low-beta",
-    "ablations-objectives-sft-allowed-mass",
-    "ablations-objectives-sft-structured",
-    "ablations-objectives-sft-structured-shuffled",
-    "ablations-glossary-zero-shot",
-    "ablations-glossary-few-shot",
-    "sft-zero-shot-greedy",  # solo eval
-    "ablations-objectives-sft-allowed-mass-greedy",  # solo eval
-    "ablations-decoding-full-vocab-trie",
+    "aslg-pc12-sft-grpo-few-shot",
+    "aslg-pc12-sft-grpo-zero-shot",
+    "aslg-pc12-sft-zero-shot",
+    "aslg-pc12-grpo-few-shot",
+    "aslg-pc12-grpo-zero-shot",
+    "aslg-pc12-baseline-zero-shot",
+    "aslg-pc12-baseline-zero-shot-no-grammar",
+    "aslg-pc12-baseline-few-shot",
+    "aslg-pc12-ablations-decoding-no-grammar",
+    "aslg-pc12-ablations-decoding-hot-rollout",
+    "aslg-pc12-ablations-rewards-edit-validity",
+    "aslg-pc12-ablations-rewards-lean-stack",
+    "aslg-pc12-ablations-loss-dr-grpo",
+    "aslg-pc12-ablations-loss-low-beta",
+    "aslg-pc12-ablations-objectives-sft-allowed-mass",
+    "aslg-pc12-ablations-objectives-sft-structured",
+    "aslg-pc12-ablations-objectives-sft-structured-shuffled",
+    "aslg-pc12-ablations-glossary-zero-shot",
+    "aslg-pc12-ablations-glossary-few-shot",
+    "aslg-pc12-sft-zero-shot-greedy",  # solo eval
+    "aslg-pc12-ablations-objectives-sft-allowed-mass-greedy",  # solo eval
+    "aslg-pc12-ablations-decoding-full-vocab-trie",
     "phoenix-2014t-baseline-zero-shot",
     "phoenix-2014t-baseline-few-shot",
     "phoenix-2014t-sft-zero-shot",
@@ -1749,12 +1749,12 @@ class ReplaceQueueScreen(T2GScreen):
             classes="hint",
         )
         yield Static(
-            "Formato [b]tipo:config[:tag][/b] — es. [b]train:sft-grpo-few-shot[/b] "
-            "o [b]train:sft-grpo-few-shot:my-run[/b]",
+            "Formato [b]tipo:config[:tag][/b] — es. [b]train:aslg-pc12-sft-grpo-few-shot[/b] "
+            "o [b]train:aslg-pc12-sft-grpo-few-shot:my-run[/b]",
             classes="hint",
         )
         yield TextArea(
-            "train:sft-grpo-few-shot\n# le righe che iniziano con # sono ignorate\neval:grpo-few-shot",
+            "train:aslg-pc12-sft-grpo-few-shot\n# le righe che iniziano con # sono ignorate\neval:aslg-pc12-grpo-few-shot",
             id="custom",
         )
         yield Button("Invia coda custom", variant="error", id="submit")

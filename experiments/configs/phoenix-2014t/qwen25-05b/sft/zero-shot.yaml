@@ -56,4 +56,4 @@ evaluation:
 
 wandb:
   run_name: "phoenix-2014t-qwen25-05b-sft-zero-shot"
-  tags: ["T2G", "PHOENIX-2014T", "sft", "zero-shot", "trie"]
+  tags: ["T2G", "PHOENIX-2014T", "qwen25-05b", "sft", "zero-shot", "trie"]

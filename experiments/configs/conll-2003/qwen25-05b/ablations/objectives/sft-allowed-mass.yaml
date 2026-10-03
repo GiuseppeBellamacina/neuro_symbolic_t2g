@@ -25,5 +25,5 @@ training:
   log_dir: "experiments/logs/conll-2003/qwen25-05b/ablations/objectives/sft-allowed-mass"
 
 wandb:
-  run_name: "conll-2003-qwen25-05b-abl-obj-allowed-mass"
-  tags: ["T2G-framework", "CoNLL-2003", "ablation", "objective", "allowed-mass", "sft"]
+  run_name: "conll-2003-qwen25-05b-ablations-objectives-sft-allowed-mass"
+  tags: ["T2G", "CoNLL-2003", "qwen25-05b", "ablation", "objective", "allowed-mass", "sft"]

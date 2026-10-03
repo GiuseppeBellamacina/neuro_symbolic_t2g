@@ -375,7 +375,7 @@ curl -X POST -H "X-Auth-Token: $TOKEN" -H "Content-Type: application/json" \
 # SOLO nel TUI, remote/presets.yaml — il servizio non conosce quel concetto,
 # vede solo job già risolti; vedi remote/tui.py PresetsScreen)
 curl -X POST -H "X-Auth-Token: $TOKEN" -H "Content-Type: application/json" \
-     -d '{"jobs": [{"type":"train","config":"sft-grpo-few-shot"},{"type":"eval","config":"sft-grpo-few-shot"}]}' \
+     -d '{"jobs": [{"type":"train","config":"aslg-pc12-sft-grpo-few-shot"},{"type":"eval","config":"aslg-pc12-sft-grpo-few-shot"}]}' \
      $BASE/queue
 
 # pausa / riprendi
@@ -397,8 +397,8 @@ celle e in più dataset → 422 "config ambiguo").
 Il tag è obbligatorio per distinguere i run e per `DELETE /jobs/{tag}`: se
 non lo passi, è il nome del config in `CONFIG_MAP`, cioè il tag della cella
 (`src/utils/run_paths.py::cell_tag`, lo stesso di `run_all.sh`: il path sotto
-`<dataset>/<modello>/` con `/` → `-`, prefissato dal dataset se non è ASLG-PC12,
-es. `phoenix-2014t-grpo-few-shot`).
+`<dataset>/<modello>/` con `/` → `-`, sempre prefissato dal dataset,
+es. `aslg-pc12-grpo-few-shot`, `phoenix-2014t-grpo-few-shot`).
 
 ### Note su pause/resume
 
@@ -411,7 +411,7 @@ attivo continua, semplicemente non vengono sottomessi nuovi job. Il
 
 ```json
 {
-  "tag": "sft-grpo-few-shot",
+  "tag": "aslg-pc12-sft-grpo-few-shot",
   "metric": "loss",
   "points": [{"step": 10, "value": 0.99}, ...],
   "total_steps": 9123,
@@ -443,7 +443,7 @@ Con `config=<nome dir o nome config>`:
 
 ```json
 {
-  "config": "sft-grpo-few-shot",
+  "config": "aslg-pc12-sft-grpo-few-shot",
   "results_dir": "experiments/results/aslg-pc12/qwen25-05b/sft-grpo/few-shot",
   "runs": [{"run_id": "run_20260904_000559", "metrics": {...}}],
   "source": "cache|live",

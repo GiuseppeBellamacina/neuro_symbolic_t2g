@@ -60,5 +60,5 @@ training:
   log_dir: "experiments/logs/aslg-pc12/qwen25-05b/ablations/rewards/edit-validity"
 
 wandb:
-  run_name: "qwen25-05b-abl-reward-edit-validity"
-  tags: ["T2G", "ablation", "reward", "edit-validity", "few-shot"]
+  run_name: "aslg-pc12-qwen25-05b-ablations-rewards-edit-validity"
+  tags: ["T2G", "ASLG-PC12", "qwen25-05b", "ablation", "reward", "edit-validity", "few-shot"]

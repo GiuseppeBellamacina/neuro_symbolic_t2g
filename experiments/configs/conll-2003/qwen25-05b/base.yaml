@@ -64,7 +64,7 @@ grammar:
 
 wandb:
   run_name: "conll-2003-qwen25-05b"
-  tags: ["T2G-framework", "constrained-decoding", "Qwen2.5-0.5B", "CoNLL-2003", "NER"]
+  tags: ["T2G", "CoNLL-2003", "qwen25-05b", "constrained-decoding", "NER"]
 
 # Reward adattata ai target cortissimi (1-2 token: "NONE", "PER:Mary",
 # "CS Machine_learning"). Con i pesi di ASLG, gold_structure vale -1 fisso sotto

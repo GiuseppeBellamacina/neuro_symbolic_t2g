@@ -60,7 +60,7 @@ DATASET_KEYS: tuple[str, ...] = (
     "conll-2003",
 )
 
-#: Dataset implicito del layout legacy e dei tag senza prefisso.
+#: Dataset implicito del layout legacy (cartelle senza segmento di dataset).
 DEFAULT_DATASET_KEY = "aslg-pc12"
 
 
@@ -87,23 +87,20 @@ def split_cell(cell: str) -> tuple[str, str, str]:
 def cell_tag(cell: str) -> str:
     """Tag di job/monitor di una cella: il resto sotto il modello, ``/`` → ``-``.
 
-    Le celle ASLG-PC12 mantengono il tag storico senza prefisso (``grpo-few-shot``:
-    stato della catena, preset e retry già sul cluster restano validi); gli altri
-    dataset sono prefissati dalla loro chiave (``phoenix-2014t-grpo-few-shot``) così
-    due dataset non si contendono mai lo stesso tag. Il modello NON entra nel tag
-    (come prima).
+    Ogni tag comincia con la chiave del dataset, ASLG-PC12 compreso
+    (``aslg-pc12-grpo-few-shot``, ``phoenix-2014t-grpo-few-shot``): due dataset
+    non si contendono mai lo stesso tag e nella TUI ogni job dice a quale
+    dataset appartiene. Il modello NON entra nel tag. Le celle legacy senza
+    segmento di dataset sono ASLG-PC12 e ricevono lo stesso prefisso.
 
     Examples:
         >>> cell_tag("aslg-pc12/qwen25-05b/ablations/loss/dr-grpo")
-        'ablations-loss-dr-grpo'
+        'aslg-pc12-ablations-loss-dr-grpo'
         >>> cell_tag("phoenix-2014t/qwen25-05b/grpo/few-shot")
         'phoenix-2014t-grpo-few-shot'
     """
     dataset, _model, rest = split_cell(cell)
-    tag = rest.replace("/", "-").replace("_", "-")
-    if dataset != DEFAULT_DATASET_KEY:
-        tag = f"{dataset}-{tag}"
-    return tag
+    return f"{dataset}-" + rest.replace("/", "-").replace("_", "-")
 
 
 def _after_last(parts: tuple[str, ...], anchor: str) -> tuple[str, ...] | None:

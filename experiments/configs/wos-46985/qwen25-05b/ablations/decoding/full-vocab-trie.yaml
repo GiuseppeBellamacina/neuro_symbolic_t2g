@@ -31,5 +31,5 @@ training:
   log_dir: "experiments/logs/wos-46985/qwen25-05b/ablations/decoding/full-vocab-trie"
 
 wandb:
-  run_name: "wos-46985-qwen25-05b-abl-decoding-full-vocab-trie"
-  tags: ["T2G-framework", "WoS", "ablation", "decoding", "full-vocab", "data-leak", "zero-shot", "trie"]
+  run_name: "wos-46985-qwen25-05b-ablations-decoding-full-vocab-trie"
+  tags: ["T2G", "WOS-46985", "qwen25-05b", "ablation", "decoding", "full-vocab", "data-leak", "zero-shot", "trie"]

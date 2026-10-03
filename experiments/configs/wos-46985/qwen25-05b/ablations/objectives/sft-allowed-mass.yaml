@@ -25,5 +25,5 @@ training:
   log_dir: "experiments/logs/wos-46985/qwen25-05b/ablations/objectives/sft-allowed-mass"
 
 wandb:
-  run_name: "wos-46985-qwen25-05b-abl-obj-allowed-mass"
-  tags: ["T2G-framework", "WoS", "ablation", "objective", "allowed-mass", "sft"]
+  run_name: "wos-46985-qwen25-05b-ablations-objectives-sft-allowed-mass"
+  tags: ["T2G", "WOS-46985", "qwen25-05b", "ablation", "objective", "allowed-mass", "sft"]

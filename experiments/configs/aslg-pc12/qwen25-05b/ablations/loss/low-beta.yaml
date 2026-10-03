@@ -48,5 +48,5 @@ training:
   log_dir: "experiments/logs/aslg-pc12/qwen25-05b/ablations/loss/low-beta"
 
 wandb:
-  run_name: "qwen25-05b-abl-loss-low-beta"
-  tags: ["T2G", "ablation", "loss", "low-beta", "few-shot", "sft-grpo"]
+  run_name: "aslg-pc12-qwen25-05b-ablations-loss-low-beta"
+  tags: ["T2G", "ASLG-PC12", "qwen25-05b", "ablation", "loss", "low-beta", "few-shot", "sft-grpo"]

@@ -61,5 +61,5 @@ retrieval:
   top_k: 3
 
 wandb:
-  run_name: "qwen25-05b-sft-grpo-few-shot"
-  tags: ["T2G", "sft-grpo", "few-shot", "retrieval", "trie"]
+  run_name: "aslg-pc12-qwen25-05b-sft-grpo-few-shot"
+  tags: ["T2G", "ASLG-PC12", "qwen25-05b", "sft-grpo", "few-shot", "retrieval", "trie"]

@@ -63,5 +63,5 @@ training:
   log_dir: "experiments/logs/aslg-pc12/qwen25-05b/ablations/objectives/sft-structured"
 
 wandb:
-  run_name: "qwen25-05b-abl-obj-structured"
-  tags: ["T2G", "ablation", "objective", "structured", "crf", "sft"]
+  run_name: "aslg-pc12-qwen25-05b-ablations-objectives-sft-structured"
+  tags: ["T2G", "ASLG-PC12", "qwen25-05b", "ablation", "objective", "structured", "crf", "sft"]

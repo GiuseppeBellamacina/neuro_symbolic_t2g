@@ -65,8 +65,8 @@ SLURM_QOS_DEFAULT="${SLURM_QOS:-gpu-xlarge}"
 # ── Layout <dataset>/<model>/<cella> (specchio di src/utils/run_paths.py) ────
 # experiments/{configs,checkpoints,logs,results,figures}/<dataset>/<model>/...
 # Dataset noti = chiavi di src/datasets/registry.py::DATASETS. Il primo e' il
-# default: le sue celle hanno tag senza prefisso (storico), gli altri dataset
-# prefissano il tag con la propria chiave.
+# default (layout legacy senza dataset). Ogni tag comincia con la chiave del
+# dataset, ASLG-PC12 compreso.
 T2G_DATASETS="aslg-pc12 phoenix-2014t wos-46985 conll-2003"
 T2G_DEFAULT_DATASET="aslg-pc12"
 T2G_DEFAULT_MODEL="qwen25-05b"
@@ -95,9 +95,10 @@ t2g_dataset_of_config() {
 }
 
 # t2g_tag_from_config <config.yaml> - tag job/monitor della cella: il path
-# sotto <dataset>/<model>/ con / e _ → -, prefissato dal dataset se non e'
-# quello di default. Specchio ESATTO di run_paths.cell_tag (test dedicato):
-#   experiments/configs/aslg-pc12/qwen25-05b/grpo/few-shot.yaml → grpo-few-shot
+# sotto <dataset>/<model>/ con / e _ → -, prefissato SEMPRE dal dataset.
+# Specchio ESATTO di run_paths.cell_tag (test dedicato):
+#   experiments/configs/aslg-pc12/qwen25-05b/grpo/few-shot.yaml
+#       → aslg-pc12-grpo-few-shot
 #   experiments/configs/phoenix-2014t/qwen25-05b/grpo/few-shot.yaml
 #       → phoenix-2014t-grpo-few-shot
 t2g_tag_from_config() {
@@ -113,10 +114,7 @@ t2g_tag_from_config() {
     fi
     rel="${rel#*/}" # via il modello
     local tag
-    tag=$(printf '%s' "$rel" | tr '/_' '--')
-    if [ "$dataset" != "$T2G_DEFAULT_DATASET" ]; then
-        tag="${dataset}-${tag}"
-    fi
+    tag="${dataset}-$(printf '%s' "$rel" | tr '/_' '--')"
     printf '%s\n' "$tag"
 }
 

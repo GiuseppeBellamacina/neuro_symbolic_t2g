@@ -22,4 +22,4 @@ retrieval:
 
 wandb:
   run_name: "conll-2003-qwen25-05b-grpo-few-shot"
-  tags: ["T2G-framework", "CoNLL-2003", "grpo", "few-shot", "retrieval", "trie"]
+  tags: ["T2G", "CoNLL-2003", "qwen25-05b", "grpo", "few-shot", "retrieval", "trie"]

@@ -75,5 +75,5 @@ training:
   log_dir: "experiments/logs/aslg-pc12/qwen25-05b/ablations/rewards/lean-stack"
 
 wandb:
-  run_name: "qwen25-05b-abl-reward-lean-stack"
-  tags: ["T2G", "ablation", "reward", "lean-stack", "few-shot", "sft-grpo"]
+  run_name: "aslg-pc12-qwen25-05b-ablations-rewards-lean-stack"
+  tags: ["T2G", "ASLG-PC12", "qwen25-05b", "ablation", "reward", "lean-stack", "few-shot", "sft-grpo"]

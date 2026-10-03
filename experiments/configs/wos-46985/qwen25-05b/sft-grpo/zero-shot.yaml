@@ -44,4 +44,4 @@ training:
 
 wandb:
   run_name: "wos-46985-qwen25-05b-sft-grpo-zero-shot"
-  tags: ["T2G-framework", "WoS", "sft-grpo", "zero-shot", "trie"]
+  tags: ["T2G", "WOS-46985", "qwen25-05b", "sft-grpo", "zero-shot", "trie"]

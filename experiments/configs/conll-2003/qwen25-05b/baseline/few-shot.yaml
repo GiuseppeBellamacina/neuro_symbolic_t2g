@@ -24,4 +24,4 @@ evaluation:
 
 wandb:
   run_name: "conll-2003-qwen25-05b-baseline-few-shot"
-  tags: ["T2G-framework", "CoNLL-2003", "baseline", "few-shot", "retrieval", "trie", "eval-only"]
+  tags: ["T2G", "CoNLL-2003", "qwen25-05b", "baseline", "few-shot", "retrieval", "trie", "eval-only"]

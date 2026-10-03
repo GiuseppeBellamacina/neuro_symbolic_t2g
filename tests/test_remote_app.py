@@ -419,7 +419,7 @@ def test_jobs_add_and_list(client):
     resp = test_client.post(
         "/jobs",
         headers=AUTH,
-        json={"type": "train", "config": "sft-grpo-few-shot", "tag": "run1"},
+        json={"type": "train", "config": "aslg-pc12-sft-grpo-few-shot", "tag": "run1"},
     )
     assert resp.status_code == 201
     assert (
@@ -446,12 +446,14 @@ def test_jobs_add_and_list(client):
 def test_jobs_tag_derived_and_mode(client):
     test_client, _ = client
     resp = test_client.post(
-        "/jobs", headers=AUTH, json={"type": "eval", "config": "sft-zero-shot"}
+        "/jobs",
+        headers=AUTH,
+        json={"type": "eval", "config": "aslg-pc12-sft-zero-shot"},
     )
     assert resp.status_code == 201
     assert (
         resp.json()["added"]
-        == "eval:experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot.yaml:sft-zero-shot"
+        == "eval:experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot.yaml:aslg-pc12-sft-zero-shot"
     )
 
     resp = test_client.post(
@@ -459,7 +461,7 @@ def test_jobs_tag_derived_and_mode(client):
         headers=AUTH,
         json={
             "type": "train",
-            "config": "grpo-few-shot",
+            "config": "aslg-pc12-grpo-few-shot",
             "tag": "x",
             "mode": "--resume",
         },
@@ -498,14 +500,14 @@ def test_queue_replace_explicit_jobs(client):
         headers=AUTH,
         json={
             "jobs": [
-                {"type": "eval", "config": "sft-zero-shot"},
-                {"type": "train", "config": "grpo-few-shot", "tag": "exp1"},
+                {"type": "eval", "config": "aslg-pc12-sft-zero-shot"},
+                {"type": "train", "config": "aslg-pc12-grpo-few-shot", "tag": "exp1"},
             ]
         },
     )
     assert resp.status_code == 200
     assert resp.json()["queue"] == [
-        "eval:experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot.yaml:sft-zero-shot",
+        "eval:experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot.yaml:aslg-pc12-sft-zero-shot",
         "train:experiments/configs/aslg-pc12/qwen25-05b/grpo/few-shot.yaml:exp1",
     ]
 
@@ -515,7 +517,7 @@ def test_queue_replace_empty_jobs_clears_queue(client):
     test_client.post(
         "/queue",
         headers=AUTH,
-        json={"jobs": [{"type": "eval", "config": "sft-zero-shot"}]},
+        json={"jobs": [{"type": "eval", "config": "aslg-pc12-sft-zero-shot"}]},
     )
     resp = test_client.post("/queue", headers=AUTH, json={"jobs": []})
     assert resp.status_code == 200
@@ -539,9 +541,9 @@ def test_delete_jobs_by_tag(client):
         headers=AUTH,
         json={
             "jobs": [
-                {"type": "train", "config": "sft-grpo-few-shot", "tag": "t1"},
-                {"type": "eval", "config": "sft-grpo-few-shot", "tag": "t1"},
-                {"type": "eval", "config": "sft-zero-shot", "tag": "t2"},
+                {"type": "train", "config": "aslg-pc12-sft-grpo-few-shot", "tag": "t1"},
+                {"type": "eval", "config": "aslg-pc12-sft-grpo-few-shot", "tag": "t1"},
+                {"type": "eval", "config": "aslg-pc12-sft-zero-shot", "tag": "t2"},
             ]
         },
     )
@@ -563,9 +565,9 @@ def test_delete_jobs_unknown_tag_no_rewrite(client):
         headers=AUTH,
         json={
             "jobs": [
-                {"type": "eval", "config": "sft-zero-shot"},
-                {"type": "train", "config": "grpo-few-shot", "tag": "exp1"},
-                {"type": "eval", "config": "grpo-few-shot", "tag": "exp1"},
+                {"type": "eval", "config": "aslg-pc12-sft-zero-shot"},
+                {"type": "train", "config": "aslg-pc12-grpo-few-shot", "tag": "exp1"},
+                {"type": "eval", "config": "aslg-pc12-grpo-few-shot", "tag": "exp1"},
             ]
         },
     )
@@ -757,8 +759,8 @@ def test_jobs_batch_enqueues_in_order_and_ticks(client):
         headers=AUTH,
         json={
             "jobs": [
-                {"type": "train", "config": "sft-grpo-few-shot"},
-                {"type": "eval", "config": "sft-grpo-few-shot"},
+                {"type": "train", "config": "aslg-pc12-sft-grpo-few-shot"},
+                {"type": "eval", "config": "aslg-pc12-sft-grpo-few-shot"},
             ],
             "start_now": True,
         },
@@ -766,10 +768,10 @@ def test_jobs_batch_enqueues_in_order_and_ticks(client):
     assert resp.status_code == 201
     body = resp.json()
     assert body["started_now"] is True
-    assert body["active_job"]["name"] == "train-sft-grpo-few-shot"
+    assert body["active_job"]["name"] == "train-aslg-pc12-sft-grpo-few-shot"
     # train consumato dal tick, eval in coda
     assert fake.queue == [
-        "eval:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:sft-grpo-few-shot"
+        "eval:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:aslg-pc12-sft-grpo-few-shot"
     ]
     assert len(body["queued"]) == 2
     # PROVA riduzione round-trip: erano N+2 ssh seriali → ora 1 sola
@@ -788,7 +790,7 @@ def test_jobs_batch_atomic_validation(client):
         headers=AUTH,
         json={
             "jobs": [
-                {"type": "train", "config": "sft-grpo-few-shot"},
+                {"type": "train", "config": "aslg-pc12-sft-grpo-few-shot"},
                 {"type": "train", "config": "config_inesistente"},
             ]
         },
@@ -811,7 +813,7 @@ def test_jobs_batch_without_start_now_only_enqueues(client):
         "/jobs/batch",
         headers=AUTH,
         json={
-            "jobs": [{"type": "eval", "config": "sft-zero-shot"}],
+            "jobs": [{"type": "eval", "config": "aslg-pc12-sft-zero-shot"}],
             "start_now": False,
         },
     )
@@ -892,12 +894,12 @@ def test_start_job_enqueues_and_ticks(client):
     resp = test_client.post(
         "/jobs/start",
         headers=AUTH,
-        json={"type": "train", "config": "sft-grpo-few-shot"},
+        json={"type": "train", "config": "aslg-pc12-sft-grpo-few-shot"},
     )
     assert resp.status_code == 201
     body = resp.json()
     assert body["started_now"] is True
-    assert body["active_job"]["name"] == "train-sft-grpo-few-shot"
+    assert body["active_job"]["name"] == "train-aslg-pc12-sft-grpo-few-shot"
     # PROVA riduzione round-trip: erano 3 ssh seriali (enqueue, tick, monitor)
     # → ora è UNA sola connessione con il subcomando combinato start_batch
     assert len(fake.commands) == 1
@@ -912,12 +914,12 @@ def test_start_job_enqueued_when_busy(client):
     resp = test_client.post(
         "/jobs/start",
         headers=AUTH,
-        json={"type": "train", "config": "sft-grpo-few-shot"},
+        json={"type": "train", "config": "aslg-pc12-sft-grpo-few-shot"},
     )
     assert resp.status_code == 201
     assert resp.json()["started_now"] is False
     assert fake.queue == [
-        "train:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:sft-grpo-few-shot"
+        "train:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:aslg-pc12-sft-grpo-few-shot"
     ]
     assert len(fake.commands) == 1  # anche a coda occupata: 1 sola ssh
 
@@ -1141,9 +1143,9 @@ def test_ssh_roundtrips_counted_via_subprocess_mock(monkeypatch, tmp_path):
 
     status_out = (
         "STATUS_OK=1\n"
-        "ACTIVE_JOB=777|train-sft-grpo-few-shot|RUNNING\n"
+        "ACTIVE_JOB=777|train-aslg-pc12-sft-grpo-few-shot|RUNNING\n"
         "QUEUE=\nQUEUE_COUNT=0\n"
-        "LAST_JOB=777:train:cfg:sft-grpo-few-shot:0\n"
+        "LAST_JOB=777:train:cfg:aslg-pc12-sft-grpo-few-shot:0\n"
         "STOPPED=0\nERRORS_COUNT=0\nERRORS_TAIL=[]\n"
         "LOG_PATH=\nLOG_TAIL_B64=\n"
     )
@@ -1166,7 +1168,7 @@ def test_ssh_roundtrips_counted_via_subprocess_mock(monkeypatch, tmp_path):
         r = test_client.post(
             "/jobs/start",
             headers=AUTH,
-            json={"type": "train", "config": "sft-grpo-few-shot"},
+            json={"type": "train", "config": "aslg-pc12-sft-grpo-few-shot"},
         )
         assert r.status_code == 201
         assert r.json()["started_now"] is True
@@ -1180,9 +1182,9 @@ def test_ssh_roundtrips_counted_via_subprocess_mock(monkeypatch, tmp_path):
             headers=AUTH,
             json={
                 "jobs": [
-                    {"type": "train", "config": "sft-grpo-few-shot"},
-                    {"type": "eval", "config": "sft-grpo-few-shot"},
-                    {"type": "eval", "config": "sft-zero-shot"},
+                    {"type": "train", "config": "aslg-pc12-sft-grpo-few-shot"},
+                    {"type": "eval", "config": "aslg-pc12-sft-grpo-few-shot"},
+                    {"type": "eval", "config": "aslg-pc12-sft-zero-shot"},
                 ],
                 "start_now": True,
             },
@@ -1554,7 +1556,7 @@ def test_configs_exposes_known_config_map(client):
     body = r.json()
     names = [c["name"] for c in body["configs"]]
     assert len(names) == len(app_module.CONFIG_MAP) == 54
-    assert "sft-grpo-zero-shot" in names
+    assert "aslg-pc12-sft-grpo-zero-shot" in names
     assert "phoenix-2014t-grpo-few-shot" in names
     assert all(c["path"] for c in body["configs"])
 

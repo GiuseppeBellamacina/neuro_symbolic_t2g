@@ -34,5 +34,5 @@ training:
   log_dir: "experiments/logs/aslg-pc12/qwen25-05b/grpo/zero-shot"
 
 wandb:
-  run_name: "qwen25-05b-grpo-zero-shot"
-  tags: ["T2G", "grpo", "zero-shot", "trie"]
+  run_name: "aslg-pc12-qwen25-05b-grpo-zero-shot"
+  tags: ["T2G", "ASLG-PC12", "qwen25-05b", "grpo", "zero-shot", "trie"]

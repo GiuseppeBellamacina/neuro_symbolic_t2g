@@ -28,8 +28,9 @@
 # Dataset: --dataset=<chiave> (default aslg-pc12; noti: aslg-pc12, phoenix-2014t,
 # wos-46985, conll-2003 — gli ultimi due sono i task non-gloss di GrammarRL)
 # sceglie l'albero experiments/configs/<dataset>/<modello>/ (modello: env
-# T2G_MODEL, default qwen25-05b). Il tag dei job delle celle non-ASLG e'
-# prefissato dal dataset (phoenix-2014t-grpo-few-shot), vedi t2g_tag_from_config.
+# T2G_MODEL, default qwen25-05b). Il tag dei job e' sempre prefissato dal
+# dataset (aslg-pc12-grpo-few-shot, phoenix-2014t-grpo-few-shot), vedi
+# t2g_tag_from_config.
 #
 # Config specifici (path relativo a <dataset>/<modello>, senza .yaml; oppure
 # relativo a experiments/configs/, oppure il path completo del file):
@@ -225,20 +226,20 @@ elif [ "$ABLATION" -eq 1 ]; then
     # Formato: TAG:CONFIG[:MODE]
     # MODE: te=train+eval (default), e=eval-only, t=train-only
     MODELS=(
-        "baseline-zero-shot:experiments/configs/aslg-pc12/qwen25-05b/baseline/zero-shot.yaml:e"
-        "baseline-zero-shot-no-grammar:experiments/configs/aslg-pc12/qwen25-05b/baseline/zero-shot-no-grammar.yaml:e"
-        "baseline-few-shot:experiments/configs/aslg-pc12/qwen25-05b/baseline/few-shot.yaml:e"
-        "sft-zero-shot:experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot.yaml:te"
-        "grpo-zero-shot:experiments/configs/aslg-pc12/qwen25-05b/grpo/zero-shot.yaml:te"
-        "grpo-few-shot:experiments/configs/aslg-pc12/qwen25-05b/grpo/few-shot.yaml:te"
-        "sft-grpo-zero-shot:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/zero-shot.yaml:te"
-        "sft-grpo-few-shot:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:te"
-        "ablations-decoding-no-grammar:experiments/configs/aslg-pc12/qwen25-05b/ablations/decoding/no-grammar.yaml:te"
-        "ablations-decoding-hot-rollout:experiments/configs/aslg-pc12/qwen25-05b/ablations/decoding/hot-rollout.yaml:te"
-        "ablations-rewards-edit-validity:experiments/configs/aslg-pc12/qwen25-05b/ablations/rewards/edit-validity.yaml:te"
-        "ablations-loss-dr-grpo:experiments/configs/aslg-pc12/qwen25-05b/ablations/loss/dr-grpo.yaml:te"
-        "ablations-objectives-sft-allowed-mass:experiments/configs/aslg-pc12/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml:te"
-        "ablations-objectives-sft-structured:experiments/configs/aslg-pc12/qwen25-05b/ablations/objectives/sft-structured.yaml:te"
+        "aslg-pc12-baseline-zero-shot:experiments/configs/aslg-pc12/qwen25-05b/baseline/zero-shot.yaml:e"
+        "aslg-pc12-baseline-zero-shot-no-grammar:experiments/configs/aslg-pc12/qwen25-05b/baseline/zero-shot-no-grammar.yaml:e"
+        "aslg-pc12-baseline-few-shot:experiments/configs/aslg-pc12/qwen25-05b/baseline/few-shot.yaml:e"
+        "aslg-pc12-sft-zero-shot:experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot.yaml:te"
+        "aslg-pc12-grpo-zero-shot:experiments/configs/aslg-pc12/qwen25-05b/grpo/zero-shot.yaml:te"
+        "aslg-pc12-grpo-few-shot:experiments/configs/aslg-pc12/qwen25-05b/grpo/few-shot.yaml:te"
+        "aslg-pc12-sft-grpo-zero-shot:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/zero-shot.yaml:te"
+        "aslg-pc12-sft-grpo-few-shot:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:te"
+        "aslg-pc12-ablations-decoding-no-grammar:experiments/configs/aslg-pc12/qwen25-05b/ablations/decoding/no-grammar.yaml:te"
+        "aslg-pc12-ablations-decoding-hot-rollout:experiments/configs/aslg-pc12/qwen25-05b/ablations/decoding/hot-rollout.yaml:te"
+        "aslg-pc12-ablations-rewards-edit-validity:experiments/configs/aslg-pc12/qwen25-05b/ablations/rewards/edit-validity.yaml:te"
+        "aslg-pc12-ablations-loss-dr-grpo:experiments/configs/aslg-pc12/qwen25-05b/ablations/loss/dr-grpo.yaml:te"
+        "aslg-pc12-ablations-objectives-sft-allowed-mass:experiments/configs/aslg-pc12/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml:te"
+        "aslg-pc12-ablations-objectives-sft-structured:experiments/configs/aslg-pc12/qwen25-05b/ablations/objectives/sft-structured.yaml:te"
     )
 elif [ -n "$CONFIG_NAME" ]; then
     # Config specifico passato come argomento (es. "grpo/few-shot"). Ordine di
@@ -268,7 +269,7 @@ elif [ -n "$CONFIG_NAME" ]; then
         exit 1
     fi
     # Tag dal path sotto <dataset>/<modello>/ (slash → trattini, prefisso
-    # dataset se non e' quello di default): _lib.sh::t2g_tag_from_config.
+    # del dataset): _lib.sh::t2g_tag_from_config.
     TAG=$(t2g_tag_from_config "$CONFIG_PATH")
     MODELS=("${TAG}:${CONFIG_PATH}")
 else

@@ -37,5 +37,5 @@ training:
   log_dir: "experiments/logs/aslg-pc12/qwen25-05b/ablations/objectives/sft-structured-shuffled"
 
 wandb:
-  run_name: "qwen25-05b-abl-obj-structured-shuffled"
-  tags: ["T2G", "ablation", "objective", "structured", "shuffled-control", "gate2", "sft"]
+  run_name: "aslg-pc12-qwen25-05b-ablations-objectives-sft-structured-shuffled"
+  tags: ["T2G", "ASLG-PC12", "qwen25-05b", "ablation", "objective", "structured", "shuffled-control", "gate2", "sft"]

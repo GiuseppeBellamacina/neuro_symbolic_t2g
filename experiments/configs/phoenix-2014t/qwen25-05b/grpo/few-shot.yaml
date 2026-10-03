@@ -24,4 +24,4 @@ retrieval:
 
 wandb:
   run_name: "phoenix-2014t-qwen25-05b-grpo-few-shot"
-  tags: ["T2G", "PHOENIX-2014T", "grpo", "few-shot", "retrieval", "trie"]
+  tags: ["T2G", "PHOENIX-2014T", "qwen25-05b", "grpo", "few-shot", "retrieval", "trie"]

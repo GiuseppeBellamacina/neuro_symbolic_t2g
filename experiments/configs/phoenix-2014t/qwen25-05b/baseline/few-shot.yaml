@@ -27,4 +27,4 @@ evaluation:
 
 wandb:
   run_name: "phoenix-2014t-qwen25-05b-baseline-few-shot"
-  tags: ["T2G", "PHOENIX-2014T", "baseline", "few-shot", "retrieval", "trie", "eval-only"]
+  tags: ["T2G", "PHOENIX-2014T", "qwen25-05b", "baseline", "few-shot", "retrieval", "trie", "eval-only"]

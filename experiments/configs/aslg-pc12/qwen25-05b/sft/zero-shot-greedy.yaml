@@ -36,5 +36,5 @@ evaluation:
   results_subdir: "decoding-greedy"
 
 wandb:
-  run_name: "qwen25-05b-sft-zero-shot-greedy"
-  tags: ["T2G", "sft", "zero-shot", "trie", "greedy", "eval-only"]
+  run_name: "aslg-pc12-qwen25-05b-sft-zero-shot-greedy"
+  tags: ["T2G", "ASLG-PC12", "qwen25-05b", "sft", "zero-shot", "trie", "greedy", "eval-only"]

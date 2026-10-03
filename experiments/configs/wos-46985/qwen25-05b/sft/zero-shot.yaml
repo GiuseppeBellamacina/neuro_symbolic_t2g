@@ -42,4 +42,4 @@ evaluation:
 
 wandb:
   run_name: "wos-46985-qwen25-05b-sft-zero-shot"
-  tags: ["T2G-framework", "WoS", "sft", "zero-shot", "trie"]
+  tags: ["T2G", "WOS-46985", "qwen25-05b", "sft", "zero-shot", "trie"]

@@ -371,9 +371,9 @@ _emit_run() {
 # Chiave/tag di una cella (specchio di src/utils/run_paths.py::cell_tag e di
 # cluster/_lib.sh::t2g_tag_from_config; questo helper e' autonomo e non
 # sorgenta _lib.sh): il path sotto <dataset>/<modello>/ con '-' al posto di
-# '/', prefissato dal dataset se non e' aslg-pc12. Layout legacy senza dataset
+# '/', prefissato SEMPRE dal dataset. Layout legacy senza dataset
 # (<modello>/...) = aslg-pc12.
-#   aslg-pc12/qwen25-05b/baseline/zero-shot     -> baseline-zero-shot
+#   aslg-pc12/qwen25-05b/baseline/zero-shot     -> aslg-pc12-baseline-zero-shot
 #   phoenix-2014t/qwen25-05b/grpo/few-shot      -> phoenix-2014t-grpo-few-shot
 _cell_key() {
     local c="$1" dataset="aslg-pc12" key
@@ -386,9 +386,7 @@ _cell_key() {
     key="${c#*/}"
     key="${key//\//-}"
     key="${key//_/-}"
-    if [ "$dataset" != "aslg-pc12" ]; then
-        key="${dataset}-${key}"
-    fi
+    key="${dataset}-${key}"
     printf '%s\n' "$key"
 }
 

@@ -29,5 +29,5 @@ training:
   log_dir: "experiments/logs/phoenix-2014t/qwen25-05b/ablations/decoding/full-vocab-trie"
 
 wandb:
-  run_name: "phoenix-2014t-qwen25-05b-abl-decoding-full-vocab-trie"
-  tags: ["T2G", "PHOENIX-2014T", "ablation", "decoding", "full-vocab", "data-leak", "few-shot", "retrieval", "trie"]
+  run_name: "phoenix-2014t-qwen25-05b-ablations-decoding-full-vocab-trie"
+  tags: ["T2G", "PHOENIX-2014T", "qwen25-05b", "ablation", "decoding", "full-vocab", "data-leak", "few-shot", "retrieval", "trie"]

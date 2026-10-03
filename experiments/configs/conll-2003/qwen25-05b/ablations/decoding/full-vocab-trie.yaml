@@ -36,5 +36,5 @@ training:
   log_dir: "experiments/logs/conll-2003/qwen25-05b/ablations/decoding/full-vocab-trie"
 
 wandb:
-  run_name: "conll-2003-qwen25-05b-abl-decoding-full-vocab-trie"
-  tags: ["T2G-framework", "CoNLL-2003", "ablation", "decoding", "full-vocab", "data-leak", "few-shot", "trie"]
+  run_name: "conll-2003-qwen25-05b-ablations-decoding-full-vocab-trie"
+  tags: ["T2G", "CoNLL-2003", "qwen25-05b", "ablation", "decoding", "full-vocab", "data-leak", "few-shot", "trie"]

@@ -43,5 +43,5 @@ training:
   log_dir: "experiments/logs/aslg-pc12/qwen25-05b/ablations/decoding/no-grammar"
 
 wandb:
-  run_name: "qwen25-05b-abl-decoding-no-grammar"
-  tags: ["T2G", "ablation", "decoding", "no-grammar", "few-shot"]
+  run_name: "aslg-pc12-qwen25-05b-ablations-decoding-no-grammar"
+  tags: ["T2G", "ASLG-PC12", "qwen25-05b", "ablation", "decoding", "no-grammar", "few-shot"]
