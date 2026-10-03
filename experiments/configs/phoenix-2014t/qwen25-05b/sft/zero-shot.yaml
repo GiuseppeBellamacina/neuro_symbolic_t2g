@@ -1,0 +1,59 @@
+# ============================================================================
+# SFT PHOENIX-2014T — supervised fine-tuning puro, zero-shot. Nessun RL.
+#
+# Gemello di aslg-pc12/qwen25-05b/sft/zero-shot.yaml, con iperparametri
+# IDENTICI (e identici alla Phase 0 di sft-grpo/few-shot.yaml di questo
+# albero, così l'adapter è condiviso per fingerprint). Il fingerprint include
+# dataset_name e system prompt, quindi un adapter ASLG-PC12 non viene MAI
+# riusato qui.
+#
+# Con 7096 righe di train, 3 epoche a batch effettivo 16 sono ~1300 passi:
+# l'early stopping (patience 3 sull'holdout del 2%, ~142 righe) può fermarsi
+# prima. L'holdout è ritagliato dal train come su ASLG-PC12; il dev ufficiale
+# resta inutilizzato per non cambiare la logica fra i due dataset.
+#
+# Uso:
+#   CONFIG=experiments/configs/phoenix-2014t/qwen25-05b/sft/zero-shot.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../base.yaml
+
+training:
+  trainer: sft
+  num_train_epochs: 3
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 8
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-5
+  warmup_steps: 50
+  weight_decay: 0.1
+  save_steps: 200
+  save_total_limit: 1
+  max_seq_length: 768
+  eval_fraction: 0.02 # holdout interno al train per l'early stopping
+  early_stopping_patience: 3
+  output_dir: "experiments/checkpoints/phoenix-2014t/qwen25-05b/sft/zero-shot"
+  log_dir: "experiments/logs/phoenix-2014t/qwen25-05b/sft/zero-shot"
+
+# Vedi aslg-pc12/qwen25-05b/sft/zero-shot.yaml per il perché di 768.
+generation:
+  max_completion_length: 128
+  max_prompt_length: 768
+  temperature: 0.7
+
+# Le reward NON addestrano l'SFT: qui pesano solo come metriche riportate.
+reward:
+  weight_translation: 0.30
+  weight_bleu: 0.0
+  weight_gold_structure: 0.35
+  weight_gloss_order: 0.15
+  weight_verifier_scaled: 0.0
+  weight_format: 0.10
+  weight_repetition: 0.10
+
+evaluation:
+  best_of_n: false # niente selezione oracle sulla cella supervisionata
+
+wandb:
+  run_name: "phoenix-2014t-qwen25-05b-sft-zero-shot"
+  tags: ["T2G", "PHOENIX-2014T", "sft", "zero-shot", "trie"]

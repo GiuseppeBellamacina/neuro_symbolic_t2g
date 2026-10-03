@@ -72,7 +72,8 @@ def build_train_retriever(
 
     Args:
         dataset_dict: A Hugging Face ``DatasetDict`` as returned by
-            ``download_aslg_dataset`` (only ``"train"`` is indexed).
+            ``src.datasets.registry.load_t2g_dataset`` (only ``"train"`` is
+            indexed).
         retriever_cfg: The resolved ``retrieval`` config section
             (``enabled``, ``backend``, ``model_name``, ``top_k``,
             ``max_self_similarity``, ``cache_path``).

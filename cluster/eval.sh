@@ -3,8 +3,8 @@
 # SLURM batch script — T2G Evaluation sul cluster
 #
 # Uso:
-#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/eval.sh
-#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml CHECKPOINT="path/to/ckpt" sbatch cluster/eval.sh
+#   CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/eval.sh
+#   CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml CHECKPOINT="path/to/ckpt" sbatch cluster/eval.sh
 #
 # TUTTI i knob comportamentali dell'eval vivono nella sezione `evaluation:` del
 # config YAML — qui NON ci sono variabili d'ambiente comportamentali (chi
@@ -70,7 +70,7 @@ CHECKPOINT="${CHECKPOINT:-}"
 
 if [ -z "$CONFIG" ]; then
     echo "❌ CONFIG non impostato. Uso:"
-    echo "  CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/eval.sh"
+    echo "  CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/eval.sh"
     exit 1
 fi
 
@@ -239,7 +239,7 @@ fi
 
 # Prepara dataset/vocab/bigram se mancanti (funzione shared da _lib.sh,
 # idempotente — era triplicata tra setup.sh/train.sh/eval.sh)
-prepare_data
+prepare_data "${CONFIG}"
 
 # ── Offline-first: i compute node NON hanno DNS ──────────────────────────────
 # Tutto il necessario è pre-cacheato da setup.sh/prepare_data. Senza questi

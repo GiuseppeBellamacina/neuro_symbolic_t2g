@@ -391,10 +391,14 @@ curl -X POST -H "X-Auth-Token: $TOKEN" $BASE/tick
 La mappa aggiornata nome → path si legge da `GET /configs` (fonte unica —
 debito: `remote/tui.py`, `cluster/run_all.sh` e `cluster/aliases.sh`
 duplicano ancora la lista e vanno allineati). L'API accetta anche il path
-completo o il solo nome file.
+completo o il solo nome file, ma solo se univoco (`few-shot.yaml` esiste in più
+celle e in più dataset → 422 "config ambiguo").
 
 Il tag è obbligatorio per distinguere i run e per `DELETE /jobs/{tag}`: se
-non lo passi, viene derivato dal nome del config (`_` → `-`, come `run_all.sh`).
+non lo passi, è il nome del config in `CONFIG_MAP`, cioè il tag della cella
+(`src/utils/run_paths.py::cell_tag`, lo stesso di `run_all.sh`: il path sotto
+`<dataset>/<modello>/` con `/` → `-`, prefissato dal dataset se non è ASLG-PC12,
+es. `phoenix-2014t-grpo-few-shot`).
 
 ### Note su pause/resume
 
@@ -440,7 +444,7 @@ Con `config=<nome dir o nome config>`:
 ```json
 {
   "config": "sft-grpo-few-shot",
-  "results_dir": "experiments/results/qwen25-05b/sft-grpo/few-shot",
+  "results_dir": "experiments/results/aslg-pc12/qwen25-05b/sft-grpo/few-shot",
   "runs": [{"run_id": "run_20260904_000559", "metrics": {...}}],
   "source": "cache|live",
   "age_seconds": 0.0

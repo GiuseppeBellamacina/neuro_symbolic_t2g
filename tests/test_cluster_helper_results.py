@@ -4,7 +4,7 @@ Il client (TUI e app remota) chiede i risultati o con il percorso esatto di una
 cella, dalla discovery, o con la chiave del config (``grpo-few-shot``,
 ``baseline-zero-shot``) quando la discovery non risponde. Le celle sono
 annidate come i config, quindi la chiave non è una sottostringa del percorso
-(``baseline-zero-shot`` contro ``qwen25-05b/baseline/zero-shot``) e una
+(``baseline-zero-shot`` contro ``aslg-pc12/qwen25-05b/baseline/zero-shot``) e una
 ricerca per sottostringa cadeva sulla cella sbagliata.
 """
 
@@ -20,13 +20,17 @@ HELPER = Path(__file__).resolve().parents[1] / "remote" / "cluster_helper.sh"
 BASH = shutil.which("bash")
 
 CELLS = [
-    "qwen25-05b/baseline/zero-shot",
-    "qwen25-05b/baseline/zero-shot-no-grammar",
-    "qwen25-05b/baseline/few-shot",
-    "qwen25-05b/grpo/few-shot",
-    "qwen25-05b/sft-grpo/few-shot",
-    "qwen25-05b/ablations/loss/dr-grpo",
-    "qwen25-05b/sft/zero-shot",
+    "aslg-pc12/qwen25-05b/baseline/zero-shot",
+    "aslg-pc12/qwen25-05b/baseline/zero-shot-no-grammar",
+    "aslg-pc12/qwen25-05b/baseline/few-shot",
+    "aslg-pc12/qwen25-05b/grpo/few-shot",
+    "aslg-pc12/qwen25-05b/sft-grpo/few-shot",
+    "aslg-pc12/qwen25-05b/ablations/loss/dr-grpo",
+    "aslg-pc12/qwen25-05b/sft/zero-shot",
+    # Stessa cella su un altro dataset: la sua chiave e' prefissata dal dataset,
+    # e "grpo-few-shot" non deve mai risolversi qui.
+    "phoenix-2014t/qwen25-05b/grpo/few-shot",
+    "phoenix-2014t/qwen25-05b/baseline/zero-shot",
 ]
 
 pytestmark = pytest.mark.skipif(BASH is None, reason="bash non disponibile")
@@ -35,6 +39,7 @@ pytestmark = pytest.mark.skipif(BASH is None, reason="bash non disponibile")
 def _call(project: Path, fn: str, arg: str = "") -> str:
     script = (
         f'PROJ_DIR="{project.as_posix()}"\n'
+        f"eval \"$(sed -n '/^_cell_key() {{/,/^}}/p' '{HELPER.as_posix()}')\"\n"
         f"eval \"$(sed -n '/^_results_cells() {{/,/^}}/p' '{HELPER.as_posix()}')\"\n"
         f"eval \"$(sed -n '/^results() {{/,/^}}/p' '{HELPER.as_posix()}')\"\n"
         "_emit_run() { :; }\n"
@@ -54,11 +59,16 @@ def project(tmp_path: Path) -> Path:
         run = results / cell / "run_20260101_000000"
         run.mkdir(parents=True)
         (run / "eval_final.json").write_text("{}", encoding="utf-8")
-    greedy = results / "qwen25-05b/sft/zero-shot/run_20260101_000000/decoding-greedy"
+    greedy = (
+        results / "aslg-pc12/qwen25-05b/sft/zero-shot/run_20260101_000000"
+        "/decoding-greedy"
+    )
     greedy.mkdir()
     (greedy / "eval_final.json").write_text("{}", encoding="utf-8")
     # orfano del vecchio layout: niente segmento run_*
-    (results / "qwen25-05b/sft/eval_final.json").write_text("{}", encoding="utf-8")
+    (results / "aslg-pc12/qwen25-05b/sft/eval_final.json").write_text(
+        "{}", encoding="utf-8"
+    )
     return tmp_path
 
 
@@ -76,11 +86,20 @@ def test_discovery_lists_each_cell_once_and_skips_orphans(project: Path) -> None
 
 @pytest.mark.parametrize("cell", CELLS)
 def test_config_key_resolves_to_its_own_cell(project: Path, cell: str) -> None:
-    key = cell.split("/", 1)[1].replace("/", "-")
-    assert _resolved(project, key) == cell
+    from src.utils.run_paths import cell_tag
+
+    assert _resolved(project, cell_tag(cell)) == cell
+
+
+def test_cell_key_mirrors_python_cell_tag(project: Path) -> None:
+    """La chiave bash e' la stessa di run_paths.cell_tag (anche layout legacy)."""
+    from src.utils.run_paths import cell_tag
+
+    for cell in [*CELLS, "qwen25-05b/grpo/zero-shot"]:
+        assert _call(project, "_cell_key", cell).strip() == cell_tag(cell), cell
 
 
 def test_exact_cell_path_still_resolves(project: Path) -> None:
-    assert _resolved(project, "qwen25-05b/baseline/few-shot") == (
-        "qwen25-05b/baseline/few-shot"
+    assert _resolved(project, "aslg-pc12/qwen25-05b/baseline/few-shot") == (
+        "aslg-pc12/qwen25-05b/baseline/few-shot"
     )

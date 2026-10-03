@@ -14,8 +14,8 @@ overfitting.  Prompt formatting is identical to the GRPO rollout prompts
 (see ``src/utils/prompting.py``).
 
 Usage:
-    python -m src.training --config experiments/configs/qwen25-05b/sft/zero-shot.yaml
-    CONFIG=experiments/configs/qwen25-05b/sft/zero-shot.yaml sbatch cluster/train.sh
+    python -m src.training --config experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot.yaml
+    CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot.yaml sbatch cluster/train.sh
 """
 
 from __future__ import annotations
@@ -49,16 +49,11 @@ from dotenv import load_dotenv
 from trl import SFTConfig, SFTTrainer  # type: ignore[import]
 
 from datasets import Dataset
-from src.datasets.aslg_dataset import (
-    build_t2g_dataset,
-    download_aslg_dataset,
-    extract_gloss_vocabulary,
-    save_vocabulary,
-)
-from src.datasets.transition_matrix import (
-    compute_bigram_transitions,
-    load_transition_matrix,
-    save_transition_matrix,
+from src.datasets.aslg_dataset import build_t2g_dataset
+from src.datasets.registry import (
+    get_dataset_spec,
+    load_t2g_dataset,
+    prepare_vocab_and_bigram,
 )
 from src.models.model_loader import load_model_and_tokenizer
 from src.training.auxiliary_sft_trainer import (
@@ -71,7 +66,7 @@ from src.training.auxiliary_sft_trainer import (
 from src.utils.config import load_config
 from src.utils.live_status import live_status_reset, live_status_set
 from src.utils.phase_timing import phase
-from src.utils.prompting import SYSTEM_PROMPT
+from src.utils.prompting import SYSTEM_PROMPT, system_prompt_for_config
 
 load_dotenv()
 
@@ -104,7 +99,9 @@ def _phase_log(label: str, *, detail: str = "") -> AbstractContextManager[None]:
 # ---------------------------------------------------------------------------
 
 
-def _build_prompt_completion_example(sample: dict[str, Any]) -> dict[str, Any]:
+def _build_prompt_completion_example(
+    sample: dict[str, Any], system_prompt: str = SYSTEM_PROMPT
+) -> dict[str, Any]:
     """Convert a raw T2G row into a prompt-completion SFT example.
 
     ``prompt`` is the conversational message list ``[system, user]`` and
@@ -120,6 +117,8 @@ def _build_prompt_completion_example(sample: dict[str, Any]) -> dict[str, Any]:
     Args:
         sample: Row from ``build_t2g_dataset`` (``prompt``, ``completion``,
             ``difficulty``; optionally ``gold_gloss`` and ``sample_id``).
+        system_prompt: System message of the config's prompt profile
+            (default: the historical ASLG-PC12 one).
 
     Returns:
         Dict with ``prompt`` and ``completion`` message lists plus the
@@ -129,7 +128,7 @@ def _build_prompt_completion_example(sample: dict[str, Any]) -> dict[str, Any]:
     gold = str(sample.get("gold_gloss") or sample["completion"]).strip()
     return {
         "prompt": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": text},
         ],
         "completion": [{"role": "assistant", "content": gold}],
@@ -196,9 +195,8 @@ def _prepare_sft_dataset(
     """
     ds_cfg = config["dataset"]
     if dataset is None:
-        dataset = download_aslg_dataset(
-            cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
-        )
+        dataset = load_t2g_dataset(ds_cfg)
+    system_prompt = system_prompt_for_config(config)
 
     t2g_ds = build_t2g_dataset(
         dataset,
@@ -209,7 +207,9 @@ def _prepare_sft_dataset(
     # WHY phase: costruire ~73k prompt-completion dict e l'encoding Arrow
     # sono muti (build_t2g_dataset sopra ha gia' la sua barra tqdm).
     with _phase_log("Formatting prompt-completion pairs", detail=f"{len(t2g_ds)} rows"):
-        rows = [_build_prompt_completion_example(sample) for sample in t2g_ds]
+        rows = [
+            _build_prompt_completion_example(sample, system_prompt) for sample in t2g_ds
+        ]
         sft_ds = Dataset.from_list(rows)
     logger.info(
         "[sft] SFT dataset: %d prompt-completion pairs (columns=%s)",
@@ -338,11 +338,21 @@ def _sft_fingerprint_payload(config: dict[str, Any]) -> dict[str, Any]:
         },
         "dataset": {
             key: dataset.get(key)
-            for key in ("dataset_name", "seed", "split", "max_samples", "thinking")
+            # vocab_source entra SOLO se dichiarato: le celle storiche non lo
+            # dichiarano, quindi i loro fingerprint (e gli adapter gia' sul
+            # cluster) restano validi.
+            for key in (
+                "dataset_name",
+                "seed",
+                "split",
+                "max_samples",
+                "thinking",
+                "vocab_source",
+            )
             if key in dataset
         },
         "sft_training": _sft_training_fingerprint_source(config),
-        "system_prompt": SYSTEM_PROMPT,
+        "system_prompt": system_prompt_for_config(config),
     }
 
 
@@ -532,7 +542,7 @@ def find_reusable_sft_adapter_cross_tag(
     Args:
         checkpoints_root: The model's checkpoints root, containing every
             cell's tag dir at whatever depth its own config nests it
-            (``experiments/checkpoints/qwen25-05b``) — NOT the caller's own
+            (``experiments/checkpoints/aslg-pc12/qwen25-05b``) — NOT the caller's own
             ``model_root.parent``, which varies with the caller's own depth.
         exclude_parent: The current config's tag dir (already searched).
         fingerprint: Expected SFT fingerprint.
@@ -711,8 +721,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
 
     # ── Step 1: Data preparation ─────────────────────────────────────────
     ds_cfg = config["dataset"]
-    vocab_path = ds_cfg.get("vocab_path", "data/gloss_vocab.txt")
-    bigram_path = ds_cfg.get("bigram_matrix_path", "data/bigram_transition.npy")
+    dataset_spec = get_dataset_spec(ds_cfg)
 
     logger.info("=" * 60)
     logger.info("STEP 1: Data Preparation")
@@ -721,28 +730,18 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     # WHY phase: load_dataset + dedup di ~80k righe + split 90/10 impiegano
     # 10-60s emettendo solo i logger.info interni di aslg_dataset (senza
     # durata): al primo avvio il job sembra appeso.
-    with _phase_log("Loading ASLG-PC12 dataset", detail="cache + dedup + 90/10 split"):
-        dataset = download_aslg_dataset(
-            cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
-        )
+    with _phase_log(
+        f"Loading {dataset_spec.display_name} dataset", detail="cache + splits"
+    ):
+        dataset = load_t2g_dataset(ds_cfg)
 
-    # Vocabulary (needed for eval compatibility)
-    if Path(vocab_path).exists():
-        from src.datasets.aslg_dataset import load_vocabulary
-
-        vocab = load_vocabulary(vocab_path)
-    else:
-        vocab = extract_gloss_vocabulary(dataset, split="train")
-        save_vocabulary(vocab, vocab_path)
-
-    # Bigram matrix (needed for eval compatibility)
-    if Path(bigram_path).exists():
-        bigram_matrix = load_transition_matrix(bigram_path)
-    else:
-        bigram_matrix = compute_bigram_transitions(
-            dataset, vocab, split="train", smoothing=1.0
-        )
-        save_transition_matrix(bigram_matrix, bigram_path)
+    # Vocabulary + bigram (needed for eval compatibility). use_cache_meta
+    # False = comportamento storico dell'SFT (qualunque file esistente vale)
+    # per ASLG-PC12 train-only; dataset/vocab_source non di default
+    # verificano comunque il sidecar (src/datasets/registry.py).
+    vocab, bigram_matrix = prepare_vocab_and_bigram(
+        ds_cfg, dataset, seed, use_cache_meta=False
+    )
 
     logger.info(
         "Data prepared: |V|=%d, bigram shape=%s",
@@ -1243,12 +1242,7 @@ def main() -> None:
 
     if args.prepare_data:
         # Handle prepare-data separately
-        ds_cfg = config["dataset"]
-        from src.datasets.aslg_dataset import download_aslg_dataset
-
-        download_aslg_dataset(
-            cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
-        )
+        load_t2g_dataset(config["dataset"])
         print("Data preparation complete.")
         return
 

@@ -1,0 +1,33 @@
+# ============================================================================
+# ABLATION DECODING PHOENIX-2014T — Trie costruito sull'INTERO dataset
+# (train + dev + test)
+#
+# Fattore unico rispetto a grpo/few-shot.yaml di questo albero:
+# `dataset.vocab_source: all`. Gemello di
+# aslg-pc12/qwen25-05b/ablations/decoding/full-vocab-trie.yaml (vedi lì la
+# spiegazione completa).
+#
+# DATA LEAK DELIBERATO: misura quanto pesa il tetto del vocabolario chiuso di
+# train. Su PHOENIX-2014T il vocabolario è piccolo e il test contiene glosse
+# assenti dal train, quindi l'effetto atteso è proporzionalmente più grande
+# che su ASLG-PC12. Mai riportare come risultato.
+#
+# Uso:
+#   CONFIG=experiments/configs/phoenix-2014t/qwen25-05b/ablations/decoding/full-vocab-trie.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../../grpo/few-shot.yaml
+
+dataset:
+  vocab_source: all
+
+evaluation:
+  dual_prompting: false
+
+training:
+  output_dir: "experiments/checkpoints/phoenix-2014t/qwen25-05b/ablations/decoding/full-vocab-trie"
+  log_dir: "experiments/logs/phoenix-2014t/qwen25-05b/ablations/decoding/full-vocab-trie"
+
+wandb:
+  run_name: "phoenix-2014t-qwen25-05b-abl-decoding-full-vocab-trie"
+  tags: ["T2G", "PHOENIX-2014T", "ablation", "decoding", "full-vocab", "data-leak", "few-shot", "retrieval", "trie"]

@@ -368,10 +368,35 @@ _emit_run() {
     fi
 }
 
+# Chiave/tag di una cella (specchio di src/utils/run_paths.py::cell_tag e di
+# cluster/_lib.sh::t2g_tag_from_config; questo helper e' autonomo e non
+# sorgenta _lib.sh): il path sotto <dataset>/<modello>/ con '-' al posto di
+# '/', prefissato dal dataset se non e' aslg-pc12. Layout legacy senza dataset
+# (<modello>/...) = aslg-pc12.
+#   aslg-pc12/qwen25-05b/baseline/zero-shot     -> baseline-zero-shot
+#   phoenix-2014t/qwen25-05b/grpo/few-shot      -> phoenix-2014t-grpo-few-shot
+_cell_key() {
+    local c="$1" dataset="aslg-pc12" key
+    case "${c%%/*}" in
+        aslg-pc12|phoenix-2014t)
+            dataset="${c%%/*}"
+            c="${c#*/}"
+            ;;
+    esac
+    key="${c#*/}"
+    key="${key//\//-}"
+    key="${key//_/-}"
+    if [ "$dataset" != "aslg-pc12" ]; then
+        key="${dataset}-${key}"
+    fi
+    printf '%s\n' "$key"
+}
+
 # Elenca, relative a experiments/results, le dir di CELLA che contengono
 # risultati. Le celle sono annidate come il config
-# (qwen25-05b/grpo/zero-shot/run_*/, qwen25-05b/baseline/zero-shot/run_*/),
-# quindi un glob a un livello vedrebbe solo "qwen25-05b". Si parte dai file
+# (aslg-pc12/qwen25-05b/grpo/zero-shot/run_*/,
+# phoenix-2014t/qwen25-05b/baseline/zero-shot/run_*/), quindi un glob a un
+# livello vedrebbe solo i dataset. Si parte dai file
 # eval_*.json e si risale alla cella togliendo il segmento run_<timestamp> e
 # tutto ciò che lo segue: le sotto-directory di sola valutazione
 # (run_*/decoding-greedy/) appartengono alla stessa cella. Un eval senza
@@ -380,7 +405,7 @@ _results_cells() {
     [ -d "$PROJ_DIR/experiments/results" ] || return 0
     (
         cd "$PROJ_DIR/experiments/results" 2>/dev/null || exit 0
-        find . -maxdepth 8 -path '*/run_*' -name 'eval_*.json' -type f 2>/dev/null |
+        find . -maxdepth 10 -path '*/run_*' -name 'eval_*.json' -type f 2>/dev/null |
             sed -e 's|^\./||' -e 's|/run_[^/]*/.*$||' |
             sort -u
     )
@@ -413,14 +438,14 @@ EOF
         dir="$PROJ_DIR/experiments/results/$token"
     else
         local c key
-        # Chiave di config (CONFIG_MAP dell'app, fallback della TUI): il percorso
-        # della cella senza il tag del modello, con '-' al posto di '/'
-        # (qwen25-05b/baseline/zero-shot <-> baseline-zero-shot). Match esatto,
-        # prima di qualunque sottostringa: "grpo-few-shot" è contenuto anche in
-        # sft-grpo/few-shot, e "baseline" in tutte e tre le baseline.
+        # Chiave di config (CONFIG_MAP dell'app, fallback della TUI): vedi
+        # _cell_key (aslg-pc12/qwen25-05b/baseline/zero-shot <->
+        # baseline-zero-shot). Match esatto, prima di qualunque sottostringa:
+        # "grpo-few-shot" è contenuto anche in sft-grpo/few-shot e in
+        # phoenix-2014t-grpo-few-shot, e "baseline" in tutte le baseline.
         for c in $(_results_cells); do
-            key="${c#*/}"
-            if [ "${key//\//-}" = "$token" ]; then
+            key=$(_cell_key "$c")
+            if [ "$key" = "$token" ]; then
                 dir="$PROJ_DIR/experiments/results/$c"
                 break
             fi

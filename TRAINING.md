@@ -31,7 +31,7 @@ Il progetto addestra **Qwen2.5-0.5B-Instruct** a tradurre frasi inglesi in **glo
 5. **8 Reward Functions**: guidano l'apprendimento senza supervisione umana
 6. **GRPO Training**: il modello genera G=8 completions per prompt, riceve reward,
    e aggiorna i pesi LoRA per massimizzare la reward attesa
-7. **Salvataggio**: checkpoint ogni `training.save_steps` (500 in base.yaml), modello finale in `experiments/checkpoints/qwen25-05b/sft-grpo/few-shot/run_<timestamp>/final/`
+7. **Salvataggio**: checkpoint ogni `training.save_steps` (500 in base.yaml), modello finale in `experiments/checkpoints/aslg-pc12/qwen25-05b/sft-grpo/few-shot/run_<timestamp>/final/`
 
 ### Le reward function
 
@@ -108,7 +108,7 @@ t2g-gpu
 ### Output attesi
 
 ```
-experiments/checkpoints/qwen25-05b/sft-grpo/few-shot/run_<timestamp>/
+experiments/checkpoints/aslg-pc12/qwen25-05b/sft-grpo/few-shot/run_<timestamp>/
 ├── checkpoint-500/        # Dopo 500 step (training.save_steps)
 ├── checkpoint-1000/       # Dopo 1000 step
 ├── ...                    # Ogni save_steps
@@ -127,7 +127,7 @@ logs/
 run-all --resume
 
 # Oppure manualmente
-CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 ```
 
 # Ablation study completa (15 celle / 27 entry)
@@ -141,7 +141,7 @@ ablation-summary            # tabella + grafico cross-config post-pipeline
 
 ### Configurazione
 
-Modifica `experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml` per:
+Modifica `experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml` per:
 
 - **Durata**: `training.max_steps` (default 5000 in base.yaml; governa SOLO il
   GRPO — l'SFT è governato da `num_train_epochs` e ignora `max_steps`).

@@ -37,6 +37,7 @@ SFT_CONFIG_PATH = (
     Path(__file__).resolve().parent.parent
     / "experiments"
     / "configs"
+    / "aslg-pc12"
     / "qwen25-05b"
     / "sft"
     / "zero-shot.yaml"
@@ -153,7 +154,7 @@ def test_prepare_sft_dataset_uses_eval_fraction(monkeypatch) -> None:
         [_fake_t2g_row(prompt=f"Sentence {i}.") for i in range(20)]
     )
     monkeypatch.setattr(sft_train, "build_t2g_dataset", lambda *a, **k: fake_t2g)
-    monkeypatch.setattr(sft_train, "download_aslg_dataset", lambda *a, **k: None)
+    monkeypatch.setattr(sft_train, "load_t2g_dataset", lambda *a, **k: None)
 
     config = {
         "dataset": {"seed": 42},
@@ -352,12 +353,16 @@ def test_compute_sft_fingerprint_sensitive_to_dataset_and_model() -> None:
 
 
 def test_compute_sft_fingerprint_sensitive_to_system_prompt(monkeypatch) -> None:
-    """A changed SYSTEM_PROMPT invalidates the adapter."""
+    """A changed system prompt invalidates the adapter."""
     from src.training import sft_train
 
     cfg = _sft_fingerprint_config()
     fp_before = compute_sft_fingerprint(cfg)
-    monkeypatch.setattr(sft_train, "SYSTEM_PROMPT", "A completely different prompt.")
+    monkeypatch.setattr(
+        sft_train,
+        "system_prompt_for_config",
+        lambda _config: "A completely different prompt.",
+    )
     assert compute_sft_fingerprint(cfg) != fp_before
 
 

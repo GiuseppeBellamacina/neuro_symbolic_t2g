@@ -70,7 +70,7 @@ import matplotlib.pyplot as plt
 
 from src.utils import chart_style
 from src.utils.metrics import PRIMARY_METRICS, SATURATED_OVERLAP_METRICS
-from src.utils.run_paths import cell_sort_key
+from src.utils.run_paths import DATASET_KEYS, DEFAULT_DATASET_KEY, cell_sort_key
 
 logger = logging.getLogger(__name__)
 
@@ -393,12 +393,25 @@ def discover_runs(results_dir: Path) -> dict:
             factors["method"] = "baseline"
             sources["method"] = "eval file kind (no-checkpoint baseline)"
 
-        # Il modello è il primo segmento del percorso: ogni cella vive sotto
-        # results/<modello>/. Dedurlo dal nome riusciva solo con un marcatore
-        # di metodo nel nome, e senza il modello nella tipologia due modelli
-        # con la stessa cella collassavano in una sola (l'altra superseded).
-        factors["model_tag"] = rel.parts[0]
-        sources["model_tag"] = "first path segment (results/<model>/...)"
+        # Il modello viene dal percorso: ogni cella vive sotto
+        # results/<dataset>/<modello>/ (legacy: results/<modello>/). Dedurlo
+        # dal nome riusciva solo con un marcatore di metodo nel nome, e senza
+        # il modello nella tipologia due modelli con la stessa cella
+        # collassavano in una sola (l'altra superseded). Il dataset entra nel
+        # model_tag (``<dataset>/<modello>``): tipologie e coppie restano
+        # confinate a un solo dataset, mai confrontate attraverso corpora.
+        if rel.parts[0] in DATASET_KEYS and len(rel.parts) > 3:
+            factors["dataset"] = rel.parts[0]
+            factors["model_tag"] = f"{rel.parts[0]}/{rel.parts[1]}"
+            sources["dataset"] = "first path segment (results/<dataset>/...)"
+            sources["model_tag"] = (
+                "first two path segments (results/<dataset>/<model>/...)"
+            )
+        else:
+            factors["dataset"] = DEFAULT_DATASET_KEY
+            factors["model_tag"] = rel.parts[0]
+            sources["dataset"] = "legacy layout without dataset segment (default)"
+            sources["model_tag"] = "first path segment (results/<model>/...)"
         cell_path = "/".join(part for part in rel.parts[:-1] if part != run_id)
 
         timestamp = _parse_run_timestamp(run_id)

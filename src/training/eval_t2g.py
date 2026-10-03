@@ -1,7 +1,8 @@
 """
 T2G Evaluation Script — Multi-metric with plots.
 
-Evaluates trained checkpoints on the ASLG-PC12 test set using:
+Evaluates trained checkpoints on the test set of the configured corpus
+(``dataset.dataset_name``: ASLG-PC12 or PHOENIX-2014T) using:
     - ROUGE-L F1 (translation quality)
     - BLEU (sacreBLEU sentence + corpus)
     - chrF2 (sacreBLEU, sentence + corpus)
@@ -63,7 +64,7 @@ config; l'unica superficie CLI è ``--config`` + ``--checkpoint``, che
 identificano COSA valutare (non COME):
 
     # Single checkpoint eval (plot/compare/best_of_n/prompting/… dal config)
-    python -m src.training.eval_t2g --config experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml --checkpoint path/to/ckpt
+    python -m src.training.eval_t2g --config experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml --checkpoint path/to/ckpt
 
     # Compare baseline vs checkpoint — SAME decoding AND same prompting for
     # both (the baseline reuses the cell's config, incl. retrieval.enabled).
@@ -76,7 +77,7 @@ identificano COSA valutare (non COME):
     # Baseline-only eval (generates baseline JSON for later comparison):
     # dedotto automaticamente sulle celle eval-only (baseline/*), oppure
     # evaluation.eval_baseline_only: true.
-    python -m src.training.eval_t2g --config experiments/configs/qwen25-05b/baseline/few-shot.yaml
+    python -m src.training.eval_t2g --config experiments/configs/aslg-pc12/qwen25-05b/baseline/few-shot.yaml
 """
 
 from __future__ import annotations
@@ -119,14 +120,12 @@ warnings.filterwarnings(
 from src.analysis.rule_baseline import fit_from_split as _fit_rule_baseline
 from src.analysis.rule_repair import RuleRepairer
 from src.analysis.rule_repair import fit as _fit_rule_repairer
-from src.datasets.aslg_dataset import (
-    download_aslg_dataset,
-    load_vocabulary,
+from src.datasets.registry import (
+    load_t2g_dataset,
+    prepare_vocab_and_bigram,
+    resolve_vocab_source,
 )
-from src.datasets.transition_matrix import (
-    load_transition_matrix,
-    sequence_score_bigram,
-)
+from src.datasets.transition_matrix import sequence_score_bigram
 from src.grammar.gloss_grammar import GlossVocabularyMask
 from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
 from src.models.model_loader import resolve_model_source
@@ -156,7 +155,11 @@ from src.utils.metrics import (
     seeded_sample_indices,
 )
 from src.utils.phase_timing import phase
-from src.utils.prompting import SYSTEM_PROMPT, build_t2g_prompt
+from src.utils.prompting import (
+    PromptProfile,
+    build_t2g_prompt,
+    prompt_profile_for_config,
+)
 from src.utils.run_paths import eval_output_location
 
 logger = logging.getLogger("t2g-eval")
@@ -355,13 +358,19 @@ def _prompt_context_fingerprint(
         "model": config.get("model", {}).get("name"),
         "dataset_name": config.get("dataset", {}).get("dataset_name"),
         "seed": config.get("dataset", {}).get("seed", 42),
-        "system_prompt": SYSTEM_PROMPT,
+        "system_prompt": prompt_profile_for_config(config).system_prompt,
         "retrieval": config.get("retrieval", {}),
         "grammar": {
             "enabled": grammar_cfg.get("enabled", True),
         },
         "num_samples": num_samples,
     }
+    # Il vocabolario del Trie cambia le generazioni della baseline: con
+    # vocab_source non di default la cache va separata. Chiave assente nel
+    # caso storico (train), così i fingerprint già in cache restano validi.
+    vocab_source = resolve_vocab_source(config.get("dataset", {}))
+    if vocab_source != "train":
+        payload["vocab_source"] = vocab_source
     if prompting in ("zero-shot", "few-shot") and prompting != config_mode:
         payload["prompting_override"] = prompting
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -799,6 +808,7 @@ def _collect_completions_with_resume(
     prompting_mode: str,
     checkpoint_key: str,
     test_set_size: int,
+    prompt_profile: PromptProfile | None = None,
 ) -> tuple[
     list[list[str]],
     list[str],
@@ -917,6 +927,7 @@ def _collect_completions_with_resume(
             text,
             tokenizer,
             examples=examples_batch[idx] if examples_batch is not None else None,
+            profile=prompt_profile,
         )
 
         completions = generate_fn(prompt)
@@ -1301,13 +1312,12 @@ def evaluate_checkpoint(
     gen_cfg = config.get("generation", config.get("grpo", {}))
 
     # ── Load test data ───────────────────────────────────────────────────
-    dataset = download_aslg_dataset(
-        cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
-    )
-    vocab = load_vocabulary(ds_cfg.get("vocab_path", "data/gloss_vocab.txt"))
-    bigram = load_transition_matrix(
-        ds_cfg.get("bigram_matrix_path", "data/bigram_transition.npy"),
-    )
+    dataset = load_t2g_dataset(ds_cfg)
+    # Stesso vocabolario/bigram del training (stessa cache, stesso
+    # vocab_source); se la cache manca o è stantia viene ricostruita in modo
+    # deterministico invece di fallire (le celle baseline/* non addestrano,
+    # quindi su un dataset nuovo nessuno l'avrebbe ancora scritta).
+    vocab, bigram = prepare_vocab_and_bigram(ds_cfg, dataset, ds_cfg.get("seed", 42))
 
     # ── Optional few-shot retrieval (same strategy as GRPO training) ─────
     # Stessi esempi top_k (text→gloss) dal TRAIN split: baseline e checkpoint
@@ -1486,6 +1496,7 @@ def evaluate_checkpoint(
         examples_batch=examples_batch,
         generate_fn=_generate_one,
         num_samples=num_samples,
+        prompt_profile=prompt_profile_for_config(config),
         resume_state_path=Path(resume_state_path) if resume_state_path else None,
         resume_every=_resume_every(config),
         fingerprint=fingerprint,

@@ -153,6 +153,8 @@ def test_default_presets_path_resolves_and_loads(tmp_path):
         "tier2-highvalue",
         "tier3-rewards-loss",
         "tier4-glossary",
+        "leak-full-vocab-trie",
+        "phoenix-core",
     ]
     assert all(p.job_count > 0 for p in presets)
 

@@ -94,6 +94,15 @@ fi
 echo ""
 echo "📊 Download e processing dataset ASLG-PC12 + matrici bigram..."
 RUN_PY_FORCE_BARE=1 prepare_data || echo "⚠️  Dataset processing fallito — verrà fatto al primo training"
+# PHOENIX-2014T: nessun download (licenza RWTH, niente copia su HF). Solo un
+# avviso: le celle experiments/configs/phoenix-2014t/ falliscono subito
+# (prepare_data in train.sh/eval.sh) finche' i CSV non ci sono.
+if _t2g_phoenix_present; then
+    echo "✅ PHOENIX-2014T: annotazioni trovate in data/phoenix-2014t/"
+else
+    echo "ℹ️  PHOENIX-2014T: copia PHOENIX-2014-T.{train,dev,test}.corpus.csv in data/phoenix-2014t/"
+    echo "   per le celle experiments/configs/phoenix-2014t/ (vedi src/datasets/phoenix_dataset.py)"
+fi
 
 # ── 5. Pre-download modello per Unsloth (offline cache) ────────────────────────
 echo ""

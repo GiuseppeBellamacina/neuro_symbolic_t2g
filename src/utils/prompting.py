@@ -37,21 +37,103 @@ Usage:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
-#: System prompt used across all T2G interactions.
-SYSTEM_PROMPT = (
-    "You are an English-to-ASL-gloss translator. "
-    "Translate the following English sentence into a sequence of "
-    "ASL glosses. Output ONLY the gloss tokens separated by spaces. "
-    "Do not include explanations or extra text."
-)
+
+@dataclass(frozen=True)
+class PromptProfile:
+    """Language pair of a T2G corpus, as it appears in the prompt.
+
+    Attributes:
+        name: Profile id (value of ``dataset.prompt_profile``).
+        system_prompt: System message.
+        few_shot_header: Instruction framing the few-shot user content.
+        source_label: Label of the source sentence in few-shot blocks.
+        gloss_label: Label of the gloss sequence in few-shot blocks.
+    """
+
+    name: str
+    system_prompt: str
+    few_shot_header: str
+    source_label: str
+    gloss_label: str
+
+
+#: Profili per coppia di lingue. ``en-asl`` è il prompt storico (ASLG-PC12),
+#: byte-identico a quello sotto cui sono stati prodotti tutti i risultati e
+#: calcolati i fingerprint (adapter SFT, cache della baseline).
+PROMPT_PROFILES: dict[str, PromptProfile] = {
+    "en-asl": PromptProfile(
+        name="en-asl",
+        system_prompt=(
+            "You are an English-to-ASL-gloss translator. "
+            "Translate the following English sentence into a sequence of "
+            "ASL glosses. Output ONLY the gloss tokens separated by spaces. "
+            "Do not include explanations or extra text."
+        ),
+        few_shot_header="Translate the following English sentence into ASL gloss.",
+        source_label="English",
+        gloss_label="ASL gloss",
+    ),
+    # PHOENIX-2014T: tedesco (meteo) → glosse DGS. Istruzioni in inglese come
+    # per ASLG-PC12, così il fattore che cambia fra i due dataset è la coppia
+    # di lingue del task, non la lingua delle istruzioni.
+    "de-dgs": PromptProfile(
+        name="de-dgs",
+        system_prompt=(
+            "You are a German-to-DGS-gloss translator. "
+            "Translate the following German sentence into a sequence of "
+            "DGS (German Sign Language) glosses. Output ONLY the gloss "
+            "tokens separated by spaces. "
+            "Do not include explanations or extra text."
+        ),
+        few_shot_header="Translate the following German sentence into DGS gloss.",
+        source_label="German",
+        gloss_label="DGS gloss",
+    ),
+}
+
+DEFAULT_PROMPT_PROFILE = "en-asl"
+
+#: System prompt of the default (ASLG-PC12) profile.
+SYSTEM_PROMPT = PROMPT_PROFILES[DEFAULT_PROMPT_PROFILE].system_prompt
 
 #: Instruction framing the few-shot user content (see module docstring).
-_FEW_SHOT_HEADER = "Translate the following English sentence into ASL gloss."
+_FEW_SHOT_HEADER = PROMPT_PROFILES[DEFAULT_PROMPT_PROFILE].few_shot_header
 
 
-def format_few_shot_examples(examples: list[Any]) -> str:
+def get_prompt_profile(profile: str | PromptProfile | None = None) -> PromptProfile:
+    """Resolve a profile id (or ``None`` → default ``en-asl``).
+
+    Raises:
+        ValueError: for an unknown profile id.
+    """
+    if isinstance(profile, PromptProfile):
+        return profile
+    name = profile or DEFAULT_PROMPT_PROFILE
+    if name not in PROMPT_PROFILES:
+        raise ValueError(
+            f"prompt profile sconosciuto: {name!r}. Noti: {sorted(PROMPT_PROFILES)}"
+        )
+    return PROMPT_PROFILES[name]
+
+
+def prompt_profile_for_config(config: Mapping[str, Any] | None) -> PromptProfile:
+    """Profile declared by ``dataset.prompt_profile`` (default ``en-asl``)."""
+    ds_cfg = (config or {}).get("dataset") or {}
+    return get_prompt_profile(ds_cfg.get("prompt_profile"))
+
+
+def system_prompt_for_config(config: Mapping[str, Any] | None) -> str:
+    """System prompt of the config's profile (see :func:`prompt_profile_for_config`)."""
+    return prompt_profile_for_config(config).system_prompt
+
+
+def format_few_shot_examples(
+    examples: list[Any], profile: str | PromptProfile | None = None
+) -> str:
     """Render few-shot ``(text, gloss)`` examples as a text block.
 
     Accepts any iterable of objects exposing ``.text`` and ``.gloss``
@@ -70,14 +152,17 @@ def format_few_shot_examples(examples: list[Any]) -> str:
     Args:
         examples: Few-shot demonstrations — each a ``RetrievedExample``-like
             object or a ``{"text", "gloss"}`` dict.
+        profile: Prompt profile (labels); ``None`` → ``en-asl``.
 
     Returns:
         The formatted block (``""`` for an empty input).
     """
     if not examples:
         return ""
+    prof = get_prompt_profile(profile)
     blocks = [
-        f"English: {_example_text(ex)}\nASL gloss: {_example_gloss(ex)}"
+        f"{prof.source_label}: {_example_text(ex)}\n"
+        f"{prof.gloss_label}: {_example_gloss(ex)}"
         for ex in examples
     ]
     return "Examples:\n" + "\n\n".join(blocks)
@@ -99,6 +184,7 @@ def build_t2g_prompt(
     *,
     examples: list[Any] | None = None,
     glossary_block: str | None = None,
+    profile: str | PromptProfile | None = None,
 ) -> str:
     """Build a formatted T2G prompt from an English sentence.
 
@@ -124,16 +210,19 @@ def build_t2g_prompt(
             without this argument. TRAIN-TIME ONLY: ``eval_t2g.py`` never
             passes this — see ``src/utils/glossary.py`` for why evaluation
             must stay glossary-free.
+        profile: Prompt profile (language pair, see :data:`PROMPT_PROFILES`);
+            ``None`` → ``en-asl``, byte-identical to the historical prompt.
 
     Returns:
         The formatted prompt string, ready for ``tokenizer()`` or
         ``model.generate()``.
     """
+    prof = get_prompt_profile(profile)
     if examples:
         user_content = (
-            f"{_FEW_SHOT_HEADER}\n\n"
-            f"{format_few_shot_examples(examples)}\n\n"
-            f"Now translate:\nEnglish: {text}"
+            f"{prof.few_shot_header}\n\n"
+            f"{format_few_shot_examples(examples, prof)}\n\n"
+            f"Now translate:\n{prof.source_label}: {text}"
         )
     else:
         user_content = text
@@ -142,7 +231,7 @@ def build_t2g_prompt(
         user_content = f"{glossary_block}\n\n{user_content}"
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": prof.system_prompt},
         {"role": "user", "content": user_content},
     ]
 
@@ -161,7 +250,7 @@ def build_t2g_prompt(
 
     # Fallback: Qwen/ChatML-compatible manual format
     return (
-        f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n"
+        f"<|im_start|>system\n{prof.system_prompt}<|im_end|>\n"
         f"<|im_start|>user\n{user_content}<|im_end|>\n"
         f"<|im_start|>assistant\n"
     )

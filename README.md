@@ -5,7 +5,7 @@
 [![TRL](https://img.shields.io/badge/TRL-GRPO-red.svg)](https://huggingface.co/docs/trl/)
 [![Tests](https://img.shields.io/badge/Tests-96%2F96%20pytest-green.svg)](tests/)
 [![Docs](https://img.shields.io/badge/Docs-REWARDS%20%7C%20METRICS-purple.svg)](docs/)
-[![Ablation](https://img.shields.io/badge/Ablation-8%2B%20variants-orange.svg)](experiments/configs/qwen25-05b/)
+[![Ablation](https://img.shields.io/badge/Ablation-8%2B%20variants-orange.svg)](experiments/configs/aslg-pc12/qwen25-05b/)
 
 ## Overview
 
@@ -65,7 +65,13 @@ active in the optimal config (plus 3 ablation-only modules) and **10 in total**.
 - **Ablation Study Ready**: 15 config cells / 27 queue entries (baselines,
   SFT, GRPO and SFT→GRPO in both prompt modes, plus reward / loss / decoding /
   objective ablations) launchable via the `--ablation` flag in
-  `cluster/run_all.sh` — all inheriting from `qwen25-05b/base.yaml`.
+  `cluster/run_all.sh` — all inheriting from `aslg-pc12/qwen25-05b/base.yaml`.
+- **Two datasets**: ASLG-PC12 (English→ASL, default) and RWTH-PHOENIX-Weather
+  2014T (German→DGS, `experiments/configs/phoenix-2014t/qwen25-05b/`: the
+  representative cells of the matrix, same logic, one factor changed — the
+  corpus). Outputs are laid out `experiments/<kind>/<dataset>/<model>/<cell>/`;
+  PHOENIX needs the official annotation CSVs copied into `data/phoenix-2014t/`
+  (see `src/datasets/phoenix_dataset.py`).
 - **All params configurable via YAML**: reward weights, grammar toggle, RL
   objective knobs (`loss_type`, `scale_rewards`, `mask_truncated_completions`),
   and opt-in auxiliary SFT objectives — no hardcoded values.
@@ -80,7 +86,7 @@ active in the optimal config (plus 3 ablation-only modules) and **10 in total**.
 
 ```text
 neuro_symbolic_t2g/
-├── experiments/configs/qwen25-05b/     # 15 celle / 27 entry di campagna
+├── experiments/configs/aslg-pc12/qwen25-05b/     # 15 celle / 27 entry di campagna
 │   ├── base.yaml                       # Template ereditato via `extends`
 │   ├── baseline/                       # Solo eval, nessun training
 │   │   ├── zero-shot.yaml              #   base + Trie
@@ -93,7 +99,12 @@ neuro_symbolic_t2g/
 │       ├── rewards/{edit-validity,lean-stack}.yaml
 │       ├── loss/dr-grpo.yaml           # Dr-GRPO vs default DAPO
 │       ├── decoding/{no-grammar,hot-rollout}.yaml
+│       ├── decoding/full-vocab-trie.yaml  # Trie su train+test: DATA LEAK deliberato
 │       └── objectives/{sft-allowed-mass,sft-structured}.yaml
+├── experiments/configs/phoenix-2014t/qwen25-05b/  # PHOENIX-2014T (base estende quello ASLG)
+│   ├── baseline/{zero-shot,few-shot}.yaml
+│   ├── sft/zero-shot.yaml  grpo/{zero-shot,few-shot}.yaml  sft-grpo/few-shot.yaml
+│   └── ablations/decoding/{no-grammar,full-vocab-trie}.yaml
 ├── src/
 │   ├── cluster/                       # SLURM scripts and cluster orchestration
 │   │   ├── setup.sh                   # One-shot environment setup
@@ -161,7 +172,7 @@ neuro_symbolic_t2g/
 | 4    | **Dataset**: Format prompt-completion pairs with chat template                                                                                                                                                         | `src/data/aslg_dataset.py`       |
 | 5    | **Reward Functions**: 8 deterministic rewards — translation quality (ROUGE-L), BLEU-4, gold-structure, gloss-order (edit-distance), verifier-scaled (RECIPE), format, repetition (7 attive di default) più edit-validity (opt-in) | `src/rewards/t2g_rewards.py`     |
 | 6    | **GRPO Training**: `trl.GRPOTrainer` generates G=8 completions per prompt, computes rewards, updates LoRA weights                                                                                                      | `src/training/grpo_t2g_train.py` |
-| 7    | **Save**: Checkpoint every `training.save_steps` (500 in base.yaml) + final model in `experiments/checkpoints/qwen25-05b/<method>/<prompt-mode>/run_<timestamp>/final/`                                                                   | Auto                             |
+| 7    | **Save**: Checkpoint every `training.save_steps` (500 in base.yaml) + final model in `experiments/checkpoints/aslg-pc12/qwen25-05b/<method>/<prompt-mode>/run_<timestamp>/final/`                                                                   | Auto                             |
 
 ---
 
@@ -256,10 +267,10 @@ t2g-monitor
 
 ```bash
 # Single-model training
-CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh
+CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh
 
 # Resume from checkpoint
-CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 ```
 
 ### Pipeline (train → eval, automatic)
@@ -298,12 +309,12 @@ config. Riferimento chiave per chiave: [docs/CONFIG_REFERENCE.md](docs/CONFIG_RE
 ```bash
 # Eval di un checkpoint (compare/best_of_n/prompting/… decisi dalla sezione evaluation)
 uv run python -m src.training.eval_t2g \
-    --config experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml \
-    --checkpoint experiments/checkpoints/qwen25-05b/sft-grpo/few-shot/run_<timestamp>/final
+    --config experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml \
+    --checkpoint experiments/checkpoints/aslg-pc12/qwen25-05b/sft-grpo/few-shot/run_<timestamp>/final
 
 # Baseline del base model (celle baseline/*, senza --checkpoint):
 uv run python -m src.training.eval_t2g \
-    --config experiments/configs/qwen25-05b/baseline/few-shot.yaml
+    --config experiments/configs/aslg-pc12/qwen25-05b/baseline/few-shot.yaml
 ```
 
 ### Monitoring & Visualization
@@ -362,7 +373,7 @@ For K80 or CPU-only, set `use_unsloth: false` and `quantization: null` in the co
 
 ## Configuration
 
-I config YAML in `experiments/configs/qwen25-05b/` usano **ereditarietà**: le parti
+I config YAML in `experiments/configs/aslg-pc12/qwen25-05b/` usano **ereditarietà**: le parti
 comuni (modello, LoRA, dataset, training, GRPO, reward, grammar, evaluation,
 wandb) vivono in `base.yaml` e ogni config specifico la estende con `extends`
 sovrascrivendo **solo le proprie differenze**. La resolution (deep merge
@@ -371,14 +382,14 @@ ricorsivo: dict fusi, liste/scalari sostituiti) avviene in
 per i trainer, che non vedono mai la chiave `extends`.
 
 ```yaml
-# experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml
+# experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml
 extends: ../base.yaml                # eredita modello/LoRA/dataset/reward/grammar/evaluation…
 
 training:
   learning_rate: 3.0e-6              # sovrascrive SOLO ciò che cambia
   warmup_steps: 200
-  output_dir: "experiments/checkpoints/qwen25-05b/sft-grpo/few-shot"
-  log_dir: "experiments/logs/qwen25-05b/sft-grpo/few-shot"
+  output_dir: "experiments/checkpoints/aslg-pc12/qwen25-05b/sft-grpo/few-shot"
+  log_dir: "experiments/logs/aslg-pc12/qwen25-05b/sft-grpo/few-shot"
 
 retrieval:
   enabled: true                      # attiva il few-shot (k esempi nel prompt)
@@ -438,7 +449,7 @@ grammar:
 ## Output
 
 ```text
-experiments/checkpoints/qwen25-05b/<method>/<prompt-mode>/run_<timestamp>/
+experiments/checkpoints/<dataset>/qwen25-05b/<method>/<prompt-mode>/run_<timestamp>/
 ├── checkpoint-500/                # Every training.save_steps (500 in base.yaml)
 ├── checkpoint-1000/               # …
 └── final/                         # Final model

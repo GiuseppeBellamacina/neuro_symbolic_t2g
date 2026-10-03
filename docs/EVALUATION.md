@@ -188,7 +188,7 @@ confronto con 0.0 lato baseline sarebbe fuorviante.
   **Tutti i knob comportamentali vivono nella sezione `evaluation:` del
   config** — niente flag CLI oltre a `--config`/`--checkpoint` (che
   identificano COSA valutare), niente variabili d'ambiente. La tabella dei
-  knob è commentata in `experiments/configs/qwen25-05b/base.yaml`.
+  knob è commentata in `experiments/configs/aslg-pc12/qwen25-05b/base.yaml`.
 - Generazione con lo **stesso constrained decoding** del training (Trie dual-root,
   l'unico path di decoding vincolato).
 - **Sampling**: `num_samples` completions per prompt a temperatura 0.7

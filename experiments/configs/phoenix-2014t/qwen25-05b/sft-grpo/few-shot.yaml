@@ -1,0 +1,54 @@
+# ============================================================================
+# SFT→GRPO PHOENIX-2014T — pipeline completa, few-shot. Phase 0 = SFT, poi GRPO.
+#
+# Gemello di aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml. Su ASLG-PC12 è la
+# cella che DEGRADA (l'RL rovina un SFT già quasi perfetto, 84.8% di gruppi a
+# varianza zero): su PHOENIX-2014T l'SFT parte molto più lontano dal tetto,
+# quindi questa cella dice se il degrado è una proprietà del metodo o della
+# saturazione di ASLG-PC12.
+#
+# Riuso dell'adapter SFT ATTIVO: il blocco sft_pretrain.training è IDENTICO a
+# sft/zero-shot.yaml di questo albero, quindi se quella cella ha già
+# addestrato l'adapter qui viene riusato (fingerprint per dataset: mai un
+# adapter ASLG-PC12).
+#
+# Uso:
+#   CONFIG=experiments/configs/phoenix-2014t/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../base.yaml
+
+# --- Phase 0: SFT pre-training ---
+sft_pretrain:
+  enabled: true
+  reuse_adapter: true
+  # Blocco IDENTICO a sft/zero-shot.yaml (stessi 12 campi): vedi
+  # aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml per il perché.
+  training:
+    num_train_epochs: 3
+    per_device_train_batch_size: 4
+    per_device_eval_batch_size: 8
+    gradient_accumulation_steps: 4
+    learning_rate: 2.0e-5
+    warmup_steps: 50
+    weight_decay: 0.1
+    save_steps: 200
+    save_total_limit: 1
+    max_seq_length: 768
+    eval_fraction: 0.02
+    early_stopping_patience: 3
+
+# --- Phase 1: GRPO ---
+training:
+  learning_rate: 3.0e-6
+  warmup_steps: 200
+  output_dir: "experiments/checkpoints/phoenix-2014t/qwen25-05b/sft-grpo/few-shot"
+  log_dir: "experiments/logs/phoenix-2014t/qwen25-05b/sft-grpo/few-shot"
+
+retrieval:
+  enabled: true
+  top_k: 3
+
+wandb:
+  run_name: "phoenix-2014t-qwen25-05b-sft-grpo-few-shot"
+  tags: ["T2G", "PHOENIX-2014T", "sft-grpo", "few-shot", "retrieval", "trie"]

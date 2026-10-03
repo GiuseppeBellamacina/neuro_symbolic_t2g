@@ -62,6 +62,64 @@ MAX_RETRIES=2
 SLURM_ACCOUNT_DEFAULT="${SLURM_ACCOUNT:-thesis-course}"
 SLURM_QOS_DEFAULT="${SLURM_QOS:-gpu-xlarge}"
 
+# ── Layout <dataset>/<model>/<cella> (specchio di src/utils/run_paths.py) ────
+# experiments/{configs,checkpoints,logs,results,figures}/<dataset>/<model>/...
+# Dataset noti = chiavi di src/datasets/registry.py::DATASETS. Il primo e' il
+# default: le sue celle hanno tag senza prefisso (storico), gli altri dataset
+# prefissano il tag con la propria chiave.
+T2G_DATASETS="aslg-pc12 phoenix-2014t"
+T2G_DEFAULT_DATASET="aslg-pc12"
+T2G_DEFAULT_MODEL="qwen25-05b"
+
+# t2g_is_dataset <segment> - 0 se il segmento e' un dataset noto.
+t2g_is_dataset() {
+    local d
+    for d in $T2G_DATASETS; do
+        [ "$1" = "$d" ] && return 0
+    done
+    return 1
+}
+
+# t2g_dataset_of_config <config.yaml> - dataset della cella (dal path; il
+# layout legacy experiments/configs/<model>/... e' il dataset di default).
+t2g_dataset_of_config() {
+    local rel="${1#./}"
+    rel="${rel#"$PROJ_DIR"/}"
+    rel="${rel#experiments/configs/}"
+    local first="${rel%%/*}"
+    if t2g_is_dataset "$first"; then
+        echo "$first"
+    else
+        echo "$T2G_DEFAULT_DATASET"
+    fi
+}
+
+# t2g_tag_from_config <config.yaml> - tag job/monitor della cella: il path
+# sotto <dataset>/<model>/ con / e _ → -, prefissato dal dataset se non e'
+# quello di default. Specchio ESATTO di run_paths.cell_tag (test dedicato):
+#   experiments/configs/aslg-pc12/qwen25-05b/grpo/few-shot.yaml → grpo-few-shot
+#   experiments/configs/phoenix-2014t/qwen25-05b/grpo/few-shot.yaml
+#       → phoenix-2014t-grpo-few-shot
+t2g_tag_from_config() {
+    local rel="${1#./}"
+    rel="${rel#"$PROJ_DIR"/}"
+    rel="${rel#experiments/configs/}"
+    rel="${rel%.yaml}"
+    local dataset="$T2G_DEFAULT_DATASET"
+    local first="${rel%%/*}"
+    if t2g_is_dataset "$first"; then
+        dataset="$first"
+        rel="${rel#*/}"
+    fi
+    rel="${rel#*/}" # via il modello
+    local tag
+    tag=$(printf '%s' "$rel" | tr '/_' '--')
+    if [ "$dataset" != "$T2G_DEFAULT_DATASET" ]; then
+        tag="${dataset}-${tag}"
+    fi
+    printf '%s\n' "$tag"
+}
+
 # Globals used by the chain primitives (initialised here for `set -u` safety).
 LAST_JOB_ID=""
 LAST_JOB_TYPE=""
@@ -460,7 +518,37 @@ _t2g_artifacts_present() {
         && [ -f "data/gloss_vocab.txt" ]
 }
 
+# PHOENIX-2014T non ha un download automatico (licenza, nessuna copia su HF):
+# servono i tre CSV ufficiali sotto data/phoenix-2014t/ (a qualunque
+# profondita', vedi src/datasets/phoenix_dataset.py). Vocabolario, bigram e
+# indice del retriever li costruisce python al primo job (cache con sidecar).
+_t2g_phoenix_present() {
+    local split
+    for split in train dev test; do
+        if [ -z "$(find data/phoenix-2014t -name "PHOENIX-2014-T.${split}.corpus.csv" 2>/dev/null | head -1)" ]; then
+            return 1
+        fi
+    done
+    return 0
+}
+
+# prepare_data [config.yaml] - con un config di un dataset diverso da
+# ASLG-PC12 verifica solo i dati di QUEL dataset; senza argomento (setup.sh)
+# o con un config ASLG-PC12 il comportamento storico qui sotto.
 prepare_data() {
+    local dataset="$T2G_DEFAULT_DATASET"
+    if [ -n "${1:-}" ]; then
+        dataset=$(t2g_dataset_of_config "$1")
+    fi
+    if [ "$dataset" = "phoenix-2014t" ]; then
+        if ! _t2g_phoenix_present; then
+            echo "? PHOENIX-2014T: annotazioni mancanti sotto data/phoenix-2014t/." >&2
+            echo "   Attesi PHOENIX-2014-T.{train,dev,test}.corpus.csv (da" >&2
+            echo "   PHOENIX-2014-T/annotations/manual/ dell'archivio RWTH)." >&2
+            return 1
+        fi
+        return 0
+    fi
     # Il blocco dataset gira SOLO se gli artefatti reali mancano. Il blocco
     # bigram piu' sotto resta sempre raggiungibile: ogni eval_final.json
     # storico contiene bigram_log_prob_mean, quindi il produttore del bigram

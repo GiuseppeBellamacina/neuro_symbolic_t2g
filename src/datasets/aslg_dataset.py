@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -178,7 +179,7 @@ def download_aslg_dataset(
 
 def extract_gloss_vocabulary(
     dataset: DatasetDict,
-    split: str = "train",
+    split: str | Sequence[str] = "train",
     include_special_tokens: bool = True,
 ) -> list[str]:
     """Extract the unique ASL gloss vocabulary from the dataset.
@@ -188,21 +189,25 @@ def extract_gloss_vocabulary(
     ``"WALK"``, ``"fs-JOHN"`` for fingerspelling).
 
     Args:
-        dataset: The ASLG-PC12 ``DatasetDict``.
-        split: Which split to extract from (``"train"`` or ``"test"``).
+        dataset: The T2G ``DatasetDict`` (ASLG-PC12 or PHOENIX-2014T).
+        split: Which split to extract from (``"train"`` or ``"test"``), or a
+            sequence of splits whose vocabularies are UNITED (used by
+            ``dataset.vocab_source: all`` — see ``src/datasets/registry.py``).
         include_special_tokens: If ``True``, prepend ``<BOS>``, ``<EOS>``,
             and ``<UNK>`` to the vocabulary.
 
     Returns:
         Sorted list of unique gloss tokens.
     """
-    logger.info(f"Extracting gloss vocabulary from '{split}' split...")
+    splits = [split] if isinstance(split, str) else list(split)
+    logger.info(f"Extracting gloss vocabulary from split(s) {splits}...")
     glosses: set[str] = set()
 
-    for sample in tqdm(dataset[split], desc="Extracting gloss tokens"):
-        gloss_seq: str = sample.get("gloss", "")
-        tokens = gloss_seq.split()
-        glosses.update(tokens)
+    for split_name in splits:
+        for sample in tqdm(dataset[split_name], desc="Extracting gloss tokens"):
+            gloss_seq: str = sample.get("gloss", "")
+            tokens = gloss_seq.split()
+            glosses.update(tokens)
 
     vocab = sorted(glosses)
     logger.info(f"  Raw unique glosses: {len(vocab)}")

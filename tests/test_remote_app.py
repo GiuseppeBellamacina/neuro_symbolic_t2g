@@ -317,7 +317,7 @@ def test_ssh_key_explicit_but_missing_file_502(client, monkeypatch):
 def test_shq_preserves_unit_separator():
     """_shq deve lasciare intatto il separatore \x1f della coda (viaggia dentro
     le virgolette singole del comando remoto, sicuro su commandline ssh)."""
-    entry = "train:experiments/configs/qwen25-05b/sft/zero-shot.yaml:a\x1feval:experiments/configs/qwen25-05b/sft/zero-shot.yaml:a"
+    entry = "train:experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot.yaml:a\x1feval:experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot.yaml:a"
     q = app_module._shq(entry)
     assert "\x1f" in q
     assert q.count("'") % 2 == 0  # quoting bilanciato: apri-chiudi
@@ -330,10 +330,10 @@ def test_shq_preserves_unit_separator():
 def test_status_format_after_tick(client):
     test_client, fake = client
     fake.active_job = "12345|train-foo|RUNNING"
-    fake.queue = ["train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"]
-    fake.last_job = (
-        "12345:train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1:0"
-    )
+    fake.queue = [
+        "train:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:run1"
+    ]
+    fake.last_job = "12345:train:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:run1:0"
 
     resp = test_client.post("/tick", headers=AUTH)
     assert resp.status_code == 200
@@ -355,7 +355,7 @@ def test_status_format_after_tick(client):
         "state": "RUNNING",
     }
     assert body["queue"] == [
-        "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"
+        "train:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:run1"
     ]
     assert body["stopped"] is False
     assert body["cluster_reachable"] is True
@@ -363,7 +363,7 @@ def test_status_format_after_tick(client):
 
     st = test_client.get("/status", headers=AUTH).json()
     assert st["queue"] == [
-        "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"
+        "train:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:run1"
     ]
     assert st["cluster_reachable"] is True
     assert st["last_tick_at"]
@@ -424,19 +424,19 @@ def test_jobs_add_and_list(client):
     assert resp.status_code == 201
     assert (
         resp.json()["added"]
-        == "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"
+        == "train:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:run1"
     )
     assert fake.queue == [
-        "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1"
+        "train:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:run1"
     ]
     assert " enqueue " in fake.commands[-1]
 
     jobs = test_client.get("/jobs", headers=AUTH).json()
     assert jobs == [
         {
-            "entry": "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:run1",
+            "entry": "train:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:run1",
             "type": "train",
-            "config": "experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml",
+            "config": "experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml",
             "tag": "run1",
             "extra": None,
         }
@@ -451,7 +451,7 @@ def test_jobs_tag_derived_and_mode(client):
     assert resp.status_code == 201
     assert (
         resp.json()["added"]
-        == "eval:experiments/configs/qwen25-05b/sft/zero-shot.yaml:zero-shot"
+        == "eval:experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot.yaml:sft-zero-shot"
     )
 
     resp = test_client.post(
@@ -467,7 +467,7 @@ def test_jobs_tag_derived_and_mode(client):
     assert resp.status_code == 201
     assert (
         resp.json()["added"]
-        == "train:experiments/configs/qwen25-05b/grpo/few-shot.yaml:x:--resume"
+        == "train:experiments/configs/aslg-pc12/qwen25-05b/grpo/few-shot.yaml:x:--resume"
     )
 
 
@@ -505,8 +505,8 @@ def test_queue_replace_explicit_jobs(client):
     )
     assert resp.status_code == 200
     assert resp.json()["queue"] == [
-        "eval:experiments/configs/qwen25-05b/sft/zero-shot.yaml:zero-shot",
-        "train:experiments/configs/qwen25-05b/grpo/few-shot.yaml:exp1",
+        "eval:experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot.yaml:sft-zero-shot",
+        "train:experiments/configs/aslg-pc12/qwen25-05b/grpo/few-shot.yaml:exp1",
     ]
 
 
@@ -549,9 +549,11 @@ def test_delete_jobs_by_tag(client):
     assert resp.status_code == 200
     assert resp.json()["removed"] == 2
     assert resp.json()["status"]["queue"] == [
-        "eval:experiments/configs/qwen25-05b/sft/zero-shot.yaml:t2"
+        "eval:experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot.yaml:t2"
     ]
-    assert fake.queue == ["eval:experiments/configs/qwen25-05b/sft/zero-shot.yaml:t2"]
+    assert fake.queue == [
+        "eval:experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot.yaml:t2"
+    ]
 
 
 def test_delete_jobs_unknown_tag_no_rewrite(client):
@@ -764,10 +766,10 @@ def test_jobs_batch_enqueues_in_order_and_ticks(client):
     assert resp.status_code == 201
     body = resp.json()
     assert body["started_now"] is True
-    assert body["active_job"]["name"] == "train-few-shot"
+    assert body["active_job"]["name"] == "train-sft-grpo-few-shot"
     # train consumato dal tick, eval in coda
     assert fake.queue == [
-        "eval:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:few-shot"
+        "eval:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:sft-grpo-few-shot"
     ]
     assert len(body["queued"]) == 2
     # PROVA riduzione round-trip: erano N+2 ssh seriali → ora 1 sola
@@ -895,7 +897,7 @@ def test_start_job_enqueues_and_ticks(client):
     assert resp.status_code == 201
     body = resp.json()
     assert body["started_now"] is True
-    assert body["active_job"]["name"] == "train-few-shot"
+    assert body["active_job"]["name"] == "train-sft-grpo-few-shot"
     # PROVA riduzione round-trip: erano 3 ssh seriali (enqueue, tick, monitor)
     # → ora è UNA sola connessione con il subcomando combinato start_batch
     assert len(fake.commands) == 1
@@ -915,7 +917,7 @@ def test_start_job_enqueued_when_busy(client):
     assert resp.status_code == 201
     assert resp.json()["started_now"] is False
     assert fake.queue == [
-        "train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:few-shot"
+        "train:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:sft-grpo-few-shot"
     ]
     assert len(fake.commands) == 1  # anche a coda occupata: 1 sola ssh
 
@@ -1139,9 +1141,9 @@ def test_ssh_roundtrips_counted_via_subprocess_mock(monkeypatch, tmp_path):
 
     status_out = (
         "STATUS_OK=1\n"
-        "ACTIVE_JOB=777|train-few-shot|RUNNING\n"
+        "ACTIVE_JOB=777|train-sft-grpo-few-shot|RUNNING\n"
         "QUEUE=\nQUEUE_COUNT=0\n"
-        "LAST_JOB=777:train:cfg:few-shot:0\n"
+        "LAST_JOB=777:train:cfg:sft-grpo-few-shot:0\n"
         "STOPPED=0\nERRORS_COUNT=0\nERRORS_TAIL=[]\n"
         "LOG_PATH=\nLOG_TAIL_B64=\n"
     )
@@ -1551,6 +1553,41 @@ def test_configs_exposes_known_config_map(client):
     assert r.status_code == 200
     body = r.json()
     names = [c["name"] for c in body["configs"]]
-    assert len(names) == len(app_module.CONFIG_MAP) == 19
+    assert len(names) == len(app_module.CONFIG_MAP) == 28
     assert "sft-grpo-zero-shot" in names
+    assert "phoenix-2014t-grpo-few-shot" in names
     assert all(c["path"] for c in body["configs"])
+
+
+def test_config_map_names_are_cell_tags_of_existing_configs():
+    """Ogni nome di CONFIG_MAP e' il tag della sua cella e il config esiste.
+
+    Il nome finisce nel tag del job (train-<tag>) e nella chiave dei risultati
+    (cluster_helper.sh::_cell_key): deve coincidere con run_paths.cell_tag,
+    altrimenti due dataset si contenderebbero lo stesso tag.
+    """
+    from pathlib import Path
+
+    from src.utils.run_paths import cell_from_config, cell_tag
+
+    root = Path(__file__).resolve().parents[1]
+    for name, path in app_module.CONFIG_MAP.items():
+        assert (root / path).is_file(), path
+        assert cell_tag(cell_from_config(root / path)) == name, (name, path)
+
+
+def test_resolve_config_by_filename_must_be_unambiguous():
+    """'few-shot.yaml' esiste in piu' celle/dataset: niente scelta arbitraria."""
+    import pytest
+    from fastapi import HTTPException
+
+    path = "experiments/configs/phoenix-2014t/qwen25-05b/grpo/few-shot.yaml"
+    assert app_module.resolve_config(path) == path
+    assert app_module.resolve_config("./" + path) == path
+    assert (
+        app_module.resolve_config("phoenix-2014t/qwen25-05b/grpo/few-shot.yaml") == path
+    )
+    with pytest.raises(HTTPException) as exc:
+        app_module.resolve_config("few-shot.yaml")
+    assert exc.value.status_code == 422
+    assert "ambiguo" in exc.value.detail

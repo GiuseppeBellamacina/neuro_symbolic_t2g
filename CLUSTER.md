@@ -143,7 +143,7 @@ Apri `cluster/train.sh` e imposta i tuoi parametri:
 
 ### 4.2. Adatta il config YAML alla GPU
 
-I config T2G ereditano da `experiments/configs/qwen25-05b/base.yaml` via la chiave
+I config T2G ereditano da `experiments/configs/aslg-pc12/qwen25-05b/base.yaml` via la chiave
 `extends:` (risolta da `src/utils/config.py::resolve_config`). Per GPU diverse
 da L40S:
 
@@ -183,7 +183,7 @@ grpo:
 ```bash
 cd ~/neuro_symbolic_t2g
 mkdir -p logs
-CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh
+CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh
 ```
 
 Il checkpoint viene salvato in `experiments/checkpoints/<model>/run_<timestamp>/`
@@ -192,7 +192,7 @@ Il checkpoint viene salvato in `experiments/checkpoints/<model>/run_<timestamp>/
 ### 5.2. Evaluation su checkpoint
 
 ```bash
-CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml CHECKPOINT=experiments/checkpoints/qwen25-05b/sft-grpo/few-shot/run_20260403_120000/final sbatch cluster/eval.sh
+CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml CHECKPOINT=experiments/checkpoints/aslg-pc12/qwen25-05b/sft-grpo/few-shot/run_20260403_120000/final sbatch cluster/eval.sh
 ```
 
 Senza `CHECKPOINT`, `eval.sh` **auto-detecta** il checkpoint con
@@ -206,7 +206,7 @@ La valutazione zero-shot legittima è la baseline del `--compare`
 ### 5.3. Riprendere da un checkpoint
 
 ```bash
-CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 ```
 
 ---
@@ -214,7 +214,7 @@ CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARGS="--resum
 ## 6. Chain / Pipeline orchestration
 
 > **Questa è la parte centrale.** La catena è un file `~/.chain_state/job_chain`
-> (una entry `type:config:tag[:extra]` per riga, es. `train:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:sft-grpo-few-shot`).
+> (una entry `type:config:tag[:extra]` per riga, es. `train:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:sft-grpo-few-shot`).
 > Un **tick one-shot idempotente** (`cluster/chain_tick.sh`) la fa avanzare di
 > un passo per invocazione e NON esiste più un daemon long-lived da tenere vivo.
 
@@ -457,16 +457,36 @@ t2g-gpu   # nvidia-smi sul nodo del job attivo
 
 ## 9. Checkpoint e Resume
 
+### Layout per dataset (migrazione)
+
+Gli output sono organizzati `experiments/<kind>/<dataset>/<modello>/<cella>/run_<ts>/`
+(dataset PRIMA del modello: i numeri sono confrontabili solo dentro lo stesso
+dataset, e lo stesso confine vale per adapter SFT e cache della baseline).
+I tag dei job ASLG-PC12 restano quelli storici (`grpo-few-shot`); le celle degli
+altri dataset sono prefissate (`phoenix-2014t-grpo-few-shot`).
+
+Su un clone del cluster con il layout vecchio (`experiments/<kind>/qwen25-05b/`),
+dopo la sync del codice e a catena ferma:
+
+```bash
+bash cluster/migrate_dataset_layout.sh            # dry-run
+bash cluster/migrate_dataset_layout.sh --apply    # sposta output, config legacy e path in .chain_state
+```
+
+PHOENIX-2014T: copiare `PHOENIX-2014-T.{train,dev,test}.corpus.csv` (archivio RWTH,
+`PHOENIX-2014-T/annotations/manual/`) in `data/phoenix-2014t/`; la campagna è
+`bash cluster/run_all.sh --dataset=phoenix-2014t --ablation`.
+
 ### Dove vengono salvati
 
 Layout (i config scrivono `training.output_dir` sotto `experiments/checkpoints/`,
-es. `experiments/checkpoints/qwen25-05b/sft-grpo/few-shot`; a runtime viene
+es. `experiments/checkpoints/aslg-pc12/qwen25-05b/sft-grpo/few-shot`; a runtime viene
 creato il sottodir `run_<timestamp>`):
 
 ```
 ~/neuro_symbolic_t2g/
 ├── experiments/checkpoints/
-│   └── qwen25-05b/
+│   └── aslg-pc12/qwen25-05b/              (<dataset>/<modello>/; anche phoenix-2014t/qwen25-05b/)
 │       ├── sft-grpo/few-shot/
 │       │   ├── run_20260403_120000/
 │       │   │   ├── checkpoint-100/
@@ -475,7 +495,8 @@ creato il sottodir `run_<timestamp>`):
 │       │   └── latest -> run_20260403_120000
 │       └── (analoghi per sft/zero-shot, grpo/few-shot, ablations/…)
 ├── experiments/results/<cella>/run_<ts>/    (eval JSON; <cella> = percorso del config,
-│                                             es. qwen25-05b/grpo/few-shot, qwen25-05b/baseline/zero-shot)
+│                                             es. aslg-pc12/qwen25-05b/grpo/few-shot,
+│                                             phoenix-2014t/qwen25-05b/baseline/zero-shot)
 ├── experiments/figures/<cella>/run_<ts>/    (plot)
 └── logs/
     ├── slurm-train-<JOB_ID>.log
@@ -491,7 +512,7 @@ La catena reinserisce automaticamente il training con `EXTRA_ARGS="--resume"`
 (max 2 tentativi). Manualmente:
 
 ```bash
-CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 ```
 
 ### Resume di una catena interrotta

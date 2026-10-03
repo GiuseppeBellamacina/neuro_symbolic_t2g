@@ -1,11 +1,25 @@
 """Where a run's outputs live: ``experiments/{results,figures,logs}/<cella>/run_<ts>/``.
 
 La cella rispecchia il percorso del config sotto ``experiments/configs/``, a qualunque
-profondità: ``qwen25-05b/grpo/zero-shot`` è a tre livelli,
-``qwen25-05b/ablations/loss/dr-grpo`` a quattro, ``qwen25-05b/baseline/zero-shot`` a
-tre. Ogni esecuzione è una directory ``run_<timestamp>`` dentro la cella, sempre: è
-l'unica invariante su cui si appoggiano i lettori (ablation summary, campaign report,
-cache della baseline, helper remoto).
+profondità, e comincia SEMPRE con ``<dataset>/<modello>/``:
+``aslg-pc12/qwen25-05b/grpo/zero-shot``,
+``aslg-pc12/qwen25-05b/ablations/loss/dr-grpo``,
+``phoenix-2014t/qwen25-05b/baseline/zero-shot``. Ogni esecuzione è una directory
+``run_<timestamp>`` dentro la cella, sempre: è l'unica invariante su cui si appoggiano
+i lettori (ablation summary, campaign report, cache della baseline, helper remoto).
+
+Perché dataset PRIMA del modello: i numeri sono confrontabili solo dentro lo stesso
+dataset (test set, vocabolario del Trie, coppia di lingue e saturazione delle metriche
+cambiano tutti con il corpus), mentre modelli diversi sullo stesso dataset sono
+esattamente ciò che si confronta. Con ``<dataset>/`` in testa tutto ciò che è
+confrontabile sta sotto una sola radice, e lo stesso confine vale per gli artefatti che
+si possono riusare (adapter SFT, cache della baseline, vocabolario in ``data/``): mai
+attraverso dataset diversi.
+
+Il layout legacy senza dataset (``qwen25-05b/grpo/zero-shot``, ASLG-PC12 implicito) è
+ancora letto da :func:`split_cell` / :func:`cell_tag` / :func:`cell_sort_key`, così i
+risultati già prodotti restano leggibili; ``cluster/migrate_dataset_layout.sh`` li
+sposta nel layout nuovo.
 
 Due modi in cui questa invariante è stata violata, e che le funzioni qui sotto
 escludono:
@@ -26,11 +40,65 @@ from pathlib import Path
 from typing import Any
 
 __all__ = [
+    "DATASET_KEYS",
+    "DEFAULT_DATASET_KEY",
     "cell_from_config",
     "cell_sort_key",
+    "cell_tag",
     "eval_output_location",
+    "split_cell",
     "split_checkpoint_path",
 ]
+
+#: Segmenti di dataset riconosciuti in testa a una cella. Rispecchia le chiavi di
+#: ``src.datasets.registry.DATASETS`` (verificato da un test): duplicato qui perché
+#: questo modulo resta importabile senza ``datasets``/``numpy``.
+DATASET_KEYS: tuple[str, ...] = ("aslg-pc12", "phoenix-2014t")
+
+#: Dataset implicito del layout legacy e dei tag senza prefisso.
+DEFAULT_DATASET_KEY = "aslg-pc12"
+
+
+def split_cell(cell: str) -> tuple[str, str, str]:
+    """Split a cell into ``(dataset, modello, resto)``.
+
+    Il layout legacy (senza segmento di dataset) è ASLG-PC12 implicito.
+
+    Examples:
+        >>> split_cell("phoenix-2014t/qwen25-05b/ablations/loss/dr-grpo")
+        ('phoenix-2014t', 'qwen25-05b', 'ablations/loss/dr-grpo')
+        >>> split_cell("qwen25-05b/grpo/few-shot")
+        ('aslg-pc12', 'qwen25-05b', 'grpo/few-shot')
+    """
+    parts = [p for p in cell.strip("/").split("/") if p]
+    if parts and parts[0] in DATASET_KEYS:
+        dataset, parts = parts[0], parts[1:]
+    else:
+        dataset = DEFAULT_DATASET_KEY
+    model = parts[0] if parts else ""
+    return dataset, model, "/".join(parts[1:])
+
+
+def cell_tag(cell: str) -> str:
+    """Tag di job/monitor di una cella: il resto sotto il modello, ``/`` → ``-``.
+
+    Le celle ASLG-PC12 mantengono il tag storico senza prefisso (``grpo-few-shot``:
+    stato della catena, preset e retry già sul cluster restano validi); gli altri
+    dataset sono prefissati dalla loro chiave (``phoenix-2014t-grpo-few-shot``) così
+    due dataset non si contendono mai lo stesso tag. Il modello NON entra nel tag
+    (come prima).
+
+    Examples:
+        >>> cell_tag("aslg-pc12/qwen25-05b/ablations/loss/dr-grpo")
+        'ablations-loss-dr-grpo'
+        >>> cell_tag("phoenix-2014t/qwen25-05b/grpo/few-shot")
+        'phoenix-2014t-grpo-few-shot'
+    """
+    dataset, _model, rest = split_cell(cell)
+    tag = rest.replace("/", "-").replace("_", "-")
+    if dataset != DEFAULT_DATASET_KEY:
+        tag = f"{dataset}-{tag}"
+    return tag
 
 
 def _after_last(parts: tuple[str, ...], anchor: str) -> tuple[str, ...] | None:
@@ -48,8 +116,10 @@ def cell_from_config(config_path: str | Path) -> str | None:
     """Cella di un config: il suo percorso sotto ``configs/``, senza estensione.
 
     Examples:
-        >>> cell_from_config("experiments/configs/qwen25-05b/baseline/zero-shot.yaml")
-        'qwen25-05b/baseline/zero-shot'
+        >>> cell_from_config(
+        ...     "experiments/configs/aslg-pc12/qwen25-05b/baseline/zero-shot.yaml"
+        ... )
+        'aslg-pc12/qwen25-05b/baseline/zero-shot'
         >>> cell_from_config("/tmp/prova.yaml") is None
         True
     """
@@ -75,9 +145,13 @@ def split_checkpoint_path(path: str | Path) -> tuple[str, str] | None:
         used to drop orphan files straight into a group directory.
 
     Examples:
-        >>> split_checkpoint_path("experiments/checkpoints/qwen25-05b/grpo/zero-shot/run_1/final")
-        ('qwen25-05b/grpo/zero-shot', 'run_1')
-        >>> split_checkpoint_path("experiments/checkpoints/qwen25-05b/grpo/final") is None
+        >>> split_checkpoint_path(
+        ...     "experiments/checkpoints/aslg-pc12/qwen25-05b/grpo/zero-shot/run_1/final"
+        ... )
+        ('aslg-pc12/qwen25-05b/grpo/zero-shot', 'run_1')
+        >>> split_checkpoint_path(
+        ...     "experiments/checkpoints/aslg-pc12/qwen25-05b/grpo/final"
+        ... ) is None
         True
     """
     after = _after_last(Path(path).resolve().parts, "checkpoints")
@@ -104,8 +178,9 @@ def eval_output_location(
     * Checkpoint sotto ``experiments/checkpoints/<cella>/run_*/``: stessa cella e
       stessa run del training, così l'eval sta accanto al modello che valuta.
     * Nessun checkpoint (le tre baseline) o checkpoint fuori da quell'albero: la
-      cella è il percorso del config (``configs/qwen25-05b/baseline/zero-shot.yaml``
-      -> ``qwen25-05b/baseline/zero-shot``) e si apre una run nuova
+      cella è il percorso del config
+      (``configs/aslg-pc12/qwen25-05b/baseline/zero-shot.yaml`` ->
+      ``aslg-pc12/qwen25-05b/baseline/zero-shot``) e si apre una run nuova
       ``run_<timestamp>``. Solo un config fuori da ``configs/`` ricade sul nome
       del run o del modello.
 
@@ -145,20 +220,25 @@ def eval_output_location(
 _FAMILY_ORDER = ("baseline", "sft", "sft-grpo", "grpo", "ablations")
 
 
-def cell_sort_key(cell: str) -> tuple[str, int, str]:
-    """Chiave d'ordinamento di una cella (``qwen25-05b/grpo/few-shot``).
+def cell_sort_key(cell: str) -> tuple[str, str, int, str]:
+    """Chiave d'ordinamento di una cella (``aslg-pc12/qwen25-05b/grpo/few-shot``).
 
-    Per modello, poi per famiglia (baseline -> sft -> sft-grpo -> grpo ->
-    ablazioni), poi alfabetico. Tabelle e grafici la condividono, così una cella
-    occupa la stessa posizione ovunque e i modelli restano raggruppati.
+    Per dataset, poi per modello, poi per famiglia (baseline -> sft -> sft-grpo ->
+    grpo -> ablazioni), poi alfabetico. Tabelle e grafici la condividono, così una
+    cella occupa la stessa posizione ovunque e dataset e modelli restano raggruppati.
+    Le celle legacy senza dataset si ordinano come ASLG-PC12.
 
     Examples:
         >>> sorted(["m/grpo/a", "m/ablations/x", "m/baseline/z"], key=cell_sort_key)
         ['m/baseline/z', 'm/grpo/a', 'm/ablations/x']
+        >>> sorted(
+        ...     ["phoenix-2014t/m/baseline/z", "aslg-pc12/m/grpo/a"], key=cell_sort_key
+        ... )
+        ['aslg-pc12/m/grpo/a', 'phoenix-2014t/m/baseline/z']
     """
-    parts = cell.split("/")
-    family = parts[1] if len(parts) > 1 else ""
+    dataset, model, rest = split_cell(cell)
+    family = rest.split("/", 1)[0] if rest else ""
     rank = (
         _FAMILY_ORDER.index(family) if family in _FAMILY_ORDER else len(_FAMILY_ORDER)
     )
-    return (parts[0], rank, cell)
+    return (dataset, model, rank, cell)

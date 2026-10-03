@@ -1,0 +1,33 @@
+# ============================================================================
+# ABLATION DECODING PHOENIX-2014T — GRPO SENZA vincolo simbolico (Trie off)
+#
+# Fattore unico rispetto a grpo/few-shot.yaml di questo albero:
+# `grammar.enabled: false`. Gemello di
+# aslg-pc12/qwen25-05b/ablations/decoding/no-grammar.yaml: misura il
+# contributo del componente NEURO-SIMBOLICO, quindi la cella più rilevante per
+# la tesi anche su questo dataset.
+#
+# Su ASLG-PC12 ROUGE-L premiava il modello che copiava l'inglese e invertiva
+# la conclusione sul Trie; su glosse DGS reali la copia del tedesco rende
+# meno, ma la regola di lettura resta: confrontare con grpo/few-shot su
+# exact_match e non_copy_token_accuracy, ROUGE-L solo come contorno.
+#
+# Uso:
+#   CONFIG=experiments/configs/phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../../grpo/few-shot.yaml
+
+grammar:
+  enabled: false
+
+evaluation:
+  dual_prompting: false
+
+training:
+  output_dir: "experiments/checkpoints/phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar"
+  log_dir: "experiments/logs/phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar"
+
+wandb:
+  run_name: "phoenix-2014t-qwen25-05b-abl-decoding-no-grammar"
+  tags: ["T2G", "PHOENIX-2014T", "ablation", "decoding", "no-grammar", "few-shot"]

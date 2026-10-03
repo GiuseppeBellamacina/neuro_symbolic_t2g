@@ -8,9 +8,10 @@
 # So: edit this file freely, reorder/add/remove presets, no Render redeploy.
 #
 # `config` values are the short names from remote/app.py:CONFIG_MAP (also
-# GET /configs). `tag` is set explicitly and equal to `config` on every job:
-# left to auto-derive (from the YAML filename stem) it collides across cells
-# that share a stem, e.g. every "zero-shot" cell would tag as "zero-shot".
+# GET /configs). `tag` is set explicitly and equal to `config` on every job
+# (it is also the API default now, but explicit keeps the file readable):
+# names are cell tags, prefixed with the dataset outside ASLG-PC12
+# (phoenix-2014t-grpo-few-shot), so no two cells or datasets share a tag.
 #
 # Order of presets here is also the order they're offered in the picker, but
 # what actually matters for a launch is the order the USER puts them in
@@ -20,7 +21,7 @@
 # Tier 0 is a cheap canary, Tier 1 is the core that can flip Finding 1,
 # Tier 2-4 are decreasing marginal value. See docs/latex or FINDINGS.md for
 # the full reasoning; this file only needs to stay in sync with which
-# configs exist (experiments/configs/qwen25-05b/**).
+# configs exist (experiments/configs/<dataset>/qwen25-05b/**).
 
 presets:
   - id: tier0-canary
@@ -96,3 +97,38 @@ presets:
       - {type: eval, config: ablations-glossary-zero-shot, tag: ablations-glossary-zero-shot}
       - {type: train, config: ablations-glossary-few-shot, tag: ablations-glossary-few-shot}
       - {type: eval, config: ablations-glossary-few-shot, tag: ablations-glossary-few-shot}
+
+  - id: leak-full-vocab-trie
+    label: "Ablazione — Trie sull'intero dataset (DATA LEAK)"
+    description: >-
+      Trie, reward di formato e validity costruiti su train+test invece che sul
+      solo train (dataset.vocab_source: all), gemello di grpo/few-shot. DATA
+      LEAK deliberato: misura quanto pesa il tetto del vocabolario chiuso di
+      train, mai un risultato. Entrambi i dataset; ogni cella va confrontata
+      con la grpo/few-shot del proprio dataset.
+    jobs:
+      - {type: train, config: ablations-decoding-full-vocab-trie, tag: ablations-decoding-full-vocab-trie}
+      - {type: eval, config: ablations-decoding-full-vocab-trie, tag: ablations-decoding-full-vocab-trie}
+      - {type: train, config: phoenix-2014t-ablations-decoding-full-vocab-trie, tag: phoenix-2014t-ablations-decoding-full-vocab-trie}
+      - {type: eval, config: phoenix-2014t-ablations-decoding-full-vocab-trie, tag: phoenix-2014t-ablations-decoding-full-vocab-trie}
+
+  - id: phoenix-core
+    label: "PHOENIX-2014T — celle rappresentative"
+    description: >-
+      Le celle della matrice ASLG-PC12 replicate su PHOENIX-2014T (tedesco ->
+      DGS), nello stesso ordine di riuso: baseline (cache del --compare), sft
+      (adapter riusato da sft-grpo), grpo, sft-grpo, no-grammar. Richiede i
+      CSV ufficiali in data/phoenix-2014t/ sul cluster.
+    jobs:
+      - {type: eval, config: phoenix-2014t-baseline-zero-shot, tag: phoenix-2014t-baseline-zero-shot}
+      - {type: eval, config: phoenix-2014t-baseline-few-shot, tag: phoenix-2014t-baseline-few-shot}
+      - {type: train, config: phoenix-2014t-sft-zero-shot, tag: phoenix-2014t-sft-zero-shot}
+      - {type: eval, config: phoenix-2014t-sft-zero-shot, tag: phoenix-2014t-sft-zero-shot}
+      - {type: train, config: phoenix-2014t-grpo-zero-shot, tag: phoenix-2014t-grpo-zero-shot}
+      - {type: eval, config: phoenix-2014t-grpo-zero-shot, tag: phoenix-2014t-grpo-zero-shot}
+      - {type: train, config: phoenix-2014t-grpo-few-shot, tag: phoenix-2014t-grpo-few-shot}
+      - {type: eval, config: phoenix-2014t-grpo-few-shot, tag: phoenix-2014t-grpo-few-shot}
+      - {type: train, config: phoenix-2014t-sft-grpo-few-shot, tag: phoenix-2014t-sft-grpo-few-shot}
+      - {type: eval, config: phoenix-2014t-sft-grpo-few-shot, tag: phoenix-2014t-sft-grpo-few-shot}
+      - {type: train, config: phoenix-2014t-ablations-decoding-no-grammar, tag: phoenix-2014t-ablations-decoding-no-grammar}
+      - {type: eval, config: phoenix-2014t-ablations-decoding-no-grammar, tag: phoenix-2014t-ablations-decoding-no-grammar}

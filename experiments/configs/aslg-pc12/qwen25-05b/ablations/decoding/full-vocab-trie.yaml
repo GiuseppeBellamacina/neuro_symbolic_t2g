@@ -1,0 +1,49 @@
+# ============================================================================
+# ABLATION DECODING — Trie costruito sull'INTERO dataset (train + test)
+#
+# Fattore unico rispetto a grpo/few-shot.yaml: `dataset.vocab_source: all`.
+# Il vocabolario glossa chiuso (Trie dual-root, reward di formato, validity)
+# viene estratto da TUTTI gli split invece che dal solo train.
+#
+# DATA LEAK DELIBERATO. Questa cella NON è un risultato: misura quanto del
+# divario residuo dipende dal TETTO che il Trie di train impone. Con il
+# vocabolario di train, le frasi di test che contengono una glossa mai vista
+# in train sono irraggiungibili per costruzione (exact match impossibile, e
+# quella glossa non può comparire nemmeno parzialmente). Qui quel tetto
+# sparisce: la differenza con grpo/few-shot è il costo del vocabolario chiuso
+# "onesto". Non riportarla mai come headline né accanto alle celle pulite
+# senza dichiararlo.
+#
+# Cosa resta pulito: le statistiche di transizione (bigram per gold_structure
+# / verifier_scaled) sono contate SOLO sul train anche qui — cambia quali
+# glosse sono ammesse, non quanto spesso il modello le ha viste — e gli
+# esempi few-shot vengono sempre dal train. Il vocabolario e la matrice
+# vengono salvati in file separati (suffisso _all, vedi
+# src/datasets/registry.py), quindi le celle train-only non vengono toccate.
+#
+# Leggere sulle metriche giuste: exact_match e non_copy_token_accuracy (come
+# per no-grammar); la validity NON è confrontabile con le altre celle, perché
+# è misurata rispetto a un vocabolario diverso (più grande).
+#
+# Uso:
+#   CONFIG=experiments/configs/aslg-pc12/qwen25-05b/ablations/decoding/full-vocab-trie.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../../grpo/few-shot.yaml
+
+dataset:
+  vocab_source: all
+
+# Non isola la decomposizione prompting (quella vive su grpo/sft-grpo
+# zero-shot/few-shot): la passata complementare raddoppierebbe il costo senza
+# aggiungere nulla al confronto sul vocabolario del Trie.
+evaluation:
+  dual_prompting: false
+
+training:
+  output_dir: "experiments/checkpoints/aslg-pc12/qwen25-05b/ablations/decoding/full-vocab-trie"
+  log_dir: "experiments/logs/aslg-pc12/qwen25-05b/ablations/decoding/full-vocab-trie"
+
+wandb:
+  run_name: "qwen25-05b-abl-decoding-full-vocab-trie"
+  tags: ["T2G", "ablation", "decoding", "full-vocab", "data-leak", "few-shot", "retrieval", "trie"]

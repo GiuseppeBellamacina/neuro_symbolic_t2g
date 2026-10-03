@@ -562,3 +562,27 @@ def test_matrix_png_size_follows_the_row_count(tmp_path):
     assert plot_matrix(selected, out)
     width, height = Image.open(out).size
     assert width < 1600 and height < 1600, (width, height)
+
+
+def test_same_cell_on_two_datasets_stays_two_typologies(tmp_path):
+    """Layout <dataset>/<model>/...: the dataset is part of model_tag, so the
+    same cell on ASLG-PC12 and PHOENIX-2014T is never superseded nor paired
+    across corpora (different test sets are not comparable)."""
+    for dataset, rouge in (("aslg-pc12", 0.96), ("phoenix-2014t", 0.40)):
+        make_eval(
+            tmp_path,
+            f"{dataset}/qwen25-05b/sft/zero-shot",
+            "run_20260101_000000",
+            "eval_final.json",
+            {"rouge_l_mean": rouge, "prompting": {"mode": "zero-shot"}},
+        )
+    selected, superseded = select_latest(discover_runs(tmp_path)["runs"])
+    assert superseded == []
+    assert {r["factors"]["model_tag"] for r in selected} == {
+        "aslg-pc12/qwen25-05b",
+        "phoenix-2014t/qwen25-05b",
+    }
+    assert {r["factors"]["dataset"] for r in selected} == {"aslg-pc12", "phoenix-2014t"}
+    comparisons, _missing, _warn = build_comparisons(selected)
+    for c in comparisons:
+        assert c["a"]["factors"]["dataset"] == c["b"]["factors"]["dataset"]

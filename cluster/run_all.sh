@@ -23,15 +23,26 @@
 #   bash cluster/run_all.sh --append                 # aggiungi job alla coda attiva
 #   bash cluster/run_all.sh --remove                 # svuota la coda
 #   bash cluster/run_all.sh --force                  # azzera lo stato (catena interrotta)
+#   bash cluster/run_all.sh --dataset=phoenix-2014t --ablation  # campagna PHOENIX-2014T
 #
-# Config specifici (passa il path relativo a qwen25-05b, senza .yaml):
-#   bash cluster/run_all.sh sft-grpo/few-shot       # config base
+# Dataset: --dataset=<chiave> (default aslg-pc12; noti: aslg-pc12, phoenix-2014t)
+# sceglie l'albero experiments/configs/<dataset>/<modello>/ (modello: env
+# T2G_MODEL, default qwen25-05b). Il tag dei job delle celle non-ASLG e'
+# prefissato dal dataset (phoenix-2014t-grpo-few-shot), vedi t2g_tag_from_config.
+#
+# Config specifici (path relativo a <dataset>/<modello>, senza .yaml; oppure
+# relativo a experiments/configs/, oppure il path completo del file):
 #   bash cluster/run_all.sh sft-grpo/few-shot       # config di riferimento (default)
 #   bash cluster/run_all.sh sft/zero-shot           # SFT supervised da solo
 #   bash cluster/run_all.sh ablations/decoding/no-grammar  # ablation senza grammar
-#   (cerca sotto experiments/configs/qwen25-05b/ in modo ricorsivo)
+#   bash cluster/run_all.sh ablations/decoding/full-vocab-trie  # Trie su train+test (DATA LEAK)
+#   bash cluster/run_all.sh --dataset=phoenix-2014t grpo/few-shot
+#   bash cluster/run_all.sh phoenix-2014t/qwen25-05b/grpo/few-shot
+#   (cerca sotto experiments/configs/<dataset>/<modello>/ in modo ricorsivo)
 #
 # Campagna (--ablation): matrice completa 3 baseline eval-only + 12 celle train+eval.
+# Con --dataset=phoenix-2014t: 2 baseline eval-only + 5 celle train+eval
+# (sottoinsieme rappresentativo, stessa logica di ordinamento).
 # Ordine massimizza il riuso: le baseline zero-shot (Trie) cachano il --compare
 # per le celle successive; sft/zero-shot addestra l'adapter SFT riusato dalle
 # celle sft-grpo (fingerprint identica); le ablazioni riusano SFT + baseline.
@@ -57,8 +68,11 @@ APPEND=0
 REMOVE=0
 FORCE=0
 CONFIG_NAME=""
+DATASET="${DATASET:-$T2G_DEFAULT_DATASET}"
+MODEL_TAG="${T2G_MODEL:-$T2G_DEFAULT_MODEL}"
 for arg in "$@"; do
     case "$arg" in
+        --dataset=*)   DATASET="${arg#--dataset=}" ;;
         --ablation)    ABLATION=1 ;;
         --eval-only)   GLOBAL_TRAIN=0 ;;
         --train-only)  GLOBAL_EVAL=0 ;;
@@ -71,8 +85,9 @@ for arg in "$@"; do
             echo ""
             echo "Opzioni:"
             echo "  (nessun argomento)  Default: sft-grpo/few-shot (train + eval)"
-            echo "  config_name         Path del config relativo a qwen25-05b, senza .yaml (es. grpo/few-shot)"
-            echo "  --ablation          Campagna completa (15 celle: 3 baseline eval-only + 12 train+eval)"
+            echo "  config_name         Path del config relativo a <dataset>/<modello>, senza .yaml (es. grpo/few-shot)"
+            echo "  --dataset=<chiave>  Albero dei config: aslg-pc12 (default) | phoenix-2014t"
+            echo "  --ablation          Campagna completa (ASLG-PC12: 15 celle; PHOENIX-2014T: 7 celle)"
             echo "  --eval-only         Solo evaluation (skip training)"
             echo "  --train-only        Solo training (skip eval)"
             echo "  --resume            Riprendi dalla coda esistente"
@@ -80,7 +95,7 @@ for arg in "$@"; do
             echo "  --remove            Svuota la coda"
             echo "  --force             Azzera lo stato anche se ci sono job pendenti"
             echo ""
-            echo "Config disponibili (path relativo a experiments/configs/qwen25-05b, senza .yaml):"
+            echo "Config disponibili (path relativo a experiments/configs/aslg-pc12/qwen25-05b, senza .yaml):"
             echo "  baseline/zero-shot            Base model + Trie (eval-only)"
             echo "  baseline/zero-shot-no-grammar Base model senza vincolo (eval-only, lower bound)"
             echo "  baseline/few-shot             Base model + few-shot retrieval (eval-only)"
@@ -91,6 +106,7 @@ for arg in "$@"; do
             echo "  sft-grpo/few-shot             Pipeline SFT→GRPO few-shot (default)"
             echo "  ablations/decoding/no-grammar         GRPO senza vincolo simbolico"
             echo "  ablations/decoding/hot-rollout        Rollout sampler a T=1.3"
+            echo "  ablations/decoding/full-vocab-trie    Trie su train+test (DATA LEAK deliberato)"
             echo "  ablations/rewards/edit-validity       Reward edit-validity singola"
             echo "  ablations/loss/dr-grpo                Obiettivo Dr-GRPO"
             echo "  ablations/loss/low-beta               KL beta 0.04 -> 0.01 (non zero, vedi commento nel file)"
@@ -101,7 +117,11 @@ for arg in "$@"; do
             echo "  ablations/glossary/zero-shot          Glossario parole rare SOLO in train (mai in eval)"
             echo "  ablations/glossary/few-shot           Come sopra, con retrieval few-shot"
             echo ""
-            echo "  (le celle low-beta/lean-stack/glossary/sft-structured-shuffled sono FUORI dalla"
+            echo "Config PHOENIX-2014T (--dataset=phoenix-2014t, experiments/configs/phoenix-2014t/qwen25-05b):"
+            echo "  baseline/{zero-shot,few-shot}  sft/zero-shot  grpo/{zero-shot,few-shot}"
+            echo "  sft-grpo/few-shot  ablations/decoding/{no-grammar,full-vocab-trie}"
+            echo ""
+            echo "  (le celle low-beta/lean-stack/glossary/sft-structured-shuffled/full-vocab-trie sono FUORI dalla"
             echo "   campagna --ablation ufficiale a 15 celle: si lanciano singolarmente col path"
             echo "   sopra, per non alterare silenziosamente la matrice gia' documentata in"
             echo "   FINDINGS.md)"
@@ -130,7 +150,33 @@ done
 # solo, niente propagazione di env var attraverso i tick della catena.
 
 # ── Modelli T2G ───────────────────────────────────────────────────────────────
-if [ "$ABLATION" -eq 1 ]; then
+if ! t2g_is_dataset "$DATASET"; then
+    echo "❌ Dataset sconosciuto: $DATASET (noti: $T2G_DATASETS)"
+    exit 1
+fi
+CONFIG_ROOT="experiments/configs/${DATASET}/${MODEL_TAG}"
+if [ ! -d "$CONFIG_ROOT" ]; then
+    echo "❌ Albero dei config non trovato: $CONFIG_ROOT"
+    exit 1
+fi
+
+if [ "$ABLATION" -eq 1 ] && [ "$DATASET" = "phoenix-2014t" ]; then
+    # Path letterali (non ${CONFIG_ROOT}) come nella campagna ASLG-PC12:
+    # tests/validate_configs.py li verifica uno per uno.
+    # Campagna PHOENIX-2014T: le celle rappresentative della matrice ASLG-PC12
+    # (stesso ordine per massimizzare il riuso: baseline prima per la cache del
+    # --compare, sft/zero-shot prima di sft-grpo per l'adapter condiviso). Il
+    # full-vocab-trie (DATA LEAK) resta fuori anche qui: si lancia a mano.
+    MODELS=(
+        "phoenix-2014t-baseline-zero-shot:experiments/configs/phoenix-2014t/qwen25-05b/baseline/zero-shot.yaml:e"
+        "phoenix-2014t-baseline-few-shot:experiments/configs/phoenix-2014t/qwen25-05b/baseline/few-shot.yaml:e"
+        "phoenix-2014t-sft-zero-shot:experiments/configs/phoenix-2014t/qwen25-05b/sft/zero-shot.yaml:te"
+        "phoenix-2014t-grpo-zero-shot:experiments/configs/phoenix-2014t/qwen25-05b/grpo/zero-shot.yaml:te"
+        "phoenix-2014t-grpo-few-shot:experiments/configs/phoenix-2014t/qwen25-05b/grpo/few-shot.yaml:te"
+        "phoenix-2014t-sft-grpo-few-shot:experiments/configs/phoenix-2014t/qwen25-05b/sft-grpo/few-shot.yaml:te"
+        "phoenix-2014t-ablations-decoding-no-grammar:experiments/configs/phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar.yaml:te"
+    )
+elif [ "$ABLATION" -eq 1 ]; then
     # Campagna completa: 3 baseline eval-only + 12 celle train+eval. Il TUI
     # (remote/tui.py PresetsScreen) ha una sua copia equivalente, risolta
     # localmente da remote/presets.yaml — non da questo array bash, e mai
@@ -141,27 +187,31 @@ if [ "$ABLATION" -eq 1 ]; then
     # Formato: TAG:CONFIG[:MODE]
     # MODE: te=train+eval (default), e=eval-only, t=train-only
     MODELS=(
-        "baseline-zero-shot:experiments/configs/qwen25-05b/baseline/zero-shot.yaml:e"
-        "baseline-zero-shot-no-grammar:experiments/configs/qwen25-05b/baseline/zero-shot-no-grammar.yaml:e"
-        "baseline-few-shot:experiments/configs/qwen25-05b/baseline/few-shot.yaml:e"
-        "sft-zero-shot:experiments/configs/qwen25-05b/sft/zero-shot.yaml:te"
-        "grpo-zero-shot:experiments/configs/qwen25-05b/grpo/zero-shot.yaml:te"
-        "grpo-few-shot:experiments/configs/qwen25-05b/grpo/few-shot.yaml:te"
-        "sft-grpo-zero-shot:experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml:te"
-        "sft-grpo-few-shot:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml:te"
-        "ablations-decoding-no-grammar:experiments/configs/qwen25-05b/ablations/decoding/no-grammar.yaml:te"
-        "ablations-decoding-hot-rollout:experiments/configs/qwen25-05b/ablations/decoding/hot-rollout.yaml:te"
-        "ablations-rewards-edit-validity:experiments/configs/qwen25-05b/ablations/rewards/edit-validity.yaml:te"
-        "ablations-loss-dr-grpo:experiments/configs/qwen25-05b/ablations/loss/dr-grpo.yaml:te"
-        "ablations-objectives-sft-allowed-mass:experiments/configs/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml:te"
-        "ablations-objectives-sft-structured:experiments/configs/qwen25-05b/ablations/objectives/sft-structured.yaml:te"
+        "baseline-zero-shot:experiments/configs/aslg-pc12/qwen25-05b/baseline/zero-shot.yaml:e"
+        "baseline-zero-shot-no-grammar:experiments/configs/aslg-pc12/qwen25-05b/baseline/zero-shot-no-grammar.yaml:e"
+        "baseline-few-shot:experiments/configs/aslg-pc12/qwen25-05b/baseline/few-shot.yaml:e"
+        "sft-zero-shot:experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot.yaml:te"
+        "grpo-zero-shot:experiments/configs/aslg-pc12/qwen25-05b/grpo/zero-shot.yaml:te"
+        "grpo-few-shot:experiments/configs/aslg-pc12/qwen25-05b/grpo/few-shot.yaml:te"
+        "sft-grpo-zero-shot:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/zero-shot.yaml:te"
+        "sft-grpo-few-shot:experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml:te"
+        "ablations-decoding-no-grammar:experiments/configs/aslg-pc12/qwen25-05b/ablations/decoding/no-grammar.yaml:te"
+        "ablations-decoding-hot-rollout:experiments/configs/aslg-pc12/qwen25-05b/ablations/decoding/hot-rollout.yaml:te"
+        "ablations-rewards-edit-validity:experiments/configs/aslg-pc12/qwen25-05b/ablations/rewards/edit-validity.yaml:te"
+        "ablations-loss-dr-grpo:experiments/configs/aslg-pc12/qwen25-05b/ablations/loss/dr-grpo.yaml:te"
+        "ablations-objectives-sft-allowed-mass:experiments/configs/aslg-pc12/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml:te"
+        "ablations-objectives-sft-structured:experiments/configs/aslg-pc12/qwen25-05b/ablations/objectives/sft-structured.yaml:te"
     )
 elif [ -n "$CONFIG_NAME" ]; then
-    # Config specifico passato come argomento (es. "grpo/few-shot").
-    # Cerca sotto experiments/configs/qwen25-05b/ in modo ricorsivo.
+    # Config specifico passato come argomento (es. "grpo/few-shot"). Ordine di
+    # ricerca: path del file così com'è, relativo a ${CONFIG_ROOT}/, relativo a
+    # experiments/configs/ (es. "phoenix-2014t/qwen25-05b/grpo/few-shot"),
+    # infine ricorsivo per basename sotto ${CONFIG_ROOT}/.
     CONFIG_PATH=""
-    for ext in ".yaml" ""; do
-        candidate="experiments/configs/qwen25-05b/${CONFIG_NAME}${ext}"
+    for candidate in \
+        "${CONFIG_NAME}" \
+        "${CONFIG_ROOT}/${CONFIG_NAME}.yaml" "${CONFIG_ROOT}/${CONFIG_NAME}" \
+        "experiments/configs/${CONFIG_NAME}.yaml" "experiments/configs/${CONFIG_NAME}"; do
         if [ -f "$candidate" ]; then
             CONFIG_PATH="$candidate"
             break
@@ -170,21 +220,23 @@ elif [ -n "$CONFIG_NAME" ]; then
     if [ -z "$CONFIG_PATH" ]; then
         # Fallback ricorsivo: tollera anche il solo basename (es. "no-grammar"
         # senza il path relativo completo). `find` è disponibile sul login node.
-        CONFIG_PATH=$(find experiments/configs/qwen25-05b -type f \
-            \( -name "${CONFIG_NAME}.yaml" -o -name "${CONFIG_NAME}" \) 2>/dev/null | head -1)
+        CONFIG_PATH=$(find "${CONFIG_ROOT}" -type f \
+            \( -name "${CONFIG_NAME}.yaml" -o -name "${CONFIG_NAME}" \) 2>/dev/null | sort | head -1)
     fi
     if [ -z "$CONFIG_PATH" ]; then
         echo "❌ Config non trovato: $CONFIG_NAME"
-        echo "   Cercato in: experiments/configs/qwen25-05b/ (ricorsivo)"
+        echo "   Cercato in: ${CONFIG_ROOT}/ (ricorsivo) e experiments/configs/"
         echo "   Usa: bash cluster/run_all.sh --help per la lista dei config"
         exit 1
     fi
-    # Deriva il tag dal path relativo a qwen25-05b (slash → trattini).
-    TAG=$(echo "${CONFIG_PATH#experiments/configs/qwen25-05b/}" | sed 's/\.yaml$//' | tr '/_' '--')
+    # Tag dal path sotto <dataset>/<modello>/ (slash → trattini, prefisso
+    # dataset se non e' quello di default): _lib.sh::t2g_tag_from_config.
+    TAG=$(t2g_tag_from_config "$CONFIG_PATH")
     MODELS=("${TAG}:${CONFIG_PATH}")
 else
-    # Default: pipeline principale SFT+GRPO few-shot.
-    MODELS=("sft-grpo-few-shot:experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml")
+    # Default: pipeline principale SFT+GRPO few-shot del dataset scelto.
+    DEFAULT_CFG="${CONFIG_ROOT}/sft-grpo/few-shot.yaml"
+    MODELS=("$(t2g_tag_from_config "$DEFAULT_CFG"):${DEFAULT_CFG}")
 fi
 
 mkdir -p "$STATE_DIR" logs

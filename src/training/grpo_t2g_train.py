@@ -14,8 +14,8 @@ Architecture:
        to ASL gloss tokens only.
 
 Usage:
-    python -m src.training --config experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml
-    CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh
+    python -m src.training --config experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml
+    CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh
 """
 
 from __future__ import annotations
@@ -80,16 +80,15 @@ from transformers.trainer_callback import ProgressCallback
 from trl import GRPOConfig, GRPOTrainer  # type: ignore[import]
 
 from datasets import Dataset
-from src.datasets.aslg_dataset import (
-    build_t2g_dataset,
-    download_aslg_dataset,
-    extract_gloss_vocabulary,
-    save_vocabulary,
-)
-from src.datasets.transition_matrix import (
-    compute_bigram_transitions,
-    load_transition_matrix,
-    save_transition_matrix,
+from src.datasets.aslg_dataset import build_t2g_dataset
+from src.datasets.registry import (
+    DATASETS,
+    cache_is_current,
+    get_dataset_spec,
+    load_t2g_dataset,
+    prepare_vocab_and_bigram,
+    resolve_vocab_source,
+    write_cache_meta,
 )
 from src.grammar.gloss_grammar import GlossVocabularyMask
 from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
@@ -112,7 +111,7 @@ from src.utils.glossary import (
 )
 from src.utils.live_status import live_status_set
 from src.utils.phase_timing import log_step, phase
-from src.utils.prompting import build_t2g_prompt
+from src.utils.prompting import build_t2g_prompt, prompt_profile_for_config
 
 # ───────────────────────────────────────────────────────────────────────────
 
@@ -303,9 +302,8 @@ def _prepare_t2g_dataset(
     """
     ds_cfg = config["dataset"]
     if dataset is None:
-        dataset = download_aslg_dataset(
-            cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
-        )
+        dataset = load_t2g_dataset(ds_cfg)
+    prompt_profile = prompt_profile_for_config(config)
 
     t2g_ds = build_t2g_dataset(
         dataset,
@@ -371,6 +369,7 @@ def _prepare_t2g_dataset(
                 tokenizer,
                 examples=examples_batch[i] if examples_batch is not None else None,
                 glossary_block=glossary_block,
+                profile=prompt_profile,
             )
 
             # Keep every column produced by build_t2g_dataset: ``gold_gloss``
@@ -400,63 +399,29 @@ def _prepare_t2g_dataset(
 # ---------------------------------------------------------------------------
 
 
-def _cache_meta_path(cache_path: str | Path) -> Path:
-    """Return the sidecar JSON path for a cache file (``<stem>.meta.json``).
+def _write_cache_meta(
+    cache_path: str | Path,
+    seed: int,
+    train_size: int,
+    ds_cfg: dict[str, Any] | None = None,
+) -> None:
+    """Write the cache sidecar (see ``src/datasets/registry.py``)."""
+    write_cache_meta(cache_path, seed, train_size, ds_cfg)
 
-    Args:
-        cache_path: Path to the cache artifact (e.g. ``data/gloss_vocab.txt``).
 
-    Returns:
-        Sidecar path, e.g. ``data/gloss_vocab.meta.json``.
+def _cache_is_current(
+    cache_path: str | Path,
+    seed: int,
+    train_size: int,
+    ds_cfg: dict[str, Any] | None = None,
+) -> bool:
+    """Whether a cached vocab/bigram artifact is current.
+
+    Thin wrapper over :func:`src.datasets.registry.cache_is_current`: the
+    cache is keyed by ``(seed, train_size)`` plus dataset and
+    ``vocab_source``; legacy caches without a sidecar are never trusted.
     """
-    return Path(cache_path).with_suffix(".meta.json")
-
-
-def _write_cache_meta(cache_path: str | Path, seed: int, train_size: int) -> None:
-    """Write a sidecar JSON recording ``{seed, train_size}`` for a cache file.
-
-    Args:
-        cache_path: Path to the cache artifact.
-        seed: Random seed used to build the artifact.
-        train_size: Size of the training split used to build the artifact.
-    """
-    import json
-
-    meta_path = _cache_meta_path(cache_path)
-    meta_path.write_text(
-        json.dumps({"seed": seed, "train_size": train_size}, sort_keys=True),
-        encoding="utf-8",
-    )
-
-
-def _cache_is_current(cache_path: str | Path, seed: int, train_size: int) -> bool:
-    """Check whether a cached artifact is up to date for the current run.
-
-    A cache is valid only if the file exists AND its sidecar JSON matches the
-    current ``(seed, train_size)``.  Legacy cache files WITHOUT a sidecar are
-    NEVER trusted and are regenerated — this prevents silently reusing
-    vocab/bigram artifacts built under a different seed or before dataset
-    dedup changed the training-set composition.
-
-    Args:
-        cache_path: Path to the cache artifact.
-        seed: Current run seed.
-        train_size: Current training split size.
-
-    Returns:
-        ``True`` if the cache is current, ``False`` otherwise.
-    """
-    import json
-
-    path = Path(cache_path)
-    meta_path = _cache_meta_path(cache_path)
-    if not path.exists() or not meta_path.exists():
-        return False
-    try:
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return False
-    return meta.get("seed") == seed and meta.get("train_size") == train_size
+    return cache_is_current(cache_path, seed, train_size, ds_cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -620,45 +585,26 @@ def main() -> None:
 
     # ── Step 1: Data preparation ─────────────────────────────────────────
     ds_cfg = config["dataset"]
-    vocab_path = ds_cfg.get("vocab_path", "data/gloss_vocab.txt")
-    bigram_path = ds_cfg.get("bigram_matrix_path", "data/bigram_transition.npy")
+    dataset_spec = get_dataset_spec(ds_cfg)
 
     log_step(1, "Data Preparation")
 
     # Download dataset
     # WHY phase: load_dataset + dedup di ~80k righe + split 90/10: 10-60s in
     # silenzio, al primo avvio il job sembra appeso.
-    with phase("Loading ASLG-PC12 dataset", detail="cache + dedup + 90/10 split"):
-        dataset = download_aslg_dataset(
-            cache_dir=ds_cfg.get("dataset_cache"), seed=ds_cfg.get("seed", 42)
-        )
+    with phase(f"Loading {dataset_spec.display_name} dataset", detail="cache + splits"):
+        dataset = load_t2g_dataset(ds_cfg)
 
-    # Cache keyed by (seed, train_size): se cambia uno dei due (nuovo seed,
-    # dedup che cambia la composizione dello split) vocab e bigram vanno
-    # rigenerati. Cache legacy senza sidecar mai fidata (vedi _cache_is_current).
-    train_size = len(dataset["train"])
+    # Vocab + bigram con cache keyed by (seed, train_size, dataset,
+    # vocab_source): se cambia uno di questi vanno rigenerati. Cache legacy
+    # senza sidecar mai fidata (vedi src/datasets/registry.py).
+    vocab, bigram_matrix = prepare_vocab_and_bigram(ds_cfg, dataset, seed)
 
-    # Extract vocabulary (or load from cache if still current)
-    if _cache_is_current(vocab_path, seed, train_size):
-        from src.datasets.aslg_dataset import load_vocabulary
-
-        vocab = load_vocabulary(vocab_path)
-    else:
-        vocab = extract_gloss_vocabulary(dataset, split="train")
-        save_vocabulary(vocab, vocab_path)
-        _write_cache_meta(vocab_path, seed, train_size)
-
-    # Compute transition matrix (or load from cache if still current)
-    if _cache_is_current(bigram_path, seed, train_size):
-        bigram_matrix = load_transition_matrix(bigram_path)
-    else:
-        bigram_matrix = compute_bigram_transitions(
-            dataset, vocab, split="train", smoothing=1.0
-        )
-        save_transition_matrix(bigram_matrix, bigram_path)
-        _write_cache_meta(bigram_path, seed, train_size)
-
-    print(f"  Data prepared: |V|={len(vocab)}, bigram shape={bigram_matrix.shape}")
+    print(
+        f"  Data prepared ({dataset_spec.display_name}, "
+        f"vocab_source={resolve_vocab_source(ds_cfg)}): "
+        f"|V|={len(vocab)}, bigram shape={bigram_matrix.shape}"
+    )
 
     if args.prepare_data:
         print("Data preparation complete. Exiting.")
@@ -729,16 +675,17 @@ def main() -> None:
         elif reuse_adapter and not args.force_sft:
             fingerprint = compute_sft_fingerprint(sft_config)
             # Search order: (1) sibling runs of the SAME tag (this cell's own
-            # training.output_dir, e.g. experiments/checkpoints/qwen25-05b/
+            # training.output_dir, e.g. experiments/checkpoints/aslg-pc12/qwen25-05b/
             # sft-grpo/few-shot/run_*/sft_pretrain/final); (2) ANY other cell
-            # sotto experiments/checkpoints/<model> con sezione sft_pretrain
+            # sotto experiments/checkpoints/<dataset>/<model> con sezione sft_pretrain
             # IDENTICA (il fingerprint e' tag-independent), cosi' un nuovo
             # config salta il ~2h di retrain SFT. I match cross-tag vengono
             # COPIATI in sft_pretrain/final di questo run perche' resti
             # self-contained.
             #
-            # Il root del cross-tag search e' experiments/checkpoints/<model>
-            # (es. qwen25-05b), NON model_root.parent: le celle nidificano a
+            # Il root del cross-tag search e' experiments/checkpoints/
+            # <dataset>/<model> (es. aslg-pc12/qwen25-05b; layout legacy senza
+            # dataset: <model>), NON model_root.parent: le celle nidificano a
             # profondita' DIVERSE sotto quella radice (2 livelli per
             # sft-grpo/{zero,few}-shot, 3 per ablations/<categoria>/<nome>),
             # quindi risalire di un solo livello da model_root trovava solo i
@@ -758,7 +705,15 @@ def main() -> None:
                 model_root_parts = model_root.parts
                 if "checkpoints" in model_root_parts:
                     idx = model_root_parts.index("checkpoints")
-                    checkpoints_root = Path(*model_root_parts[: idx + 2])
+                    # +1 segmento quando il primo sotto checkpoints/ e' un
+                    # dataset (layout <dataset>/<model>/...).
+                    depth = 2
+                    if (
+                        len(model_root_parts) > idx + 2
+                        and model_root_parts[idx + 1] in DATASETS
+                    ):
+                        depth = 3
+                    checkpoints_root = Path(*model_root_parts[: idx + depth])
                 else:
                     checkpoints_root = model_root.parent
                 cross = find_reusable_sft_adapter_cross_tag(

@@ -1,6 +1,8 @@
 # Config Reference — chiave per chiave, verificata sul codice
 
-Riferimento completo delle chiavi YAML di `experiments/configs/qwen25-05b/`.
+Riferimento completo delle chiavi YAML di `experiments/configs/<dataset>/qwen25-05b/`
+(`aslg-pc12/` e `phoenix-2014t/`; il base PHOENIX estende quello di ASLG-PC12 e
+sovrascrive solo `dataset`, `retrieval.cache_path` e `wandb`).
 Ogni voce riporta: tipo, valori ammessi, default (e DOVE è definito: `base.yaml`
 o fallback nel codice), a cosa serve, e **chi la legge** con `file:riga` verificate
 su `src/**/*.py`. Il tipo e i valori ammessi sono dedotti dal codice che consuma
@@ -88,7 +90,9 @@ di questi step non distingue più nulla**: è la presenza di
 
 | Chiave | Tipo | Valori ammessi | Default | A cosa serve | Letta da |
 | --- | --- | --- | --- | --- | --- |
-| `dataset.dataset_name` | str | — | — | **Non letta funzionalmente.** L'id del dataset HF è hardcoded (`aslg:39`). La chiave entra SOLO nei fingerprint (provenienza): `sft_train:298` (fingerprint SFT), `eval:307` (fingerprint contesto prompt) e nella lista chiavi richieste del validator (`validator:67`). Cambiarla NON cambia il dataset scaricato. | `sft_train:298`, `eval:307` (solo fingerprint) |
+| `dataset.dataset_name` | str | `achrafothman/aslg_pc12` \| `phoenix-2014t` (alias in `src/datasets/registry.py`) | ASLG-PC12 se assente | **Sceglie il corpus** (`registry.load_t2g_dataset`): ASLG-PC12 dalla cache HF offline, PHOENIX-2014T dai CSV ufficiali in `dataset_cache`. Entra anche nei fingerprint (SFT, contesto prompt). Il layout degli output deve concordare: `experiments/<kind>/<dataset>/<modello>/...` (`src/utils/run_paths.py`). | `registry`, `sft_train` / `eval` (fingerprint) |
+| `dataset.prompt_profile` | str | `en-asl` \| `de-dgs` (`prompting.PROMPT_PROFILES`) | `en-asl` | Coppia di lingue del prompt (system prompt, intestazione e etichette few-shot). `en-asl` è byte-identico al prompt storico. NON entra nel fingerprint SFT come chiave (ci entra il system prompt risultante). | `prompting.prompt_profile_for_config` |
+| `dataset.vocab_source` | str | `train` \| `all` | `train` (NON dichiararlo nei base: la chiave, se presente, entra nel fingerprint SFT) | Split da cui si estrae il vocabolario glossa chiuso (Trie, reward di formato, validity). `all` = unione di tutti gli split: **DATA LEAK deliberato**, solo per `ablations/decoding/full-vocab-trie.yaml`. Il bigram resta contato sul solo train; i file di cache ricevono il suffisso `_all`. Entra nel fingerprint della baseline solo se ≠ `train`. | `registry.prepare_vocab_and_bigram` |
 | `dataset.dataset_cache` | str | path | `"data/aslg_pc12"` (`aslg:40,121`) | Directory cache HF del corpus scaricato. | `grpo_train:614`, `sft_train:599`, `eval:774` |
 | `dataset.vocab_path` | str | path | `"data/gloss_vocab.txt"` (fallback `eval:776`) | Vocabolario glossa (il Trie e le reward lo caricano da qui). Cache con sidecar meta su seed/train_size (`grpo_train:624-631`). | `grpo_train:603,624-631`, `sft_train:587`, `eval:776` |
 | `dataset.bigram_matrix_path` | str | path | `"data/bigram_transition.npy"` (fallback `eval:778`) | Matrice di transizione bigram per le reward strutturali e il bigram log-prob dell'eval. | `grpo_train:604,634-641`, `sft_train:588`, `eval:778` |

@@ -1,0 +1,27 @@
+# ============================================================================
+# GRPO PHOENIX-2014T — RL dal base model, few-shot (retrieval k=3). NESSUN SFT.
+#
+# Gemello di aslg-pc12/qwen25-05b/grpo/few-shot.yaml (la cella col miglior
+# risultato RL su ASLG-PC12) e genitore delle ablazioni di questo albero,
+# come lo è su ASLG-PC12. Riferimento: baseline/few-shot.yaml di questo
+# albero, non la zero-shot.
+#
+# Uso:
+#   CONFIG=experiments/configs/phoenix-2014t/qwen25-05b/grpo/few-shot.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../base.yaml
+
+training:
+  learning_rate: 3.0e-6
+  warmup_steps: 200
+  output_dir: "experiments/checkpoints/phoenix-2014t/qwen25-05b/grpo/few-shot"
+  log_dir: "experiments/logs/phoenix-2014t/qwen25-05b/grpo/few-shot"
+
+retrieval:
+  enabled: true
+  top_k: 3
+
+wandb:
+  run_name: "phoenix-2014t-qwen25-05b-grpo-few-shot"
+  tags: ["T2G", "PHOENIX-2014T", "grpo", "few-shot", "retrieval", "trie"]

@@ -1,0 +1,30 @@
+# ============================================================================
+# BASELINE PHOENIX-2014T — base model, few-shot (retrieval k=3), Trie attivo.
+# NESSUN training.
+#
+# Gemello di aslg-pc12/qwen25-05b/baseline/few-shot.yaml: isola il contributo
+# del PROMPTING ed è il riferimento corretto per grpo/few-shot e
+# sft-grpo/few-shot. Su ASLG-PC12 il few-shot spiegava la maggior parte del
+# divario headline PRIMA dell'RL: questa cella dice se vale anche su glosse
+# reali.
+#
+# Uso:
+#   CONFIG=experiments/configs/phoenix-2014t/qwen25-05b/baseline/few-shot.yaml sbatch cluster/eval.sh
+# ============================================================================
+
+extends: ../base.yaml
+
+retrieval:
+  enabled: true
+  top_k: 3
+
+grpo:
+  max_prompt_length: 768
+
+evaluation:
+  best_of_n: true
+  dual_prompting: false
+
+wandb:
+  run_name: "phoenix-2014t-qwen25-05b-baseline-few-shot"
+  tags: ["T2G", "PHOENIX-2014T", "baseline", "few-shot", "retrieval", "trie", "eval-only"]

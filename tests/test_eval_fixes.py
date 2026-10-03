@@ -379,3 +379,23 @@ def test_cached_baseline_across_groups_still_rejects_stale_context(tmp_path):
     assert (
         load(taker, num_samples=5, max_samples=500, fingerprint=_fingerprint()) is None
     )
+
+
+def test_prompt_context_fingerprint_vocab_source_and_profile():
+    """vocab_source/prompt_profile: the historical (train, en-asl) context keeps
+    its fingerprint — declared or not — so caches on the cluster stay valid;
+    a different Trie vocabulary or language pair invalidates it."""
+    _, fp_fn = _import_helpers()
+    base = fp_fn(_MIN_CFG, 5)
+    ds = dict(_MIN_CFG.get("dataset", {}))
+    explicit_default = {
+        **_MIN_CFG,
+        "dataset": {**ds, "vocab_source": "train", "prompt_profile": "en-asl"},
+    }
+    assert fp_fn(explicit_default, 5) == base
+
+    leak = {**_MIN_CFG, "dataset": {**ds, "vocab_source": "all"}}
+    assert fp_fn(leak, 5) != base
+
+    german = {**_MIN_CFG, "dataset": {**ds, "prompt_profile": "de-dgs"}}
+    assert fp_fn(german, 5) != base

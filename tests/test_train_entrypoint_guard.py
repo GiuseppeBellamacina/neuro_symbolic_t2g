@@ -19,7 +19,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-CONFIG_ROOT = Path(__file__).resolve().parent.parent / "experiments/configs/qwen25-05b"
+CONFIG_ROOT = (
+    Path(__file__).resolve().parent.parent / "experiments/configs/aslg-pc12/qwen25-05b"
+)
 
 # Celle dichiaratamente eval-only: nessun training, quindi nessuna output_dir.
 EVAL_ONLY = [

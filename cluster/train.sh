@@ -5,9 +5,9 @@
 # Rileva automaticamente il tipo di training dal YAML (training.trainer: sft|grpo).
 #
 # Uso:
-#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh
-#   CONFIG=experiments/configs/qwen25-05b/sft/zero-shot.yaml sbatch cluster/train.sh
-#   CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
+#   CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh
+#   CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot.yaml sbatch cluster/train.sh
+#   CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARGS="--resume" sbatch cluster/train.sh
 #
 # Per il primo avvio eseguire prima:  bash cluster/setup.sh
 # ============================================================================
@@ -42,7 +42,7 @@ EXTRA_ARGS="${EXTRA_ARGS:-}"
 
 if [ -z "$CONFIG" ]; then
     echo "❌ CONFIG non impostato. Uso:"
-    echo "  CONFIG=experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh"
+    echo "  CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml sbatch cluster/train.sh"
     exit 1
 fi
 
@@ -82,7 +82,7 @@ export_offline_env
 # idempotente — era triplicata tra setup.sh/train.sh/eval.sh).
 # set -e qui: se la preparazione fallisce, il job fallisce LOUD (niente
 # training silenzioso su dati mancanti).
-prepare_data
+prepare_data "${CONFIG}"
 
 # ── Offline-first: i compute node NON hanno DNS ──────────────────────────────
 # Tutto il necessario è pre-cacheato da setup.sh/prepare_data. Senza questi

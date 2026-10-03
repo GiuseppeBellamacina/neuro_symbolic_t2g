@@ -48,8 +48,8 @@ bash format.sh          # Linux/macOS: isort . && black . && ruff check --fix .
 powershell -File format.ps1   # Windows equivalent
 
 # Training / eval entrypoint (real training needs a GPU + Unsloth/QLoRA — normally run on the cluster, not here)
-uv run python -m src.training --config experiments/configs/qwen25-05b/<cell>.yaml [--resume] [--prepare-data]
-uv run python -m src.training.eval_t2g --config experiments/configs/qwen25-05b/<cell>.yaml [--checkpoint <path>]
+uv run python -m src.training --config experiments/configs/<dataset>/qwen25-05b/<cell>.yaml [--resume] [--prepare-data]
+uv run python -m src.training.eval_t2g --config experiments/configs/<dataset>/qwen25-05b/<cell>.yaml [--checkpoint <path>]
 ```
 
 One-time repo setup: `git config core.hooksPath .githooks` — this repo's git hooks live
@@ -68,8 +68,13 @@ formatter and re-stages changed files; `pre-push` best-effort `scp`s `src/`, `cl
 `src.training.sft_train.main` or `src.training.grpo_t2g_train.main` based on
 `training.trainer` (default `grpo`).
 
-1. **Data** (`src/datasets/aslg_dataset.py`) — downloads ASLG-PC12 (87K pairs) from HF,
-   extracts the gloss vocabulary, builds prompt/completion pairs.
+1. **Data** (`src/datasets/registry.py` → `aslg_dataset.py` / `phoenix_dataset.py`) —
+   `dataset.dataset_name` picks the corpus: ASLG-PC12 (87K pairs, HF cache, 90/10 split)
+   or PHOENIX-2014T (German→DGS, official CSVs copied into `data/phoenix-2014t/`, official
+   splits). The registry also builds/caches the closed gloss vocabulary + bigram matrix
+   (`dataset.vocab_source`: `train` default, `all` = deliberate train+test leak used only
+   by `ablations/decoding/full-vocab-trie.yaml`). `dataset.prompt_profile` (`en-asl` /
+   `de-dgs`) selects the language pair in `src/utils/prompting.py`.
 2. **Transitions** (`src/datasets/transition_matrix.py`, `structured_transitions.py`) —
    bigram transition matrix over the gloss vocab, used by the gold-structure/verifier-scaled
    rewards.
@@ -92,7 +97,9 @@ formatter and re-stages changed files; `pre-push` best-effort `scp`s `src/`, `cl
 
 ### Config inheritance
 
-All experiment YAMLs live under `experiments/configs/qwen25-05b/` and use an `extends:`
+All experiment YAMLs live under `experiments/configs/<dataset>/qwen25-05b/` (`aslg-pc12/`,
+`phoenix-2014t/`; the PHOENIX base extends the ASLG-PC12 base and overrides only `dataset`,
+`retrieval.cache_path` and `wandb`) and use an `extends:`
 key resolved by `src/utils/config.py::resolve_config` — recursive deep-merge (child wins,
 dicts merge, lists/scalars replace), cycle-checked, parent paths relative to the child file.
 The merged dict never contains `extends`; trainers/eval never see it. `base.yaml` holds all
@@ -100,6 +107,16 @@ shared model/LoRA/dataset/GRPO/reward/grammar/evaluation defaults; each cell
 (`baseline/`, `sft/`, `grpo/`, `sft-grpo/`, `ablations/{rewards,loss,decoding,objectives}/`)
 overrides only its deltas. When adding a new experiment cell, extend `base.yaml` (or a
 sibling) rather than duplicating the full config.
+
+### Output layout: dataset first
+
+Outputs live at `experiments/{checkpoints,logs,results,figures}/<dataset>/<model>/<cell>/run_<ts>/`
+— the cell mirrors the config path under `experiments/configs/` (`src/utils/run_paths.py`:
+`split_cell`, `cell_tag`, `cell_sort_key`; legacy `<model>/...` paths still parse as
+ASLG-PC12). Job tags are the path below `<dataset>/<model>/` with `/`→`-`, prefixed with
+the dataset for non-ASLG cells (`phoenix-2014t-grpo-few-shot`); the bash mirrors are
+`cluster/_lib.sh::t2g_tag_from_config` and `remote/cluster_helper.sh::_cell_key`.
+`cluster/migrate_dataset_layout.sh` moves a pre-existing cluster tree to this layout.
 
 ### Centralized prompting
 

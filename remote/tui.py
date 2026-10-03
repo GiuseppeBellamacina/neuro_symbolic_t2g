@@ -95,6 +95,15 @@ CONFIG_NAMES: tuple[str, ...] = (
     "ablations-objectives-sft-structured-shuffled",
     "ablations-glossary-zero-shot",
     "ablations-glossary-few-shot",
+    "ablations-decoding-full-vocab-trie",
+    "phoenix-2014t-baseline-zero-shot",
+    "phoenix-2014t-baseline-few-shot",
+    "phoenix-2014t-sft-zero-shot",
+    "phoenix-2014t-grpo-zero-shot",
+    "phoenix-2014t-grpo-few-shot",
+    "phoenix-2014t-sft-grpo-few-shot",
+    "phoenix-2014t-ablations-decoding-no-grammar",
+    "phoenix-2014t-ablations-decoding-full-vocab-trie",
 )
 CONFIG_NAME_SET: frozenset[str] = frozenset(CONFIG_NAMES)
 

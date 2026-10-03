@@ -1,0 +1,63 @@
+# ============================================================================
+# BASE PHOENIX-2014T — stesso esperimento di aslg-pc12/qwen25-05b/base.yaml,
+# cambia SOLO il corpus (tedesco → glosse DGS, RWTH-PHOENIX-Weather 2014T).
+#
+# Gerarchia: dataset / model / method / prompt-mode. Questo base ESTENDE
+# quello di ASLG-PC12, quindi modello, LoRA, GRPO, reward, grammar,
+# evaluation e retrieval sono gli STESSI byte per byte: le celle di questo
+# albero sono il gemello di quelle di ASLG-PC12 con un solo fattore diverso,
+# il dataset. Qui si sovrascrive solo ciò che dipende dal corpus.
+#
+# DATI (nessun download automatico, licenza CC BY-NC-SA 3.0): copiare
+# PHOENIX-2014-T.{train,dev,test}.corpus.csv (da
+# PHOENIX-2014-T/annotations/manual/ dell'archivio RWTH) sotto
+# data/phoenix-2014t/ — anche in sottocartelle, il loader li cerca per nome.
+# Dettagli: src/datasets/phoenix_dataset.py.
+#
+# DIFFERENZE DA TENERE A MENTE CONFRONTANDO CON ASLG-PC12
+# -------------------------------------------------------
+# * Split UFFICIALI 7096 / 519 / 642 (train / dev / test), niente dedup né
+#   re-split 90/10 (protocollo della letteratura, Camgoz et al. CVPR 2018).
+#   Il dev non entra nella pipeline (solo nel vocabolario vocab_source: all).
+# * Glosse REALI annotate da esperti, non generate da regole: la scorciatoia
+#   "copia l'inglese maiuscolo" che satura ROUGE-L su ASLG-PC12 qui vale molto
+#   meno, e il vocabolario (~1k glosse nel paper) è un ordine di grandezza
+#   più piccolo di quello di ASLG-PC12 (~15k).
+# * Il train è ~10x più piccolo (7096 vs 72979 righe): con lo stesso
+#   max_steps: 5000 il GRPO vede ~0,7 epoche invece del 6,9% del train, e le
+#   3 epoche di SFT sono ~1300 passi invece di ~13200. Il budget di passi è
+#   lasciato IDENTICO di proposito: la stessa logica di ASLG-PC12, un solo
+#   fattore che cambia.
+# * evaluation.max_samples: 2000 supera il test set (642 frasi): l'eval usa
+#   l'INTERO test set (seeded_sample_indices restituisce tutti gli indici).
+#   I numeri sono quindi su 642 prompt, non 2000.
+#
+# I risultati di questo albero NON si confrontano con quelli di ASLG-PC12:
+# test set, vocabolario e coppia di lingue cambiano tutti. Si confrontano le
+# celle fra loro (stessa logica: baseline → sft → grpo → sft-grpo → ablazioni).
+# ============================================================================
+
+extends: ../../aslg-pc12/qwen25-05b/base.yaml
+
+# --- Dataset ---
+# Tutti i path sotto data/phoenix-2014t/: mai condivisi con ASLG-PC12 (le
+# cache di vocabolario/bigram/retriever hanno sidecar con seed e dimensione
+# del train, ma due corpora con lo stesso numero di righe collidererebbero).
+dataset:
+  dataset_name: "phoenix-2014t"
+  dataset_cache: "data/phoenix-2014t"
+  vocab_path: "data/phoenix-2014t/gloss_vocab.txt"
+  bigram_matrix_path: "data/phoenix-2014t/bigram_transition.npy"
+  # German → DGS (src/utils/prompting.py::PROMPT_PROFILES).
+  prompt_profile: "de-dgs"
+
+# --- Few-shot retrieval ---
+# Indice separato: la meta del retriever controlla seed e numero di esempi,
+# non il corpus, quindi il path di ASLG-PC12 verrebbe riusato a torto.
+retrieval:
+  cache_path: "data/phoenix-2014t/retriever_index"
+
+# --- Weights & Biases ---
+wandb:
+  run_name: "phoenix-2014t-qwen25-05b"
+  tags: ["T2G", "constrained-decoding", "Qwen2.5-0.5B", "DGS", "PHOENIX-2014T"]

@@ -34,7 +34,7 @@ Where this is (and is NOT) wired in
 -------------------------------------
 Consumed only by ``src/training/grpo_t2g_train.py``'s dataset preparation,
 for cells that set ``glossary.enabled: true`` (see
-``experiments/configs/qwen25-05b/ablations/glossary/``). ``eval_t2g.py`` never
+``experiments/configs/aslg-pc12/qwen25-05b/ablations/glossary/``). ``eval_t2g.py`` never
 imports this module and never sets ``build_t2g_prompt``'s ``glossary_block``
 argument: evaluation is always glossary-free, by construction, for every cell.
 """

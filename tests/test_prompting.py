@@ -226,3 +226,53 @@ def test_glossary_block_is_prepended_before_the_few_shot_block():
     )
     assert expected_user in prompt
     assert prompt.index(block) < prompt.index("Examples:")
+
+
+# ── Prompt profiles (multi-dataset) ─────────────────────────────────────────
+
+
+def test_default_system_prompt_is_the_historical_one() -> None:
+    """Byte-pinned: SFT adapter and baseline-cache fingerprints hash it."""
+    assert SYSTEM_PROMPT == (
+        "You are an English-to-ASL-gloss translator. "
+        "Translate the following English sentence into a sequence of "
+        "ASL glosses. Output ONLY the gloss tokens separated by spaces. "
+        "Do not include explanations or extra text."
+    )
+
+
+def test_explicit_en_asl_profile_is_byte_identical_to_default() -> None:
+    text = "The man walks into the house."
+    for examples in (None, _sample_examples()):
+        assert build_t2g_prompt(
+            text, _ManualTokenizer(), examples=examples, profile="en-asl"
+        ) == build_t2g_prompt(text, _ManualTokenizer(), examples=examples)
+
+
+def test_de_dgs_profile_relabels_system_and_few_shot() -> None:
+    from src.utils.prompting import PROMPT_PROFILES
+
+    prof = PROMPT_PROFILES["de-dgs"]
+    examples = [{"text": "im süden sonne .", "gloss": "SONNE SUED"}]
+    prompt = build_t2g_prompt(
+        "morgen regen .", _ManualTokenizer(), examples=examples, profile="de-dgs"
+    )
+    assert prompt.startswith(f"<|im_start|>system\n{prof.system_prompt}<|im_end|>\n")
+    assert "German: im süden sonne .\nDGS gloss: SONNE SUED" in prompt
+    assert "Now translate:\nGerman: morgen regen ." in prompt
+    assert "English" not in prompt and "ASL" not in prompt
+    assert format_few_shot_examples(examples, "de-dgs").startswith("Examples:\n")
+
+
+def test_prompt_profile_for_config() -> None:
+    import pytest
+
+    from src.utils.prompting import prompt_profile_for_config
+
+    assert prompt_profile_for_config({}).name == "en-asl"
+    assert (
+        prompt_profile_for_config({"dataset": {"prompt_profile": "de-dgs"}}).name
+        == "de-dgs"
+    )
+    with pytest.raises(ValueError):
+        prompt_profile_for_config({"dataset": {"prompt_profile": "fr-lsf"}})

@@ -21,9 +21,11 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_lib.sh"
 # l'aiuto e' corretto per costruzione.
 #
 # base.yaml e' escluso: e' il file ereditato via `extends`, non una cella
-# eseguibile.
+# eseguibile. I path sono relativi a experiments/configs/ e comprendono
+# <dataset>/<modello>/ (es. phoenix-2014t/qwen25-05b/grpo/few-shot): run-all
+# li accetta cosi' come sono.
 _t2g_list_configs() {
-    local root="${PROJ_DIR:-$HOME/neuro_symbolic_t2g}/experiments/configs/qwen25-05b"
+    local root="${PROJ_DIR:-$HOME/neuro_symbolic_t2g}/experiments/configs"
     if [ ! -d "$root" ]; then
         echo "     (directory dei config non trovata: $root)"
         return 1
@@ -131,38 +133,37 @@ alias quota='quota -s'
 # Vai alla directory del progetto
 alias proj='cd "$PROJ_DIR"'
 
-# Mostra i checkpoint disponibili (layout FLAT: experiments/checkpoints/*/)
+# Mostra i checkpoint disponibili, per cella (layout
+# experiments/checkpoints/<dataset>/<modello>/<cella a qualunque profondita'>/
+# run_*/). La cella e' tutto cio' che precede il run_*: profondita' variabile,
+# quindi niente glob a livello fisso. -prune: i run_* annidati sotto un run
+# (sft_pretrain) non sono run della cella.
 ckpts() {
     local base="$PROJ_DIR/experiments/checkpoints"
     if [ ! -d "$base" ]; then
         echo "Nessun checkpoint trovato."
         return 0
     fi
-    echo "──── Checkpoints (flat layout) ────"
-    local model run found c2
-    for model in "$base"/*/; do
-        [ -d "$model" ] || continue
-        echo "  $(basename "$model"):"
-        found=0
-        for run in "$model"run_*; do
-            [ -d "$run" ] || continue
-            found=1
-            echo "    $(basename "$run"):"
-            ls -d "$run"/final "$run"/checkpoint-* 2>/dev/null | while read -r c2; do
-                [ -n "$c2" ] && echo "      $(basename "$c2")"
-            done
-        done
-        if [ "$found" -eq 0 ]; then
-            ls -d "$model"final "$model"checkpoint-* 2>/dev/null | while read -r c2; do
-                [ -n "$c2" ] && echo "      $(basename "$c2")"
-            done
+    echo "──── Checkpoints (<dataset>/<modello>/<cella>/run_*) ────"
+    local run cell last_cell="" c2
+    while read -r run; do
+        [ -n "$run" ] || continue
+        cell="${run#"$base"/}"
+        cell="${cell%/*}"
+        if [ "$cell" != "$last_cell" ]; then
+            echo "  ${cell}:"
+            last_cell="$cell"
         fi
-    done
+        echo "    $(basename "$run"):"
+        ls -d "$run"/final "$run"/checkpoint-* 2>/dev/null | while read -r c2; do
+            [ -n "$c2" ] && echo "      $(basename "$c2")"
+        done
+    done < <(find "$base" -type d -name 'run_*' -prune -print 2>/dev/null | sort)
 }
 
 # Lancia training (uso: train [--config PATH] [extra args...])
 train() {
-    local config="experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml"
+    local config="experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml"
     local extra_args=""
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -175,7 +176,7 @@ train() {
 
 # Lancia eval (uso: run-eval [--config PATH] [--checkpoint PATH])
 run-eval() {
-    local config="experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml"
+    local config="experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml"
     local checkpoint=""
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -546,13 +547,14 @@ claudio() {
     echo ""
     echo "── Training & eval ──"
     echo "   train [--config PATH] [extra args...]"
-    echo "                     — lancia training (default: experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml)"
+    echo "                     — lancia training (default: experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml)"
     echo "   run-eval [--config PATH] [--checkpoint PATH]"
     echo "                     — lancia evaluation"
     echo "   run-all [config_name] [--ablation|--train-only|--eval-only|--resume|--append|--force]"
     echo "                     — lancia pipeline train+eval (tick + avanza via hook/server)"
     echo ""
-    echo "   Config disponibili (path relativo a experiments/configs/qwen25-05b, senza .yaml):"
+    echo "   Config disponibili (path relativo a experiments/configs, senza .yaml;"
+    echo "   run-all accetta anche il path relativo a <dataset>/<modello> con --dataset=<chiave>):"
     # Derivati dal filesystem invece di essere elencati a mano: una lista
     # hardcoded divergerebbe silenziosamente appena si aggiunge una cella, e
     # in questo repo la stessa lista era duplicata in quattro punti.

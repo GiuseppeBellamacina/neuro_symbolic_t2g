@@ -134,6 +134,8 @@ def test_rule_repair_defaults_to_false_in_base_config():
     """The flag must default off: existing eval runs are unaffected unless a
     cell explicitly opts in."""
     base = yaml.safe_load(
-        Path("experiments/configs/qwen25-05b/base.yaml").read_text(encoding="utf-8")
+        Path("experiments/configs/aslg-pc12/qwen25-05b/base.yaml").read_text(
+            encoding="utf-8"
+        )
     )
     assert base["evaluation"]["rule_repair"] is False

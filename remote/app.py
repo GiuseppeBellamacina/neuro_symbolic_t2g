@@ -132,31 +132,46 @@ class Settings:
 
 settings = Settings.from_env()
 
-# ── Config noti (nome → path). Nomi cella = schema pipeline-first. ──────────
+# ── Config noti (nome → path). Nome = tag della cella (run_paths.cell_tag). ──
 
 CONFIG_MAP: dict[str, str] = {
-    "baseline-zero-shot": "experiments/configs/qwen25-05b/baseline/zero-shot.yaml",
-    "baseline-zero-shot-no-grammar": "experiments/configs/qwen25-05b/baseline/zero-shot-no-grammar.yaml",
-    "baseline-few-shot": "experiments/configs/qwen25-05b/baseline/few-shot.yaml",
-    "sft-zero-shot": "experiments/configs/qwen25-05b/sft/zero-shot.yaml",
-    "grpo-zero-shot": "experiments/configs/qwen25-05b/grpo/zero-shot.yaml",
-    "grpo-few-shot": "experiments/configs/qwen25-05b/grpo/few-shot.yaml",
-    "sft-grpo-zero-shot": "experiments/configs/qwen25-05b/sft-grpo/zero-shot.yaml",
-    "sft-grpo-few-shot": "experiments/configs/qwen25-05b/sft-grpo/few-shot.yaml",
-    "ablations-decoding-no-grammar": "experiments/configs/qwen25-05b/ablations/decoding/no-grammar.yaml",
-    "ablations-decoding-hot-rollout": "experiments/configs/qwen25-05b/ablations/decoding/hot-rollout.yaml",
-    "ablations-rewards-edit-validity": "experiments/configs/qwen25-05b/ablations/rewards/edit-validity.yaml",
-    "ablations-loss-dr-grpo": "experiments/configs/qwen25-05b/ablations/loss/dr-grpo.yaml",
-    "ablations-objectives-sft-allowed-mass": "experiments/configs/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml",
-    "ablations-objectives-sft-structured": "experiments/configs/qwen25-05b/ablations/objectives/sft-structured.yaml",
-    "ablations-objectives-sft-structured-shuffled": "experiments/configs/qwen25-05b/ablations/objectives/sft-structured-shuffled.yaml",
-    "ablations-loss-low-beta": "experiments/configs/qwen25-05b/ablations/loss/low-beta.yaml",
-    "ablations-rewards-lean-stack": "experiments/configs/qwen25-05b/ablations/rewards/lean-stack.yaml",
-    "ablations-glossary-zero-shot": "experiments/configs/qwen25-05b/ablations/glossary/zero-shot.yaml",
-    "ablations-glossary-few-shot": "experiments/configs/qwen25-05b/ablations/glossary/few-shot.yaml",
+    "baseline-zero-shot": "experiments/configs/aslg-pc12/qwen25-05b/baseline/zero-shot.yaml",
+    "baseline-zero-shot-no-grammar": "experiments/configs/aslg-pc12/qwen25-05b/baseline/zero-shot-no-grammar.yaml",
+    "baseline-few-shot": "experiments/configs/aslg-pc12/qwen25-05b/baseline/few-shot.yaml",
+    "sft-zero-shot": "experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot.yaml",
+    "grpo-zero-shot": "experiments/configs/aslg-pc12/qwen25-05b/grpo/zero-shot.yaml",
+    "grpo-few-shot": "experiments/configs/aslg-pc12/qwen25-05b/grpo/few-shot.yaml",
+    "sft-grpo-zero-shot": "experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/zero-shot.yaml",
+    "sft-grpo-few-shot": "experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml",
+    "ablations-decoding-no-grammar": "experiments/configs/aslg-pc12/qwen25-05b/ablations/decoding/no-grammar.yaml",
+    "ablations-decoding-hot-rollout": "experiments/configs/aslg-pc12/qwen25-05b/ablations/decoding/hot-rollout.yaml",
+    "ablations-rewards-edit-validity": "experiments/configs/aslg-pc12/qwen25-05b/ablations/rewards/edit-validity.yaml",
+    "ablations-loss-dr-grpo": "experiments/configs/aslg-pc12/qwen25-05b/ablations/loss/dr-grpo.yaml",
+    "ablations-objectives-sft-allowed-mass": "experiments/configs/aslg-pc12/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml",
+    "ablations-objectives-sft-structured": "experiments/configs/aslg-pc12/qwen25-05b/ablations/objectives/sft-structured.yaml",
+    "ablations-objectives-sft-structured-shuffled": "experiments/configs/aslg-pc12/qwen25-05b/ablations/objectives/sft-structured-shuffled.yaml",
+    "ablations-loss-low-beta": "experiments/configs/aslg-pc12/qwen25-05b/ablations/loss/low-beta.yaml",
+    "ablations-rewards-lean-stack": "experiments/configs/aslg-pc12/qwen25-05b/ablations/rewards/lean-stack.yaml",
+    "ablations-glossary-zero-shot": "experiments/configs/aslg-pc12/qwen25-05b/ablations/glossary/zero-shot.yaml",
+    "ablations-glossary-few-shot": "experiments/configs/aslg-pc12/qwen25-05b/ablations/glossary/few-shot.yaml",
+    # DATA LEAK deliberato (Trie su train+test): fuori da ogni preset/campagna.
+    "ablations-decoding-full-vocab-trie": "experiments/configs/aslg-pc12/qwen25-05b/ablations/decoding/full-vocab-trie.yaml",
+    # PHOENIX-2014T: nome = tag della cella, prefissato dal dataset
+    # (src/utils/run_paths.py::cell_tag), così non collide con ASLG-PC12.
+    "phoenix-2014t-baseline-zero-shot": "experiments/configs/phoenix-2014t/qwen25-05b/baseline/zero-shot.yaml",
+    "phoenix-2014t-baseline-few-shot": "experiments/configs/phoenix-2014t/qwen25-05b/baseline/few-shot.yaml",
+    "phoenix-2014t-sft-zero-shot": "experiments/configs/phoenix-2014t/qwen25-05b/sft/zero-shot.yaml",
+    "phoenix-2014t-grpo-zero-shot": "experiments/configs/phoenix-2014t/qwen25-05b/grpo/zero-shot.yaml",
+    "phoenix-2014t-grpo-few-shot": "experiments/configs/phoenix-2014t/qwen25-05b/grpo/few-shot.yaml",
+    "phoenix-2014t-sft-grpo-few-shot": "experiments/configs/phoenix-2014t/qwen25-05b/sft-grpo/few-shot.yaml",
+    "phoenix-2014t-ablations-decoding-no-grammar": "experiments/configs/phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar.yaml",
+    "phoenix-2014t-ablations-decoding-full-vocab-trie": "experiments/configs/phoenix-2014t/qwen25-05b/ablations/decoding/full-vocab-trie.yaml",
 }
 
 CONFIG_PATHS: set[str] = set(CONFIG_MAP.values())
+
+#: path → nome (= tag della cella): il tag di default di un job senza tag.
+_CONFIG_NAME_BY_PATH: dict[str, str] = {path: name for name, path in CONFIG_MAP.items()}
 
 HELPER_NAME = "cluster_helper.sh"  # file locale in remote/ (per auto-install scp)
 HELPER_REMOTE = "~/neuro_symbolic_t2g/cluster/cluster_helper.sh"  # path sul cluster
@@ -686,10 +701,22 @@ def resolve_config(config: str) -> str:
         return CONFIG_MAP[config]
     if config in CONFIG_PATHS:
         return config
-    wanted = Path(config).name  # tollera "sft-grpo.yaml" o il path completo
-    for path in CONFIG_PATHS:
-        if Path(path).name == wanted:
-            return path
+    # Tollera il path completo con prefissi diversi ("./experiments/...") o il
+    # solo nome file, ma SOLO se identifica un config univoco: "few-shot.yaml"
+    # esiste in piu' celle e in piu' dataset, e scegliere il primo di un set
+    # (ordine non deterministico) accodava il config sbagliato.
+    wanted = Path(config).as_posix().lstrip("./")
+    matches = sorted(p for p in CONFIG_PATHS if p.endswith(wanted))
+    if not matches:
+        matches = sorted(p for p in CONFIG_PATHS if Path(p).name == Path(config).name)
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise HTTPException(
+            422,
+            f"config ambiguo: {config!r} corrisponde a {len(matches)} config "
+            f"({', '.join(matches)}). Usa il nome ({', '.join(sorted(_CONFIG_NAME_BY_PATH[m] for m in matches))}) o il path completo.",
+        )
     raise HTTPException(
         422,
         f"config non valido: {config!r}. Nomi noti: {', '.join(sorted(CONFIG_MAP))}",
@@ -699,7 +726,11 @@ def resolve_config(config: str) -> str:
 def build_entry(job: "JobIn") -> str:
     """Costruisce la riga di coda `type:cfg:tag[:extra]` con validazione."""
     cfg = resolve_config(job.config)
-    tag = job.tag if job.tag else Path(cfg).stem.replace("_", "-")
+    # Tag di default = nome della cella in CONFIG_MAP (src/utils/run_paths.py::
+    # cell_tag, lo stesso di run_all.sh): lo stem del file ("few-shot") era
+    # condiviso da piu' celle e da piu' dataset, e il tag e' la chiave dei
+    # retry e del job SLURM train-<tag>.
+    tag = job.tag or _CONFIG_NAME_BY_PATH.get(cfg) or Path(cfg).stem.replace("_", "-")
     if not _TAG_RE.fullmatch(tag):
         raise HTTPException(422, f"tag non valido: {tag!r} (consentito [A-Za-z0-9._-])")
     entry = f"{job.type}:{cfg}:{tag}"

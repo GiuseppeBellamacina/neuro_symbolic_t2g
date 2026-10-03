@@ -186,11 +186,65 @@ def test_every_eval_location_is_inside_a_run() -> None:
     from src.utils.config import resolve_config
     from src.utils.run_paths import eval_output_location
 
-    configs = sorted(Path("experiments/configs/qwen25-05b").rglob("*.yaml"))
+    configs = sorted(Path("experiments/configs").rglob("*.yaml"))
     assert configs
     for path in configs:
         cell, run_id, _ = eval_output_location(
             path, resolve_config(str(path)), None, "20260929_120000"
         )
         assert run_id.startswith("run_"), path
-        assert cell.startswith("qwen25-05b/"), (path, cell)
+        dataset = path.relative_to("experiments/configs").parts[0]
+        assert dataset in ("aslg-pc12", "phoenix-2014t"), path
+        assert cell.startswith(f"{dataset}/qwen25-05b/"), (path, cell)
+
+
+def test_split_cell_and_tag_with_dataset_segment() -> None:
+    from src.utils.run_paths import cell_tag, split_cell
+
+    assert split_cell("aslg-pc12/qwen25-05b/ablations/loss/dr-grpo") == (
+        "aslg-pc12",
+        "qwen25-05b",
+        "ablations/loss/dr-grpo",
+    )
+    # Legacy (senza dataset) = ASLG-PC12, stesso tag.
+    assert split_cell("qwen25-05b/grpo/few-shot") == (
+        "aslg-pc12",
+        "qwen25-05b",
+        "grpo/few-shot",
+    )
+    assert cell_tag("qwen25-05b/grpo/few-shot") == "grpo-few-shot"
+    assert cell_tag("aslg-pc12/qwen25-05b/grpo/few-shot") == "grpo-few-shot"
+    assert cell_tag("phoenix-2014t/qwen25-05b/grpo/few-shot") == (
+        "phoenix-2014t-grpo-few-shot"
+    )
+
+
+def test_cell_sort_key_groups_by_dataset_then_model_then_family() -> None:
+    from src.utils.run_paths import cell_sort_key
+
+    cells = [
+        "phoenix-2014t/qwen25-05b/baseline/zero-shot",
+        "aslg-pc12/qwen25-05b/ablations/loss/dr-grpo",
+        "aslg-pc12/qwen25-05b/grpo/few-shot",
+        "aslg-pc12/qwen25-05b/baseline/zero-shot",
+    ]
+    assert sorted(cells, key=cell_sort_key) == [
+        "aslg-pc12/qwen25-05b/baseline/zero-shot",
+        "aslg-pc12/qwen25-05b/grpo/few-shot",
+        "aslg-pc12/qwen25-05b/ablations/loss/dr-grpo",
+        "phoenix-2014t/qwen25-05b/baseline/zero-shot",
+    ]
+
+
+def test_phoenix_baseline_eval_lands_in_phoenix_tree() -> None:
+    from src.utils.config import resolve_config
+    from src.utils.run_paths import eval_output_location
+
+    path = Path("experiments/configs/phoenix-2014t/qwen25-05b/baseline/zero-shot.yaml")
+    cell, run_id, _ = eval_output_location(
+        path, resolve_config(str(path)), None, "20261002_000000"
+    )
+    assert (cell, run_id) == (
+        "phoenix-2014t/qwen25-05b/baseline/zero-shot",
+        "run_20261002_000000",
+    )

@@ -1,0 +1,21 @@
+# ============================================================================
+# BASELINE PHOENIX-2014T — base model, zero-shot, Trie attivo. NESSUN training.
+#
+# Gemello di aslg-pc12/qwen25-05b/baseline/zero-shot.yaml: riferimento
+# inferiore della matrice, e il confronto corretto per grpo/zero-shot.
+#
+# Uso:
+#   CONFIG=experiments/configs/phoenix-2014t/qwen25-05b/baseline/zero-shot.yaml sbatch cluster/eval.sh
+# ============================================================================
+
+extends: ../base.yaml
+
+evaluation:
+  best_of_n: true
+  # Dual DISATTIVO di proposito: questa cella è già un punto della griglia
+  # esplicita di prompting (baseline/{zero-shot, few-shot}).
+  dual_prompting: false
+
+wandb:
+  run_name: "phoenix-2014t-qwen25-05b-baseline-zero-shot"
+  tags: ["T2G", "PHOENIX-2014T", "baseline", "zero-shot", "trie", "eval-only"]
