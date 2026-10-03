@@ -56,6 +56,13 @@ _gloss_vocab: list[str] = []
 #: Token→index mapping for fast lookups.
 _token_to_idx: dict[str, int] = {}
 
+#: Lunghezza oltre la quale un token valido e' sospetto per gloss_format_reward.
+#: 25 e' tarato su ASLG-PC12 (gloss incollati); i task con etichette lunghe e
+#: legittime (CoNLL: ``MISC:Africa_Cup_of_Nations``) lo alzano da config con
+#: ``reward.format_max_token_len``.
+DEFAULT_FORMAT_MAX_TOKEN_LEN = 25
+_format_max_token_len: int = DEFAULT_FORMAT_MAX_TOKEN_LEN
+
 #: ROUGE-L scorer instance (initialized in ``initialize_rewards``).
 _ROUGE_SCORER: rouge_scorer.RougeScorer | None = None
 
@@ -73,6 +80,7 @@ _warned_missing_gold: bool = False
 def initialize_rewards(
     bigram_matrix: np.ndarray,
     vocab: list[str],
+    format_max_token_len: int = DEFAULT_FORMAT_MAX_TOKEN_LEN,
 ) -> None:
     """Initialize global state for reward functions.
 
@@ -81,9 +89,12 @@ def initialize_rewards(
     Args:
         bigram_matrix: The ``(V, V)`` bigram transition probability matrix.
         vocab: The sorted gloss vocabulary.
+        format_max_token_len: Token length above which an in-vocabulary token
+            is treated as suspicious by :func:`gloss_format_reward`.
     """
     global _bigram_matrix, _gloss_vocab, _token_to_idx, _ROUGE_SCORER
-    global _warned_missing_gold
+    global _warned_missing_gold, _format_max_token_len
+    _format_max_token_len = int(format_max_token_len)
     _bigram_matrix = bigram_matrix
     _gloss_vocab = vocab
     _token_to_idx = {t: i for i, t in enumerate(vocab)}
@@ -594,7 +605,8 @@ def gloss_format_reward(completion: str) -> float:
     All scores are in the symmetric ``[-1, 1]`` range via
     ``_to_symmetric`` mapping of the original ``[0, 1]`` levels.
 
-    Also penalizes concatenated subword garbage (tokens >25 chars) and
+    Also penalizes concatenated subword garbage (tokens longer than
+    ``reward.format_max_token_len``, default 25 chars) and
     severe numeric contamination (3+ consecutive digits).
 
     Args:
@@ -626,7 +638,7 @@ def gloss_format_reward(completion: str) -> float:
 
         if valid_ratio == 1.0:
             # All tokens are valid glosses — check for garbage concatenation
-            long_token_count = sum(1 for t in tokens if len(t) > 25)
+            long_token_count = sum(1 for t in tokens if len(t) > _format_max_token_len)
             if long_token_count > 0:
                 return _to_symmetric(
                     0.5
@@ -648,7 +660,7 @@ def gloss_format_reward(completion: str) -> float:
                 return -1.0
             return _to_symmetric(0.25)
 
-        long_token_count = sum(1 for t in tokens if len(t) > 25)
+        long_token_count = sum(1 for t in tokens if len(t) > _format_max_token_len)
         if long_token_count > 0:
             return _to_symmetric(0.5)
 

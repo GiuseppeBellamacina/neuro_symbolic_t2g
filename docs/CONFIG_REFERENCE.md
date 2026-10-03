@@ -207,6 +207,7 @@ Vincoli (`validator`):
 | `reward.weight_repetition` | float | 0.0 (base: 0.10) | Penalità loop degeneri (token/trigram uniqueness). | `rewards:1037-1040`; `eval:1023` |
 | `reward.weight_edit_validity` | float | 0.0 (`rewards:1020`) | Opt-in: edit similarity con termine di validità continuo. Dove la validità ≈ 1 (sotto Trie) equivale a `0.5 × gloss_order + 0.5`: con `scale_rewards='none'` DIMEZZA l'advantage. Solo in `ablations/rewards/edit-validity.yaml`. ⚠️ Non compare nella reward breakdown dell'eval (`eval:1016-1024` non la mappa). | `rewards:1020-1028` |
 | `reward.edit_validity_oov_weight` | float | 0.5 (`rewards:1022-1023`) | Peso del termine di validità (frazione di token in vocabolario). `0.0` riproduce esattamente `gloss_order_reward` (scala storica). | `rewards:1022-1023,1025`; vincolo `validator:291-296` |
+| `reward.format_max_token_len` | int | 25 (`DEFAULT_FORMAT_MAX_TOKEN_LEN`) | Lunghezza oltre la quale un token **in vocabolario** è "sospetto" per `gloss_format_reward` (score 0 invece di 1). 25 è tarato sui gloss incollati di ASLG-PC12; i base di CoNLL-2003 e WOS-46985 lo alzano a 64 perché le etichette (`MISC:Africa_Cup_of_Nations`) sono lunghe e legittime. | `t2g_rewards.initialize_rewards`, passato da `grpo_t2g_train` ed `eval_t2g` |
 
 ---
 

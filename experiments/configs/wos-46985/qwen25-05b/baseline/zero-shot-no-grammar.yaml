@@ -1,0 +1,21 @@
+# BASELINE WoS — base model, zero-shot, SENZA Trie. NESSUN training.
+#
+# Gemello di aslg-pc12/qwen25-05b/baseline/zero-shot-no-grammar.yaml: misura
+# quanto il modello base rispetta il vocabolario chiuso senza alcun supporto.
+# E' il punto di partenza per la domanda "il GRPO impara il vincolo senza Trie?"
+# (confronto con ablations/decoding/no-grammar*).
+#
+# Uso:
+#   CONFIG=experiments/configs/wos-46985/qwen25-05b/baseline/zero-shot-no-grammar.yaml sbatch cluster/eval.sh
+extends: zero-shot.yaml
+
+grammar:
+  enabled: false
+
+evaluation:
+  best_of_n: true
+  dual_prompting: false
+
+wandb:
+  run_name: "wos-46985-qwen25-05b-baseline-zero-shot-no-grammar"
+  tags: ["T2G-framework", "WoS", "baseline", "zero-shot", "no-grammar", "unconstrained", "eval-only"]

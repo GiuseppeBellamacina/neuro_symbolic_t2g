@@ -1,0 +1,29 @@
+# ABLAZIONE PHOENIX-2014T — SFT con il termine di massa ammessa.
+#
+# Gemello di aslg-pc12/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml,
+# che su ASLG-PC12 e' la cella migliore. La maschera e' il cammino nel Trie
+# condiviso col decoder (allowed_mask_for_prefixes), quindi vale per qualunque
+# formato di etichetta del vocabolario chiuso.
+#
+# Uso:
+#   CONFIG=experiments/configs/phoenix-2014t/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml sbatch cluster/train.sh
+extends: ../../sft/zero-shot.yaml
+
+auxiliary_objective:
+  allowed_mass:
+    weight: 0.1          # lambda << 1, come su ASLG-PC12
+    warmup_steps: 200    # rampa lineare: evita di combattere la CE all'inizio
+
+grammar:
+  track_diagnostics: true
+
+evaluation:
+  dual_prompting: false
+
+training:
+  output_dir: "experiments/checkpoints/phoenix-2014t/qwen25-05b/ablations/objectives/sft-allowed-mass"
+  log_dir: "experiments/logs/phoenix-2014t/qwen25-05b/ablations/objectives/sft-allowed-mass"
+
+wandb:
+  run_name: "phoenix-2014t-qwen25-05b-abl-obj-allowed-mass"
+  tags: ["T2G", "PHOENIX-2014T", "ablation", "objective", "allowed-mass", "sft"]

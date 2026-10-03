@@ -4,10 +4,10 @@
 # (Tuccio et al., arXiv:2609.39869): lì il modello genera il JSON
 # {domain, area}; qui il target è LINEARIZZATO in due token di un vocabolario
 # chiuso ("CS Machine_learning", vedi src/datasets/wos_dataset.py), così Trie
-# dual-root, reward e metriche della pipeline si applicano invariati.
+# dual-root e metriche della pipeline si applicano invariati.
 #
-# Estende il base di ASLG-PC12: modello, LoRA, GRPO, reward, grammar ed
-# evaluation sono gli stessi, cambia solo il corpus.
+# Estende il base di ASLG-PC12: modello, LoRA, GRPO, grammar ed evaluation
+# sono gli stessi; cambiano il corpus e i pesi della reward (sotto).
 #
 # DATI (nessun download automatico): copiare Meta-data/Data.xlsx di
 # WebOfScience.zip (Mendeley Data, doi:10.17632/9rw3vkcfy4.6) sotto
@@ -52,3 +52,21 @@ retrieval:
 wandb:
   run_name: "wos-46985-qwen25-05b"
   tags: ["T2G-framework", "constrained-decoding", "Qwen2.5-0.5B", "WOS-46985", "hierarchical-classification"]
+
+# Reward adattata ai target cortissimi (1-2 token: "NONE", "PER:Mary",
+# "CS Machine_learning"). Con i pesi di ASLG, gold_structure vale -1 fisso sotto
+# i 2 token in vocabolario e verifier_scaled, che lo moltiplica, pure: una
+# risposta corretta di un token prendeva +0,30 invece di +1. Qui la plausibilita'
+# dei bigrammi non porta informazione, quindi quei due pesi vanno su gloss_order
+# (distanza di edit a token, sensibile alle maiuscole: l'unica componente che
+# premia solo l'etichetta esatta). Le etichette sono token lunghi e legittimi,
+# quindi il controllo "token sospetto" del format sale da 25 a 64 caratteri.
+reward:
+  weight_translation: 0.20
+  weight_bleu: 0.20
+  weight_gold_structure: 0.0
+  weight_gloss_order: 0.40
+  weight_verifier_scaled: 0.0
+  weight_format: 0.10
+  weight_repetition: 0.10
+  format_max_token_len: 64

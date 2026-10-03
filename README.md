@@ -105,13 +105,16 @@ neuro_symbolic_t2g/
 │       ├── decoding/full-vocab-trie.yaml  # Trie su train+test: DATA LEAK deliberato
 │       └── objectives/{sft-allowed-mass,sft-structured}.yaml
 ├── experiments/configs/phoenix-2014t/qwen25-05b/  # PHOENIX-2014T (base estende quello ASLG)
-│   ├── baseline/{zero-shot,few-shot}.yaml
-│   ├── sft/zero-shot.yaml  grpo/{zero-shot,few-shot}.yaml  sft-grpo/few-shot.yaml
-│   └── ablations/decoding/{no-grammar,full-vocab-trie}.yaml
-├── experiments/configs/conll-2003/qwen25-05b/     # CoNLL-2003 NER (stesse celle di PHOENIX)
-├── experiments/configs/wos-46985/qwen25-05b/      # WOS-46985, solo zero-shot
-│   ├── baseline/zero-shot.yaml  sft/zero-shot.yaml  grpo/zero-shot.yaml  sft-grpo/zero-shot.yaml
-│   └── ablations/decoding/{no-grammar,full-vocab-trie}.yaml
+│   ├── baseline/{zero-shot,few-shot,zero-shot-no-grammar}.yaml
+│   ├── sft/zero-shot.yaml  grpo/{zero-shot,few-shot}.yaml  sft-grpo/{zero-shot,few-shot}.yaml
+│   ├── ablations/decoding/{no-grammar,no-grammar-zero-shot,full-vocab-trie}.yaml
+│   └── ablations/objectives/sft-allowed-mass.yaml
+├── experiments/configs/conll-2003/qwen25-05b/     # CoNLL-2003 NER (stesse celle di PHOENIX,
+│                                                  #   reward senza bigrammi: target di 1-2 token)
+├── experiments/configs/wos-46985/qwen25-05b/      # WOS-46985, solo zero-shot (reward come CoNLL)
+│   ├── baseline/{zero-shot,zero-shot-no-grammar}.yaml  sft/zero-shot.yaml  grpo/zero-shot.yaml
+│   ├── sft-grpo/zero-shot.yaml  ablations/decoding/{no-grammar,full-vocab-trie}.yaml
+│   └── ablations/objectives/sft-allowed-mass.yaml
 ├── cluster/                           # SLURM scripts and cluster orchestration
 │   ├── setup.sh                       # One-shot environment setup
 │   ├── train.sh / eval.sh             # Job scripts

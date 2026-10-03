@@ -293,3 +293,23 @@ def test_verifier_scaled_reward(reward_setup):
 
     assert verifier_scaled_reward("", gold) == -1.0, "Empty = -1.0"
     assert verifier_scaled_reward(plausible, "") == -1.0, "Empty gold = -1.0"
+
+
+def test_format_long_token_threshold_is_configurable():
+    """25 caratteri e' tarato sui gloss incollati di ASLG-PC12. Su CoNLL un'entita'
+    corretta come MISC:Africa_Cup_of_Nations (26) non deve risultare sospetta."""
+    import numpy as np
+
+    from src.rewards import t2g_rewards as R
+
+    label = "MISC:Africa_Cup_of_Nations"
+    vocab = ["<BOS>", "<EOS>", "<UNK>", label, "NONE"]
+    saved = (R._bigram_matrix, R._gloss_vocab, R._format_max_token_len)
+    try:
+        R.initialize_rewards(np.ones((5, 5)) / 5, vocab)
+        assert R.gloss_format_reward(label) == 0.0  # default 25: sospetto
+        R.initialize_rewards(np.ones((5, 5)) / 5, vocab, format_max_token_len=64)
+        assert R.gloss_format_reward(label) == 1.0
+    finally:
+        R._bigram_matrix, R._gloss_vocab, R._format_max_token_len = saved
+        R._token_to_idx = {t: i for i, t in enumerate(R._gloss_vocab)}

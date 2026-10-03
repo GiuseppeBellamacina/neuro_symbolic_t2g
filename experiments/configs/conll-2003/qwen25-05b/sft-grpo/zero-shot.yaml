@@ -1,0 +1,40 @@
+# SFT→GRPO CoNLL-2003 — pipeline completa, zero-shot. Phase 0 = SFT, poi GRPO.
+#
+# Gemello di aslg-pc12/qwen25-05b/sft-grpo/zero-shot.yaml.
+#
+# Riuso dell'adapter SFT ATTIVO: sft_pretrain.training e' IDENTICO a
+# sft/zero-shot.yaml di questo albero (stesso fingerprint, stesso adapter di
+# sft-grpo/few-shot.yaml).
+#
+# Uso:
+#   CONFIG=experiments/configs/conll-2003/qwen25-05b/sft-grpo/zero-shot.yaml sbatch cluster/train.sh
+extends: ../base.yaml
+
+# --- Phase 0: SFT pre-training ---
+sft_pretrain:
+  enabled: true
+  reuse_adapter: true
+  training:
+    num_train_epochs: 3
+    per_device_train_batch_size: 4
+    per_device_eval_batch_size: 8
+    gradient_accumulation_steps: 4
+    learning_rate: 2.0e-5
+    warmup_steps: 50
+    weight_decay: 0.1
+    save_steps: 200
+    save_total_limit: 1
+    max_seq_length: 768
+    eval_fraction: 0.02
+    early_stopping_patience: 3
+
+# --- Phase 1: GRPO ---
+training:
+  learning_rate: 3.0e-6
+  warmup_steps: 200
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-05b/sft-grpo/zero-shot"
+  log_dir: "experiments/logs/conll-2003/qwen25-05b/sft-grpo/zero-shot"
+
+wandb:
+  run_name: "conll-2003-qwen25-05b-sft-grpo-zero-shot"
+  tags: ["T2G-framework", "CoNLL-2003", "sft-grpo", "zero-shot", "trie"]

@@ -129,7 +129,7 @@ from src.datasets.transition_matrix import sequence_score_bigram
 from src.grammar.gloss_grammar import GlossVocabularyMask
 from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
 from src.models.model_loader import resolve_model_source
-from src.rewards.t2g_rewards import initialize_rewards
+from src.rewards.t2g_rewards import DEFAULT_FORMAT_MAX_TOKEN_LEN, initialize_rewards
 from src.training.retrieval_setup import (
     build_train_retriever,
     retrieve_few_shot_batch,
@@ -1354,6 +1354,9 @@ def evaluate_checkpoint(
     initialize_rewards(
         bigram,
         vocab,
+        format_max_token_len=config.get("reward", {}).get(
+            "format_max_token_len", DEFAULT_FORMAT_MAX_TOKEN_LEN
+        ),
     )
     token_to_idx = {t: i for i, t in enumerate(vocab)}
 

@@ -122,11 +122,13 @@ presets:
     description: >-
       Le celle della matrice ASLG-PC12 replicate su PHOENIX-2014T (tedesco ->
       DGS), nello stesso ordine di riuso: baseline (cache del --compare), sft
-      (adapter riusato da sft-grpo), grpo, sft-grpo, no-grammar. Richiede i
+      (adapter riusato da sft-grpo), grpo, sft-grpo, no-grammar (few-shot e
+      zero-shot), massa ammessa. Richiede i
       CSV ufficiali in data/phoenix-2014t/ sul cluster.
     jobs:
       - {type: eval, config: phoenix-2014t-baseline-zero-shot, tag: phoenix-2014t-baseline-zero-shot}
       - {type: eval, config: phoenix-2014t-baseline-few-shot, tag: phoenix-2014t-baseline-few-shot}
+      - {type: eval, config: phoenix-2014t-baseline-zero-shot-no-grammar, tag: phoenix-2014t-baseline-zero-shot-no-grammar}
       - {type: train, config: phoenix-2014t-sft-zero-shot, tag: phoenix-2014t-sft-zero-shot}
       - {type: eval, config: phoenix-2014t-sft-zero-shot, tag: phoenix-2014t-sft-zero-shot}
       - {type: train, config: phoenix-2014t-grpo-zero-shot, tag: phoenix-2014t-grpo-zero-shot}
@@ -135,8 +137,14 @@ presets:
       - {type: eval, config: phoenix-2014t-grpo-few-shot, tag: phoenix-2014t-grpo-few-shot}
       - {type: train, config: phoenix-2014t-sft-grpo-few-shot, tag: phoenix-2014t-sft-grpo-few-shot}
       - {type: eval, config: phoenix-2014t-sft-grpo-few-shot, tag: phoenix-2014t-sft-grpo-few-shot}
+      - {type: train, config: phoenix-2014t-sft-grpo-zero-shot, tag: phoenix-2014t-sft-grpo-zero-shot}
+      - {type: eval, config: phoenix-2014t-sft-grpo-zero-shot, tag: phoenix-2014t-sft-grpo-zero-shot}
       - {type: train, config: phoenix-2014t-ablations-decoding-no-grammar, tag: phoenix-2014t-ablations-decoding-no-grammar}
       - {type: eval, config: phoenix-2014t-ablations-decoding-no-grammar, tag: phoenix-2014t-ablations-decoding-no-grammar}
+      - {type: train, config: phoenix-2014t-ablations-decoding-no-grammar-zero-shot, tag: phoenix-2014t-ablations-decoding-no-grammar-zero-shot}
+      - {type: eval, config: phoenix-2014t-ablations-decoding-no-grammar-zero-shot, tag: phoenix-2014t-ablations-decoding-no-grammar-zero-shot}
+      - {type: train, config: phoenix-2014t-ablations-objectives-sft-allowed-mass, tag: phoenix-2014t-ablations-objectives-sft-allowed-mass}
+      - {type: eval, config: phoenix-2014t-ablations-objectives-sft-allowed-mass, tag: phoenix-2014t-ablations-objectives-sft-allowed-mass}
 
   - id: grammarrl-tasks
     label: "GrammarRL — WOS-46985 e CoNLL-2003"
@@ -148,6 +156,7 @@ presets:
     jobs:
       - {type: eval, config: conll-2003-baseline-zero-shot, tag: conll-2003-baseline-zero-shot}
       - {type: eval, config: conll-2003-baseline-few-shot, tag: conll-2003-baseline-few-shot}
+      - {type: eval, config: conll-2003-baseline-zero-shot-no-grammar, tag: conll-2003-baseline-zero-shot-no-grammar}
       - {type: train, config: conll-2003-sft-zero-shot, tag: conll-2003-sft-zero-shot}
       - {type: eval, config: conll-2003-sft-zero-shot, tag: conll-2003-sft-zero-shot}
       - {type: train, config: conll-2003-grpo-zero-shot, tag: conll-2003-grpo-zero-shot}
@@ -156,9 +165,16 @@ presets:
       - {type: eval, config: conll-2003-grpo-few-shot, tag: conll-2003-grpo-few-shot}
       - {type: train, config: conll-2003-sft-grpo-few-shot, tag: conll-2003-sft-grpo-few-shot}
       - {type: eval, config: conll-2003-sft-grpo-few-shot, tag: conll-2003-sft-grpo-few-shot}
+      - {type: train, config: conll-2003-sft-grpo-zero-shot, tag: conll-2003-sft-grpo-zero-shot}
+      - {type: eval, config: conll-2003-sft-grpo-zero-shot, tag: conll-2003-sft-grpo-zero-shot}
       - {type: train, config: conll-2003-ablations-decoding-no-grammar, tag: conll-2003-ablations-decoding-no-grammar}
       - {type: eval, config: conll-2003-ablations-decoding-no-grammar, tag: conll-2003-ablations-decoding-no-grammar}
+      - {type: train, config: conll-2003-ablations-decoding-no-grammar-zero-shot, tag: conll-2003-ablations-decoding-no-grammar-zero-shot}
+      - {type: eval, config: conll-2003-ablations-decoding-no-grammar-zero-shot, tag: conll-2003-ablations-decoding-no-grammar-zero-shot}
+      - {type: train, config: conll-2003-ablations-objectives-sft-allowed-mass, tag: conll-2003-ablations-objectives-sft-allowed-mass}
+      - {type: eval, config: conll-2003-ablations-objectives-sft-allowed-mass, tag: conll-2003-ablations-objectives-sft-allowed-mass}
       - {type: eval, config: wos-46985-baseline-zero-shot, tag: wos-46985-baseline-zero-shot}
+      - {type: eval, config: wos-46985-baseline-zero-shot-no-grammar, tag: wos-46985-baseline-zero-shot-no-grammar}
       - {type: train, config: wos-46985-sft-zero-shot, tag: wos-46985-sft-zero-shot}
       - {type: eval, config: wos-46985-sft-zero-shot, tag: wos-46985-sft-zero-shot}
       - {type: train, config: wos-46985-grpo-zero-shot, tag: wos-46985-grpo-zero-shot}
@@ -167,3 +183,5 @@ presets:
       - {type: eval, config: wos-46985-sft-grpo-zero-shot, tag: wos-46985-sft-grpo-zero-shot}
       - {type: train, config: wos-46985-ablations-decoding-no-grammar, tag: wos-46985-ablations-decoding-no-grammar}
       - {type: eval, config: wos-46985-ablations-decoding-no-grammar, tag: wos-46985-ablations-decoding-no-grammar}
+      - {type: train, config: wos-46985-ablations-objectives-sft-allowed-mass, tag: wos-46985-ablations-objectives-sft-allowed-mass}
+      - {type: eval, config: wos-46985-ablations-objectives-sft-allowed-mass, tag: wos-46985-ablations-objectives-sft-allowed-mass}

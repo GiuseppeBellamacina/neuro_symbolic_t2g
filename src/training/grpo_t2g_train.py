@@ -95,6 +95,7 @@ from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
 from src.models.model_loader import load_model_and_tokenizer
 from src.retrieval import ExampleRetriever
 from src.rewards.t2g_rewards import (
+    DEFAULT_FORMAT_MAX_TOKEN_LEN,
     build_t2g_reward_functions,
     initialize_rewards,
 )
@@ -838,6 +839,9 @@ def main() -> None:
     initialize_rewards(
         bigram_matrix,
         vocab,
+        format_max_token_len=config.get("reward", {}).get(
+            "format_max_token_len", DEFAULT_FORMAT_MAX_TOKEN_LEN
+        ),
     )
     reward_fns, reward_weights = build_t2g_reward_functions(config.get("reward"))
 

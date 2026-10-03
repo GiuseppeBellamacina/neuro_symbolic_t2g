@@ -1,0 +1,25 @@
+# ABLAZIONE CoNLL-2003 — GRPO zero-shot SENZA Trie.
+#
+# La cella che risponde a "il GRPO impara il vincolo senza alcun supporto?":
+# niente esempi nel prompt, niente Trie ne' nei rollout ne' in valutazione.
+# ablations/decoding/no-grammar.yaml di questo albero e' la stessa cosa in
+# few-shot (gli esempi sono gia' un supporto). Riferimento:
+# baseline/zero-shot-no-grammar.yaml.
+#
+# Uso:
+#   CONFIG=experiments/configs/conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot.yaml sbatch cluster/train.sh
+extends: ../../grpo/zero-shot.yaml
+
+grammar:
+  enabled: false
+
+evaluation:
+  dual_prompting: false
+
+training:
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot"
+  log_dir: "experiments/logs/conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot"
+
+wandb:
+  run_name: "conll-2003-qwen25-05b-abl-decoding-no-grammar-zero-shot"
+  tags: ["T2G-framework", "CoNLL-2003", "ablation", "decoding", "no-grammar", "zero-shot"]
