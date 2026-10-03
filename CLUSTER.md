@@ -77,9 +77,9 @@ rsync -avz --exclude '__pycache__' --exclude 'data/' --exclude 'logs/' \
     neuro_symbolic_t2g/ <utente>@gcluster.dmi.unict.it:~/neuro_symbolic_t2g/
 ```
 
-> **Nota**: `data/` e `logs/` sono esclusi. ASLG-PC12 viene scaricato sul cluster da
-> Hugging Face (in `setup.sh`); PHOENIX-2014T, WOS-46985 e CoNLL-2003 invece vanno
-> copiati a mano in `data/<dataset>/` (vedi §9).
+> **Nota**: `data/` e `logs/` sono esclusi. `setup.sh` scarica sul cluster tutti i
+> dataset: ASLG-PC12 da Hugging Face, PHOENIX-2014T, WOS-46985 e CoNLL-2003 in
+> `data/<dataset>/` (`src/datasets/download.py`, file verificati con sha256).
 
 ---
 
@@ -486,14 +486,12 @@ nell'ordine:
    non esistono ancora;
 5. `chain-start`.
 
-PHOENIX-2014T: copiare `PHOENIX-2014-T.{train,dev,test}.corpus.csv` (archivio RWTH,
-`PHOENIX-2014-T/annotations/manual/`) in `data/phoenix-2014t/`; la campagna è
-`bash cluster/run_all.sh --dataset=phoenix-2014t --ablation`.
-
-WOS-46985 e CoNLL-2003 (i task non-gloss di GrammarRL, arXiv:2609.39869): copiare
-`Meta-data/Data.xlsx` di WebOfScience.zip (Mendeley Data) in `data/wos-46985/` e
-`eng.{train,testa,testb}` (o `train/valid/test.txt`) in `data/conll-2003/`; campagne
-`--dataset=wos-46985 --ablation` e `--dataset=conll-2003 --ablation`.
+PHOENIX-2014T, WOS-46985 e CoNLL-2003 (questi ultimi due sono i task non-gloss di
+GrammarRL, arXiv:2609.39869): i file li scarica `setup.sh` in `data/<dataset>/`. Se
+mancano, `prepare_data` in `train.sh`/`eval.sh` riprova il download e, su un nodo
+offline, fallisce chiedendo di rilanciare `setup.sh`. A mano, solo se serve:
+`PYTHONPATH=. python3 -m src.datasets.download [phoenix-2014t wos-46985 conll-2003]`
+dentro il container. Campagne: `bash cluster/run_all.sh --dataset=<dataset> --ablation`.
 
 ### Dove vengono salvati
 

@@ -912,6 +912,25 @@ def build_markdown(
     lines.extend(_matrix_table(selected, matrix_metric))
     lines.append("")
 
+    # ── Tutte le metriche, per ogni dataset diverso da ASLG-PC12 ───────────
+    other_datasets = sorted(
+        {r["factors"].get("dataset") for r in selected if r["kind"] != "baseline"}
+        - {DEFAULT_DATASET_KEY, None}
+    )
+    for dataset in other_datasets:
+        lines.append(f"## {dataset} — all metrics")
+        lines.append("")
+        lines.append(
+            "Same rows as the matrix above, restricted to this dataset, one "
+            "column per metric. On CoNLL-2003 and WOS-46985 read Exact Match "
+            "and Gloss F1 (micro = entity-level F1 on CoNLL): ROUGE-L and BLEU "
+            "split `PER:Mary` into `per` + `mary` and give partial credit to "
+            "a wrong label of the same type."
+        )
+        lines.append("")
+        lines.extend(_all_metrics_table(selected, dataset))
+        lines.append("")
+
     # ── Confronti appaiati: una tabella per fattore ────────────────────────
     lines.append("## Paired comparisons — one table per factor")
     lines.append("")
@@ -1040,6 +1059,50 @@ def _overview(
         values.append(row_v)
         annots.append(row_a)
     return cells, cols, values, annots
+
+
+def _all_metrics_table(selected: list[dict], dataset: str) -> list[str]:
+    """Tabella Markdown di un dataset: righe = cella × prompting, colonne = TUTTE
+    le metriche di :data:`METRIC_REGISTRY`.
+
+    Per i dataset diversi da ASLG-PC12 la matrice a metrica singola non basta:
+    su CoNLL-2003 e WOS-46985 ROUGE-L e BLEU premiano un'etichetta sbagliata
+    dello stesso tipo (``PER:John`` contro ``PER:Mary``) e si leggono exact
+    match e gloss F1. Stesse regole di :func:`_overview`: niente eval_baseline
+    per cella, run più recente, ``*`` se più run sono collassati.
+    """
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for r in selected:
+        if r["kind"] == "baseline" or r["factors"].get("dataset") != dataset:
+            continue
+        groups.setdefault((r["cell_path"], r["factors"]["prompting"]), []).append(r)
+    keys = sorted(
+        groups,
+        key=lambda k: (
+            cell_sort_key(k[0]),
+            _PROMPTING_ORDER.index(k[1]) if k[1] in _PROMPTING_ORDER else 99,
+        ),
+    )
+    lines = [
+        "| cell | prompting | "
+        + " | ".join(METRIC_LABELS[k] for k in METRIC_KEYS)
+        + " |",
+        "|---|---|" + "---|" * len(METRIC_KEYS),
+    ]
+    for cell, prompting in keys:
+        members = groups[(cell, prompting)]
+        latest = max(members, key=lambda r: r["timestamp"] or "")
+        mark = "*" if len(members) > 1 else ""
+        vals = [
+            (
+                "n/a"
+                if latest["metrics"].get(k) is None
+                else _fmt_metric(latest["metrics"][k])
+            )
+            for k in METRIC_KEYS
+        ]
+        lines.append(f"| {cell}{mark} | {prompting} | " + " | ".join(vals) + " |")
+    return lines
 
 
 def _matrix_table(selected: list[dict], metric: str) -> list[str]:

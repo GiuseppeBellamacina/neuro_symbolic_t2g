@@ -32,6 +32,11 @@ nomi, a qualunque profondità sotto ``dataset.dataset_cache`` (default
     validation : eng.testa  | valid.txt | dev.txt
     test       : eng.testb  | test.txt
 
+Se mancano vengono scaricati (:data:`CONLL_URL`, lo stesso archivio usato dal
+loader Hugging Face ``eriktks/conll2003``: ``train.txt``/``valid.txt``/
+``test.txt``, IOB2) e verificati con sha256; con ``HF_HUB_OFFLINE=1`` niente
+download (sul cluster li scarica ``cluster/setup.sh``).
+
 Il tagging può essere IOB1 (originale) o IOB2: un'entità comincia a ``B-``,
 a un cambio di tipo o dopo ``O``. Split UFFICIALI (14.041 / 3.250 / 3.453
 frasi), nessun dedup; il validation entra solo nel vocabolario ``all``.
@@ -44,6 +49,8 @@ from pathlib import Path
 
 from datasets import Dataset, DatasetDict
 
+from .download import fetch_zip_members, is_offline
+
 logger = logging.getLogger(__name__)
 
 CONLL_DATASET_NAME: str = "conll-2003"
@@ -54,6 +61,15 @@ CONLL_SPLIT_FILES: dict[str, tuple[str, ...]] = {
     "train": ("eng.train", "train.txt"),
     "validation": ("eng.testa", "valid.txt", "dev.txt"),
     "test": ("eng.testb", "test.txt"),
+}
+
+#: Archivio CoNLL-2003 del loader HF ``eriktks/conll2003`` e suo sha256.
+CONLL_URL: str = "https://data.deepai.org/conll2003.zip"
+CONLL_SHA256: str = "96a104d174ddae7558bab603f19382c5fe02ff1da5c077a7f3ce2ced1578a2c3"
+_CONLL_ZIP_MEMBERS: dict[str, str] = {
+    "train.txt": "train.txt",
+    "valid.txt": "valid.txt",
+    "test.txt": "test.txt",
 }
 
 #: Ordine dei campi del JSON di GrammarRL (person, organization, location, misc).
@@ -135,7 +151,7 @@ def read_conll_file(path: str | Path) -> list[dict[str, str]]:
     return rows
 
 
-def _find_split_file(data_dir: Path, split: str) -> Path:
+def _find_split_file(data_dir: Path, split: str) -> Path | None:
     for filename in CONLL_SPLIT_FILES[split]:
         direct = data_dir / filename
         if direct.is_file():
@@ -143,12 +159,26 @@ def _find_split_file(data_dir: Path, split: str) -> Path:
         matches = sorted(data_dir.rglob(filename)) if data_dir.is_dir() else []
         if matches:
             return matches[0]
-    raise FileNotFoundError(
-        f"CoNLL-2003: file dello split '{split}' non trovato sotto '{data_dir}' "
-        f"(nomi accettati: {', '.join(CONLL_SPLIT_FILES[split])}).\n"
-        "  Copia i file nel formato a colonne originale (eng.train/eng.testa/"
-        f"eng.testb o train/valid/test.txt) sotto '{data_dir}'."
-    )
+    return None
+
+
+def ensure_conll_files(data_dir: str | Path) -> dict[str, Path]:
+    """Path dei file per split, scaricandoli se ne manca uno (non offline).
+
+    Raises:
+        FileNotFoundError: se mancano e il nodo è offline.
+    """
+    root = Path(data_dir)
+    if any(_find_split_file(root, split) is None for split in CONLL_SPLIT_FILES):
+        if is_offline():
+            raise FileNotFoundError(
+                f"CoNLL-2003: file mancanti sotto '{root}' e nodo offline "
+                "(HF_HUB_OFFLINE=1). Eseguire cluster/setup.sh (scarica i file) "
+                "o copiare eng.train/eng.testa/eng.testb (o train/valid/test.txt)."
+            )
+        root.mkdir(parents=True, exist_ok=True)
+        fetch_zip_members(CONLL_URL, CONLL_SHA256, _CONLL_ZIP_MEMBERS, root)
+    return {split: _find_split_file(root, split) for split in CONLL_SPLIT_FILES}  # type: ignore[misc]
 
 
 def load_conll_dataset(data_dir: str | Path | None = None) -> DatasetDict:
@@ -160,8 +190,8 @@ def load_conll_dataset(data_dir: str | Path | None = None) -> DatasetDict:
     root = Path(data_dir or DEFAULT_CONLL_DIR)
     logger.info(f"Loading CoNLL-2003 from '{root}' (official splits)")
     splits: dict[str, Dataset] = {}
-    for split in CONLL_SPLIT_FILES:
-        rows = read_conll_file(_find_split_file(root, split))
+    for split, path in ensure_conll_files(root).items():
+        rows = read_conll_file(path)
         splits[split] = Dataset.from_list(rows)
         logger.info(f"  {split}: {len(rows)} sentences")
     return DatasetDict(splits)

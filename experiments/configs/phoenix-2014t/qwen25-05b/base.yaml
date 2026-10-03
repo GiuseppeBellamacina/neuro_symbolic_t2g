@@ -8,11 +8,11 @@
 # albero sono il gemello di quelle di ASLG-PC12 con un solo fattore diverso,
 # il dataset. Qui si sovrascrive solo ciò che dipende dal corpus.
 #
-# DATI (nessun download automatico, licenza CC BY-NC-SA 3.0): copiare
-# PHOENIX-2014-T.{train,dev,test}.corpus.csv (da
-# PHOENIX-2014-T/annotations/manual/ dell'archivio RWTH) sotto
-# data/phoenix-2014t/ — anche in sottocartelle, il loader li cerca per nome.
-# Dettagli: src/datasets/phoenix_dataset.py.
+# DATI (licenza CC BY-NC-SA 3.0): le tre annotazioni ufficiali
+# PHOENIX-2014-T.{train,dev,test}.corpus.csv, scaricate da sole in
+# data/phoenix-2014t/ al primo uso con rete (sul cluster da setup.sh) da una
+# copia su Hugging Face, verificate con sha256. Dettagli:
+# src/datasets/phoenix_dataset.py.
 #
 # DIFFERENZE DA TENERE A MENTE CONFRONTANDO CON ASLG-PC12
 # -------------------------------------------------------

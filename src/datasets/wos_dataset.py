@@ -11,7 +11,20 @@ della pipeline si applicano senza modifiche::
     gloss = "<DOMINIO> <AREA>"       es. "CS Machine_learning"
 
 Le etichette sono rese token singoli (spazi interni → ``_``, spazi ai bordi
-rimossi: nel file originale ``"CS "`` e ``" Machine learning"``). L'ordine
+rimossi: nel file originale ``"CS "`` e ``" Machine learning"``).
+
+Etichette canoniche
+-------------------
+La classe ufficiale del benchmark è la colonna ``Y`` (134 classi), ma le
+colonne testuali ``Domain``/``area`` non le corrispondono sempre: lo stesso
+codice compare con nomi d'area diversi (``Electric motor`` / ``Satellite
+radio``) e la stessa area con maiuscole diverse in domini diversi
+(``Medical Depression`` contro ``Psychology depression``, entrambe ``Y=40``).
+Presi alla lettera, i nomi darebbero 145 classi, alcune con 1-14 esempi, e
+token che differiscono solo per le maiuscole. Ogni riga riceve quindi la
+coppia (dominio, area) PIÙ FREQUENTE del suo ``Y`` (a parità, la prima in
+ordine alfabetico): 134 classi come il benchmark; 447 righe (1%) cambiano nome.
+Senza colonna ``Y`` (un ``Data.csv`` ridotto) restano i nomi del file. L'ordine
 dominio → area codifica la gerarchia; il Trie vincola i token al vocabolario
 ma NON la struttura (due aree di fila restano generabili): exact match = la
 coppia (dominio, area) è corretta.
@@ -21,9 +34,13 @@ Dove trovare i dati
 Kowsari et al. (2017), "HDLTex: Hierarchical Deep Learning for Text
 Classification", Mendeley Data (doi:10.17632/9rw3vkcfy4.6). Dall'archivio
 ``WebOfScience.zip`` serve ``Meta-data/Data.xlsx`` (46.985 righe, colonne
-``Y1, Y2, Y, Domain, area, keywords, Abstract``), da copiare sotto
+``Y1, Y2, Y, Domain, area, keywords, Abstract``), cercato sotto
 ``dataset.dataset_cache`` (default ``data/wos-46985/``, a qualunque
-profondità). In alternativa un ``Data.csv`` con le stesse colonne. L'xlsx è
+profondità; in alternativa un ``Data.csv`` con le stesse colonne). Se manca
+viene scaricato (:data:`WOS_URL`, lo stesso archivio del loader HF
+``HDLTex/web_of_science``, ~60 MB) e verificato con sha256; con
+``HF_HUB_OFFLINE=1`` niente download (sul cluster lo scarica
+``cluster/setup.sh``). L'xlsx è
 letto con la sola libreria standard (niente ``openpyxl``, assente nel
 container del cluster).
 
@@ -49,12 +66,14 @@ import csv
 import logging
 import re
 import zipfile
+from collections import Counter, defaultdict
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from datasets import Dataset, DatasetDict
 
 from .aslg_dataset import deduplicate_by_text
+from .download import fetch_zip_members, is_offline
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +81,13 @@ WOS_DATASET_NAME: str = "wos-46985"
 DEFAULT_WOS_DIR: str = "data/wos-46985"
 
 _DATA_FILES: tuple[str, ...] = ("Data.xlsx", "Data.csv")
+
+#: WebOfScience.zip (Mendeley Data) e suo sha256.
+WOS_URL: str = (
+    "https://data.mendeley.com/public-files/datasets/9rw3vkcfy4/files/"
+    "c9ea673d-5542-44c0-ab7b-f1311f7d61df/file_downloaded"
+)
+WOS_SHA256: str = "b787d484bff88b0dcdb3fa291d06ec9d2f025dc2a67ce1045d0c688cd96ccf8a"
 _XLSX_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 _CELL_REF_RE = re.compile(r"([A-Z]+)")
 
@@ -151,7 +177,7 @@ def _read_rows(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
-def _find_data_file(data_dir: Path) -> Path:
+def _find_data_file(data_dir: Path) -> Path | None:
     for filename in _DATA_FILES:
         direct = data_dir / filename
         if direct.is_file():
@@ -159,11 +185,49 @@ def _find_data_file(data_dir: Path) -> Path:
         matches = sorted(data_dir.rglob(filename)) if data_dir.is_dir() else []
         if matches:
             return matches[0]
-    raise FileNotFoundError(
-        f"WOS-46985: né Data.xlsx né Data.csv trovati sotto '{data_dir}'.\n"
-        "  Scarica WebOfScience.zip da Mendeley Data (doi:10.17632/9rw3vkcfy4.6)\n"
-        f"  e copia Meta-data/Data.xlsx sotto '{data_dir}'."
-    )
+    return None
+
+
+def ensure_wos_files(data_dir: str | Path) -> Path:
+    """Path di ``Data.xlsx``/``Data.csv``, scaricandolo se manca (non offline).
+
+    Raises:
+        FileNotFoundError: se manca e il nodo è offline.
+    """
+    root = Path(data_dir)
+    path = _find_data_file(root)
+    if path is not None:
+        return path
+    if is_offline():
+        raise FileNotFoundError(
+            f"WOS-46985: né Data.xlsx né Data.csv sotto '{root}' e nodo offline "
+            "(HF_HUB_OFFLINE=1). Eseguire cluster/setup.sh (scarica il file) o "
+            "copiare Meta-data/Data.xlsx di WebOfScience.zip."
+        )
+    root.mkdir(parents=True, exist_ok=True)
+    fetch_zip_members(WOS_URL, WOS_SHA256, {"Meta-data/Data.xlsx": "Data.xlsx"}, root)
+    return root / "Data.xlsx"
+
+
+def canonical_labels(records: list[dict[str, str]]) -> dict[str, tuple[str, str]]:
+    """Codice ``Y`` → coppia (dominio, area) più frequente fra le sue righe.
+
+    A parità di frequenza vince la coppia prima in ordine alfabetico, così il
+    risultato non dipende dall'ordine delle righe.
+    """
+    counts: dict[str, Counter[tuple[str, str]]] = defaultdict(Counter)
+    for record in records:
+        code = str(record.get("Y") or "").strip()
+        if code:
+            pair = (
+                label_token(record.get("Domain") or ""),
+                label_token(record.get("area") or ""),
+            )
+            counts[code][pair] += 1
+    return {
+        code: min(c.items(), key=lambda kv: (-kv[1], kv[0]))[0]
+        for code, c in counts.items()
+    }
 
 
 def load_wos_dataset(
@@ -174,7 +238,8 @@ def load_wos_dataset(
     """Load WOS-46985 as ``text`` (abstract) / ``gloss`` (``DOMINIO AREA``).
 
     Args:
-        data_dir: Directory containing ``Data.xlsx`` (or ``Data.csv``).
+        data_dir: Directory containing ``Data.xlsx`` (or ``Data.csv``),
+            downloaded there if missing.
         seed: Seed of the deterministic 90/10 split (same logic as ASLG-PC12).
         max_source_words: Keep only the first N words of each abstract
             (``None`` = full text). Applied AFTER dedup and split.
@@ -184,15 +249,23 @@ def load_wos_dataset(
         ``gloss``, ``domain``, ``area``.
     """
     root = Path(data_dir or DEFAULT_WOS_DIR)
-    path = _find_data_file(root)
+    path = ensure_wos_files(root)
     logger.info(f"Loading WOS-46985 from '{path}'")
 
+    records = _read_rows(path)
+    canonical = canonical_labels(records)
     rows: list[dict[str, str]] = []
     dropped = 0
-    for record in _read_rows(path):
+    for record in records:
         text = " ".join(str(record.get("Abstract") or "").split())
-        domain = label_token(record.get("Domain") or "")
-        area = label_token(record.get("area") or "")
+        code = str(record.get("Y") or "").strip()
+        domain, area = canonical.get(
+            code,
+            (
+                label_token(record.get("Domain") or ""),
+                label_token(record.get("area") or ""),
+            ),
+        )
         if not text or not domain or not area:
             dropped += 1
             continue

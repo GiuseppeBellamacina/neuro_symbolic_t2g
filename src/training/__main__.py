@@ -67,6 +67,16 @@ _cfg = _peek_config(_early_args.config) if _early_args.config else {}
 # job 7294 falliva con KeyError: 'output_dir' solo DOPO modello e dataset.
 if _early_args.config and not _early_args.prepare_data:
     _training = _cfg.get("training", {})
+    # Le rivalutazioni greedy ereditano output_dir dalla cella madre: un train
+    # scriverebbe un run "più recente" nella sua directory. Le marca
+    # training.eval_only, perché la guardia sotto non le vede.
+    if _training.get("eval_only"):
+        _sys.stderr.write(
+            "\n[bootstrap] Config EVAL-ONLY (training.eval_only): "
+            f"{_early_args.config}\n"
+            "            Usa cluster/eval.sh, non cluster/train.sh.\n"
+        )
+        raise SystemExit(2)
     if _training.get("trainer", "grpo") != "sft":
         _missing = [k for k in ("output_dir", "log_dir") if k not in _training]
         if _missing:

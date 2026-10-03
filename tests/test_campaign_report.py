@@ -586,3 +586,24 @@ def test_same_cell_on_two_datasets_stays_two_typologies(tmp_path):
     comparisons, _missing, _warn = build_comparisons(selected)
     for c in comparisons:
         assert c["a"]["factors"]["dataset"] == c["b"]["factors"]["dataset"]
+
+
+def test_non_aslg_datasets_get_an_all_metrics_table(tmp_path):
+    """PHOENIX/CoNLL/WOS: una tabella con tutte le metriche per dataset.
+    ASLG-PC12 resta com'era: nessuna tabella aggiuntiva."""
+    for dataset in ("aslg-pc12", "conll-2003"):
+        make_eval(
+            tmp_path,
+            f"{dataset}/qwen25-05b/grpo/zero-shot",
+            "run_20260101_000000",
+            "eval_final.json",
+            {"gloss_f1_micro": 0.42, "prompting": {"mode": "zero-shot"}},
+        )
+    selected, superseded = select_latest(discover_runs(tmp_path)["runs"])
+    md = build_markdown(selected, [], [], [], [], [], superseded)
+    assert "## conll-2003 — all metrics" in md
+    assert "## aslg-pc12 — all metrics" not in md
+    table = md.split("## conll-2003 — all metrics", 1)[1]
+    row = next(line for line in table.splitlines() if line.startswith("| conll-2003/"))
+    assert "Exact Match" in table and "Gloss F1 (mic)" in table
+    assert "0.4200" in row and "aslg-pc12" not in row

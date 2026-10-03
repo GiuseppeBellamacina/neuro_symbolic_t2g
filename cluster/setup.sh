@@ -94,26 +94,13 @@ fi
 echo ""
 echo "📊 Download e processing dataset ASLG-PC12 + matrici bigram..."
 RUN_PY_FORCE_BARE=1 prepare_data || echo "⚠️  Dataset processing fallito — verrà fatto al primo training"
-# PHOENIX-2014T: nessun download (licenza RWTH, niente copia su HF). Solo un
-# avviso: le celle experiments/configs/phoenix-2014t/ falliscono subito
-# (prepare_data in train.sh/eval.sh) finche' i CSV non ci sono.
-if _t2g_phoenix_present; then
-    echo "✅ PHOENIX-2014T: annotazioni trovate in data/phoenix-2014t/"
-else
-    echo "ℹ️  PHOENIX-2014T: copia PHOENIX-2014-T.{train,dev,test}.corpus.csv in data/phoenix-2014t/"
-    echo "   per le celle experiments/configs/phoenix-2014t/ (vedi src/datasets/phoenix_dataset.py)"
-fi
-# WOS-46985 e CoNLL-2003 (i due dataset non-gloss di GrammarRL): idem, file locali.
-if _t2g_wos_present; then
-    echo "✅ WOS-46985: Data.xlsx/Data.csv trovato in data/wos-46985/"
-else
-    echo "ℹ️  WOS-46985: copia Meta-data/Data.xlsx (WebOfScience.zip, Mendeley) in data/wos-46985/"
-fi
-if _t2g_conll_present; then
-    echo "✅ CoNLL-2003: file trovati in data/conll-2003/"
-else
-    echo "ℹ️  CoNLL-2003: copia eng.{train,testa,testb} (o train/valid/test.txt) in data/conll-2003/"
-fi
+# PHOENIX-2014T, WOS-46985 e CoNLL-2003: file grezzi in data/<dataset>/,
+# verificati con sha256 (src/datasets/download.py). Gia' presenti = nessun
+# download. Un fallimento non blocca il setup: le celle di quel dataset falliranno
+# in prepare_data con lo stesso messaggio finche' il download non riesce.
+echo ""
+echo "📊 Download PHOENIX-2014T, WOS-46985, CoNLL-2003..."
+RUN_PY_FORCE_BARE=1 HF_HUB_OFFLINE=0 run_py -m src.datasets.download     || echo "⚠️  Download di uno o piu' dataset fallito — rilanciare setup.sh"
 
 # ── 5. Pre-download modello per Unsloth (offline cache) ────────────────────────
 echo ""

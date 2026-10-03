@@ -15,6 +15,9 @@ Questa sezione descrive ASLG-PC12. Gli altri dataset (`dataset.dataset_name`):
 PHOENIX-2014T e CoNLL-2003 usano gli split ufficiali; WOS-46985 non ne ha uno
 pubblico, quindi deduplicazione e 90/10 con seed 42 come qui sotto. Il
 vocabolario del Trie viene sempre dal solo train (`dataset.vocab_source: train`).
+Su CoNLL-2003 e WOS-46985 si leggono `exact_match` e `gloss_f1_micro` (F1 a livello
+di entità per CoNLL, ogni entità è un token); ROUGE-L e BLEU spezzano `PER:Mary` in
+`per` + `mary` e danno credito parziale a un'etichetta sbagliata dello stesso tipo.
 
 - **Dataset**: ASLG-PC12 (`achrafothman/aslg_pc12`), 87.710 coppie raw.
 - **Deduplicazione**: PRIMA dello split, per chiave normalizzata del testo
@@ -412,7 +415,11 @@ riporta il delta di ogni metrica — le righe che servono per compilare la
 matrice di ablazione. Da lanciare a fine campagna o quando il cluster termina
 una chain; gira senza GPU sui file locali. Output in `experiments/figures/`:
 `campaign_report.json`, `campaign_report.md`,
-`campaign_pairwise_deltas.png`, `campaign_matrix.png`.
+`campaign_pairwise_deltas.png`, `campaign_matrix.png`. La matrice di sintesi
+usa una sola metrica (`--metric`, default ROUGE-L); per ogni dataset diverso da
+ASLG-PC12 il Markdown aggiunge una tabella con tutte le metriche
+(`## <dataset> — all metrics`), perché su CoNLL-2003 e WOS-46985 si leggono
+exact match e gloss F1, non ROUGE-L.
 
 Regole dichiarate (riprodotte in ogni report generato):
 - **Selezione dei run**: per ogni *tipologia* (combinazione dei fattori

@@ -31,7 +31,7 @@ training:
 
 # Vedi aslg-pc12/qwen25-05b/sft/zero-shot.yaml per il perché di 768.
 generation:
-  max_completion_length: 128
+  max_completion_length: 192 # come grpo nel base: target fino a 168 token
   max_prompt_length: 768
   temperature: 0.7
 

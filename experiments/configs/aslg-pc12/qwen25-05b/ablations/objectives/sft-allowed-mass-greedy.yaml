@@ -23,6 +23,9 @@
 
 extends: sft-allowed-mass.yaml
 
+training:
+  eval_only: true # train.sh rifiuta il config (src/training/__main__.py)
+
 evaluation:
   num_samples: 1 # greedy: eval_t2g imposta do_sample = num_samples > 1
   best_of_n: false # richiede num_samples > 1

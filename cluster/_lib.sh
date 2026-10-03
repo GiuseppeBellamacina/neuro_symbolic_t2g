@@ -518,10 +518,10 @@ _t2g_artifacts_present() {
         && [ -f "data/gloss_vocab.txt" ]
 }
 
-# PHOENIX-2014T non ha un download automatico (licenza, nessuna copia su HF):
-# servono i tre CSV ufficiali sotto data/phoenix-2014t/ (a qualunque
-# profondita', vedi src/datasets/phoenix_dataset.py). Vocabolario, bigram e
-# indice del retriever li costruisce python al primo job (cache con sidecar).
+# PHOENIX-2014T, WOS-46985 e CoNLL-2003: file grezzi sotto data/<dataset>/ (a
+# qualunque profondita'), scaricati da src/datasets/download.py (setup.sh, o
+# prepare_data qui sotto se il nodo ha rete). Vocabolario, bigram e indice del
+# retriever li costruisce python al primo job (cache con sidecar).
 _t2g_phoenix_present() {
     local split
     for split in train dev test; do
@@ -532,8 +532,6 @@ _t2g_phoenix_present() {
     return 0
 }
 
-# WOS-46985 (Data.xlsx o Data.csv) e CoNLL-2003 (file a colonne): stessi
-# principi, file locali copiati a mano (vedi src/datasets/{wos,conll}_dataset.py).
 _t2g_wos_present() {
     [ -n "$(find data/wos-46985 \( -name Data.xlsx -o -name Data.csv \) 2>/dev/null | head -1)" ]
 }
@@ -561,29 +559,25 @@ prepare_data() {
     if [ -n "${1:-}" ]; then
         dataset=$(t2g_dataset_of_config "$1")
     fi
-    if [ "$dataset" = "phoenix-2014t" ]; then
-        if ! _t2g_phoenix_present; then
-            echo "? PHOENIX-2014T: annotazioni mancanti sotto data/phoenix-2014t/." >&2
-            echo "   Attesi PHOENIX-2014-T.{train,dev,test}.corpus.csv (da" >&2
-            echo "   PHOENIX-2014-T/annotations/manual/ dell'archivio RWTH)." >&2
+    local present=""
+    case "$dataset" in
+        phoenix-2014t) present=_t2g_phoenix_present ;;
+        wos-46985)     present=_t2g_wos_present ;;
+        conll-2003)    present=_t2g_conll_present ;;
+    esac
+    if [ -n "$present" ]; then
+        "$present" && return 0
+        # Stessa policy di ASLG-PC12: su un nodo offline niente download,
+        # i file li mette setup.sh (l'unico percorso online garantito).
+        if [ "${HF_HUB_OFFLINE:-0}" = "1" ]; then
+            echo "? ${dataset}: file del dataset mancanti sotto data/${dataset}/ e nodo offline." >&2
+            echo "   Eseguire 'bash cluster/setup.sh' per scaricarli." >&2
             return 1
         fi
-        return 0
-    fi
-    if [ "$dataset" = "wos-46985" ]; then
-        if ! _t2g_wos_present; then
-            echo "? WOS-46985: Data.xlsx (o Data.csv) mancante sotto data/wos-46985/." >&2
-            echo "   Da WebOfScience.zip (Mendeley Data, doi:10.17632/9rw3vkcfy4.6)," >&2
-            echo "   file Meta-data/Data.xlsx." >&2
-            return 1
-        fi
-        return 0
-    fi
-    if [ "$dataset" = "conll-2003" ]; then
-        if ! _t2g_conll_present; then
-            echo "? CoNLL-2003: file mancanti sotto data/conll-2003/." >&2
-            echo "   Attesi eng.{train,testa,testb} (o train/valid/test.txt) nel" >&2
-            echo "   formato a colonne originale." >&2
+        echo "${dataset}: file mancanti, download in corso..."
+        # run_py inoltra HF_HUB_OFFLINE nel container (default 1): qui va 0.
+        if ! HF_HUB_OFFLINE=0 run_py -m src.datasets.download "$dataset"; then
+            echo "⚠️  ${dataset}: download fallito (nodo senza rete? usare setup.sh)" >&2
             return 1
         fi
         return 0

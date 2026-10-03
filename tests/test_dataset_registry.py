@@ -139,7 +139,8 @@ def test_phoenix_loader_official_splits(phoenix_dir: Path) -> None:
     assert ds["train"][1]["text"] == 'im norden regen "stark" .'
 
 
-def test_phoenix_loader_missing_files_explains(tmp_path: Path) -> None:
+def test_phoenix_loader_missing_files_explains(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")  # offline: errore, niente download
     with pytest.raises(FileNotFoundError, match="PHOENIX-2014-T.train.corpus.csv"):
         load_t2g_dataset({"dataset_name": "phoenix-2014t", "dataset_cache": tmp_path})
 
@@ -385,7 +386,8 @@ def test_wos_csv_and_truncation(tmp_path: Path) -> None:
     assert len(ds["train"]) + len(ds["test"]) == 10
 
 
-def test_wos_missing_file_explains(tmp_path: Path) -> None:
+def test_wos_missing_file_explains(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     with pytest.raises(FileNotFoundError, match="Data.xlsx"):
         load_t2g_dataset({"dataset_name": "wos-46985", "dataset_cache": str(tmp_path)})
 
@@ -440,7 +442,75 @@ def test_conll_loader_official_splits(tmp_path: Path) -> None:
     assert rows[0]["text"] == "EU rejects German ."
 
 
-def test_conll_missing_split_explains(tmp_path: Path) -> None:
+def test_conll_missing_split_explains(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     (tmp_path / "train.txt").write_text("EU NNP B-NP B-ORG\n", encoding="utf-8")
-    with pytest.raises(FileNotFoundError, match="validation"):
+    with pytest.raises(FileNotFoundError, match="setup.sh"):
         load_t2g_dataset({"dataset_name": "conll-2003", "dataset_cache": str(tmp_path)})
+
+
+# ── Download automatico ─────────────────────────────────────────────────────
+
+
+def test_fetch_verifies_sha256_and_leaves_no_partial_file(tmp_path: Path) -> None:
+    import hashlib
+
+    from src.datasets.download import fetch
+
+    src = tmp_path / "src.txt"
+    src.write_bytes(b"ciao")
+    good = hashlib.sha256(b"ciao").hexdigest()
+    dest = fetch(src.as_uri(), tmp_path / "out" / "a.txt", good)
+    assert dest.read_bytes() == b"ciao"
+    with pytest.raises(RuntimeError, match="sha256"):
+        fetch(src.as_uri(), tmp_path / "out" / "b.txt", "0" * 64)
+    assert sorted(p.name for p in (tmp_path / "out").iterdir()) == ["a.txt"]
+
+
+def test_missing_conll_files_are_downloaded_when_online(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Online e file assenti: il loader scarica lo zip, estrae e carica."""
+    import hashlib
+    import zipfile
+
+    from src.datasets import conll_dataset
+
+    archive = tmp_path / "conll.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        for name in ("train.txt", "valid.txt", "test.txt"):
+            zf.writestr(name, "EU NNP B-NP B-ORG\nsays VBZ B-VP O\n")
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    monkeypatch.setattr(conll_dataset, "CONLL_URL", archive.as_uri())
+    monkeypatch.setattr(
+        conll_dataset, "CONLL_SHA256", hashlib.sha256(archive.read_bytes()).hexdigest()
+    )
+    data_dir = tmp_path / "data"
+    ds = load_t2g_dataset(
+        {"dataset_name": "conll-2003", "dataset_cache": str(data_dir)}
+    )
+    assert ds["test"][0]["gloss"] == "ORG:EU"
+    # Lo zip viene cancellato dopo l'estrazione.
+    assert sorted(p.name for p in data_dir.iterdir()) == [
+        "test.txt",
+        "train.txt",
+        "valid.txt",
+    ]
+
+
+def test_wos_labels_follow_the_official_code() -> None:
+    """Nomi incoerenti con lo stesso Y → la coppia più frequente del codice."""
+    from src.datasets.wos_dataset import canonical_labels
+
+    rows = [
+        {"Y": "40", "Domain": "Psychology  ", "area": " depression "},
+        {"Y": "40", "Domain": "Psychology  ", "area": " depression "},
+        {"Y": "40", "Domain": "Medical ", "area": " Depression "},
+        {"Y": "7", "Domain": "ECE ", "area": " Satellite radio "},
+        {"Y": "7", "Domain": "ECE ", "area": " Electric motor "},
+    ]
+    assert canonical_labels(rows) == {
+        "40": ("Psychology", "depression"),
+        # Parità 1-1: vince l'ordine alfabetico, non l'ordine delle righe.
+        "7": ("ECE", "Electric_motor"),
+    }

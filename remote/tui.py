@@ -95,6 +95,8 @@ CONFIG_NAMES: tuple[str, ...] = (
     "ablations-objectives-sft-structured-shuffled",
     "ablations-glossary-zero-shot",
     "ablations-glossary-few-shot",
+    "sft-zero-shot-greedy",  # solo eval
+    "ablations-objectives-sft-allowed-mass-greedy",  # solo eval
     "ablations-decoding-full-vocab-trie",
     "phoenix-2014t-baseline-zero-shot",
     "phoenix-2014t-baseline-few-shot",

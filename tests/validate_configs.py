@@ -116,6 +116,7 @@ TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
     "dataset.seed": int,
     "dataset.thinking": bool,
     "training.max_steps": int,
+    "training.eval_only": bool,
     "training.num_train_epochs": (int, float),
     "training.per_device_train_batch_size": int,
     "training.gradient_accumulation_steps": int,

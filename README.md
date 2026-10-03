@@ -70,8 +70,9 @@ active in the optimal config (plus 3 ablation-only modules) and **10 in total**.
   2014T (German→DGS, `experiments/configs/phoenix-2014t/qwen25-05b/`: the
   representative cells of the matrix, same logic, one factor changed — the
   corpus). Outputs are laid out `experiments/<kind>/<dataset>/<model>/<cell>/`;
-  PHOENIX needs the official annotation CSVs copied into `data/phoenix-2014t/`
-  (see `src/datasets/phoenix_dataset.py`). The two non-gloss tasks of GrammarRL
+  PHOENIX, WOS and CoNLL raw files are downloaded into `data/<dataset>/` on
+  first use (sha256-checked, `src/datasets/download.py`; on the cluster by
+  `cluster/setup.sh`). The two non-gloss tasks of GrammarRL
   (arXiv:2609.39869) are also supported, linearized as closed-vocabulary token
   sequences under the same Trie: WOS-46985 hierarchical classification
   (`DOMAIN AREA`, zero-shot cells only) and CoNLL-2003 NER (`TYPE:Entity ...`).
@@ -181,7 +182,7 @@ neuro_symbolic_t2g/
 
 | Step | What                                                                                                                                                                                                                   | Where                            |
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| 1    | **Data**: load the corpus picked by `dataset.dataset_name` (ASLG-PC12 from Hugging Face; PHOENIX-2014T, WOS-46985, CoNLL-2003 from `data/`)                                                                            | `src/datasets/registry.py`       |
+| 1    | **Data**: load the corpus picked by `dataset.dataset_name` (ASLG-PC12 from Hugging Face; PHOENIX-2014T, WOS-46985, CoNLL-2003 from `data/`, downloaded on first use)                                                                            | `src/datasets/registry.py`       |
 | 2    | **Model**: Load Qwen2.5-0.5B-Instruct with LoRA (r=32) + 4-bit QLoRA via Unsloth                                                                                                                                       | `src/training/grpo_t2g_train.py` |
 | 3    | **Constrained Decoding**: Build `GlossVocabularyMask` + dual-root token Trie — model can only output ASL gloss tokens                                                                                                | `src/grammar/gloss_grammar.py`   |
 | 4    | **Dataset**: Format prompt-completion pairs with chat template                                                                                                                                                         | `src/datasets/aslg_dataset.py`   |

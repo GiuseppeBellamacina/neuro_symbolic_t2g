@@ -10,9 +10,8 @@
 # Estende il base di ASLG-PC12: modello, LoRA, GRPO, grammar ed evaluation
 # sono gli stessi; cambiano il corpus e i pesi della reward (sotto).
 #
-# DATI (nessun download automatico): copiare eng.train / eng.testa /
-# eng.testb (o train.txt / valid.txt / test.txt) nel formato a colonne
-# originale sotto data/conll-2003/.
+# DATI: scaricati da soli in data/conll-2003/ al primo uso con rete (sul
+# cluster da setup.sh), verificati con sha256; vedi src/datasets/conll_dataset.py.
 #
 # DIFFERENZE DA TENERE A MENTE
 # ----------------------------
@@ -23,8 +22,13 @@
 #   dataset dove ablations/decoding/full-vocab-trie (vocab train+test) pesa di
 #   più, e dove leggere quella cella come risultato sarebbe più fuorviante.
 # * Metriche da leggere: exact_match (tutte le entità giuste) e gloss F1 a
-#   token, che qui coincide con l'F1 a livello di entità (ogni entità è un
-#   token). ROUGE-L/BLEU solo come contorno.
+#   token (gloss_f1_micro), che qui coincide con l'F1 a livello di entità (ogni
+#   entità è un token). ROUGE-L/BLEU non vanno letti come risultato: spezzano
+#   PER:Mary in per + mary e premiano un'entità sbagliata dello stesso tipo.
+#   Nella reward quel credito parziale resta di proposito: guida il GRPO verso
+#   il tipo giusto e tiene varia la reward dentro i gruppi.
+# * max_completion_length 192 (non 128): il target più lungo del test fa 168
+#   token Qwen, cinque superano i 96. A 128 sarebbero troncati.
 # * Con 14k frasi di train, max_steps: 5000 copre ~36% del train in GRPO.
 # ============================================================================
 
@@ -39,6 +43,9 @@ dataset:
 
 retrieval:
   cache_path: "data/conll-2003/retriever_index"
+
+grpo:
+  max_completion_length: 192
 
 wandb:
   run_name: "conll-2003-qwen25-05b"

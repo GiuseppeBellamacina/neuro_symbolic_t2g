@@ -154,6 +154,10 @@ CONFIG_MAP: dict[str, str] = {
     "ablations-rewards-lean-stack": "experiments/configs/aslg-pc12/qwen25-05b/ablations/rewards/lean-stack.yaml",
     "ablations-glossary-zero-shot": "experiments/configs/aslg-pc12/qwen25-05b/ablations/glossary/zero-shot.yaml",
     "ablations-glossary-few-shot": "experiments/configs/aslg-pc12/qwen25-05b/ablations/glossary/few-shot.yaml",
+    # Rivalutazioni greedy dei checkpoint esistenti: SOLO eval (un train viene
+    # rifiutato da training.eval_only).
+    "sft-zero-shot-greedy": "experiments/configs/aslg-pc12/qwen25-05b/sft/zero-shot-greedy.yaml",
+    "ablations-objectives-sft-allowed-mass-greedy": "experiments/configs/aslg-pc12/qwen25-05b/ablations/objectives/sft-allowed-mass-greedy.yaml",
     # DATA LEAK deliberato (Trie su train+test): fuori da ogni preset/campagna.
     "ablations-decoding-full-vocab-trie": "experiments/configs/aslg-pc12/qwen25-05b/ablations/decoding/full-vocab-trie.yaml",
     # PHOENIX-2014T: nome = tag della cella, prefissato dal dataset

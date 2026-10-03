@@ -9,9 +9,11 @@
 # Estende il base di ASLG-PC12: modello, LoRA, GRPO, grammar ed evaluation
 # sono gli stessi; cambiano il corpus e i pesi della reward (sotto).
 #
-# DATI (nessun download automatico): copiare Meta-data/Data.xlsx di
-# WebOfScience.zip (Mendeley Data, doi:10.17632/9rw3vkcfy4.6) sotto
-# data/wos-46985/ (o un Data.csv con le stesse colonne).
+# DATI: Meta-data/Data.xlsx di WebOfScience.zip (Mendeley Data,
+# doi:10.17632/9rw3vkcfy4.6), scaricato da solo in data/wos-46985/ al primo uso
+# con rete (sul cluster da setup.sh) e verificato con sha256. Le etichette sono
+# quelle canoniche del codice ufficiale Y (134 classi): vedi
+# src/datasets/wos_dataset.py.
 #
 # DIFFERENZE DA TENERE A MENTE
 # ----------------------------
@@ -25,7 +27,8 @@
 #   max_source_words NON invalida da solo l'indice del retriever (che qui non
 #   si usa) né il vocabolario (le etichette non dipendono dal testo).
 # * Il target è di 2 token: exact match = (dominio, area) entrambi corretti;
-#   ROUGE-L/BLEU su due token sono poco informativi, leggere exact_match.
+#   ROUGE-L/BLEU su due token sono poco informativi, leggere exact_match
+#   (e gloss_f1_micro: credito per il solo dominio giusto).
 #   Il Trie vincola i token, NON la struttura (due aree di fila restano
 #   generabili): la struttura la impara il modello.
 # * Con ~42k righe di train, max_steps: 5000 copre ~12% del train in GRPO.

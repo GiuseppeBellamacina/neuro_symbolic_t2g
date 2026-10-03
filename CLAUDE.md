@@ -70,11 +70,14 @@ formatter and re-stages changed files; `pre-push` best-effort `scp`s `src/`, `cl
 
 1. **Data** (`src/datasets/registry.py` → `aslg_dataset.py` / `phoenix_dataset.py`) —
    `dataset.dataset_name` picks the corpus: ASLG-PC12 (87K pairs, HF cache, 90/10 split)
-   or PHOENIX-2014T (German→DGS, official CSVs copied into `data/phoenix-2014t/`, official
+   or PHOENIX-2014T (German→DGS, official CSVs in `data/phoenix-2014t/`, official
    splits), plus the two non-gloss tasks of GrammarRL (arXiv:2609.39869) linearized as
    closed-vocabulary token sequences: WOS-46985 (hierarchical classification, target
    `DOMAIN AREA`, `data/wos-46985/Data.xlsx`, zero-shot only) and CoNLL-2003 (NER, target
-   `TYPE:Entity ...` or `NONE`, `data/conll-2003/`). The registry also builds/caches the closed gloss vocabulary + bigram matrix
+   `TYPE:Entity ...` or `NONE`, `data/conll-2003/`); the three are downloaded on first use with network
+   (`src/datasets/download.py`, sha256-pinned; on the cluster `setup.sh`, compute
+   nodes are offline). WOS labels are canonicalized per official code `Y` (134
+   classes). The registry also builds/caches the closed gloss vocabulary + bigram matrix
    (`dataset.vocab_source`: `train` default, `all` = deliberate train+test leak used only
    by `ablations/decoding/full-vocab-trie.yaml`). `dataset.prompt_profile` (`en-asl` /
    `de-dgs`) selects the language pair in `src/utils/prompting.py`.
