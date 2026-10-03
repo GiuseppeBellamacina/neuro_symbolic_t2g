@@ -24,7 +24,12 @@ Presi alla lettera, i nomi darebbero 145 classi, alcune con 1-14 esempi, e
 token che differiscono solo per le maiuscole. Ogni riga riceve quindi la
 coppia (dominio, area) PIÙ FREQUENTE del suo ``Y`` (a parità, la prima in
 ordine alfabetico): 134 classi come il benchmark; 447 righe (1%) cambiano nome.
-Senza colonna ``Y`` (un ``Data.csv`` ridotto) restano i nomi del file. L'ordine
+Senza colonna ``Y`` (un ``Data.csv`` ridotto) restano i nomi del file.
+I nomi canonici dipendono dai nomi presenti nella sorgente: con la copia
+Hugging Face scaricata in automatico (vedi sotto) la classe ``Y=25`` si chiama
+``ECE Electrical_generator``, con il ``Data.xlsx`` di Mendeley
+``ECE Analog_signal_processing``. Stessi testi, stessi codici e stesse
+classi: cambia solo la stringa di quel token. L'ordine
 dominio → area codifica la gerarchia; il Trie vincola i token al vocabolario
 ma NON la struttura (due aree di fila restano generabili): exact match = la
 coppia (dominio, area) è corretta.
@@ -36,11 +41,14 @@ Classification", Mendeley Data (doi:10.17632/9rw3vkcfy4.6). Dall'archivio
 ``WebOfScience.zip`` serve ``Meta-data/Data.xlsx`` (46.985 righe, colonne
 ``Y1, Y2, Y, Domain, area, keywords, Abstract``), cercato sotto
 ``dataset.dataset_cache`` (default ``data/wos-46985/``, a qualunque
-profondità; in alternativa un ``Data.csv`` con le stesse colonne). Se manca
-viene scaricato (:data:`WOS_URL`, lo stesso archivio del loader HF
-``HDLTex/web_of_science``, ~60 MB) e verificato con sha256; con
-``HF_HUB_OFFLINE=1`` niente download (sul cluster lo scarica
-``cluster/setup.sh``). L'xlsx è
+profondità; in alternativa un ``Data.csv`` con le colonne ``Y, Domain,
+area, Abstract``). Mendeley non è raggiungibile dal cluster, quindi se manca
+viene scaricata la copia parquet su Hugging Face :data:`WOS_HF` (revisione
+fissata, sha256) e riscritta come ``Data.csv``. Verificata contro ``Data.xlsx``:
+stessi 46.985 abstract nello stesso ordine e stesso codice ``Y`` in ogni riga
+(nel parquet ``label`` è un vettore a 141 posizioni: dominio ``Y1`` in 0-6,
+area in ``7 + Y``). Con ``HF_HUB_OFFLINE=1`` niente download (sul cluster lo
+scarica ``cluster/setup.sh``). L'xlsx è
 letto con la sola libreria standard (niente ``openpyxl``, assente nel
 container del cluster).
 
@@ -73,7 +81,7 @@ from xml.etree import ElementTree as ET
 from datasets import Dataset, DatasetDict
 
 from .aslg_dataset import deduplicate_by_text
-from .download import fetch_zip_members, is_offline
+from .download import fetch_parquet_rows, is_offline
 
 logger = logging.getLogger(__name__)
 
@@ -82,12 +90,16 @@ DEFAULT_WOS_DIR: str = "data/wos-46985"
 
 _DATA_FILES: tuple[str, ...] = ("Data.xlsx", "Data.csv")
 
-#: WebOfScience.zip (Mendeley Data) e suo sha256.
-WOS_URL: str = (
-    "https://data.mendeley.com/public-files/datasets/9rw3vkcfy4/files/"
-    "c9ea673d-5542-44c0-ab7b-f1311f7d61df/file_downloaded"
+#: Copia parquet di WOS-46985 su Hugging Face, a una revisione fissata, e sha256.
+WOS_HF: str = (
+    "https://huggingface.co/datasets/jesse-tong/wos46985/resolve/"
+    "30fd4f04782ba43cab5d3e8cf6a84b23358481cf/wos46895.parquet"
 )
-WOS_SHA256: str = "b787d484bff88b0dcdb3fa291d06ec9d2f025dc2a67ce1045d0c688cd96ccf8a"
+WOS_HF_SHA256: str = "b515250891046916253e9f144d4c391bf7951e2baaabb82c522fca048752a30e"
+
+#: Posizioni del vettore ``label`` del parquet prima delle aree (i 7 domini).
+_WOS_N_DOMAINS = 7
+
 _XLSX_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 _CELL_REF_RE = re.compile(r"([A-Z]+)")
 
@@ -202,11 +214,29 @@ def ensure_wos_files(data_dir: str | Path) -> Path:
         raise FileNotFoundError(
             f"WOS-46985: né Data.xlsx né Data.csv sotto '{root}' e nodo offline "
             "(HF_HUB_OFFLINE=1). Eseguire cluster/setup.sh (scarica il file) o "
-            "copiare Meta-data/Data.xlsx di WebOfScience.zip."
+            "copiare Meta-data/Data.xlsx di WebOfScience.zip (Mendeley)."
         )
     root.mkdir(parents=True, exist_ok=True)
-    fetch_zip_members(WOS_URL, WOS_SHA256, {"Meta-data/Data.xlsx": "Data.xlsx"}, root)
-    return root / "Data.xlsx"
+    rows = fetch_parquet_rows(WOS_HF, WOS_HF_SHA256, root)
+    path = root / "Data.csv"
+    # .part + rename: un Data.csv a metà verrebbe preso per buono al job dopo.
+    part = root / "Data.csv.part"
+    with part.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["Y", "Domain", "area", "Abstract"])
+        writer.writeheader()
+        for row in rows:
+            ones = [i for i, v in enumerate(row["label"]) if v == 1.0]
+            domain, area = row["label_description"]
+            writer.writerow(
+                {
+                    "Y": ones[-1] - _WOS_N_DOMAINS,
+                    "Domain": domain,
+                    "area": area,
+                    "Abstract": row["text"],
+                }
+            )
+    part.replace(path)
+    return path
 
 
 def canonical_labels(records: list[dict[str, str]]) -> dict[str, tuple[str, str]]:

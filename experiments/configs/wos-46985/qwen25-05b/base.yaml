@@ -9,11 +9,11 @@
 # Estende il base di ASLG-PC12: modello, LoRA, GRPO, grammar ed evaluation
 # sono gli stessi; cambiano il corpus e i pesi della reward (sotto).
 #
-# DATI: Meta-data/Data.xlsx di WebOfScience.zip (Mendeley Data,
-# doi:10.17632/9rw3vkcfy4.6), scaricato da solo in data/wos-46985/ al primo uso
-# con rete (sul cluster da setup.sh) e verificato con sha256. Le etichette sono
-# quelle canoniche del codice ufficiale Y (134 classi): vedi
-# src/datasets/wos_dataset.py.
+# DATI: scaricati da soli in data/wos-46985/Data.csv al primo uso con rete (sul
+# cluster da setup.sh) dalla copia Hugging Face jesse-tong/wos46985, verificata
+# con sha256 e contro il Data.xlsx originale (Mendeley Data,
+# doi:10.17632/9rw3vkcfy4.6). Le etichette sono quelle canoniche del codice
+# ufficiale Y (134 classi): vedi src/datasets/wos_dataset.py.
 #
 # DIFFERENZE DA TENERE A MENTE
 # ----------------------------

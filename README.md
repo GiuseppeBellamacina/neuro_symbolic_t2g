@@ -86,6 +86,33 @@ active in the optimal config (plus 3 ablation-only modules) and **10 in total**.
 
 ---
 
+## Datasets
+
+Text only: no video, no images. Every corpus becomes `text` → `gloss`, where
+`gloss` is a sequence of tokens from a closed vocabulary (the Trie's). The
+first three are downloaded into `data/<dataset>/` on first use with network,
+pinned to a fixed revision and sha256-checked (`src/datasets/download.py`).
+The cluster proxy only lets Hugging Face, PyPI and Kaggle through, so the
+download sources are Hugging Face copies, each verified against the original.
+
+| Dataset | Task | `text` → `gloss` | Splits | Example |
+|---|---|---|---|---|
+| **ASLG-PC12** (default) | English → ASL gloss | English sentence → ASL glosses | 87,710 pairs, 81,088 after dedup, 90/10 → 72,979 / 8,109 | `they will not flinch .` → `X-Y WILL DESC-NOT FLINCH .` |
+| **PHOENIX-2014T** | German → DGS gloss (weather forecasts) | lowercase German sentence → DGS glosses | official 7,096 / 519 / 642 | `auch am tag gibt es verbreitet zum teil kräftige schauer oder gewitter …` → `TAGSUEBER OFT REGEN GEWITTER KOENNEN MANCHMAL REGEN VIEL REGEN` |
+| **WOS-46985** | hierarchical classification of paper abstracts | abstract (first 256 words) → `DOMAIN AREA` (7 domains, 134 areas) | no official split: dedup + 90/10 → 42,286 / 4,699 | `Introduction: Rapid cognitive decline (RCD) occurs in dementia …` → `Medical Alzheimer's_Disease` |
+| **CoNLL-2003** | named entity recognition (Reuters news) | English sentence → `TYPE:Entity` tokens (PER, ORG, LOC, MISC), `NONE` if none | official 14,041 / 3,250 / 3,453 | `EU rejects German call to boycott British lamb .` → `ORG:EU MISC:German MISC:British` |
+
+WOS-46985 and CoNLL-2003 are the two non-gloss tasks of GrammarRL
+(arXiv:2609.39869), linearized so the same Trie, rewards and metrics apply. On
+them read exact match and gloss F1 (entity-level F1 on CoNLL), not ROUGE-L.
+
+| Dataset | Original source | What we download |
+|---|---|---|
+| ASLG-PC12 | [Othman & Jemni 2012](https://huggingface.co/datasets/achrafothman/aslg_pc12) | the same, via `datasets` (HF cache in `data/aslg_pc12/`) |
+| PHOENIX-2014T | [RWTH](https://www-i6.informatik.rwth-aachen.de/~koller/RWTH-PHOENIX-2014-T/) (CC BY-NC-SA 3.0; ~40 GB archive with videos) | only the 3 annotation CSVs from [aipieces/RWTH-PHOENIX-Weather-2014T](https://huggingface.co/datasets/aipieces/RWTH-PHOENIX-Weather-2014T); a second independent mirror has byte-identical files |
+| WOS-46985 | [Mendeley Data, Kowsari et al. 2017](https://data.mendeley.com/datasets/9rw3vkcfy4/6) | [jesse-tong/wos46985](https://huggingface.co/datasets/jesse-tong/wos46985) (parquet → `Data.csv`): same abstracts in the same order and same official code `Y` as `Data.xlsx`; one class (`Y=25`) carries a different name |
+| CoNLL-2003 | [CoNLL-2003 shared task](https://www.clips.uantwerpen.be/conll2003/ner/) | [lhoestq/conll2003](https://huggingface.co/datasets/lhoestq/conll2003) (parquet → column files): same sentences and entities as the original files |
+
 ## Project Structure
 
 ```text

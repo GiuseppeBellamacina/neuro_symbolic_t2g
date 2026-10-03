@@ -470,32 +470,81 @@ def test_fetch_verifies_sha256_and_leaves_no_partial_file(tmp_path: Path) -> Non
 def test_missing_conll_files_are_downloaded_when_online(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Online e file assenti: il loader scarica lo zip, estrae e carica."""
+    """Online e file assenti: il loader scarica i parquet della copia HF, li
+    riscrive nel formato a colonne e carica."""
     import hashlib
-    import zipfile
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
 
     from src.datasets import conll_dataset
 
-    archive = tmp_path / "conll.zip"
-    with zipfile.ZipFile(archive, "w") as zf:
-        for name in ("train.txt", "valid.txt", "test.txt"):
-            zf.writestr(name, "EU NNP B-NP B-ORG\nsays VBZ B-VP O\n")
+    src = tmp_path / "hf"
+    src.mkdir()
+    files = {}
+    for split, (_name, _sha, target) in conll_dataset.CONLL_HF_FILES.items():
+        # ner_tags interi come nella copia HF: 3 = B-ORG, 7 = B-MISC.
+        table = pa.table(
+            {"tokens": [["EU", "rejects", "German"]], "ner_tags": [[3, 0, 7]]}
+        )
+        pq.write_table(table, src / f"{split}.parquet")
+        sha = hashlib.sha256((src / f"{split}.parquet").read_bytes()).hexdigest()
+        files[split] = (f"{split}.parquet", sha, target)
     monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
-    monkeypatch.setattr(conll_dataset, "CONLL_URL", archive.as_uri())
-    monkeypatch.setattr(
-        conll_dataset, "CONLL_SHA256", hashlib.sha256(archive.read_bytes()).hexdigest()
-    )
+    monkeypatch.setattr(conll_dataset, "CONLL_HF", src.as_uri() + "/")
+    monkeypatch.setattr(conll_dataset, "CONLL_HF_FILES", files)
     data_dir = tmp_path / "data"
     ds = load_t2g_dataset(
         {"dataset_name": "conll-2003", "dataset_cache": str(data_dir)}
     )
-    assert ds["test"][0]["gloss"] == "ORG:EU"
-    # Lo zip viene cancellato dopo l'estrazione.
+    assert ds["test"][0]["gloss"] == "ORG:EU MISC:German"
+    assert ds["test"][0]["text"] == "EU rejects German"
+    # I parquet vengono cancellati dopo la conversione.
     assert sorted(p.name for p in data_dir.iterdir()) == [
         "test.txt",
         "train.txt",
         "valid.txt",
     ]
+
+
+def test_missing_wos_file_is_rebuilt_from_the_hf_parquet(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Parquet HF → Data.csv con il codice Y ricavato dal vettore label."""
+    import hashlib
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from src.datasets import wos_dataset
+
+    def label(domain: int, y: int) -> list[float]:
+        v = [0.0] * 141
+        v[domain] = v[7 + y] = 1.0
+        return v
+
+    texts = [f"abstract number {i} about things" for i in range(10)]
+    table = pa.table(
+        {
+            "text": texts,
+            # Y=40 con due nomi: il canonico è il più frequente (Psychology).
+            "label": [label(2, 40)] * 6 + [label(5, 40)] * 4,
+            "label_description": [["Psychology  ", "depression"]] * 6
+            + [["Medical ", "Depression"]] * 4,
+        }
+    )
+    parquet = tmp_path / "wos.parquet"
+    pq.write_table(table, parquet)
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    monkeypatch.setattr(wos_dataset, "WOS_HF", parquet.as_uri())
+    monkeypatch.setattr(
+        wos_dataset, "WOS_HF_SHA256", hashlib.sha256(parquet.read_bytes()).hexdigest()
+    )
+    data_dir = tmp_path / "data"
+    ds = load_t2g_dataset({"dataset_name": "wos", "dataset_cache": str(data_dir)})
+    glosses = set(ds["train"]["gloss"]) | set(ds["test"]["gloss"])
+    assert glosses == {"Psychology depression"}
+    assert sorted(p.name for p in data_dir.iterdir()) == ["Data.csv"]
 
 
 def test_wos_labels_follow_the_official_code() -> None:

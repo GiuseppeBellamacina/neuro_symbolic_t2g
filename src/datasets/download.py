@@ -6,9 +6,11 @@ leggono da disco. Con ``HF_HUB_OFFLINE=1`` (nodi di calcolo del cluster, vedi
 ``cluster/_lib.sh::export_offline_env``) non si tenta nessun download: i file
 devono esserci già, messi da ``cluster/setup.sh`` o da ``prepare_data``.
 
-Ogni file scaricato è verificato contro uno sha256 fissato nel loader del suo
-dataset: se la sorgente cambia contenuto il download fallisce invece di
-produrre in silenzio numeri non confrontabili.
+Le sorgenti sono tutte su Hugging Face (il proxy del cluster lascia passare
+solo Hugging Face, PyPI e Kaggle), a revisioni fissate. Ogni file scaricato
+è verificato contro uno sha256 fissato nel loader del suo dataset: se la
+sorgente cambia contenuto il download fallisce invece di produrre in silenzio
+numeri non confrontabili.
 
 Uso da riga di comando (setup.sh)::
 
@@ -24,12 +26,11 @@ import os
 import shutil
 import sys
 import urllib.request
-import zipfile
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Mendeley risponde 403 allo User-Agent di default di urllib.
+# User-Agent esplicito: alcuni server rifiutano quello di default di urllib.
 _USER_AGENT = "neuro-symbolic-t2g/1.0"
 
 
@@ -74,20 +75,20 @@ def fetch(url: str, dest: str | Path, sha256: str) -> Path:
     return dest
 
 
-def fetch_zip_members(
-    url: str, sha256: str, members: dict[str, str], dest_dir: str | Path
-) -> None:
-    """Scarica uno zip, ne estrae ``members`` (nome nello zip → nome in
-    ``dest_dir``) e cancella l'archivio."""
-    dest_dir = Path(dest_dir)
-    archive = fetch(url, dest_dir / "_download.zip", sha256)
+def fetch_parquet_rows(url: str, sha256: str, dest_dir: str | Path) -> list[dict]:
+    """Scarica un parquet, ne restituisce le righe e cancella il file.
+
+    Il parquet è solo il formato di trasporto della copia su Hugging Face: il
+    chiamante lo riscrive nel formato originale del corpus, così il loader
+    legge un solo formato qualunque sia la provenienza.
+    """
+    import pyarrow.parquet as pq  # dipendenza di `datasets`, già installata
+
+    path = fetch(url, Path(dest_dir) / "_download.parquet", sha256)
     try:
-        with zipfile.ZipFile(archive) as zf:
-            for member, target in members.items():
-                with zf.open(member) as src, (dest_dir / target).open("wb") as dst:
-                    shutil.copyfileobj(src, dst)
+        return pq.read_table(path).to_pylist()
     finally:
-        archive.unlink()
+        path.unlink()
 
 
 def main(argv: list[str]) -> int:
@@ -105,10 +106,17 @@ def main(argv: list[str]) -> int:
     if unknown:
         print(f"dataset sconosciuti: {unknown}. Noti: {sorted(downloaders)}")
         return 2
+    failed = []
+    # Un dataset che fallisce non ferma gli altri: setup.sh li vuole tutti.
     for key in argv or list(downloaders):
-        downloaders[key]()
+        try:
+            downloaders[key]()
+        except Exception as exc:  # noqa: BLE001 - riportato e conteggiato
+            failed.append(key)
+            print(f"ERRORE {key}: {exc}")
+            continue
         print(f"OK {key}: file pronti")
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

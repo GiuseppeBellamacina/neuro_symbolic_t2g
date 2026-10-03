@@ -32,10 +32,13 @@ nomi, a qualunque profondità sotto ``dataset.dataset_cache`` (default
     validation : eng.testa  | valid.txt | dev.txt
     test       : eng.testb  | test.txt
 
-Se mancano vengono scaricati (:data:`CONLL_URL`, lo stesso archivio usato dal
-loader Hugging Face ``eriktks/conll2003``: ``train.txt``/``valid.txt``/
-``test.txt``, IOB2) e verificati con sha256; con ``HF_HUB_OFFLINE=1`` niente
-download (sul cluster li scarica ``cluster/setup.sh``).
+Se mancano vengono scaricati da :data:`CONLL_HF` (copia parquet su Hugging
+Face, revisione fissata, verificata con sha256) e riscritti come
+``train.txt``/``valid.txt``/``test.txt`` nel formato a colonne (``parola
+tag``, IOB2). Verificato contro l'archivio originale del loader HF
+``eriktks/conll2003``: stesse frasi e stesse entità in tutti e tre gli split.
+Con ``HF_HUB_OFFLINE=1`` niente download (sul cluster li scarica
+``cluster/setup.sh``).
 
 Il tagging può essere IOB1 (originale) o IOB2: un'entità comincia a ``B-``,
 a un cambio di tipo o dopo ``O``. Split UFFICIALI (14.041 / 3.250 / 3.453
@@ -49,7 +52,7 @@ from pathlib import Path
 
 from datasets import Dataset, DatasetDict
 
-from .download import fetch_zip_members, is_offline
+from .download import fetch_parquet_rows, is_offline
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +66,43 @@ CONLL_SPLIT_FILES: dict[str, tuple[str, ...]] = {
     "test": ("eng.testb", "test.txt"),
 }
 
-#: Archivio CoNLL-2003 del loader HF ``eriktks/conll2003`` e suo sha256.
-CONLL_URL: str = "https://data.deepai.org/conll2003.zip"
-CONLL_SHA256: str = "96a104d174ddae7558bab603f19382c5fe02ff1da5c077a7f3ce2ced1578a2c3"
-_CONLL_ZIP_MEMBERS: dict[str, str] = {
-    "train.txt": "train.txt",
-    "valid.txt": "valid.txt",
-    "test.txt": "test.txt",
+#: Copia parquet di CoNLL-2003 su Hugging Face, a una revisione fissata.
+CONLL_HF: str = (
+    "https://huggingface.co/datasets/lhoestq/conll2003/resolve/"
+    "19edcb426bfd625c275c17b9a99b2239243f4377/data/"
+)
+
+#: Split → (file parquet, sha256, file scritto in data/conll-2003/).
+CONLL_HF_FILES: dict[str, tuple[str, str, str]] = {
+    "train": (
+        "train-00000-of-00001.parquet",
+        "1575a56575c18a59590ffc22d31bd43a3ee28fe989b5e0f160059970e87af9ec",
+        "train.txt",
+    ),
+    "validation": (
+        "validation-00000-of-00001.parquet",
+        "0a7d0169be91e69b3258026ceaeaccc87d672339d4acc76a85065ea8fd9eec47",
+        "valid.txt",
+    ),
+    "test": (
+        "test-00000-of-00001.parquet",
+        "5a6901d09abe098a8924aaed56a89ebb7997be1e94dce488ad8c907d058b8131",
+        "test.txt",
+    ),
 }
+
+#: Nomi dei ``ner_tags`` interi della copia HF (ClassLabel, dataset_infos.json).
+CONLL_NER_TAGS: tuple[str, ...] = (
+    "O",
+    "B-PER",
+    "I-PER",
+    "B-ORG",
+    "I-ORG",
+    "B-LOC",
+    "I-LOC",
+    "B-MISC",
+    "I-MISC",
+)
 
 #: Ordine dei campi del JSON di GrammarRL (person, organization, location, misc).
 ENTITY_TYPES: tuple[str, ...] = ("PER", "ORG", "LOC", "MISC")
@@ -177,7 +209,16 @@ def ensure_conll_files(data_dir: str | Path) -> dict[str, Path]:
                 "o copiare eng.train/eng.testa/eng.testb (o train/valid/test.txt)."
             )
         root.mkdir(parents=True, exist_ok=True)
-        fetch_zip_members(CONLL_URL, CONLL_SHA256, _CONLL_ZIP_MEMBERS, root)
+        for filename, sha256, target in CONLL_HF_FILES.values():
+            rows = fetch_parquet_rows(CONLL_HF + filename, sha256, root)
+            # Riscritto nel formato a colonne: read_conll_file usa la prima
+            # colonna (parola) e l'ultima (tag), una riga vuota fra le frasi.
+            lines = []
+            for row in rows:
+                tags = [CONLL_NER_TAGS[i] for i in row["ner_tags"]]
+                lines += [f"{tok} {tag}" for tok, tag in zip(row["tokens"], tags)]
+                lines.append("")
+            (root / target).write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {split: _find_split_file(root, split) for split in CONLL_SPLIT_FILES}  # type: ignore[misc]
 
 
