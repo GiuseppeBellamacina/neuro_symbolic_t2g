@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![TRL](https://img.shields.io/badge/TRL-GRPO-red.svg)](https://huggingface.co/docs/trl/)
-[![Tests](https://img.shields.io/badge/Tests-96%2F96%20pytest-green.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-pytest-green.svg)](tests/)
 [![Docs](https://img.shields.io/badge/Docs-REWARDS%20%7C%20METRICS-purple.svg)](docs/)
 [![Ablation](https://img.shields.io/badge/Ablation-8%2B%20variants-orange.svg)](experiments/configs/aslg-pc12/qwen25-05b/)
 
@@ -66,7 +66,7 @@ active in the optimal config (plus 3 ablation-only modules) and **10 in total**.
   SFT, GRPO and SFT→GRPO in both prompt modes, plus reward / loss / decoding /
   objective ablations) launchable via the `--ablation` flag in
   `cluster/run_all.sh` — all inheriting from `aslg-pc12/qwen25-05b/base.yaml`.
-- **Two datasets**: ASLG-PC12 (English→ASL, default) and RWTH-PHOENIX-Weather
+- **Four datasets**: ASLG-PC12 (English→ASL, default) and RWTH-PHOENIX-Weather
   2014T (German→DGS, `experiments/configs/phoenix-2014t/qwen25-05b/`: the
   representative cells of the matrix, same logic, one factor changed — the
   corpus). Outputs are laid out `experiments/<kind>/<dataset>/<model>/<cell>/`;
@@ -79,7 +79,7 @@ active in the optimal config (plus 3 ablation-only modules) and **10 in total**.
   objective knobs (`loss_type`, `scale_rewards`, `mask_truncated_completions`),
   and opt-in auxiliary SFT objectives — no hardcoded values.
 - **Efficient**: ~8 hours for 5000 steps (`training.max_steps` in base.yaml) on a single NVIDIA L40S.
-- **Comprehensive Test Suite**: 96/96 pytest tests passing (data, grammar,
+- **Comprehensive Test Suite**: pytest suite (data, grammar,
   rewards, metrics, monitor, config-inheritance, integration) with shared
   `conftest.py` fixtures.
 
@@ -108,15 +108,24 @@ neuro_symbolic_t2g/
 │   ├── baseline/{zero-shot,few-shot}.yaml
 │   ├── sft/zero-shot.yaml  grpo/{zero-shot,few-shot}.yaml  sft-grpo/few-shot.yaml
 │   └── ablations/decoding/{no-grammar,full-vocab-trie}.yaml
+├── experiments/configs/conll-2003/qwen25-05b/     # CoNLL-2003 NER (stesse celle di PHOENIX)
+├── experiments/configs/wos-46985/qwen25-05b/      # WOS-46985, solo zero-shot
+│   ├── baseline/zero-shot.yaml  sft/zero-shot.yaml  grpo/zero-shot.yaml  sft-grpo/zero-shot.yaml
+│   └── ablations/decoding/{no-grammar,full-vocab-trie}.yaml
+├── cluster/                           # SLURM scripts and cluster orchestration
+│   ├── setup.sh                       # One-shot environment setup
+│   ├── train.sh / eval.sh             # Job scripts
+│   ├── run_all.sh                     # Pipeline launcher (train → eval, --dataset, --ablation)
+│   ├── migrate_dataset_layout.sh      # Old layout → experiments/<kind>/<dataset>/<model>/
+│   ├── aliases.sh                     # Convenience aliases (t2g-train, t2g-monitor, …)
+│   └── clean.sh / clean_model.sh      # Cleanup utilities
 ├── src/
-│   ├── cluster/                       # SLURM scripts and cluster orchestration
-│   │   ├── setup.sh                   # One-shot environment setup
-│   │   ├── train.sh / eval.sh         # Job scripts
-│   │   ├── run_all.sh                 # Pipeline launcher (train → eval)
-│   │   ├── aliases.sh                 # Convenience aliases (t2g-train, t2g-monitor, …)
-│   │   └── clean.sh / clean_model.sh  # Cleanup utilities
-│   ├── data/
+│   ├── datasets/
+│   │   ├── registry.py                # dataset_name → loader, vocab/bigram cache, vocab_source
 │   │   ├── aslg_dataset.py            # ASLG-PC12 loader, vocab extraction, T2G dataset builder
+│   │   ├── phoenix_dataset.py         # PHOENIX-2014T (CSV ufficiali in data/phoenix-2014t/)
+│   │   ├── wos_dataset.py             # WOS-46985 (data/wos-46985/Data.xlsx)
+│   │   ├── conll_dataset.py           # CoNLL-2003 (data/conll-2003/)
 │   │   └── transition_matrix.py       # Bigram transition matrix computation
 │   ├── grammar/
 │   │   ├── gloss_grammar.py           # GlossVocabularyMask (vocabolario glossa)
@@ -134,7 +143,7 @@ neuro_symbolic_t2g/
 │       ├── prompting.py               # Centralized T2G prompt builder
 │       ├── show_training_log.py       # Post-hoc log viewer + training curve plots
 │       └── visualization.py           # Reward breakdown plots, baseline comparison
-├── tests/                             # Test suite (96/96 pytest pass)
+├── tests/                             # Test suite (pytest)
 │   ├── conftest.py                    # Shared fixtures (reward_setup, dataset, tokenizer)
 │   ├── test_config.py                 # Config inheritance (extends) resolution
 │   ├── test_data.py                   # Dataset loader + transition matrix
@@ -169,10 +178,10 @@ neuro_symbolic_t2g/
 
 | Step | What                                                                                                                                                                                                                   | Where                            |
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| 1    | **Data**: Download ASLG-PC12 (87K English→Gloss pairs) from Hugging Face                                                                                                                                               | `src/data/aslg_dataset.py`       |
+| 1    | **Data**: load the corpus picked by `dataset.dataset_name` (ASLG-PC12 from Hugging Face; PHOENIX-2014T, WOS-46985, CoNLL-2003 from `data/`)                                                                            | `src/datasets/registry.py`       |
 | 2    | **Model**: Load Qwen2.5-0.5B-Instruct with LoRA (r=32) + 4-bit QLoRA via Unsloth                                                                                                                                       | `src/training/grpo_t2g_train.py` |
 | 3    | **Constrained Decoding**: Build `GlossVocabularyMask` + dual-root token Trie — model can only output ASL gloss tokens                                                                                                | `src/grammar/gloss_grammar.py`   |
-| 4    | **Dataset**: Format prompt-completion pairs with chat template                                                                                                                                                         | `src/data/aslg_dataset.py`       |
+| 4    | **Dataset**: Format prompt-completion pairs with chat template                                                                                                                                                         | `src/datasets/aslg_dataset.py`   |
 | 5    | **Reward Functions**: 8 deterministic rewards — translation quality (ROUGE-L), BLEU-4, gold-structure, gloss-order (edit-distance), verifier-scaled (RECIPE), format, repetition (7 attive di default) più edit-validity (opt-in) | `src/rewards/t2g_rewards.py`     |
 | 6    | **GRPO Training**: `trl.GRPOTrainer` generates G=8 completions per prompt, computes rewards, updates LoRA weights                                                                                                      | `src/training/grpo_t2g_train.py` |
 | 7    | **Save**: Checkpoint every `training.save_steps` (500 in base.yaml) + final model in `experiments/checkpoints/aslg-pc12/qwen25-05b/<method>/<prompt-mode>/run_<timestamp>/final/`                                                                   | Auto                             |
@@ -327,10 +336,10 @@ uv run python -m src.training.eval_t2g \
 tail -f logs/slurm-train-<ID>.log | python -u -m src.utils.live_training_table
 
 # Post-hoc: training log table
-python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/ --last
+python -m src.utils.show_training_log experiments/checkpoints/aslg-pc12/qwen25-05b/grpo/few-shot/ --last
 
 # Training curve plots (PNG with polynomial regression)
-python -m src.utils.show_training_log experiments/checkpoints/grpo/t2g/qwen05/ --plot
+python -m src.utils.show_training_log experiments/checkpoints/aslg-pc12/qwen25-05b/grpo/few-shot/ --plot
 
 # Weights & Biases (offline mode on cluster)
 wandb sync logs/wandb/offline-run-*

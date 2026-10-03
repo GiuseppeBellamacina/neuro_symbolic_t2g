@@ -68,6 +68,14 @@ run() {
     fi
 }
 
+# Il servizio su Render manda un tick ogni 5 minuti: senza la catena ferma un
+# tick puo' sottomettere un job fra il controllo su squeue e gli spostamenti.
+if [ "$APPLY" -eq 1 ] && [ ! -f "$STOPPED_FILE" ]; then
+    echo "❌ La catena non e' ferma: esegui chain-stop prima di migrare" >&2
+    echo "   (altrimenti un tick puo' lanciare un job a meta' migrazione)." >&2
+    exit 1
+fi
+
 if [ "$APPLY" -eq 1 ] && command -v squeue >/dev/null 2>&1; then
     if [ -n "$(squeue --me -h 2>/dev/null)" ]; then
         echo "❌ C'e' un job SLURM attivo o in coda: attendi la fine (o chain-stop" >&2

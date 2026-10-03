@@ -77,7 +77,9 @@ rsync -avz --exclude '__pycache__' --exclude 'data/' --exclude 'logs/' \
     neuro_symbolic_t2g/ <utente>@gcluster.dmi.unict.it:~/neuro_symbolic_t2g/
 ```
 
-> **Nota**: `data/` e `logs/` sono esclusi — il dataset viene scaricato sul cluster.
+> **Nota**: `data/` e `logs/` sono esclusi. ASLG-PC12 viene scaricato sul cluster da
+> Hugging Face (in `setup.sh`); PHOENIX-2014T, WOS-46985 e CoNLL-2003 invece vanno
+> copiati a mano in `data/<dataset>/` (vedi §9).
 
 ---
 
@@ -466,12 +468,23 @@ I tag dei job ASLG-PC12 restano quelli storici (`grpo-few-shot`); le celle degli
 altri dataset sono prefissate (`phoenix-2014t-grpo-few-shot`).
 
 Su un clone del cluster con il layout vecchio (`experiments/<kind>/qwen25-05b/`),
-dopo la sync del codice e a catena ferma:
+nell'ordine:
 
-```bash
-bash cluster/migrate_dataset_layout.sh            # dry-run
-bash cluster/migrate_dataset_layout.sh --apply    # sposta output, config legacy e path in .chain_state
-```
+1. sync del codice **e** del helper (`sync_cluster.ps1 upload`, oppure il push con
+   l'hook `pre-push`): il servizio installa `cluster/cluster_helper.sh` solo se manca,
+   quindi senza sync resta la versione che non conosce il layout nuovo;
+2. attendere la fine del job in corso (`chain-stop` lo cancella), poi `chain-stop`:
+   `--apply` si rifiuta di partire senza `.chain_state/chain_stopped`, perché un tick
+   del servizio potrebbe sottomettere un job a metà migrazione;
+3. migrare:
+   ```bash
+   bash cluster/migrate_dataset_layout.sh            # dry-run
+   bash cluster/migrate_dataset_layout.sh --apply    # sposta output, config legacy e path in .chain_state
+   ```
+4. ridistribuire il servizio su Render (la nuova `CONFIG_MAP` con i config
+   `<dataset>/...`); prima di questo passo il servizio accoda path che sul cluster
+   non esistono ancora;
+5. `chain-start`.
 
 PHOENIX-2014T: copiare `PHOENIX-2014-T.{train,dev,test}.corpus.csv` (archivio RWTH,
 `PHOENIX-2014-T/annotations/manual/`) in `data/phoenix-2014t/`; la campagna è

@@ -11,6 +11,11 @@ solo per confrontabilità (vedi §2b per le fonti).
 
 ## 1. Split del dataset
 
+Questa sezione descrive ASLG-PC12. Gli altri dataset (`dataset.dataset_name`):
+PHOENIX-2014T e CoNLL-2003 usano gli split ufficiali; WOS-46985 non ne ha uno
+pubblico, quindi deduplicazione e 90/10 con seed 42 come qui sotto. Il
+vocabolario del Trie viene sempre dal solo train (`dataset.vocab_source: train`).
+
 - **Dataset**: ASLG-PC12 (`achrafothman/aslg_pc12`), 87.710 coppie raw.
 - **Deduplicazione**: PRIMA dello split, per chiave normalizzata del testo
   (lowercase + collapse whitespace + strip), prima occorrenza conservata.
@@ -354,7 +359,7 @@ su sft/zero-shot: kill a 1964/3000 dopo 6,5 h). Il rimedio, attivo di default:
 
 Per ogni eval (in `experiments/results/<cella>/run_<ts>/`, dove `<cella>` è il
 percorso del config sotto `experiments/configs/`, baseline comprese:
-`qwen25-05b/baseline/zero-shot/run_<ts>/`; un'eval con `evaluation.results_subdir`
+`aslg-pc12/qwen25-05b/baseline/zero-shot/run_<ts>/`; un'eval con `evaluation.results_subdir`
 scrive in `run_<ts>/<results_subdir>/`). Nessuna eval scrive fuori da una
 `run_*`: `src/utils/run_paths.py::eval_output_location` si rifiuta di farlo.
 - `eval_<ckpt>.json` — metriche primarie (incluse `non_copy_token_accuracy`,
@@ -379,9 +384,9 @@ scrive in `run_<ts>/<results_subdir>/`). Nessuna eval scrive fuori da una
   (override `evaluation.prompting` o dual prompting), i file portano il
   suffisso `__<mode>` (es. `eval_final__zero-shot.json`) così le due
   modalità non si sovrascrivono (§3a); le figure vanno in
-  `experiments/figures/<model>/<run_id>/<mode>/`
+  `experiments/figures/<cella>/<run_id>/<mode>/`
 
-Figure (in `experiments/figures/<model>/<run_id>/`), in ordine di
+Figure (in `experiments/figures/<cella>/<run_id>/`), in ordine di
 rilevanza:
 1. `metrics_dashboard.png` — **il grafico di confronto**: headline metrics
    (exact match, non-copy token accuracy, BLEU-4 corpus, chrF, ROUGE-L, Pass@1, Gloss F1, validity), baseline vs

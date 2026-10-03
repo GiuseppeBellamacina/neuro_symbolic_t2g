@@ -34,13 +34,17 @@ echo "$CHANGED" | grep -q '^cluster/' && SYNC_DIRS="$SYNC_DIRS cluster/"
 echo "$CHANGED" | grep -q '^experiments/configs/' && SYNC_DIRS="$SYNC_DIRS experiments/configs/"
     echo "$CHANGED" | grep -q '^pyproject\.toml$' && SYNC_FILES="$SYNC_FILES pyproject.toml"
     echo "$CHANGED" | grep -q '^main\.py$' && SYNC_FILES="$SYNC_FILES main.py"
+    # Il helper vive in remote/ ma sul cluster sta in cluster/: il servizio lo
+    # installa solo se manca, quindi senza questa copia resta la versione vecchia.
+    SYNC_HELPER=""
+    echo "$CHANGED" | grep -q '^remote/cluster_helper\.sh$' && SYNC_HELPER="remote/cluster_helper.sh"
 
-    if [ -z "$SYNC_DIRS" ] && [ -z "$SYNC_FILES" ]; then
+    if [ -z "$SYNC_DIRS" ] && [ -z "$SYNC_FILES" ] && [ -z "$SYNC_HELPER" ]; then
         echo "[pre-push] No changes in tracked paths — skip sync"
         exit 0
     fi
 
-    echo "[pre-push] Syncing to cluster:${SYNC_DIRS}${SYNC_FILES}"
+    echo "[pre-push] Syncing to cluster:${SYNC_DIRS}${SYNC_FILES} ${SYNC_HELPER}"
 
     FAILED=0
     for DIR in $SYNC_DIRS; do
@@ -69,6 +73,14 @@ echo "$CHANGED" | grep -q '^experiments/configs/' && SYNC_DIRS="$SYNC_DIRS exper
             FAILED=1
         fi
     done
+
+    if [ -n "$SYNC_HELPER" ]; then
+        echo "[pre-push]   syncing $SYNC_HELPER -> cluster/cluster_helper.sh ..."
+        if ! scp -q "$REPO_DIR/$SYNC_HELPER" "${CLUSTER}:${REMOTE_BASE}/cluster/cluster_helper.sh" 2>&1; then
+            echo "[pre-push] ❌ Failed to sync $SYNC_HELPER"
+            FAILED=1
+        fi
+    fi
 
     if [ $FAILED -ne 0 ]; then
         echo "[pre-push] ⚠️  Some syncs failed — push continues anyway"

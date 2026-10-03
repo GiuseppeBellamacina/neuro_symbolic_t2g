@@ -102,7 +102,8 @@ formatter and re-stages changed files; `pre-push` best-effort `scp`s `src/`, `cl
 
 All experiment YAMLs live under `experiments/configs/<dataset>/qwen25-05b/` (`aslg-pc12/`,
 `phoenix-2014t/`, `wos-46985/`, `conll-2003/`; every non-ASLG base extends the ASLG-PC12
-base and overrides only `dataset`, `retrieval.cache_path`, `wandb` and, for WOS,
+base and overrides only the `dataset` section (name, `prompt_profile`, vocab/bigram
+paths, for WOS `max_source_words`), `retrieval.cache_path`, `wandb` and, for WOS,
 `evaluation.dual_prompting`) and use an `extends:`
 key resolved by `src/utils/config.py::resolve_config` — recursive deep-merge (child wins,
 dicts merge, lists/scalars replace), cycle-checked, parent paths relative to the child file.

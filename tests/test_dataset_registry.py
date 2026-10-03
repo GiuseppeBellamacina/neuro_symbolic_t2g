@@ -267,9 +267,12 @@ def test_cells_do_not_declare_vocab_source_except_leak() -> None:
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash non disponibile")
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash non disponibile")
 def test_bash_tag_matches_python_cell_tag_for_every_config() -> None:
+    # Percorso completo: su Windows un "bash" nudo fa trovare a CreateProcess
+    # prima il bash di WSL in System32, anche quando nel PATH c'e' Git Bash.
     configs = sorted(
-        str(p.relative_to(ROOT))
+        p.relative_to(ROOT).as_posix()
         for p in CONFIGS.rglob("*.yaml")
         if p.name != "base.yaml"
     )
@@ -277,7 +280,7 @@ def test_bash_tag_matches_python_cell_tag_for_every_config() -> None:
         f"t2g_tag_from_config '{c}'\n" for c in configs
     )
     out = subprocess.run(
-        ["bash", "-c", script], capture_output=True, text=True, check=True
+        [shutil.which("bash"), "-c", script], capture_output=True, text=True, check=True
     ).stdout.split()
     expected = [
         run_paths.cell_tag(run_paths.cell_from_config(ROOT / c)) for c in configs

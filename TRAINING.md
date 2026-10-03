@@ -22,7 +22,10 @@ Il progetto addestra **Qwen2.5-0.5B-Instruct** a tradurre frasi inglesi in **glo
 └─────────────┘    └──────────────┘    └──────────────────────┘
 ```
 
-1. **Dataset**: ASLG-PC12 (87K frasi inglesi → glosse ASL) da HuggingFace
+1. **Dataset**: ASLG-PC12 (87K frasi inglesi → glosse ASL) da HuggingFace, di default.
+   `dataset.dataset_name` sceglie anche PHOENIX-2014T, WOS-46985 o CoNLL-2003, i cui
+   file vanno copiati a mano in `data/<dataset>/` (CLUSTER.md §9); i config stanno in
+   `experiments/configs/<dataset>/qwen25-05b/`
 2. **Modello**: Qwen2.5-0.5B-Instruct con LoRA (r=32) e quantizzazione 4-bit (QLoRA)
 3. **Constrained Decoding**: un `LogitsProcessor` forza ogni token generato a
    appartenere al vocabolario gloss ASL (15K token). Il modello NON può generare
