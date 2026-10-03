@@ -300,11 +300,17 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
             raise ValueError("grammar.mode=source_spans: servono i prompt per riga")
 
         mask = torch.zeros((len(prefixes), vocab_size), dtype=torch.bool, device=device)
-        for row, prefix in enumerate(prefixes):
-            root = self._root_for_prompt(list(prompts[row]) if prompts else [])
-            for token_id in self._allowed(root, list(prefix)):
-                if 0 <= token_id < vocab_size:
-                    mask[row, token_id] = True
+        try:
+            for row, prefix in enumerate(prefixes):
+                root = self._root_for_prompt(list(prompts[row]) if prompts else [])
+                for token_id in self._allowed(root, list(prefix)):
+                    if 0 <= token_id < vocab_size:
+                        mask[row, token_id] = True
+        finally:
+            # Nessun reset() chiamato dal trainer SFT: senza svuotare qui la
+            # cache terrebbe un Trie per ogni frase del train. Le posizioni
+            # dello stesso prompt nella chiamata lo condividono comunque.
+            self._span_roots.clear()
         return mask
 
     def __call__(

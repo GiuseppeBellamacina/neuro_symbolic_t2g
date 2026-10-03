@@ -170,3 +170,17 @@ def test_validity_and_format_follow_the_grammar(monkeypatch) -> None:
         )
         == 1.0
     )
+
+
+def test_allowed_mask_does_not_keep_one_trie_per_prompt(tokenizer) -> None:
+    """L'SFT chiama la maschera a ogni step senza reset(): la cache dei Trie
+    per frase non deve crescere con il numero di frasi viste."""
+    g = _conll_grammar()
+    proc = build_logits_processor(CONLL_CFG, g, sorted(g.vocab), tokenizer)
+    for i in range(50):
+        prompt = build_t2g_prompt(
+            f"Sentence number {i} from Rome .", tokenizer, profile="en-conll"
+        )
+        pids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
+        proc.allowed_mask_for_prefixes([[], []], len(tokenizer), prompts=[pids, pids])
+    assert len(proc._span_roots) == 0
