@@ -291,3 +291,20 @@ def build_t2g_prompt(
         f"<|im_start|>user\n{user_content}<|im_end|>\n"
         f"<|im_start|>assistant\n"
     )
+
+
+def extract_query_source(
+    prompt: str, profile: str | PromptProfile | None = None
+) -> str:
+    """Inverso di :func:`build_t2g_prompt`: la frase della query dal prompt.
+
+    Serve al Trie per frase (``grammar.mode: source_spans``), che vede solo
+    gli id del prompt. Prende l'ULTIMO blocco utente (ChatML, sia dal chat
+    template sia dal fallback) e, nel few-shot, ciò che segue l'ultimo
+    ``<query_header>\\n<source_label>: ``, così le frasi degli esempi non
+    entrano mai nel vincolo.
+    """
+    prof = get_prompt_profile(profile)
+    user = prompt.rsplit("<|im_start|>user\n", 1)[-1].split("<|im_end|>", 1)[0]
+    marker = f"{prof.query_header}\n{prof.source_label}: "
+    return user.rsplit(marker, 1)[-1] if marker in user else user

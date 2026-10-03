@@ -90,8 +90,8 @@ from src.datasets.registry import (
     resolve_vocab_source,
     write_cache_meta,
 )
-from src.grammar.gloss_grammar import GlossVocabularyMask
-from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
+from src.grammar.grammar_logits_processor import build_logits_processor
+from src.grammar.output_grammar import build_run_grammar
 from src.models.model_loader import load_model_and_tokenizer
 from src.retrieval import ExampleRetriever
 from src.rewards.t2g_rewards import (
@@ -770,6 +770,10 @@ def main() -> None:
     # Grammar toggle: set ``grammar.enabled: false`` to disable constrained
     # decoding (for ablation study — GRPO without grammar).
     grammar_enabled = config.get("grammar", {}).get("enabled", True)
+    # La grammatica serve anche senza Trie: validity e reward di formato
+    # misurano lo stesso linguaggio che il Trie imporrebbe (grammar.mode).
+    output_grammar = build_run_grammar(config, vocab, dataset)
+    print(f"  Output grammar: mode={output_grammar.mode}")
     if not grammar_enabled:
         print(
             "  ⚠️  grammar.enabled=false — GRPO rollouts will use UNCONSTRAINED "
@@ -779,9 +783,12 @@ def main() -> None:
         logits_processor_for_gen = None
     else:
         print("  Using lightweight GlossVocabularyMask for constrained decoding")
-        gloss_mask = GlossVocabularyMask(vocab, tokenizer)
-        logits_processor_for_gen = GlossVocabularyLogitsProcessor(
-            gloss_mask, device="cuda" if torch.cuda.is_available() else "cpu"
+        logits_processor_for_gen = build_logits_processor(
+            config,
+            output_grammar,
+            vocab,
+            tokenizer,
+            device="cuda" if torch.cuda.is_available() else "cpu",
         )
         print("  Vocabulary mask ready")
 
@@ -842,6 +849,7 @@ def main() -> None:
         format_max_token_len=config.get("reward", {}).get(
             "format_max_token_len", DEFAULT_FORMAT_MAX_TOKEN_LEN
         ),
+        grammar=output_grammar,
     )
     reward_fns, reward_weights = build_t2g_reward_functions(config.get("reward"))
 

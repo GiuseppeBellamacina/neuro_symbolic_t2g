@@ -106,6 +106,18 @@ WOS-46985 and CoNLL-2003 are the two non-gloss tasks of GrammarRL
 (arXiv:2609.39869), linearized so the same Trie, rewards and metrics apply. On
 them read exact match and gloss F1 (entity-level F1 on CoNLL), not ROUGE-L.
 
+The output constraint (`grammar.mode`, `src/grammar/output_grammar.py`) is
+always a token Trie built without test data, shaped per task:
+
+| Dataset | Constraint | Gold outputs reachable on test |
+|---|---|---|
+| ASLG-PC12, PHOENIX-2014T | `vocab`: any sequence of train glosses (dual-root Trie) | 92.9% / 97.5% |
+| WOS-46985 | `sequences`: a train (domain, area) pair — domain, then an area of that domain, then end | 100% |
+| CoNLL-2003 | `source_spans`: one Trie per prompt — `TYPE:piece` with the piece taken from the prompt's sentence, or `NONE` alone | 100% (51% with a train-vocabulary Trie) |
+
+Validity and the format reward use the same grammar, so the no-grammar cells
+measure whether the model learned the very constraint the Trie enforces.
+
 | Dataset | Original source | What we download |
 |---|---|---|
 | ASLG-PC12 | [Othman & Jemni 2012](https://huggingface.co/datasets/achrafothman/aslg_pc12) | the same, via `datasets` (HF cache in `data/aslg_pc12/`) |

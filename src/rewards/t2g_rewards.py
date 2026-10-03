@@ -63,6 +63,11 @@ _token_to_idx: dict[str, int] = {}
 DEFAULT_FORMAT_MAX_TOKEN_LEN = 25
 _format_max_token_len: int = DEFAULT_FORMAT_MAX_TOKEN_LEN
 
+#: Grammatica di uscita (``src.grammar.output_grammar``). ``None`` o modalità
+#: ``vocab`` = controlli storici sul vocabolario; nelle altre modalità format e
+#: validity accettano esattamente il linguaggio che il Trie impone.
+_grammar: Any = None
+
 #: ROUGE-L scorer instance (initialized in ``initialize_rewards``).
 _ROUGE_SCORER: rouge_scorer.RougeScorer | None = None
 
@@ -81,6 +86,7 @@ def initialize_rewards(
     bigram_matrix: np.ndarray,
     vocab: list[str],
     format_max_token_len: int = DEFAULT_FORMAT_MAX_TOKEN_LEN,
+    grammar: Any = None,
 ) -> None:
     """Initialize global state for reward functions.
 
@@ -91,10 +97,13 @@ def initialize_rewards(
         vocab: The sorted gloss vocabulary.
         format_max_token_len: Token length above which an in-vocabulary token
             is treated as suspicious by :func:`gloss_format_reward`.
+        grammar: :class:`~src.grammar.output_grammar.OutputGrammar` of the run
+            (``None`` = vocabulary checks, as historically).
     """
     global _bigram_matrix, _gloss_vocab, _token_to_idx, _ROUGE_SCORER
-    global _warned_missing_gold, _format_max_token_len
+    global _warned_missing_gold, _format_max_token_len, _grammar
     _format_max_token_len = int(format_max_token_len)
+    _grammar = grammar
     _bigram_matrix = bigram_matrix
     _gloss_vocab = vocab
     _token_to_idx = {t: i for i, t in enumerate(vocab)}
@@ -588,7 +597,12 @@ def verifier_scaled_reward(
 # ---------------------------------------------------------------------------
 
 
-def gloss_format_reward(completion: str) -> float:
+def grammar_check_active() -> bool:
+    """True quando format/validity seguono una grammatica diversa da ``vocab``."""
+    return _grammar is not None and _grammar.mode != "vocab"
+
+
+def gloss_format_reward(completion: str, source: str | None = None) -> float:
     """Reward for generating only valid gloss tokens from the vocabulary.
 
     Validates each whitespace-separated token in the completion against the
@@ -609,14 +623,32 @@ def gloss_format_reward(completion: str) -> float:
     ``reward.format_max_token_len``, default 25 chars) and
     severe numeric contamination (3+ consecutive digits).
 
+    With a non-``vocab`` output grammar (``grammar.mode``) the vocabulary
+    test becomes the grammar's: ``1.0`` if the whole output is admitted
+    (for ``source_spans`` against the prompt's sentence ``source``), else
+    the same ladder on the share of admissible words. No length check
+    there: the grammar already decides which tokens exist.
+
     Args:
         completion: Raw model completion.
+        source: Source sentence of the prompt (``source_spans`` only).
 
     Returns:
         Format reward in ``[-1, 1]`` (symmetric).
     """
     text = extract_gloss_text(completion)
     if not text:
+        return -1.0
+
+    if grammar_check_active():
+        words = text.split()
+        if _grammar.accepts(text, source):
+            return 1.0
+        ratio = sum(_grammar.word_ok(w, source) for w in words) / len(words)
+        if ratio >= 0.5:
+            return _to_symmetric(0.5)
+        if ratio > 0.0:
+            return _to_symmetric(0.25)
         return -1.0
 
     # Strip code blocks / JSON-like wrappers (residual from extract_gloss_text)
@@ -844,6 +876,7 @@ def bleu_reward(completion: str, gold_gloss: str) -> float:
 def _make_gloss_reward_fn(
     component_fn: Callable[..., float],
     needs_gold_gloss: bool = False,
+    needs_source: bool = False,
 ) -> Callable[..., list[float]]:
     """Wrap a single-sample reward component for GRPOTrainer.
 
@@ -869,6 +902,9 @@ def _make_gloss_reward_fn(
             gold gloss text) and returning a float.
         needs_gold_gloss: If ``True``, the function also receives the gold
             gloss target provided via the ``gold_gloss`` kwargs list.
+        needs_source: If ``True``, the function also receives ``source=`` from
+            the ``text`` column (the prompt's source sentence), which TRL
+            forwards like ``gold_gloss``.
 
     Returns:
         A callable with the GRPOTrainer-compatible signature.
@@ -912,6 +948,12 @@ def _make_gloss_reward_fn(
                     results.append(0.0)
                 else:
                     results.append(component_fn(text, gold))
+            elif needs_source:
+                sources = kwargs.get("text")
+                source = (
+                    sources[idx] if sources is not None and idx < len(sources) else None
+                )
+                results.append(component_fn(text, source=source))
             else:
                 results.append(component_fn(text))
 
@@ -1025,7 +1067,7 @@ def build_t2g_reward_functions(
     # Format reward
     w = reward_config.get("weight_format", 0.0)
     if w > 0:
-        funcs.append(_make_gloss_reward_fn(gloss_format_reward))
+        funcs.append(_make_gloss_reward_fn(gloss_format_reward, needs_source=True))
         weights.append(w)
 
     # Repetition penalty

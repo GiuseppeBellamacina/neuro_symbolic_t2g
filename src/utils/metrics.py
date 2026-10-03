@@ -71,7 +71,9 @@ PRIMARY_METRICS = (
 )
 
 
-def check_gloss_validity(completion: str) -> tuple[bool, str]:
+def check_gloss_validity(
+    completion: str, source: str | None = None
+) -> tuple[bool, str]:
     """Check if a completion is a valid gloss sequence.
 
     Uses vocabulary membership (when available via the rewards module's
@@ -79,12 +81,30 @@ def check_gloss_validity(completion: str) -> tuple[bool, str]:
     positives on legitimate ASL glosses like ``CAN``, ``BE``, ``FOR``,
     ``TO``, and ``.`` (which are all valid glosses in ASLG-PC12).
 
+    With a non-``vocab`` output grammar (``grammar.mode``, set through
+    ``initialize_rewards``) valid means admitted by THAT grammar, the same
+    language the Trie enforces: for ``source_spans`` every entity must be a
+    piece of the prompt's sentence ``source``, for ``sequences`` the whole
+    output must be an allowed sequence. Without the Trie (no-grammar cells)
+    this is what measures whether the model learned the constraint.
+
+    Args:
+        completion: Model completion.
+        source: Source sentence of the prompt (``source_spans`` only).
+
     Returns:
         (is_valid, error_message) — error_message is "" if valid.
     """
     text = extract_gloss_text(completion)
     if not text:
         return False, "empty_output"
+
+    from src.rewards import t2g_rewards
+
+    if t2g_rewards.grammar_check_active():
+        if t2g_rewards._grammar.accepts(text, source):
+            return True, ""
+        return False, "grammar_violation"
 
     tokens = text.split()
 
@@ -197,12 +217,15 @@ def compute_pass_at_k(
 def compute_detailed_metrics(
     completions: list[str],
     references: list[str],
+    sources: list[str] | None = None,
 ) -> dict[str, Any]:
     """Compute detailed T2G evaluation metrics.
 
     Args:
         completions: Generated gloss sequences.
         references: Gold reference glosses.
+        sources: Source sentence per completion (same order); needed by
+            the ``source_spans`` output grammar, ignored otherwise.
 
     Returns:
         Dict with: overall_pass_rate, overall_rouge_l, per_category breakdown,
@@ -213,8 +236,10 @@ def compute_detailed_metrics(
     rouge_scores: list[float] = []
     error_types: Counter = Counter()
 
-    for comp, ref in zip(completions, references):
-        is_valid, error_msg = check_gloss_validity(comp)
+    for i, (comp, ref) in enumerate(zip(completions, references)):
+        is_valid, error_msg = check_gloss_validity(
+            comp, sources[i] if sources else None
+        )
         rl = rouge_l_score(comp, ref) if is_valid else 0.0
         rouge_scores.append(rl)
 
@@ -263,6 +288,7 @@ def compute_reward_breakdown(
     completions: list[str],
     references: list[str] | None = None,
     reward_weights: dict[str, float] | None = None,
+    sources: list[str] | None = None,
 ) -> dict[str, float]:
     """Compute average score for each T2G reward component directly.
 
@@ -282,6 +308,8 @@ def compute_reward_breakdown(
         reward_weights: Optional dict mapping component name → weight.
             If provided, only components with weight > 0 are computed
             (others are skipped to save computation).
+        sources: Source sentence per completion (same order); needed by
+            the ``source_spans`` output grammar, ignored otherwise.
 
     Returns:
         Dict mapping component name → average score.
@@ -320,7 +348,10 @@ def compute_reward_breakdown(
                 _add(name, fn(comp, gold))
         for name, fn in free_components.items():
             if _is_active(name):
-                _add(name, fn(comp))
+                if name == "gloss_format_reward":
+                    _add(name, fn(comp, source=sources[i] if sources else None))
+                else:
+                    _add(name, fn(comp))
 
     return {name: sums[name] / counts[name] for name in counts if _is_active(name)}
 
@@ -702,6 +733,7 @@ def compute_evaluation_report(
     corpus_bleu_score: float | None = None,
     corpus_chrf_score: float | None = None,
     gloss_f1_micro_score: float | None = None,
+    sources: list[str] | None = None,
 ) -> dict[str, Any]:
     """Compute a comprehensive evaluation report with confidence intervals.
 
@@ -737,6 +769,8 @@ def compute_evaluation_report(
             pre-tokenizzato.
         corpus_chrf_score: Corpus chrF già calcolato, come sopra.
         gloss_f1_micro_score: Gloss F1 micro già calcolato, come sopra.
+        sources: Source sentence per completion (same order); needed by
+            the ``source_spans`` output grammar, ignored otherwise.
 
     Returns:
         Dict with all metrics and confidence intervals.
@@ -759,7 +793,10 @@ def compute_evaluation_report(
     pass_scores = [1.0 if s >= 0.3 else 0.0 for s in rouge_scores]
 
     # Validity
-    valid_results = [check_gloss_validity(c) for c in completions]
+    valid_results = [
+        check_gloss_validity(c, sources[i] if sources else None)
+        for i, c in enumerate(completions)
+    ]
     valid_count = sum(1 for is_valid, _ in valid_results if is_valid)
     error_types = Counter(msg for _, msg in valid_results if msg)
 

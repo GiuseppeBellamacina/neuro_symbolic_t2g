@@ -1,16 +1,20 @@
 # ============================================================================
 # ABLATION DECODING CoNLL-2003 — Trie costruito sull'INTERO dataset
 #
-# Fattore unico rispetto a grpo/few-shot.yaml di questo albero:
-# `dataset.vocab_source: all`. Gemello di
-# aslg-pc12/qwen25-05b/ablations/decoding/full-vocab-trie.yaml (vedi lì
-# la spiegazione completa).
+# Rispetto a grpo/few-shot.yaml di questo albero: `dataset.vocab_source:
+# all` e `grammar.mode: vocab`, cioè il Trie dual-root storico su un
+# vocabolario chiuso di entità tipizzate, costruito su train + dev + test.
+# Gemello di aslg-pc12/qwen25-05b/ablations/decoding/full-vocab-trie.yaml
+# (vedi lì la spiegazione completa).
 #
-# DATA LEAK DELIBERATO: misura quanto pesa il tetto del vocabolario
-# chiuso di train. Mai riportare come risultato.
+# DATA LEAK DELIBERATO: mai riportare come risultato.
 #
-# Su CoNLL-2003 è il caso estremo: la maggior parte delle entità di
-# test non compare nel train, e qui diventano tutte ammesse dal Trie.
+# Su CoNLL-2003 le celle normali usano il Trie per frase (grammar.mode:
+# source_spans, nel base), che non dipende dal vocabolario: senza
+# `grammar.mode: vocab` questa cella sarebbe identica a grpo/few-shot. Qui
+# si confronta il vincolo per frase (nessun leak) con un vocabolario chiuso
+# che contiene già le entità di test. Con il vocabolario del solo train il
+# 48% delle entità di test sarebbe irraggiungibile.
 #
 # Uso:
 #   CONFIG=experiments/configs/conll-2003/qwen25-05b/ablations/decoding/full-vocab-trie.yaml sbatch cluster/train.sh
@@ -20,6 +24,9 @@ extends: ../../grpo/few-shot.yaml
 
 dataset:
   vocab_source: all
+
+grammar:
+  mode: vocab
 
 evaluation:
   dual_prompting: false

@@ -413,8 +413,10 @@ def test_positive_weight_adds_a_nonnegative_term():
 
     class _Stub(AuxiliarySFTTrainer):
         def __init__(self) -> None:
-            self.allowed_mask_fn = lambda prefixes, vocab, device: torch.tensor(
-                [[True, True, False, False]] * len(prefixes)
+            self.allowed_mask_fn = (
+                lambda prefixes, vocab, device, prompts=None: torch.tensor(
+                    [[True, True, False, False]] * len(prefixes)
+                )
             )
             self.mass_weight = 1.0
             self.mass_warmup_steps = 0
@@ -1019,7 +1021,7 @@ def test_mass_weight_positive_registers_force_return_logits_callback():
     module.SFTTrainer.__init__ = _stub_init  # type: ignore[assignment]
     try:
         module.AuxiliarySFTTrainer(
-            allowed_mask_fn=lambda prefixes, vocab, device: None,
+            allowed_mask_fn=lambda prefixes, vocab, device, prompts=None: None,
             mass_weight=0.1,
         )
     finally:

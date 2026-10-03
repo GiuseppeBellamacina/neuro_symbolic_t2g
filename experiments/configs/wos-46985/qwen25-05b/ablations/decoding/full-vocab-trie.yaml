@@ -9,10 +9,10 @@
 # DATA LEAK DELIBERATO: misura quanto pesa il tetto del vocabolario
 # chiuso di train. Mai riportare come risultato.
 #
-# Su WOS-46985 le etichette sono un insieme chiuso piccolo e con
-# ogni probabilità tutte presenti nel train: l'effetto atteso è nullo,
-# e la cella serve da controllo (se cambia qualcosa, c'è un'etichetta
-# rara mancante dal train).
+# Su WOS-46985 la cella è un controllo a effetto nullo, verificato sui dati:
+# tutte le 134 coppie (dominio, area) del test sono già nel train, quindi il
+# Trie (grammar.mode: sequences) è identico a quello di grpo/zero-shot.
+# Differenze nei risultati sarebbero solo rumore di campionamento.
 #
 # Uso:
 #   CONFIG=experiments/configs/wos-46985/qwen25-05b/ablations/decoding/full-vocab-trie.yaml sbatch cluster/train.sh

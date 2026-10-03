@@ -47,6 +47,21 @@ retrieval:
 grpo:
   max_completion_length: 192
 
+# Vincolo per frase (src/grammar/output_grammar.py, mode source_spans): ogni
+# token è TIPO:pezzo con TIPO fra i quattro sotto e il pezzo una sequenza
+# contigua di parole DELLA FRASE DEL PROMPT (al massimo max_span_words, la
+# più lunga entità del train), oppure NONE da solo. Il vocabolario viene
+# dall'input, non dal test: nessun leak. Con il Trie sul vocabolario di train
+# il 48% delle entità di test era irraggiungibile (tetto di exact match 51%);
+# così ogni entità gold è generabile (nel corpus sono tutte pezzi della frase).
+# Validity e reward di formato usano la stessa grammatica, anche nelle celle
+# senza Trie.
+grammar:
+  mode: source_spans
+  span_types: ["PER", "ORG", "LOC", "MISC"]
+  empty_token: "NONE"
+  max_span_words: 10
+
 wandb:
   run_name: "conll-2003-qwen25-05b"
   tags: ["T2G-framework", "constrained-decoding", "Qwen2.5-0.5B", "CoNLL-2003", "NER"]

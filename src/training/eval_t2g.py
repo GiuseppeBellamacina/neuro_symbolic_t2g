@@ -126,8 +126,12 @@ from src.datasets.registry import (
     resolve_vocab_source,
 )
 from src.datasets.transition_matrix import sequence_score_bigram
-from src.grammar.gloss_grammar import GlossVocabularyMask
-from src.grammar.grammar_logits_processor import GlossVocabularyLogitsProcessor
+from src.grammar.grammar_logits_processor import build_logits_processor
+from src.grammar.output_grammar import (
+    DEFAULT_GRAMMAR_MODE,
+    build_run_grammar,
+    resolve_grammar_mode,
+)
 from src.models.model_loader import resolve_model_source
 from src.rewards.t2g_rewards import DEFAULT_FORMAT_MAX_TOKEN_LEN, initialize_rewards
 from src.training.retrieval_setup import (
@@ -371,6 +375,11 @@ def _prompt_context_fingerprint(
     vocab_source = resolve_vocab_source(config.get("dataset", {}))
     if vocab_source != "train":
         payload["vocab_source"] = vocab_source
+    # Stessa logica per la forma del Trie (grammar.mode): assente = vocab.
+    grammar_mode = resolve_grammar_mode(config)
+    if grammar_mode != DEFAULT_GRAMMAR_MODE:
+        payload["grammar_mode"] = grammar_mode
+        payload["grammar_max_span_words"] = grammar_cfg.get("max_span_words", 10)
     if prompting in ("zero-shot", "few-shot") and prompting != config_mode:
         payload["prompting_override"] = prompting
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -1067,7 +1076,7 @@ def _compute_primary_metrics(
 
     # Validity (over ALL completions)
     validity: list[tuple[bool, str]] = [
-        check_gloss_validity(c) for c in flat_completions
+        check_gloss_validity(c, s) for c, s in zip(flat_completions, flat_sources)
     ]
     valid_count = sum(1 for v, _ in validity if v)
     validity_rate = valid_count / max(len(flat_completions), 1)
@@ -1113,11 +1122,14 @@ def _compute_primary_metrics(
         )
 
     # Detailed metrics / reward breakdown / comprehensive report
-    detailed = compute_detailed_metrics(flat_completions, flat_references)
+    detailed = compute_detailed_metrics(
+        flat_completions, flat_references, sources=flat_sources
+    )
     reward_components = compute_reward_breakdown(
         flat_completions,
         references=flat_references,
         reward_weights=reward_weights,
+        sources=flat_sources,
     )
     # Valori corpus-level calcolati UNA volta e riusati dal report: stessa
     # funzione sullo stesso input, ricalcolare raddoppiava le passate corpus
@@ -1132,6 +1144,7 @@ def _compute_primary_metrics(
         corpus_bleu_score=bleu_corpus_value,
         corpus_chrf_score=chrf_corpus_value,
         gloss_f1_micro_score=gloss_f1_micro_value,
+        sources=flat_sources,
     )
 
     rouge_mean = float(np.mean(rouge_scores)) if rouge_scores else 0.0
@@ -1203,6 +1216,7 @@ def _compute_primary_metrics(
 def _select_best_of_n(
     all_completions: list[list[str]],
     all_references: list[str],
+    all_texts: list[str] | None = None,
 ) -> list[str]:
     """Select the best completion per prompt (ORACLE — uses the gold).
 
@@ -1215,8 +1229,11 @@ def _select_best_of_n(
     results JSON).
     """
     selected: list[str] = []
-    for comps, gold in zip(all_completions, all_references):
-        scored = [(rouge_l_score(c, gold), check_gloss_validity(c), c) for c in comps]
+    for i, (comps, gold) in enumerate(zip(all_completions, all_references)):
+        source = all_texts[i] if all_texts else None
+        scored = [
+            (rouge_l_score(c, gold), check_gloss_validity(c, source), c) for c in comps
+        ]
         # Prefer valid completions; among those, pick highest ROUGE-L.
         valid_scored = [(rl, c) for rl, (v, _), c in scored if v]
         if valid_scored:
@@ -1351,12 +1368,17 @@ def evaluate_checkpoint(
             max_self_similarity,
         )
 
+    # Anche senza Trie: validity e format misurano il linguaggio della
+    # grammatica (grammar.mode), lo stesso che il Trie imporrebbe.
+    output_grammar = build_run_grammar(config, vocab, dataset)
+    logger.info("Output grammar: mode=%s", output_grammar.mode)
     initialize_rewards(
         bigram,
         vocab,
         format_max_token_len=config.get("reward", {}).get(
             "format_max_token_len", DEFAULT_FORMAT_MAX_TOKEN_LEN
         ),
+        grammar=output_grammar,
     )
     token_to_idx = {t: i for i, t in enumerate(vocab)}
 
@@ -1402,10 +1424,8 @@ def evaluate_checkpoint(
     # ── Constrained decoding ─────────────────────────────────────────────
     grammar_enabled = config.get("grammar", {}).get("enabled", True)
     if grammar_enabled:
-        gloss_mask = GlossVocabularyMask(vocab, tokenizer)
-        logits_processor = GlossVocabularyLogitsProcessor(
-            gloss_mask,
-            device=str(model.device),
+        logits_processor = build_logits_processor(
+            config, output_grammar, vocab, tokenizer, device=str(model.device)
         )
     else:
         logger.info("⚠️  grammar.enabled=false — unconstrained generation (ablation)")
@@ -1648,7 +1668,7 @@ def evaluate_checkpoint(
 
     # ── Oracle best-of-N (separate block, never overrides the primary) ──
     if best_of_n and num_samples > 1:
-        selected = _select_best_of_n(all_completions, all_references)
+        selected = _select_best_of_n(all_completions, all_references, all_texts)
         oracle_metrics, _, _, _, _ = _compute_primary_metrics(
             selected,
             list(all_references),

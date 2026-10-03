@@ -1035,13 +1035,16 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
         if mass_cfg:
             # Un solo cammino nel Trie condiviso col decoder: la loss e la
             # generazione non possono divergere.
-            from src.grammar.gloss_grammar import GlossVocabularyMask
-            from src.grammar.grammar_logits_processor import (
-                GlossVocabularyLogitsProcessor,
-            )
+            # Stessa grammatica (grammar.mode) del decoder: in source_spans
+            # il Trie dipende dalla frase, e il trainer passa i prompt.
+            from src.grammar.grammar_logits_processor import build_logits_processor
+            from src.grammar.output_grammar import build_run_grammar
 
-            _trie = GlossVocabularyLogitsProcessor(
-                GlossVocabularyMask(vocab, tokenizer),
+            _trie = build_logits_processor(
+                config,
+                build_run_grammar(config, vocab, dataset),
+                vocab,
+                tokenizer,
                 device="cuda" if torch.cuda.is_available() else "cpu",
             )
             allowed_mask_fn = _trie.allowed_mask_for_prefixes

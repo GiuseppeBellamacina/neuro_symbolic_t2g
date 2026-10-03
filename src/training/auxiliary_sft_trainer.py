@@ -731,6 +731,7 @@ class AuxiliarySFTTrainer(SFTTrainer):
         vocab_size = int(logits.shape[-1])
 
         prefixes: list[list[int]] = []
+        prompts: list[list[int]] = []
         rows: list[Tensor] = []
         for row in range(labels.shape[0]):
             if not bool(completion_eligible[row].item()):
@@ -739,12 +740,16 @@ class AuxiliarySFTTrainer(SFTTrainer):
             positions = torch.nonzero(labels[row] != -100, as_tuple=False).flatten()
             if positions.numel() == 0:
                 continue
+            # Il prompt della riga: con grammar.mode=source_spans il Trie
+            # dipende dalla sua frase (negli altri modi viene ignorato).
+            prompt = input_ids[row, :start].tolist()
             for position in positions.tolist():
                 if position < 1:
                     continue
                 # Prefix = generated tokens before this position, i.e. the
                 # completion so far. The Trie state depends only on that.
                 prefixes.append(input_ids[row, start:position].tolist())
+                prompts.append(prompt)
                 rows.append(logits[row, position - 1])
 
         if not rows:
@@ -754,7 +759,9 @@ class AuxiliarySFTTrainer(SFTTrainer):
             return zero, AllowedMassDiagnostics(0.0, 0.0, 0, 0, 0.0)
 
         stacked = torch.stack(rows, dim=0)
-        allowed = self.allowed_mask_fn(prefixes, vocab_size, stacked.device)
+        allowed = self.allowed_mask_fn(
+            prefixes, vocab_size, stacked.device, prompts=prompts
+        )
         return allowed_mass_loss(
             stacked,
             allowed,

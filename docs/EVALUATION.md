@@ -18,6 +18,11 @@ vocabolario del Trie viene sempre dal solo train (`dataset.vocab_source: train`)
 Su CoNLL-2003 e WOS-46985 si leggono `exact_match` e `gloss_f1_micro` (F1 a livello
 di entità per CoNLL, ogni entità è un token); ROUGE-L e BLEU spezzano `PER:Mary` in
 `per` + `mary` e danno credito parziale a un'etichetta sbagliata dello stesso tipo.
+Su questi due dataset `validity_rate` segue la grammatica di uscita
+(`grammar.mode`): su CoNLL un'uscita è valida se ogni entità è un pezzo della
+frase (o è `NONE` da sola), su WOS se è una coppia (dominio, area) ammessa. È
+lo stesso linguaggio che il Trie impone, quindi nelle celle senza Trie misura
+quanto il modello ha imparato il vincolo.
 
 - **Dataset**: ASLG-PC12 (`achrafothman/aslg_pc12`), 87.710 coppie raw.
 - **Deduplicazione**: PRIMA dello split, per chiave normalizzata del testo

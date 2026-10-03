@@ -232,7 +232,13 @@ def test_cells_resolve_to_their_dataset_everywhere(dataset: str, rel: str) -> No
 
 @pytest.mark.parametrize("dataset", ["aslg-pc12", *_OTHER_DATASETS])
 def test_full_vocab_trie_is_single_factor_ablation(dataset: str) -> None:
-    """full-vocab-trie = la sua cella grpo genitrice + vocab_source: all."""
+    """full-vocab-trie = la sua cella grpo genitrice + vocab_source: all.
+
+    Dove il base usa un Trie che non dipende dal vocabolario (CoNLL:
+    grammar.mode source_spans), la cella torna anche al Trie a vocabolario
+    (grammar.mode: vocab): senza, vocab_source non cambierebbe il decoding e
+    la cella sarebbe un doppione della genitrice.
+    """
     import yaml
 
     root = CONFIGS / dataset / "qwen25-05b"
@@ -243,6 +249,9 @@ def test_full_vocab_trie_is_single_factor_ablation(dataset: str) -> None:
     ref = resolve_config(str((leak_path.parent / parent).resolve()))
     assert leak["dataset"].pop("vocab_source") == "all"
     assert "vocab_source" not in ref["dataset"]
+    if ref["grammar"].get("mode") == "source_spans":
+        assert leak["grammar"].pop("mode") == "vocab"
+        ref["grammar"].pop("mode")
     for section in (
         "model",
         "lora",

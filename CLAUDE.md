@@ -87,6 +87,10 @@ formatter and re-stages changed files; `pre-push` best-effort `scp`s `src/`, `cl
 3. **Grammar** (`src/grammar/`) — `gloss_grammar.py` builds `GlossVocabularyMask` (gloss
    string ↔ token id mapping); `grammar_logits_processor.py` is the HF `LogitsProcessor`
    (dual-root token Trie) that masks every non-gloss token at each generation step;
+   `output_grammar.py` defines WHICH language the Trie admits (`grammar.mode`:
+   `vocab` closed train vocabulary, default; `source_spans` one Trie per prompt
+   built from the prompt's own sentence, CoNLL; `sequences` whole allowed label
+   sequences, WOS) and the same grammar drives validity and the format reward;
    `masked_mass_tracker.py` is an optional, off-by-default diagnostic.
 4. **Retrieval** (`src/retrieval/example_retriever.py`) — optional few-shot example
    retrieval (tfidf default / sentence-transformers "minilm" backend), wired in via

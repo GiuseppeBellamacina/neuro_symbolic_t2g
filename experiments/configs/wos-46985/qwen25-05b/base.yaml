@@ -29,8 +29,9 @@
 # * Il target è di 2 token: exact match = (dominio, area) entrambi corretti;
 #   ROUGE-L/BLEU su due token sono poco informativi, leggere exact_match
 #   (e gloss_f1_micro: credito per il solo dominio giusto).
-#   Il Trie vincola i token, NON la struttura (due aree di fila restano
-#   generabili): la struttura la impara il modello.
+# * Il Trie vincola la STRUTTURA (grammar.mode: sequences, sotto): un dominio,
+#   poi un'area di quel dominio, poi fine. Le coppie ammesse sono quelle del
+#   train (134, tutte le classi del test ci sono già: nessun leak).
 # * Con ~42k righe di train, max_steps: 5000 copre ~12% del train in GRPO.
 # ============================================================================
 
@@ -51,6 +52,13 @@ evaluation:
 
 retrieval:
   cache_path: "data/wos-46985/retriever_index"
+
+# Uscita = una delle coppie (dominio, area) viste negli split del vocabolario
+# (src/grammar/output_grammar.py). Con il Trie a token libero erano generabili
+# "Medical Medical", l'area prima del dominio o un'area di un altro dominio.
+# Validity e reward di formato usano la stessa grammatica, anche senza Trie.
+grammar:
+  mode: sequences
 
 wandb:
   run_name: "wos-46985-qwen25-05b"
