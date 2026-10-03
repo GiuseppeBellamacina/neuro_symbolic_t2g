@@ -1,0 +1,45 @@
+# ============================================================================
+# BASE CoNLL-2003 — named entity recognition come sequenza vincolata. Uno dei
+# tre dataset di GrammarRL (Tuccio et al., arXiv:2609.39869): lì il modello
+# genera il JSON {person, organization, location, misc} con campi vincolati a
+# vocabolari del task; qui il target è LINEARIZZATO in token
+# TIPO:Entità ("ORG:EU MISC:German MISC:British", "NONE" senza entità; vedi
+# src/datasets/conll_dataset.py), così Trie dual-root, reward e metriche della
+# pipeline si applicano invariati.
+#
+# Estende il base di ASLG-PC12: modello, LoRA, GRPO, reward, grammar ed
+# evaluation sono gli stessi, cambia solo il corpus.
+#
+# DATI (nessun download automatico): copiare eng.train / eng.testa /
+# eng.testb (o train.txt / valid.txt / test.txt) nel formato a colonne
+# originale sotto data/conll-2003/.
+#
+# DIFFERENZE DA TENERE A MENTE
+# ----------------------------
+# * Split UFFICIALI (14.041 / 3.250 / 3.453 frasi), nessun dedup; l'eval
+#   sottocampiona 2000 frasi del test come per ASLG-PC12.
+# * Il vocabolario chiuso è l'insieme delle entità TIPIZZATE viste nel train:
+#   un'entità di test mai vista in train è irraggiungibile col Trie. È il
+#   dataset dove ablations/decoding/full-vocab-trie (vocab train+test) pesa di
+#   più, e dove leggere quella cella come risultato sarebbe più fuorviante.
+# * Metriche da leggere: exact_match (tutte le entità giuste) e gloss F1 a
+#   token, che qui coincide con l'F1 a livello di entità (ogni entità è un
+#   token). ROUGE-L/BLEU solo come contorno.
+# * Con 14k frasi di train, max_steps: 5000 copre ~36% del train in GRPO.
+# ============================================================================
+
+extends: ../../aslg-pc12/qwen25-05b/base.yaml
+
+dataset:
+  dataset_name: "conll-2003"
+  dataset_cache: "data/conll-2003"
+  vocab_path: "data/conll-2003/gloss_vocab.txt"
+  bigram_matrix_path: "data/conll-2003/bigram_transition.npy"
+  prompt_profile: "en-conll"
+
+retrieval:
+  cache_path: "data/conll-2003/retriever_index"
+
+wandb:
+  run_name: "conll-2003-qwen25-05b"
+  tags: ["T2G-framework", "constrained-decoding", "Qwen2.5-0.5B", "CoNLL-2003", "NER"]

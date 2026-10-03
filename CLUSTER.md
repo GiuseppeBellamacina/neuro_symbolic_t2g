@@ -477,6 +477,11 @@ PHOENIX-2014T: copiare `PHOENIX-2014-T.{train,dev,test}.corpus.csv` (archivio RW
 `PHOENIX-2014-T/annotations/manual/`) in `data/phoenix-2014t/`; la campagna è
 `bash cluster/run_all.sh --dataset=phoenix-2014t --ablation`.
 
+WOS-46985 e CoNLL-2003 (i task non-gloss di GrammarRL, arXiv:2609.39869): copiare
+`Meta-data/Data.xlsx` di WebOfScience.zip (Mendeley Data) in `data/wos-46985/` e
+`eng.{train,testa,testb}` (o `train/valid/test.txt`) in `data/conll-2003/`; campagne
+`--dataset=wos-46985 --ablation` e `--dataset=conll-2003 --ablation`.
+
 ### Dove vengono salvati
 
 Layout (i config scrivono `training.output_dir` sotto `experiments/checkpoints/`,

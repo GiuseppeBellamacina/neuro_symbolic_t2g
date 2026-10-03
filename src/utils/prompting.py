@@ -52,6 +52,7 @@ class PromptProfile:
         few_shot_header: Instruction framing the few-shot user content.
         source_label: Label of the source sentence in few-shot blocks.
         gloss_label: Label of the gloss sequence in few-shot blocks.
+        query_header: Line introducing the query after the few-shot examples.
     """
 
     name: str
@@ -59,6 +60,7 @@ class PromptProfile:
     few_shot_header: str
     source_label: str
     gloss_label: str
+    query_header: str = "Now translate:"
 
 
 #: Profili per coppia di lingue. ``en-asl`` è il prompt storico (ASLG-PC12),
@@ -92,6 +94,41 @@ PROMPT_PROFILES: dict[str, PromptProfile] = {
         few_shot_header="Translate the following German sentence into DGS gloss.",
         source_label="German",
         gloss_label="DGS gloss",
+    ),
+    # I due task non-gloss di GrammarRL (arXiv:2609.39869), con il target
+    # linearizzato come sequenza di token di un vocabolario chiuso (vedi
+    # src/datasets/wos_dataset.py e conll_dataset.py). Il prompt descrive il
+    # formato linearizzato, non il JSON del paper.
+    "en-wos": PromptProfile(
+        name="en-wos",
+        system_prompt=(
+            "You are a scientific-paper classifier. "
+            "Read the following paper abstract and output its research domain "
+            "followed by its research area, as two labels separated by a "
+            "space. Output ONLY the two labels. "
+            "Do not include explanations or extra text."
+        ),
+        few_shot_header="Classify the following abstract into domain and area.",
+        source_label="Abstract",
+        gloss_label="Labels",
+        query_header="Now classify:",
+    ),
+    "en-conll": PromptProfile(
+        name="en-conll",
+        system_prompt=(
+            "You are a named-entity recognizer. "
+            "List the named entities in the following English sentence as "
+            "TYPE:Entity tokens separated by spaces, with the words of each "
+            "entity joined by underscores, grouped as person (PER), "
+            "organization (ORG), location (LOC) and miscellaneous (MISC), in "
+            "this order. Output NONE if the sentence has no entities. "
+            "Output ONLY the entity tokens. "
+            "Do not include explanations or extra text."
+        ),
+        few_shot_header="Extract the named entities from the following sentence.",
+        source_label="Sentence",
+        gloss_label="Entities",
+        query_header="Now extract:",
     ),
 }
 
@@ -222,7 +259,7 @@ def build_t2g_prompt(
         user_content = (
             f"{prof.few_shot_header}\n\n"
             f"{format_few_shot_examples(examples, prof)}\n\n"
-            f"Now translate:\n{prof.source_label}: {text}"
+            f"{prof.query_header}\n{prof.source_label}: {text}"
         )
     else:
         user_content = text

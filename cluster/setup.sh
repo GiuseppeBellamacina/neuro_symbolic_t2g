@@ -103,6 +103,17 @@ else
     echo "ℹ️  PHOENIX-2014T: copia PHOENIX-2014-T.{train,dev,test}.corpus.csv in data/phoenix-2014t/"
     echo "   per le celle experiments/configs/phoenix-2014t/ (vedi src/datasets/phoenix_dataset.py)"
 fi
+# WOS-46985 e CoNLL-2003 (i due dataset non-gloss di GrammarRL): idem, file locali.
+if _t2g_wos_present; then
+    echo "✅ WOS-46985: Data.xlsx/Data.csv trovato in data/wos-46985/"
+else
+    echo "ℹ️  WOS-46985: copia Meta-data/Data.xlsx (WebOfScience.zip, Mendeley) in data/wos-46985/"
+fi
+if _t2g_conll_present; then
+    echo "✅ CoNLL-2003: file trovati in data/conll-2003/"
+else
+    echo "ℹ️  CoNLL-2003: copia eng.{train,testa,testb} (o train/valid/test.txt) in data/conll-2003/"
+fi
 
 # ── 5. Pre-download modello per Unsloth (offline cache) ────────────────────────
 echo ""

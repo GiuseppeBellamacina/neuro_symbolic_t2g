@@ -67,7 +67,7 @@ SLURM_QOS_DEFAULT="${SLURM_QOS:-gpu-xlarge}"
 # Dataset noti = chiavi di src/datasets/registry.py::DATASETS. Il primo e' il
 # default: le sue celle hanno tag senza prefisso (storico), gli altri dataset
 # prefissano il tag con la propria chiave.
-T2G_DATASETS="aslg-pc12 phoenix-2014t"
+T2G_DATASETS="aslg-pc12 phoenix-2014t wos-46985 conll-2003"
 T2G_DEFAULT_DATASET="aslg-pc12"
 T2G_DEFAULT_MODEL="qwen25-05b"
 
@@ -532,6 +532,27 @@ _t2g_phoenix_present() {
     return 0
 }
 
+# WOS-46985 (Data.xlsx o Data.csv) e CoNLL-2003 (file a colonne): stessi
+# principi, file locali copiati a mano (vedi src/datasets/{wos,conll}_dataset.py).
+_t2g_wos_present() {
+    [ -n "$(find data/wos-46985 \( -name Data.xlsx -o -name Data.csv \) 2>/dev/null | head -1)" ]
+}
+
+_t2g_conll_present() {
+    local names
+    for names in "eng.train train.txt" "eng.testa valid.txt dev.txt" "eng.testb test.txt"; do
+        local found="" n
+        for n in $names; do
+            if [ -n "$(find data/conll-2003 -name "$n" 2>/dev/null | head -1)" ]; then
+                found=1
+                break
+            fi
+        done
+        [ -n "$found" ] || return 1
+    done
+    return 0
+}
+
 # prepare_data [config.yaml] - con un config di un dataset diverso da
 # ASLG-PC12 verifica solo i dati di QUEL dataset; senza argomento (setup.sh)
 # o con un config ASLG-PC12 il comportamento storico qui sotto.
@@ -545,6 +566,24 @@ prepare_data() {
             echo "? PHOENIX-2014T: annotazioni mancanti sotto data/phoenix-2014t/." >&2
             echo "   Attesi PHOENIX-2014-T.{train,dev,test}.corpus.csv (da" >&2
             echo "   PHOENIX-2014-T/annotations/manual/ dell'archivio RWTH)." >&2
+            return 1
+        fi
+        return 0
+    fi
+    if [ "$dataset" = "wos-46985" ]; then
+        if ! _t2g_wos_present; then
+            echo "? WOS-46985: Data.xlsx (o Data.csv) mancante sotto data/wos-46985/." >&2
+            echo "   Da WebOfScience.zip (Mendeley Data, doi:10.17632/9rw3vkcfy4.6)," >&2
+            echo "   file Meta-data/Data.xlsx." >&2
+            return 1
+        fi
+        return 0
+    fi
+    if [ "$dataset" = "conll-2003" ]; then
+        if ! _t2g_conll_present; then
+            echo "? CoNLL-2003: file mancanti sotto data/conll-2003/." >&2
+            echo "   Attesi eng.{train,testa,testb} (o train/valid/test.txt) nel" >&2
+            echo "   formato a colonne originale." >&2
             return 1
         fi
         return 0

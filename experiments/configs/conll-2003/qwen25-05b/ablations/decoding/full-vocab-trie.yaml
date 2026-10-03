@@ -1,0 +1,33 @@
+# ============================================================================
+# ABLATION DECODING CoNLL-2003 — Trie costruito sull'INTERO dataset
+#
+# Fattore unico rispetto a grpo/few-shot.yaml di questo albero:
+# `dataset.vocab_source: all`. Gemello di
+# aslg-pc12/qwen25-05b/ablations/decoding/full-vocab-trie.yaml (vedi lì
+# la spiegazione completa).
+#
+# DATA LEAK DELIBERATO: misura quanto pesa il tetto del vocabolario
+# chiuso di train. Mai riportare come risultato.
+#
+# Su CoNLL-2003 è il caso estremo: la maggior parte delle entità di
+# test non compare nel train, e qui diventano tutte ammesse dal Trie.
+#
+# Uso:
+#   CONFIG=experiments/configs/conll-2003/qwen25-05b/ablations/decoding/full-vocab-trie.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../../grpo/few-shot.yaml
+
+dataset:
+  vocab_source: all
+
+evaluation:
+  dual_prompting: false
+
+training:
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-05b/ablations/decoding/full-vocab-trie"
+  log_dir: "experiments/logs/conll-2003/qwen25-05b/ablations/decoding/full-vocab-trie"
+
+wandb:
+  run_name: "conll-2003-qwen25-05b-abl-decoding-full-vocab-trie"
+  tags: ["T2G-framework", "CoNLL-2003", "ablation", "decoding", "full-vocab", "data-leak", "few-shot", "trie"]

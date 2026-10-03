@@ -71,7 +71,10 @@ formatter and re-stages changed files; `pre-push` best-effort `scp`s `src/`, `cl
 1. **Data** (`src/datasets/registry.py` → `aslg_dataset.py` / `phoenix_dataset.py`) —
    `dataset.dataset_name` picks the corpus: ASLG-PC12 (87K pairs, HF cache, 90/10 split)
    or PHOENIX-2014T (German→DGS, official CSVs copied into `data/phoenix-2014t/`, official
-   splits). The registry also builds/caches the closed gloss vocabulary + bigram matrix
+   splits), plus the two non-gloss tasks of GrammarRL (arXiv:2609.39869) linearized as
+   closed-vocabulary token sequences: WOS-46985 (hierarchical classification, target
+   `DOMAIN AREA`, `data/wos-46985/Data.xlsx`, zero-shot only) and CoNLL-2003 (NER, target
+   `TYPE:Entity ...` or `NONE`, `data/conll-2003/`). The registry also builds/caches the closed gloss vocabulary + bigram matrix
    (`dataset.vocab_source`: `train` default, `all` = deliberate train+test leak used only
    by `ablations/decoding/full-vocab-trie.yaml`). `dataset.prompt_profile` (`en-asl` /
    `de-dgs`) selects the language pair in `src/utils/prompting.py`.
@@ -98,8 +101,9 @@ formatter and re-stages changed files; `pre-push` best-effort `scp`s `src/`, `cl
 ### Config inheritance
 
 All experiment YAMLs live under `experiments/configs/<dataset>/qwen25-05b/` (`aslg-pc12/`,
-`phoenix-2014t/`; the PHOENIX base extends the ASLG-PC12 base and overrides only `dataset`,
-`retrieval.cache_path` and `wandb`) and use an `extends:`
+`phoenix-2014t/`, `wos-46985/`, `conll-2003/`; every non-ASLG base extends the ASLG-PC12
+base and overrides only `dataset`, `retrieval.cache_path`, `wandb` and, for WOS,
+`evaluation.dual_prompting`) and use an `extends:`
 key resolved by `src/utils/config.py::resolve_config` — recursive deep-merge (child wins,
 dicts merge, lists/scalars replace), cycle-checked, parent paths relative to the child file.
 The merged dict never contains `extends`; trainers/eval never see it. `base.yaml` holds all

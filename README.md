@@ -71,7 +71,10 @@ active in the optimal config (plus 3 ablation-only modules) and **10 in total**.
   representative cells of the matrix, same logic, one factor changed — the
   corpus). Outputs are laid out `experiments/<kind>/<dataset>/<model>/<cell>/`;
   PHOENIX needs the official annotation CSVs copied into `data/phoenix-2014t/`
-  (see `src/datasets/phoenix_dataset.py`).
+  (see `src/datasets/phoenix_dataset.py`). The two non-gloss tasks of GrammarRL
+  (arXiv:2609.39869) are also supported, linearized as closed-vocabulary token
+  sequences under the same Trie: WOS-46985 hierarchical classification
+  (`DOMAIN AREA`, zero-shot cells only) and CoNLL-2003 NER (`TYPE:Entity ...`).
 - **All params configurable via YAML**: reward weights, grammar toggle, RL
   objective knobs (`loss_type`, `scale_rewards`, `mask_truncated_completions`),
   and opt-in auxiliary SFT objectives — no hardcoded values.

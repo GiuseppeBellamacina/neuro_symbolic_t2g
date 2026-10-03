@@ -1,0 +1,54 @@
+# ============================================================================
+# BASE WOS-46985 — classificazione gerarchica (dominio → area) degli abstract
+# di Web of Science, come sequenza vincolata. Uno dei tre dataset di GrammarRL
+# (Tuccio et al., arXiv:2609.39869): lì il modello genera il JSON
+# {domain, area}; qui il target è LINEARIZZATO in due token di un vocabolario
+# chiuso ("CS Machine_learning", vedi src/datasets/wos_dataset.py), così Trie
+# dual-root, reward e metriche della pipeline si applicano invariati.
+#
+# Estende il base di ASLG-PC12: modello, LoRA, GRPO, reward, grammar ed
+# evaluation sono gli stessi, cambia solo il corpus.
+#
+# DATI (nessun download automatico): copiare Meta-data/Data.xlsx di
+# WebOfScience.zip (Mendeley Data, doi:10.17632/9rw3vkcfy4.6) sotto
+# data/wos-46985/ (o un Data.csv con le stesse colonne).
+#
+# DIFFERENZE DA TENERE A MENTE
+# ----------------------------
+# * Nessuno split ufficiale (e quello del paper non è pubblico): stessa
+#   logica di ASLG-PC12, dedup + 90/10 con seed 42. Numeri non confrontabili
+#   uno-a-uno con il paper.
+# * Gli abstract sono lunghi: dataset.max_source_words: 256 tronca il testo
+#   alle prime 256 parole (dopo lo split), così il prompt zero-shot resta
+#   sotto grpo.max_prompt_length (768). Tre abstract di esempio non ci
+#   starebbero: niente celle few-shot e dual_prompting disattivato. Cambiare
+#   max_source_words NON invalida da solo l'indice del retriever (che qui non
+#   si usa) né il vocabolario (le etichette non dipendono dal testo).
+# * Il target è di 2 token: exact match = (dominio, area) entrambi corretti;
+#   ROUGE-L/BLEU su due token sono poco informativi, leggere exact_match.
+#   Il Trie vincola i token, NON la struttura (due aree di fila restano
+#   generabili): la struttura la impara il modello.
+# * Con ~42k righe di train, max_steps: 5000 copre ~12% del train in GRPO.
+# ============================================================================
+
+extends: ../../aslg-pc12/qwen25-05b/base.yaml
+
+dataset:
+  dataset_name: "wos-46985"
+  dataset_cache: "data/wos-46985"
+  vocab_path: "data/wos-46985/gloss_vocab.txt"
+  bigram_matrix_path: "data/wos-46985/bigram_transition.npy"
+  prompt_profile: "en-wos"
+  max_source_words: 256
+
+# Solo zero-shot su questo dataset (vedi sopra): la passata complementare
+# few-shot supererebbe il contesto con tre abstract di esempio.
+evaluation:
+  dual_prompting: false
+
+retrieval:
+  cache_path: "data/wos-46985/retriever_index"
+
+wandb:
+  run_name: "wos-46985-qwen25-05b"
+  tags: ["T2G-framework", "constrained-decoding", "Qwen2.5-0.5B", "WOS-46985", "hierarchical-classification"]

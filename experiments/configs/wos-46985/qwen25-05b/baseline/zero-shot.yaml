@@ -1,0 +1,19 @@
+# ============================================================================
+# BASELINE WOS-46985 — base model, zero-shot, Trie attivo. NESSUN training.
+#
+# Gemello di aslg-pc12/qwen25-05b/baseline/zero-shot.yaml: riferimento
+# inferiore della matrice e confronto corretto per grpo/zero-shot.
+#
+# Uso:
+#   CONFIG=experiments/configs/wos-46985/qwen25-05b/baseline/zero-shot.yaml sbatch cluster/eval.sh
+# ============================================================================
+
+extends: ../base.yaml
+
+evaluation:
+  best_of_n: true
+  dual_prompting: false
+
+wandb:
+  run_name: "wos-46985-qwen25-05b-baseline-zero-shot"
+  tags: ["T2G-framework", "WoS", "baseline", "zero-shot", "trie", "eval-only"]

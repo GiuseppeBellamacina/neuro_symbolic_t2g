@@ -155,6 +155,7 @@ def test_default_presets_path_resolves_and_loads(tmp_path):
         "tier4-glossary",
         "leak-full-vocab-trie",
         "phoenix-core",
+        "grammarrl-tasks",
     ]
     assert all(p.job_count > 0 for p in presets)
 

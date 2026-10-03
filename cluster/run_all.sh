@@ -25,7 +25,8 @@
 #   bash cluster/run_all.sh --force                  # azzera lo stato (catena interrotta)
 #   bash cluster/run_all.sh --dataset=phoenix-2014t --ablation  # campagna PHOENIX-2014T
 #
-# Dataset: --dataset=<chiave> (default aslg-pc12; noti: aslg-pc12, phoenix-2014t)
+# Dataset: --dataset=<chiave> (default aslg-pc12; noti: aslg-pc12, phoenix-2014t,
+# wos-46985, conll-2003 — gli ultimi due sono i task non-gloss di GrammarRL)
 # sceglie l'albero experiments/configs/<dataset>/<modello>/ (modello: env
 # T2G_MODEL, default qwen25-05b). Il tag dei job delle celle non-ASLG e'
 # prefissato dal dataset (phoenix-2014t-grpo-few-shot), vedi t2g_tag_from_config.
@@ -41,8 +42,9 @@
 #   (cerca sotto experiments/configs/<dataset>/<modello>/ in modo ricorsivo)
 #
 # Campagna (--ablation): matrice completa 3 baseline eval-only + 12 celle train+eval.
-# Con --dataset=phoenix-2014t: 2 baseline eval-only + 5 celle train+eval
-# (sottoinsieme rappresentativo, stessa logica di ordinamento).
+# Con --dataset=phoenix-2014t o conll-2003: 2 baseline eval-only + 5 celle
+# train+eval; con --dataset=wos-46985: 1 baseline + 4 celle (solo zero-shot).
+# Sottoinsiemi rappresentativi, stessa logica di ordinamento.
 # Ordine massimizza il riuso: le baseline zero-shot (Trie) cachano il --compare
 # per le celle successive; sft/zero-shot addestra l'adapter SFT riusato dalle
 # celle sft-grpo (fingerprint identica); le ablazioni riusano SFT + baseline.
@@ -86,8 +88,8 @@ for arg in "$@"; do
             echo "Opzioni:"
             echo "  (nessun argomento)  Default: sft-grpo/few-shot (train + eval)"
             echo "  config_name         Path del config relativo a <dataset>/<modello>, senza .yaml (es. grpo/few-shot)"
-            echo "  --dataset=<chiave>  Albero dei config: aslg-pc12 (default) | phoenix-2014t"
-            echo "  --ablation          Campagna completa (ASLG-PC12: 15 celle; PHOENIX-2014T: 7 celle)"
+            echo "  --dataset=<chiave>  Albero dei config: aslg-pc12 (default) | phoenix-2014t | wos-46985 | conll-2003"
+            echo "  --ablation          Campagna completa (ASLG-PC12: 15 celle; PHOENIX-2014T/CoNLL-2003: 7; WOS-46985: 5)"
             echo "  --eval-only         Solo evaluation (skip training)"
             echo "  --train-only        Solo training (skip eval)"
             echo "  --resume            Riprendi dalla coda esistente"
@@ -120,6 +122,9 @@ for arg in "$@"; do
             echo "Config PHOENIX-2014T (--dataset=phoenix-2014t, experiments/configs/phoenix-2014t/qwen25-05b):"
             echo "  baseline/{zero-shot,few-shot}  sft/zero-shot  grpo/{zero-shot,few-shot}"
             echo "  sft-grpo/few-shot  ablations/decoding/{no-grammar,full-vocab-trie}"
+            echo "Config CoNLL-2003 (--dataset=conll-2003): stesse celle di PHOENIX-2014T"
+            echo "Config WOS-46985 (--dataset=wos-46985): baseline/zero-shot  sft/zero-shot  grpo/zero-shot"
+            echo "  sft-grpo/zero-shot  ablations/decoding/{no-grammar,full-vocab-trie}"
             echo ""
             echo "  (le celle low-beta/lean-stack/glossary/sft-structured-shuffled/full-vocab-trie sono FUORI dalla"
             echo "   campagna --ablation ufficiale a 15 celle: si lanciano singolarmente col path"
@@ -175,6 +180,27 @@ if [ "$ABLATION" -eq 1 ] && [ "$DATASET" = "phoenix-2014t" ]; then
         "phoenix-2014t-grpo-few-shot:experiments/configs/phoenix-2014t/qwen25-05b/grpo/few-shot.yaml:te"
         "phoenix-2014t-sft-grpo-few-shot:experiments/configs/phoenix-2014t/qwen25-05b/sft-grpo/few-shot.yaml:te"
         "phoenix-2014t-ablations-decoding-no-grammar:experiments/configs/phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar.yaml:te"
+    )
+elif [ "$ABLATION" -eq 1 ] && [ "$DATASET" = "wos-46985" ]; then
+    # Campagna WOS-46985 (GrammarRL, classificazione gerarchica): solo celle
+    # zero-shot (gli abstract non lasciano spazio a tre esempi nel prompt).
+    MODELS=(
+        "wos-46985-baseline-zero-shot:experiments/configs/wos-46985/qwen25-05b/baseline/zero-shot.yaml:e"
+        "wos-46985-sft-zero-shot:experiments/configs/wos-46985/qwen25-05b/sft/zero-shot.yaml:te"
+        "wos-46985-grpo-zero-shot:experiments/configs/wos-46985/qwen25-05b/grpo/zero-shot.yaml:te"
+        "wos-46985-sft-grpo-zero-shot:experiments/configs/wos-46985/qwen25-05b/sft-grpo/zero-shot.yaml:te"
+        "wos-46985-ablations-decoding-no-grammar:experiments/configs/wos-46985/qwen25-05b/ablations/decoding/no-grammar.yaml:te"
+    )
+elif [ "$ABLATION" -eq 1 ] && [ "$DATASET" = "conll-2003" ]; then
+    # Campagna CoNLL-2003 (GrammarRL, NER): stesse celle di PHOENIX-2014T.
+    MODELS=(
+        "conll-2003-baseline-zero-shot:experiments/configs/conll-2003/qwen25-05b/baseline/zero-shot.yaml:e"
+        "conll-2003-baseline-few-shot:experiments/configs/conll-2003/qwen25-05b/baseline/few-shot.yaml:e"
+        "conll-2003-sft-zero-shot:experiments/configs/conll-2003/qwen25-05b/sft/zero-shot.yaml:te"
+        "conll-2003-grpo-zero-shot:experiments/configs/conll-2003/qwen25-05b/grpo/zero-shot.yaml:te"
+        "conll-2003-grpo-few-shot:experiments/configs/conll-2003/qwen25-05b/grpo/few-shot.yaml:te"
+        "conll-2003-sft-grpo-few-shot:experiments/configs/conll-2003/qwen25-05b/sft-grpo/few-shot.yaml:te"
+        "conll-2003-ablations-decoding-no-grammar:experiments/configs/conll-2003/qwen25-05b/ablations/decoding/no-grammar.yaml:te"
     )
 elif [ "$ABLATION" -eq 1 ]; then
     # Campagna completa: 3 baseline eval-only + 12 celle train+eval. Il TUI

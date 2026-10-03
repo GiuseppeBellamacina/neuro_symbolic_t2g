@@ -184,7 +184,7 @@ def test_checkpoint_without_a_run_opens_a_fresh_run_in_the_config_cell() -> None
 def test_every_eval_location_is_inside_a_run() -> None:
     """The invariant every reader relies on, over every config in the repo."""
     from src.utils.config import resolve_config
-    from src.utils.run_paths import eval_output_location
+    from src.utils.run_paths import DATASET_KEYS, eval_output_location
 
     configs = sorted(Path("experiments/configs").rglob("*.yaml"))
     assert configs
@@ -194,7 +194,7 @@ def test_every_eval_location_is_inside_a_run() -> None:
         )
         assert run_id.startswith("run_"), path
         dataset = path.relative_to("experiments/configs").parts[0]
-        assert dataset in ("aslg-pc12", "phoenix-2014t"), path
+        assert dataset in DATASET_KEYS, path
         assert cell.startswith(f"{dataset}/qwen25-05b/"), (path, cell)
 
 

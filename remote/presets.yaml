@@ -104,13 +104,18 @@ presets:
       Trie, reward di formato e validity costruiti su train+test invece che sul
       solo train (dataset.vocab_source: all), gemello di grpo/few-shot. DATA
       LEAK deliberato: misura quanto pesa il tetto del vocabolario chiuso di
-      train, mai un risultato. Entrambi i dataset; ogni cella va confrontata
-      con la grpo/few-shot del proprio dataset.
+      train, mai un risultato. Tutti i dataset; ogni cella va confrontata con
+      la cella grpo da cui deriva nel proprio dataset (grpo/few-shot, o
+      grpo/zero-shot su WOS-46985).
     jobs:
       - {type: train, config: ablations-decoding-full-vocab-trie, tag: ablations-decoding-full-vocab-trie}
       - {type: eval, config: ablations-decoding-full-vocab-trie, tag: ablations-decoding-full-vocab-trie}
       - {type: train, config: phoenix-2014t-ablations-decoding-full-vocab-trie, tag: phoenix-2014t-ablations-decoding-full-vocab-trie}
       - {type: eval, config: phoenix-2014t-ablations-decoding-full-vocab-trie, tag: phoenix-2014t-ablations-decoding-full-vocab-trie}
+      - {type: train, config: wos-46985-ablations-decoding-full-vocab-trie, tag: wos-46985-ablations-decoding-full-vocab-trie}
+      - {type: eval, config: wos-46985-ablations-decoding-full-vocab-trie, tag: wos-46985-ablations-decoding-full-vocab-trie}
+      - {type: train, config: conll-2003-ablations-decoding-full-vocab-trie, tag: conll-2003-ablations-decoding-full-vocab-trie}
+      - {type: eval, config: conll-2003-ablations-decoding-full-vocab-trie, tag: conll-2003-ablations-decoding-full-vocab-trie}
 
   - id: phoenix-core
     label: "PHOENIX-2014T — celle rappresentative"
@@ -132,3 +137,33 @@ presets:
       - {type: eval, config: phoenix-2014t-sft-grpo-few-shot, tag: phoenix-2014t-sft-grpo-few-shot}
       - {type: train, config: phoenix-2014t-ablations-decoding-no-grammar, tag: phoenix-2014t-ablations-decoding-no-grammar}
       - {type: eval, config: phoenix-2014t-ablations-decoding-no-grammar, tag: phoenix-2014t-ablations-decoding-no-grammar}
+
+  - id: grammarrl-tasks
+    label: "GrammarRL — WOS-46985 e CoNLL-2003"
+    description: >-
+      I due task non-gloss di GrammarRL (arXiv:2609.39869), linearizzati come
+      sequenze di token di un vocabolario chiuso: NER su CoNLL-2003 (celle come
+      PHOENIX-2014T) e classificazione gerarchica su WOS-46985 (solo
+      zero-shot). Richiede i file in data/conll-2003/ e data/wos-46985/.
+    jobs:
+      - {type: eval, config: conll-2003-baseline-zero-shot, tag: conll-2003-baseline-zero-shot}
+      - {type: eval, config: conll-2003-baseline-few-shot, tag: conll-2003-baseline-few-shot}
+      - {type: train, config: conll-2003-sft-zero-shot, tag: conll-2003-sft-zero-shot}
+      - {type: eval, config: conll-2003-sft-zero-shot, tag: conll-2003-sft-zero-shot}
+      - {type: train, config: conll-2003-grpo-zero-shot, tag: conll-2003-grpo-zero-shot}
+      - {type: eval, config: conll-2003-grpo-zero-shot, tag: conll-2003-grpo-zero-shot}
+      - {type: train, config: conll-2003-grpo-few-shot, tag: conll-2003-grpo-few-shot}
+      - {type: eval, config: conll-2003-grpo-few-shot, tag: conll-2003-grpo-few-shot}
+      - {type: train, config: conll-2003-sft-grpo-few-shot, tag: conll-2003-sft-grpo-few-shot}
+      - {type: eval, config: conll-2003-sft-grpo-few-shot, tag: conll-2003-sft-grpo-few-shot}
+      - {type: train, config: conll-2003-ablations-decoding-no-grammar, tag: conll-2003-ablations-decoding-no-grammar}
+      - {type: eval, config: conll-2003-ablations-decoding-no-grammar, tag: conll-2003-ablations-decoding-no-grammar}
+      - {type: eval, config: wos-46985-baseline-zero-shot, tag: wos-46985-baseline-zero-shot}
+      - {type: train, config: wos-46985-sft-zero-shot, tag: wos-46985-sft-zero-shot}
+      - {type: eval, config: wos-46985-sft-zero-shot, tag: wos-46985-sft-zero-shot}
+      - {type: train, config: wos-46985-grpo-zero-shot, tag: wos-46985-grpo-zero-shot}
+      - {type: eval, config: wos-46985-grpo-zero-shot, tag: wos-46985-grpo-zero-shot}
+      - {type: train, config: wos-46985-sft-grpo-zero-shot, tag: wos-46985-sft-grpo-zero-shot}
+      - {type: eval, config: wos-46985-sft-grpo-zero-shot, tag: wos-46985-sft-grpo-zero-shot}
+      - {type: train, config: wos-46985-ablations-decoding-no-grammar, tag: wos-46985-ablations-decoding-no-grammar}
+      - {type: eval, config: wos-46985-ablations-decoding-no-grammar, tag: wos-46985-ablations-decoding-no-grammar}

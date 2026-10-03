@@ -1,8 +1,9 @@
 # Config Reference — chiave per chiave, verificata sul codice
 
 Riferimento completo delle chiavi YAML di `experiments/configs/<dataset>/qwen25-05b/`
-(`aslg-pc12/` e `phoenix-2014t/`; il base PHOENIX estende quello di ASLG-PC12 e
-sovrascrive solo `dataset`, `retrieval.cache_path` e `wandb`).
+(`aslg-pc12/`, `phoenix-2014t/`, `wos-46985/`, `conll-2003/`; ogni base non-ASLG
+estende quello di ASLG-PC12 e sovrascrive solo `dataset`, `retrieval.cache_path`,
+`wandb` e, per WOS, `evaluation.dual_prompting`).
 Ogni voce riporta: tipo, valori ammessi, default (e DOVE è definito: `base.yaml`
 o fallback nel codice), a cosa serve, e **chi la legge** con `file:riga` verificate
 su `src/**/*.py`. Il tipo e i valori ammessi sono dedotti dal codice che consuma
@@ -90,8 +91,9 @@ di questi step non distingue più nulla**: è la presenza di
 
 | Chiave | Tipo | Valori ammessi | Default | A cosa serve | Letta da |
 | --- | --- | --- | --- | --- | --- |
-| `dataset.dataset_name` | str | `achrafothman/aslg_pc12` \| `phoenix-2014t` (alias in `src/datasets/registry.py`) | ASLG-PC12 se assente | **Sceglie il corpus** (`registry.load_t2g_dataset`): ASLG-PC12 dalla cache HF offline, PHOENIX-2014T dai CSV ufficiali in `dataset_cache`. Entra anche nei fingerprint (SFT, contesto prompt). Il layout degli output deve concordare: `experiments/<kind>/<dataset>/<modello>/...` (`src/utils/run_paths.py`). | `registry`, `sft_train` / `eval` (fingerprint) |
-| `dataset.prompt_profile` | str | `en-asl` \| `de-dgs` (`prompting.PROMPT_PROFILES`) | `en-asl` | Coppia di lingue del prompt (system prompt, intestazione e etichette few-shot). `en-asl` è byte-identico al prompt storico. NON entra nel fingerprint SFT come chiave (ci entra il system prompt risultante). | `prompting.prompt_profile_for_config` |
+| `dataset.dataset_name` | str | `achrafothman/aslg_pc12` \| `phoenix-2014t` \| `wos-46985` \| `conll-2003` (alias in `src/datasets/registry.py`) | ASLG-PC12 se assente | **Sceglie il corpus** (`registry.load_t2g_dataset`): ASLG-PC12 dalla cache HF offline, PHOENIX-2014T dai CSV ufficiali, WOS-46985 da `Data.xlsx`/`Data.csv`, CoNLL-2003 dai file a colonne, tutti in `dataset_cache`. WOS e CoNLL sono i task non-gloss di GrammarRL (arXiv:2609.39869), linearizzati come sequenze di token di un vocabolario chiuso. Entra anche nei fingerprint (SFT, contesto prompt). Il layout degli output deve concordare: `experiments/<kind>/<dataset>/<modello>/...` (`src/utils/run_paths.py`). | `registry`, `sft_train` / `eval` (fingerprint) |
+| `dataset.max_source_words` | int \| null | int ≥ 1 | null (WOS: 256) | Tronca il testo sorgente alle prime N parole, DOPO dedup e split. Letto solo dal loader WOS-46985 (abstract lunghi). | `wos_dataset.load_wos_dataset` |
+| `dataset.prompt_profile` | str | `en-asl` \| `de-dgs` \| `en-wos` \| `en-conll` (`prompting.PROMPT_PROFILES`) | `en-asl` | Coppia di lingue del prompt (system prompt, intestazione e etichette few-shot). `en-asl` è byte-identico al prompt storico. NON entra nel fingerprint SFT come chiave (ci entra il system prompt risultante). | `prompting.prompt_profile_for_config` |
 | `dataset.vocab_source` | str | `train` \| `all` | `train` (NON dichiararlo nei base: la chiave, se presente, entra nel fingerprint SFT) | Split da cui si estrae il vocabolario glossa chiuso (Trie, reward di formato, validity). `all` = unione di tutti gli split: **DATA LEAK deliberato**, solo per `ablations/decoding/full-vocab-trie.yaml`. Il bigram resta contato sul solo train; i file di cache ricevono il suffisso `_all`. Entra nel fingerprint della baseline solo se ≠ `train`. | `registry.prepare_vocab_and_bigram` |
 | `dataset.dataset_cache` | str | path | `"data/aslg_pc12"` (`aslg:40,121`) | Directory cache HF del corpus scaricato. | `grpo_train:614`, `sft_train:599`, `eval:774` |
 | `dataset.vocab_path` | str | path | `"data/gloss_vocab.txt"` (fallback `eval:776`) | Vocabolario glossa (il Trie e le reward lo caricano da qui). Cache con sidecar meta su seed/train_size (`grpo_train:624-631`). | `grpo_train:603,624-631`, `sft_train:587`, `eval:776` |

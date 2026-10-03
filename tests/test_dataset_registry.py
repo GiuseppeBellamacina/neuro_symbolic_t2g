@@ -199,33 +199,47 @@ def test_legacy_aslg_sidecar_stays_valid(tmp_path: Path) -> None:
 # ── Config trees ────────────────────────────────────────────────────────────
 
 
+#: Dataset non-default → (profilo di prompt atteso).
+_OTHER_DATASETS = {
+    "phoenix-2014t": "de-dgs",
+    "wos-46985": "en-wos",
+    "conll-2003": "en-conll",
+}
+
+
 @pytest.mark.parametrize(
-    "rel",
+    "dataset,rel",
     sorted(
-        str(p.relative_to(CONFIGS / "phoenix-2014t"))
-        for p in (CONFIGS / "phoenix-2014t").rglob("*.yaml")
+        (dataset, str(p.relative_to(CONFIGS / dataset)))
+        for dataset in _OTHER_DATASETS
+        for p in (CONFIGS / dataset).rglob("*.yaml")
     ),
 )
-def test_phoenix_cells_resolve_to_phoenix_everywhere(rel: str) -> None:
-    """Ogni cella PHOENIX usa dataset, prompt, cache e output di PHOENIX."""
-    cfg = resolve_config(str(CONFIGS / "phoenix-2014t" / rel))
-    assert get_dataset_spec(cfg["dataset"]) is PHOENIX_2014T
-    assert cfg["dataset"]["prompt_profile"] == "de-dgs"
+def test_cells_resolve_to_their_dataset_everywhere(dataset: str, rel: str) -> None:
+    """Ogni cella usa dataset, prompt, cache e output del PROPRIO dataset."""
+    cfg = resolve_config(str(CONFIGS / dataset / rel))
+    assert get_dataset_spec(cfg["dataset"]) is DATASETS[dataset]
+    assert cfg["dataset"]["prompt_profile"] == _OTHER_DATASETS[dataset]
     for key in ("dataset_cache", "vocab_path", "bigram_matrix_path"):
-        assert cfg["dataset"][key].startswith("data/phoenix-2014t"), key
-    assert cfg["retrieval"]["cache_path"].startswith("data/phoenix-2014t")
+        assert cfg["dataset"][key].startswith(f"data/{dataset}"), key
+    assert cfg["retrieval"]["cache_path"].startswith(f"data/{dataset}")
     for key in ("output_dir", "log_dir"):
         if key in cfg.get("training", {}):
-            assert "/phoenix-2014t/qwen25-05b/" in cfg["training"][key], key
-    assert cfg["wandb"]["run_name"].startswith("phoenix-2014t-")
+            assert f"/{dataset}/qwen25-05b/" in cfg["training"][key], key
+    assert cfg["wandb"]["run_name"].startswith(f"{dataset}-")
 
 
-@pytest.mark.parametrize("dataset", ["aslg-pc12", "phoenix-2014t"])
+@pytest.mark.parametrize("dataset", ["aslg-pc12", *_OTHER_DATASETS])
 def test_full_vocab_trie_is_single_factor_ablation(dataset: str) -> None:
-    """full-vocab-trie = grpo/few-shot + vocab_source: all (e nient'altro di rilevante)."""
+    """full-vocab-trie = la sua cella grpo genitrice + vocab_source: all."""
+    import yaml
+
     root = CONFIGS / dataset / "qwen25-05b"
-    leak = resolve_config(str(root / "ablations/decoding/full-vocab-trie.yaml"))
-    ref = resolve_config(str(root / "grpo/few-shot.yaml"))
+    leak_path = root / "ablations/decoding/full-vocab-trie.yaml"
+    parent = yaml.safe_load(leak_path.read_text(encoding="utf-8"))["extends"]
+    assert parent in ("../../grpo/few-shot.yaml", "../../grpo/zero-shot.yaml")
+    leak = resolve_config(str(leak_path))
+    ref = resolve_config(str((leak_path.parent / parent).resolve()))
     assert leak["dataset"].pop("vocab_source") == "all"
     assert "vocab_source" not in ref["dataset"]
     for section in (
@@ -241,9 +255,9 @@ def test_full_vocab_trie_is_single_factor_ablation(dataset: str) -> None:
     assert leak["training"]["output_dir"].endswith("ablations/decoding/full-vocab-trie")
 
 
-def test_aslg_cells_do_not_declare_vocab_source() -> None:
+def test_cells_do_not_declare_vocab_source_except_leak() -> None:
     """La chiave entra nel fingerprint SFT: solo le celle con leak la dichiarano."""
-    for path in (CONFIGS / "aslg-pc12").rglob("*.yaml"):
+    for path in CONFIGS.rglob("*.yaml"):
         cfg = resolve_config(str(path))
         if path.name != "full-vocab-trie.yaml":
             assert "vocab_source" not in cfg["dataset"], path
@@ -270,3 +284,160 @@ def test_bash_tag_matches_python_cell_tag_for_every_config() -> None:
     ]
     assert out == expected
     assert len(set(out)) == len(out), "due celle con lo stesso tag"
+
+
+# ── WOS-46985 ───────────────────────────────────────────────────────────────
+
+
+def _write_xlsx(path: Path, rows: list[list[str]]) -> None:
+    """Minimal .xlsx (shared strings + one sheet), as Excel writes it."""
+    import zipfile
+
+    strings: list[str] = []
+    index: dict[str, int] = {}
+
+    def sid(value: str) -> int:
+        if value not in index:
+            index[value] = len(strings)
+            strings.append(value)
+        return index[value]
+
+    def col(i: int) -> str:
+        name = ""
+        i += 1
+        while i:
+            i, rem = divmod(i - 1, 26)
+            name = chr(65 + rem) + name
+        return name
+
+    ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    sheet_rows = []
+    for r, row in enumerate(rows, start=1):
+        cells = "".join(
+            f'<c r="{col(c)}{r}" t="s"><v>{sid(v)}</v></c>' for c, v in enumerate(row)
+        )
+        sheet_rows.append(f'<row r="{r}">{cells}</row>')
+    sst = "".join(f'<si><t xml:space="preserve">{s}</t></si>' for s in strings)
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("xl/sharedStrings.xml", f'<sst xmlns="{ns}">{sst}</sst>')
+        zf.writestr(
+            "xl/worksheets/sheet1.xml",
+            f'<worksheet xmlns="{ns}"><sheetData>{"".join(sheet_rows)}</sheetData></worksheet>',
+        )
+
+
+_WOS_HEADER = ["Y1", "Y2", "Y", "Domain", "area", "keywords", "Abstract"]
+
+
+def _wos_rows(n: int) -> list[list[str]]:
+    domains = [("CS ", " Machine learning"), ("Medical  ", "Alzheimer's Disease")]
+    return [
+        ["0", "0", "0", *domains[i % 2], "kw", f"abstract number {i} " + "word " * 10]
+        for i in range(n)
+    ]
+
+
+def test_wos_xlsx_loader(tmp_path: Path) -> None:
+    from src.datasets.wos_dataset import label_token, read_xlsx_rows
+
+    root = tmp_path / "wos" / "Meta-data"
+    root.mkdir(parents=True)
+    rows = _wos_rows(20)
+    # Un duplicato esatto e una riga senza abstract: entrambi scartati.
+    rows.append(list(rows[0]))
+    rows.append(["0", "0", "0", "CS", "Machine learning", "kw", ""])
+    _write_xlsx(root / "Data.xlsx", [_WOS_HEADER, *rows])
+
+    assert read_xlsx_rows(root / "Data.xlsx")[0]["Domain"] == "CS "
+    assert label_token(" Machine   learning ") == "Machine_learning"
+
+    ds = load_t2g_dataset(
+        {
+            "dataset_name": "wos-46985",
+            "dataset_cache": str(tmp_path / "wos"),
+            "seed": 42,
+        }
+    )
+    assert set(ds) == {"train", "test"}
+    assert len(ds["train"]) + len(ds["test"]) == 20
+    assert len(ds["test"]) == 2
+    glosses = {r["gloss"] for r in ds["train"]}
+    assert glosses <= {"CS Machine_learning", "Medical Alzheimer's_Disease"}
+
+
+def test_wos_csv_and_truncation(tmp_path: Path) -> None:
+    import csv
+
+    root = tmp_path / "wos"
+    root.mkdir()
+    with (root / "Data.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(_WOS_HEADER)
+        writer.writerows(_wos_rows(10))
+    cfg = {"dataset_name": "wos", "dataset_cache": str(root), "max_source_words": 3}
+    ds = load_t2g_dataset(cfg)
+    assert all(len(r["text"].split()) == 3 for r in ds["train"])
+    # Il dedup/split usa il testo INTERO: con il troncamento a 3 parole le
+    # righe sarebbero tutte uguali, ma restano 10.
+    assert len(ds["train"]) + len(ds["test"]) == 10
+
+
+def test_wos_missing_file_explains(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="Data.xlsx"):
+        load_t2g_dataset({"dataset_name": "wos-46985", "dataset_cache": str(tmp_path)})
+
+
+# ── CoNLL-2003 ──────────────────────────────────────────────────────────────
+
+
+def test_conll_entity_extraction_iob1_and_iob2() -> None:
+    from src.datasets.conll_dataset import extract_entities, linearize_entities
+
+    tokens = ["EU", "rejects", "German", "call", "to", "boycott", "British", "lamb"]
+    iob1 = ["I-ORG", "O", "I-MISC", "O", "O", "O", "I-MISC", "O"]
+    iob2 = ["B-ORG", "O", "B-MISC", "O", "O", "O", "B-MISC", "O"]
+    assert extract_entities(tokens, iob1) == extract_entities(tokens, iob2)
+    assert linearize_entities(extract_entities(tokens, iob1)) == (
+        "ORG:EU MISC:German MISC:British"
+    )
+    # Due entità adiacenti dello stesso tipo: separate solo da B- (IOB1).
+    assert extract_entities(
+        ["Peter", "Blackburn", "Paul"], ["I-PER", "I-PER", "B-PER"]
+    ) == [
+        ("PER", "Peter Blackburn"),
+        ("PER", "Paul"),
+    ]
+    # Ordine dei campi del JSON (PER, ORG, LOC, MISC) e niente duplicati.
+    ents = [("LOC", "New York"), ("PER", "Bob"), ("LOC", "New York")]
+    assert linearize_entities(ents) == "PER:Bob LOC:New_York"
+    assert linearize_entities([]) == "NONE"
+
+
+def test_conll_loader_official_splits(tmp_path: Path) -> None:
+    root = tmp_path / "conll" / "raw"
+    root.mkdir(parents=True)
+    doc = (
+        "-DOCSTART- -X- -X- O\n\n"
+        "EU NNP B-NP I-ORG\nrejects VBZ B-VP O\nGerman JJ B-NP I-MISC\n. . O O\n\n"
+        "Peter NNP B-NP I-PER\nBlackburn NNP I-NP I-PER\n\n"
+        "1996-08-22 CD B-NP O\n\n"
+    )
+    for name in ("eng.train", "eng.testa", "eng.testb"):
+        (root / name).write_text(doc, encoding="utf-8")
+    ds = load_t2g_dataset(
+        {"dataset_name": "conll-2003", "dataset_cache": str(tmp_path / "conll")}
+    )
+    assert set(ds) == {"train", "validation", "test"}
+    rows = list(ds["train"])
+    assert [r["gloss"] for r in rows] == [
+        "ORG:EU MISC:German",
+        "PER:Peter_Blackburn",
+        "NONE",
+    ]
+    assert rows[0]["text"] == "EU rejects German ."
+
+
+def test_conll_missing_split_explains(tmp_path: Path) -> None:
+    (tmp_path / "train.txt").write_text("EU NNP B-NP B-ORG\n", encoding="utf-8")
+    with pytest.raises(FileNotFoundError, match="validation"):
+        load_t2g_dataset({"dataset_name": "conll-2003", "dataset_cache": str(tmp_path)})

@@ -1553,7 +1553,7 @@ def test_configs_exposes_known_config_map(client):
     assert r.status_code == 200
     body = r.json()
     names = [c["name"] for c in body["configs"]]
-    assert len(names) == len(app_module.CONFIG_MAP) == 28
+    assert len(names) == len(app_module.CONFIG_MAP) == 42
     assert "sft-grpo-zero-shot" in names
     assert "phoenix-2014t-grpo-few-shot" in names
     assert all(c["path"] for c in body["configs"])

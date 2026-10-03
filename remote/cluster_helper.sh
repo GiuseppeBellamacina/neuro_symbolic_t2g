@@ -378,7 +378,7 @@ _emit_run() {
 _cell_key() {
     local c="$1" dataset="aslg-pc12" key
     case "${c%%/*}" in
-        aslg-pc12|phoenix-2014t)
+        aslg-pc12|phoenix-2014t|wos-46985|conll-2003)
             dataset="${c%%/*}"
             c="${c#*/}"
             ;;

@@ -166,6 +166,22 @@ CONFIG_MAP: dict[str, str] = {
     "phoenix-2014t-sft-grpo-few-shot": "experiments/configs/phoenix-2014t/qwen25-05b/sft-grpo/few-shot.yaml",
     "phoenix-2014t-ablations-decoding-no-grammar": "experiments/configs/phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar.yaml",
     "phoenix-2014t-ablations-decoding-full-vocab-trie": "experiments/configs/phoenix-2014t/qwen25-05b/ablations/decoding/full-vocab-trie.yaml",
+    # WOS-46985 (GrammarRL, classificazione gerarchica, solo zero-shot).
+    "wos-46985-baseline-zero-shot": "experiments/configs/wos-46985/qwen25-05b/baseline/zero-shot.yaml",
+    "wos-46985-sft-zero-shot": "experiments/configs/wos-46985/qwen25-05b/sft/zero-shot.yaml",
+    "wos-46985-grpo-zero-shot": "experiments/configs/wos-46985/qwen25-05b/grpo/zero-shot.yaml",
+    "wos-46985-sft-grpo-zero-shot": "experiments/configs/wos-46985/qwen25-05b/sft-grpo/zero-shot.yaml",
+    "wos-46985-ablations-decoding-no-grammar": "experiments/configs/wos-46985/qwen25-05b/ablations/decoding/no-grammar.yaml",
+    "wos-46985-ablations-decoding-full-vocab-trie": "experiments/configs/wos-46985/qwen25-05b/ablations/decoding/full-vocab-trie.yaml",
+    # CoNLL-2003 (GrammarRL, NER).
+    "conll-2003-baseline-zero-shot": "experiments/configs/conll-2003/qwen25-05b/baseline/zero-shot.yaml",
+    "conll-2003-baseline-few-shot": "experiments/configs/conll-2003/qwen25-05b/baseline/few-shot.yaml",
+    "conll-2003-sft-zero-shot": "experiments/configs/conll-2003/qwen25-05b/sft/zero-shot.yaml",
+    "conll-2003-grpo-zero-shot": "experiments/configs/conll-2003/qwen25-05b/grpo/zero-shot.yaml",
+    "conll-2003-grpo-few-shot": "experiments/configs/conll-2003/qwen25-05b/grpo/few-shot.yaml",
+    "conll-2003-sft-grpo-few-shot": "experiments/configs/conll-2003/qwen25-05b/sft-grpo/few-shot.yaml",
+    "conll-2003-ablations-decoding-no-grammar": "experiments/configs/conll-2003/qwen25-05b/ablations/decoding/no-grammar.yaml",
+    "conll-2003-ablations-decoding-full-vocab-trie": "experiments/configs/conll-2003/qwen25-05b/ablations/decoding/full-vocab-trie.yaml",
 }
 
 CONFIG_PATHS: set[str] = set(CONFIG_MAP.values())

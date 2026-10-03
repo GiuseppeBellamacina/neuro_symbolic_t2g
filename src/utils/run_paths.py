@@ -53,7 +53,12 @@ __all__ = [
 #: Segmenti di dataset riconosciuti in testa a una cella. Rispecchia le chiavi di
 #: ``src.datasets.registry.DATASETS`` (verificato da un test): duplicato qui perché
 #: questo modulo resta importabile senza ``datasets``/``numpy``.
-DATASET_KEYS: tuple[str, ...] = ("aslg-pc12", "phoenix-2014t")
+DATASET_KEYS: tuple[str, ...] = (
+    "aslg-pc12",
+    "phoenix-2014t",
+    "wos-46985",
+    "conll-2003",
+)
 
 #: Dataset implicito del layout legacy e dei tag senza prefisso.
 DEFAULT_DATASET_KEY = "aslg-pc12"

@@ -1,0 +1,28 @@
+# ============================================================================
+# ABLATION DECODING CoNLL-2003 — GRPO SENZA vincolo simbolico (Trie off)
+#
+# Fattore unico rispetto a grpo/few-shot.yaml di questo albero:
+# `grammar.enabled: false`. Gemello di
+# aslg-pc12/qwen25-05b/ablations/decoding/no-grammar.yaml: misura il
+# contributo del vincolo. Senza Trie il modello può produrre etichette
+# fuori vocabolario (validity < 1): confrontare su exact_match.
+#
+# Uso:
+#   CONFIG=experiments/configs/conll-2003/qwen25-05b/ablations/decoding/no-grammar.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../../grpo/few-shot.yaml
+
+grammar:
+  enabled: false
+
+evaluation:
+  dual_prompting: false
+
+training:
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-05b/ablations/decoding/no-grammar"
+  log_dir: "experiments/logs/conll-2003/qwen25-05b/ablations/decoding/no-grammar"
+
+wandb:
+  run_name: "conll-2003-qwen25-05b-abl-decoding-no-grammar"
+  tags: ["T2G-framework", "CoNLL-2003", "ablation", "decoding", "no-grammar", "few-shot"]

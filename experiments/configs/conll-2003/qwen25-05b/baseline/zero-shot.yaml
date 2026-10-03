@@ -1,0 +1,19 @@
+# ============================================================================
+# BASELINE CoNLL-2003 — base model, zero-shot, Trie attivo. NESSUN training.
+#
+# Gemello di aslg-pc12/qwen25-05b/baseline/zero-shot.yaml: riferimento
+# inferiore della matrice e confronto corretto per grpo/zero-shot.
+#
+# Uso:
+#   CONFIG=experiments/configs/conll-2003/qwen25-05b/baseline/zero-shot.yaml sbatch cluster/eval.sh
+# ============================================================================
+
+extends: ../base.yaml
+
+evaluation:
+  best_of_n: true
+  dual_prompting: false
+
+wandb:
+  run_name: "conll-2003-qwen25-05b-baseline-zero-shot"
+  tags: ["T2G-framework", "CoNLL-2003", "baseline", "zero-shot", "trie", "eval-only"]

@@ -1,0 +1,35 @@
+# ============================================================================
+# ABLATION DECODING WOS-46985 — Trie costruito sull'INTERO dataset
+#
+# Fattore unico rispetto a grpo/zero-shot.yaml di questo albero:
+# `dataset.vocab_source: all`. Gemello di
+# aslg-pc12/qwen25-05b/ablations/decoding/full-vocab-trie.yaml (vedi lì
+# la spiegazione completa).
+#
+# DATA LEAK DELIBERATO: misura quanto pesa il tetto del vocabolario
+# chiuso di train. Mai riportare come risultato.
+#
+# Su WOS-46985 le etichette sono un insieme chiuso piccolo e con
+# ogni probabilità tutte presenti nel train: l'effetto atteso è nullo,
+# e la cella serve da controllo (se cambia qualcosa, c'è un'etichetta
+# rara mancante dal train).
+#
+# Uso:
+#   CONFIG=experiments/configs/wos-46985/qwen25-05b/ablations/decoding/full-vocab-trie.yaml sbatch cluster/train.sh
+# ============================================================================
+
+extends: ../../grpo/zero-shot.yaml
+
+dataset:
+  vocab_source: all
+
+evaluation:
+  dual_prompting: false
+
+training:
+  output_dir: "experiments/checkpoints/wos-46985/qwen25-05b/ablations/decoding/full-vocab-trie"
+  log_dir: "experiments/logs/wos-46985/qwen25-05b/ablations/decoding/full-vocab-trie"
+
+wandb:
+  run_name: "wos-46985-qwen25-05b-abl-decoding-full-vocab-trie"
+  tags: ["T2G-framework", "WoS", "ablation", "decoding", "full-vocab", "data-leak", "zero-shot", "trie"]

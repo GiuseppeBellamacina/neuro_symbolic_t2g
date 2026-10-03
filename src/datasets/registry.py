@@ -4,8 +4,11 @@ Ogni config sceglie il corpus con ``dataset.dataset_name``; questo modulo è
 l'unico punto che traduce quel nome in:
 
 * il loader (:func:`load_t2g_dataset`) — ASLG-PC12 da Hugging Face (cache
-  offline), PHOENIX-2014T dai CSV ufficiali in locale. Entrambi restituiscono
-  un ``DatasetDict`` con ``train``/``test`` (+ ``validation`` per PHOENIX) e
+  offline), PHOENIX-2014T dai CSV ufficiali in locale, e i due dataset
+  non-gloss di GrammarRL (arXiv:2609.39869) da file locali: WOS-46985
+  (classificazione gerarchica, target ``DOMINIO AREA``) e CoNLL-2003 (NER,
+  target ``TIPO:Entità ...``). Tutti restituiscono un ``DatasetDict`` con
+  ``train``/``test`` (+ ``validation`` dove esiste uno split ufficiale) e
   colonne ``text``/``gloss``, quindi il resto della pipeline non distingue;
 * la chiave di layout (:attr:`DatasetSpec.key`, es. ``aslg-pc12``), cioè il
   primo segmento sotto ``experiments/{configs,checkpoints,logs,results,
@@ -48,21 +51,25 @@ from .aslg_dataset import (
     load_vocabulary,
     save_vocabulary,
 )
+from .conll_dataset import DEFAULT_CONLL_DIR, load_conll_dataset
 from .phoenix_dataset import DEFAULT_PHOENIX_DIR, load_phoenix_dataset
 from .transition_matrix import (
     compute_bigram_transitions,
     load_transition_matrix,
     save_transition_matrix,
 )
+from .wos_dataset import DEFAULT_WOS_DIR, load_wos_dataset
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "ASLG_PC12",
+    "CONLL_2003",
     "DATASETS",
     "DatasetSpec",
     "PHOENIX_2014T",
     "VOCAB_SOURCES",
+    "WOS_46985",
     "artifact_paths",
     "cache_is_current",
     "get_dataset_spec",
@@ -121,8 +128,33 @@ PHOENIX_2014T = DatasetSpec(
     default_bigram_path=f"{DEFAULT_PHOENIX_DIR}/bigram_transition.npy",
 )
 
+# I due dataset non-gloss di GrammarRL (Tuccio et al., arXiv:2609.39869),
+# linearizzati come sequenze di token di un vocabolario chiuso: vedi
+# wos_dataset.py e conll_dataset.py per il formato del target.
+WOS_46985 = DatasetSpec(
+    key="wos-46985",
+    names=("wos-46985", "wos46985", "wos", "web-of-science", "hdltex/web_of_science"),
+    display_name="Web of Science (WOS-46985)",
+    prompt_profile="en-wos",
+    default_cache_dir=DEFAULT_WOS_DIR,
+    default_vocab_path=f"{DEFAULT_WOS_DIR}/gloss_vocab.txt",
+    default_bigram_path=f"{DEFAULT_WOS_DIR}/bigram_transition.npy",
+)
+
+CONLL_2003 = DatasetSpec(
+    key="conll-2003",
+    names=("conll-2003", "conll2003", "conll_2003", "eriktks/conll2003"),
+    display_name="CoNLL-2003 (NER)",
+    prompt_profile="en-conll",
+    default_cache_dir=DEFAULT_CONLL_DIR,
+    default_vocab_path=f"{DEFAULT_CONLL_DIR}/gloss_vocab.txt",
+    default_bigram_path=f"{DEFAULT_CONLL_DIR}/bigram_transition.npy",
+)
+
 #: Registry by layout key.
-DATASETS: dict[str, DatasetSpec] = {s.key: s for s in (ASLG_PC12, PHOENIX_2014T)}
+DATASETS: dict[str, DatasetSpec] = {
+    s.key: s for s in (ASLG_PC12, PHOENIX_2014T, WOS_46985, CONLL_2003)
+}
 
 #: Accepted values of ``dataset.vocab_source``.
 VOCAB_SOURCES: tuple[str, ...] = ("train", "all")
@@ -159,6 +191,14 @@ def load_t2g_dataset(ds_cfg: Mapping[str, Any]) -> DatasetDict:
     cache_dir = ds_cfg.get("dataset_cache") or spec.default_cache_dir
     if spec is PHOENIX_2014T:
         return load_phoenix_dataset(cache_dir)
+    if spec is WOS_46985:
+        return load_wos_dataset(
+            cache_dir,
+            seed=ds_cfg.get("seed", 42),
+            max_source_words=ds_cfg.get("max_source_words"),
+        )
+    if spec is CONLL_2003:
+        return load_conll_dataset(cache_dir)
     return download_aslg_dataset(cache_dir=cache_dir, seed=ds_cfg.get("seed", 42))
 
 

@@ -276,3 +276,15 @@ def test_prompt_profile_for_config() -> None:
     )
     with pytest.raises(ValueError):
         prompt_profile_for_config({"dataset": {"prompt_profile": "fr-lsf"}})
+
+
+def test_grammarrl_profiles_use_task_wording() -> None:
+    examples = [{"text": "EU rejects German call .", "gloss": "ORG:EU MISC:German"}]
+    prompt = build_t2g_prompt(
+        "Peter Blackburn", _ManualTokenizer(), examples=examples, profile="en-conll"
+    )
+    assert "Sentence: EU rejects German call .\nEntities: ORG:EU MISC:German" in prompt
+    assert "Now extract:\nSentence: Peter Blackburn" in prompt
+    assert "translate" not in prompt.split("<|im_start|>user", 1)[1]
+    zero = build_t2g_prompt("An abstract.", _ManualTokenizer(), profile="en-wos")
+    assert "scientific-paper classifier" in zero
