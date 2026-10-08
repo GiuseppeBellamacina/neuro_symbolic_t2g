@@ -1,0 +1,86 @@
+{
+  "model": "run_20261003_124730",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 5,
+      "rouge_l": 1.0,
+      "gold": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .\n",
+      "prediction": "X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .",
+      "prompt": "we see similar packages in america .\n"
+    },
+    {
+      "group": "best",
+      "index": 79,
+      "rouge_l": 1.0,
+      "gold": "EUROPE MUST TAKE DESC-DIFFERENT ROUTE .\n",
+      "prediction": "EUROPE MUST TAKE DESC-DIFFERENT ROUTE .",
+      "prompt": "europe must take a different route .\n"
+    },
+    {
+      "group": "best",
+      "index": 160,
+      "rouge_l": 1.0,
+      "gold": "DESC-CURRENT SITUATION BE DESC-ALARMING .\n",
+      "prediction": "DESC-CURRENT SITUATION BE DESC-ALARMING .",
+      "prompt": "the current situation is alarming .\n"
+    },
+    {
+      "group": "best",
+      "index": 179,
+      "rouge_l": 1.0,
+      "gold": "X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET !\n",
+      "prediction": "X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET !",
+      "prompt": "we cannot sweep these problems under the carpet !\n"
+    },
+    {
+      "group": "best",
+      "index": 287,
+      "rouge_l": 1.0,
+      "gold": "THIS , COURSE , REQUIRE CLARIFICATION .\n",
+      "prediction": "THIS , COURSE , REQUIRE CLARIFICATION .",
+      "prompt": "this , of course , requires clarification .\n"
+    },
+    {
+      "group": "worst",
+      "index": 605,
+      "rouge_l": 0.0,
+      "gold": "THAT BE DESC-HUGE QUESTION .\n",
+      "prediction": "? PRESIDENT COMMISSION BIGTHANK YOU .",
+      "prompt": "vice president of the commission . that is a huge question .\n"
+    },
+    {
+      "group": "worst",
+      "index": 1680,
+      "rouge_l": 0,
+      "gold": ".\n",
+      "prediction": "X-Y WILL NOTWITHSTANDING FLINCH .",
+      "prompt": ".\n"
+    },
+    {
+      "group": "worst",
+      "index": 2069,
+      "rouge_l": 0.0,
+      "gold": "DESC-HOWEVER , THIS BE NEIR DESC-ONLY WAY NOR DESC-INEVITABLE .\n",
+      "prediction": "TOE , DEPLORE , INNOCENCE .",
+      "prompt": "however , this is neither the only way nor inevitable .\n"
+    },
+    {
+      "group": "worst",
+      "index": 2995,
+      "rouge_l": 0.0,
+      "gold": "SUMMIT WILL BE OPPORTUNITY TO DESC-AGAIN STRESS IMPORTANCE RUSSIUM X-POSS WTO ACCESSION .\n",
+      "prediction": "SUMMER SPEECH SPEECH SPEECH SUMMER SPEECH SPEECH SUMMER SPEECH SPEECH SUMMER SPEECH SPEECH .",
+      "prompt": "the summit will be an opportunity to again stress the importance of russia's wto accession .\n"
+    },
+    {
+      "group": "worst",
+      "index": 3296,
+      "rouge_l": 0.0,
+      "gold": "CONCERN WITH REPORT VOTE BE FOLLOW\n",
+      "prediction": "IN WRITE 102 . IN WRITE 34 . IN WRITE 56 . IN WRITE 78 . IN WRITE 91 . IN WRITE 104.82 . IN WRITE 116 . IN WRITE 129 . I...",
+      "prompt": "in writing . the concerns with the report voted are the following \n"
+    }
+  ]
+}

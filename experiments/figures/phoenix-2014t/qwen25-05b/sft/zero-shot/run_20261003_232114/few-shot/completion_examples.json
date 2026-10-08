@@ -1,0 +1,86 @@
+{
+  "model": "run_20261003_232114",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 772,
+      "rouge_l": 1.0,
+      "gold": "SUED BISSCHEN SCHAUER MOEGLICH",
+      "prediction": "SUED BISSCHEN SCHAUER MOEGLICH",
+      "prompt": "ganz im süden sind einzelne schauer möglich"
+    },
+    {
+      "group": "best",
+      "index": 1630,
+      "rouge_l": 1.0,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT ABEND LIEB ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "best",
+      "index": 1440,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN FREITAG ACHTE OKTOBER",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN FREITAG ACHTE OKTOBER",
+      "prompt": "und nun die wettervorhersage für morgen freitag den achten oktober"
+    },
+    {
+      "group": "best",
+      "index": 1495,
+      "rouge_l": 1.0,
+      "gold": "SAMSTAG WECHSELHAFT",
+      "prediction": "SAMSTAG WECHSELHAFT",
+      "prompt": "am samstag ist es wieder unbeständig"
+    },
+    {
+      "group": "best",
+      "index": 1700,
+      "rouge_l": 1.0,
+      "gold": "NORDWEST FREUNDLICH",
+      "prediction": "NORDWEST FREUNDLICH",
+      "prompt": "richtung norden und westen ist es recht freundlich"
+    },
+    {
+      "group": "worst",
+      "index": 56,
+      "rouge_l": 0.0,
+      "gold": "MORGEN LANG BLEIBEN",
+      "prediction": "MEHR ZU-HAUSE MOEGLICH",
+      "prompt": "die halten sich morgen recht zäh"
+    },
+    {
+      "group": "worst",
+      "index": 61,
+      "rouge_l": 0.0,
+      "gold": "DEUTSCH LAND SCHWACH DRUCK UNTERSCHIED",
+      "prediction": "MORGEN DREI BISSCHEN TROCKEN FOLGE",
+      "prompt": "in deutschland gibt es nur schwache luftdruckunterschiede"
+    },
+    {
+      "group": "worst",
+      "index": 67,
+      "rouge_l": 0.0,
+      "gold": "REGION FEUCHT REGION IX GEWITTER REGION",
+      "prediction": "MEISTENS MITTE MERKEN KUEHL KOMMEN MEHR REGEN MOEGLICH",
+      "prompt": "vom mittelmeer fließt feuchte luft heran in der sich zum teil kräftige gewitter entwickeln können"
+    },
+    {
+      "group": "worst",
+      "index": 82,
+      "rouge_l": 0.0,
+      "gold": "BIS ABEND IN-KOMMEND DANN KOMMEN NIEDERUNG",
+      "prediction": "SONNE SCHNEE SCHON REGION TROCKEN",
+      "prompt": "und bis zum abend kann die schneefallgrenze auch bis in die niederungen sinken"
+    },
+    {
+      "group": "worst",
+      "index": 224,
+      "rouge_l": 0.0,
+      "gold": "ZUERST GEWITTER NUR WEST RISIKO JEDEN-TAG OST MEHR OST KOENNEN GEWITTER WEST",
+      "prediction": "AB SONNTAG REGION TEIL REGEN STERN KOMMEN",
+      "prompt": "zunächst ist das gewitterrisiko nur im westen erhöht von tag zu tag steigt es aber auch richtung osten"
+    }
+  ]
+}

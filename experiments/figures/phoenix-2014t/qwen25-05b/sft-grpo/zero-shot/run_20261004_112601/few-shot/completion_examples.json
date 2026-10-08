@@ -1,0 +1,86 @@
+{
+  "model": "run_20261004_112601",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 774,
+      "rouge_l": 1.0,
+      "gold": "SUED BISSCHEN SCHAUER MOEGLICH",
+      "prediction": "SUED BISSCHEN SCHAUER MOEGLICH",
+      "prompt": "ganz im süden sind einzelne schauer möglich"
+    },
+    {
+      "group": "best",
+      "index": 1630,
+      "rouge_l": 1.0,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT ABEND LIEB ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "best",
+      "index": 1440,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN FREITAG ACHTE OKTOBER",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN FREITAG ACHTE OKTOBER",
+      "prompt": "und nun die wettervorhersage für morgen freitag den achten oktober"
+    },
+    {
+      "group": "best",
+      "index": 1497,
+      "rouge_l": 1.0,
+      "gold": "SAMSTAG WECHSELHAFT",
+      "prediction": "SAMSTAG WECHSELHAFT",
+      "prompt": "am samstag ist es wieder unbeständig"
+    },
+    {
+      "group": "best",
+      "index": 1576,
+      "rouge_l": 1.0,
+      "gold": "SAMSTAG NORD WIND",
+      "prediction": "SAMSTAG NORD WIND",
+      "prompt": "am samstag im norden sehr windig"
+    },
+    {
+      "group": "worst",
+      "index": 64,
+      "rouge_l": 0.0,
+      "gold": "DEUTSCH LAND SCHWACH DRUCK UNTERSCHIED",
+      "prediction": "MORGEN IX WETTER ZEIGEN-BILDSCHIRM SUED REGION NUR BISSCHEN TROCKEN FLOCKEN",
+      "prompt": "in deutschland gibt es nur schwache luftdruckunterschiede"
+    },
+    {
+      "group": "worst",
+      "index": 515,
+      "rouge_l": 0.0,
+      "gold": "TRUEB DIESE BILD",
+      "prediction": "SAMSTAG DANN WETTER WENIGER NEBEL MEISTENS KOENNEN TROCKEN BERLIN IX FUEHLEN ENORM KALT",
+      "prompt": "es bleibt meist trüb wie auf diesem bild hier"
+    },
+    {
+      "group": "worst",
+      "index": 613,
+      "rouge_l": 0.0,
+      "gold": "IX NACHMITTAG KOMMEN REGEN VIERHUNDERT ACHTHUNDERT METER UEBER SCHNEE",
+      "prediction": "SCHAUER REGION SCHAUER SCHAUER GEWITTER NORD SEE",
+      "prompt": "sonst einzelne schauer an der nordsee auch gewitter"
+    },
+    {
+      "group": "worst",
+      "index": 690,
+      "rouge_l": 0.0,
+      "gold": "WENN BERG UNTEN BERG FRISCH WIND",
+      "prediction": "HOCH REGION WEHEN KOENNEN NORD MOEGLICH",
+      "prompt": "in den höhenlagen süddeutschlands frischer wind"
+    },
+    {
+      "group": "worst",
+      "index": 695,
+      "rouge_l": 0.0,
+      "gold": "NAECHSTE ANFANG WOCHE WIE-IMMER SO",
+      "prediction": "KOMMEN WECHSELHAFT REGION MOEGLICH WOLKE WINTER VIEL SONNE KOENNEN BISSCHEN NEBEL",
+      "prompt": "auch zu beginn der kommenden woche ändert sich nur wenig"
+    }
+  ]
+}

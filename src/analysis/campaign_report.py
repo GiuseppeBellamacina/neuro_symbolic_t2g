@@ -46,7 +46,9 @@ Avvertenze obbligatorie incluse nell'output (§ del report):
     fra semi → delta < NOISE_THRESHOLD marcati esplicitamente come non
     generalizzabili, mai presentati come risultati.
 
-Output (default sotto ``experiments/figures/``):
+Output: UN report per (dataset, modello), sotto
+``experiments/figures/<dataset>/<modello>/`` (dataset e modelli diversi non si
+confrontano mai):
     - ``campaign_report.json`` — struttura leggibile da altri strumenti;
     - ``campaign_report.md``   — matrice di ablazione tabellare;
     - ``campaign_pairwise_deltas.png`` — delta appaiati per fattore;
@@ -70,7 +72,12 @@ import matplotlib.pyplot as plt
 
 from src.utils import chart_style
 from src.utils.metrics import PRIMARY_METRICS, SATURATED_OVERLAP_METRICS
-from src.utils.run_paths import DATASET_KEYS, DEFAULT_DATASET_KEY, cell_sort_key
+from src.utils.run_paths import (
+    DATASET_KEYS,
+    DEFAULT_DATASET_KEY,
+    cell_sort_key,
+    split_cell,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1286,6 +1293,25 @@ def plot_matrix(
 # ---------------------------------------------------------------------------
 
 
+def group_by_dataset_model(discovered: dict) -> dict[tuple[str, str], dict]:
+    """Divide runs, esclusi e malformati per ``(dataset, modello)``.
+
+    Un report confronta solo run dello stesso dataset e dello stesso modello:
+    test set, vocabolario del Trie e metriche da leggere cambiano col dataset,
+    e due modelli diversi hanno ciascuno la propria matrice. Il layout legacy
+    senza segmento di dataset è ASLG-PC12 (:func:`split_cell`).
+    """
+    groups: dict[tuple[str, str], dict] = {}
+    for kind in ("runs", "excluded", "malformed"):
+        for item in discovered[kind]:
+            dataset, model, _ = split_cell(item["path"])
+            group = groups.setdefault(
+                (dataset, model), {"runs": [], "excluded": [], "malformed": []}
+            )
+            group[kind].append(item)
+    return groups
+
+
 def main() -> None:
     # Console output carries non-ASCII markers; a cp1252 console (Windows
     # default) would raise on print and lose the run after the files are
@@ -1321,10 +1347,23 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     results_dir = Path(args.results_dir)
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    groups = group_by_dataset_model(discover_runs(results_dir))
+    if not groups:
+        print(f"\n❌ No eval runs found in {results_dir}/")
+        return
+    # Un report per (dataset, modello), in <output-dir>/<dataset>/<modello>/.
+    for (dataset, model), discovered in sorted(groups.items()):
+        write_report(
+            discovered,
+            Path(args.output_dir) / dataset / model,
+            args.metric,
+            scope=f"{dataset} / {model}",
+        )
 
-    discovered = discover_runs(results_dir)
+
+def write_report(discovered: dict, output_dir: Path, metric: str, scope: str) -> None:
+    """Report completo (JSON, Markdown, grafici) di un solo (dataset, modello)."""
+    output_dir.mkdir(parents=True, exist_ok=True)
     selected, superseded = select_latest(discovered["runs"])
     comparisons, missing_pairs, warnings = build_comparisons(selected)
 
@@ -1350,16 +1389,21 @@ def main() -> None:
         missing_pairs,
         warnings,
         superseded,
-        matrix_metric=args.metric,
+        matrix_metric=metric,
+    )
+    md = md.replace(
+        "# Campaign Report — Cross-Factor Ablation Comparison",
+        f"# Campaign Report — {scope}",
+        1,
     )
     md_path = output_dir / "campaign_report.md"
     md_path.write_text(md, encoding="utf-8")
 
     print(f"\n{'=' * 64}")
-    print("  Campaign Report — cross-factor paired comparisons")
+    print(f"  Campaign Report — {scope}")
     print(f"{'=' * 64}")
     if not selected:
-        print(f"\n❌ No eval runs found in {results_dir}/")
+        print("\n❌ No selectable eval runs (only excluded/malformed)")
         print(f"   JSON: {json_path}\n   MD:   {md_path}")
         return
 
@@ -1432,7 +1476,7 @@ def main() -> None:
     png1 = output_dir / "campaign_pairwise_deltas.png"
     png2 = output_dir / "campaign_matrix.png"
     plotted1 = plot_pairwise_deltas(comparisons, png1)
-    plot_matrix(selected, png2, metric=args.metric)
+    plot_matrix(selected, png2, metric=metric)
 
     print(f"\n{'=' * 64}")
     print(f"  JSON:   {json_path}")

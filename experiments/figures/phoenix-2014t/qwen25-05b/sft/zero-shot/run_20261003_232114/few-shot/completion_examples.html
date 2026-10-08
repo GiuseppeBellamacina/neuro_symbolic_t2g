@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completion Examples — run_20261003_232114</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+  h1 { color: #333; font-size: 1.4em; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  th { background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }
+  tr.best { background: #f9fdf9; }
+  tr.worst { background: #fef9f9; }
+  tr:hover { background: #eef6ff; }
+  .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }
+  .prompt { max-width: 300px; color: #555; font-style: italic; }
+  .diff-del { color: #C44E52; text-decoration: line-through; }
+  .diff-add { color: #1a7a1a; font-weight: bold; }
+  .summary { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Completion Examples — run_20261003_232114</h1>
+<p class="summary">10 examples (5 best, 5 worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  <th>Prompt</th>
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="best">
+    <td class="prompt">ganz im süden sind einzelne schauer möglich</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">SUED BISSCHEN SCHAUER MOEGLICH</td>
+    <td class="mono">SUED BISSCHEN SCHAUER MOEGLICH</td>
+</tr><tr class="best">
+    <td class="prompt">guten abend liebe zuschauer</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">GUT ABEND LIEB ZUSCHAUER</td>
+    <td class="mono">GUT ABEND LIEB ZUSCHAUER</td>
+</tr><tr class="best">
+    <td class="prompt">und nun die wettervorhersage für morgen freitag den achten oktober</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">JETZT WETTER WIE-AUSSEHEN MORGEN FREITAG ACHTE OKTOBER</td>
+    <td class="mono">JETZT WETTER WIE-AUSSEHEN MORGEN FREITAG ACHTE OKTOBER</td>
+</tr><tr class="best">
+    <td class="prompt">am samstag ist es wieder unbeständig</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">SAMSTAG WECHSELHAFT</td>
+    <td class="mono">SAMSTAG WECHSELHAFT</td>
+</tr><tr class="best">
+    <td class="prompt">richtung norden und westen ist es recht freundlich</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">NORDWEST FREUNDLICH</td>
+    <td class="mono">NORDWEST FREUNDLICH</td>
+</tr><tr class="worst">
+    <td class="prompt">die halten sich morgen recht zäh</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">MORGEN LANG BLEIBEN</td>
+    <td class="mono"><span class="diff-del">MORGEN</span> <span class="diff-add">MEHR</span> <span class="diff-del">LANG</span> <span class="diff-add">ZU-HAUSE</span> <span class="diff-del">BLEIBEN</span> <span class="diff-add">MOEGLICH</span></td>
+</tr><tr class="worst">
+    <td class="prompt">in deutschland gibt es nur schwache luftdruckunterschiede</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">DEUTSCH LAND SCHWACH DRUCK UNTERSCHIED</td>
+    <td class="mono"><span class="diff-del">DEUTSCH</span> <span class="diff-add">MORGEN</span> <span class="diff-del">LAND</span> <span class="diff-add">DREI</span> <span class="diff-del">SCHWACH</span> <span class="diff-add">BISSCHEN</span> <span class="diff-del">DRUCK</span> <span class="diff-add">TROCKEN</span> <span class="diff-del">UNTERSCHIED</span> <span class="diff-add">FOLGE</span></td>
+</tr><tr class="worst">
+    <td class="prompt">vom mittelmeer fließt feuchte luft heran in der sich zum teil kräftige gewitter entwickeln können</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">REGION FEUCHT REGION IX GEWITTER REGION</td>
+    <td class="mono"><span class="diff-del">REGION</span> <span class="diff-add">MEISTENS</span> <span class="diff-del">FEUCHT</span> <span class="diff-add">MITTE</span> <span class="diff-del">REGION</span> <span class="diff-add">MERKEN</span> <span class="diff-del">IX</span> <span class="diff-add">KUEHL</span> <span class="diff-del">GEWITTER</span> <span class="diff-add">KOMMEN</span> <span class="diff-del">REGION</span> <span class="diff-add">MEHR</span> <span class="diff-add">REGEN</span> <span class="diff-add">MOEGLICH</span></td>
+</tr><tr class="worst">
+    <td class="prompt">und bis zum abend kann die schneefallgrenze auch bis in die niederungen sinken</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">BIS ABEND IN-KOMMEND DANN KOMMEN NIEDERUNG</td>
+    <td class="mono"><span class="diff-del">BIS</span> <span class="diff-add">SONNE</span> <span class="diff-del">ABEND</span> <span class="diff-add">SCHNEE</span> <span class="diff-del">IN-KOMMEND</span> <span class="diff-add">SCHON</span> <span class="diff-del">DANN</span> <span class="diff-add">REGION</span> <span class="diff-del">KOMMEN</span> <span class="diff-add">TROCKEN</span> <span class="diff-del">NIEDERUNG</span></td>
+</tr><tr class="worst">
+    <td class="prompt">zunächst ist das gewitterrisiko nur im westen erhöht von tag zu tag steigt es aber auch richtung osten</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">ZUERST GEWITTER NUR WEST RISIKO JEDEN-TAG OST MEHR OST KOENNEN GEWITTER WEST</td>
+    <td class="mono"><span class="diff-del">ZUERST</span> <span class="diff-add">AB</span> <span class="diff-del">GEWITTER</span> <span class="diff-add">SONNTAG</span> <span class="diff-del">NUR</span> <span class="diff-add">REGION</span> <span class="diff-del">WEST</span> <span class="diff-add">TEIL</span> <span class="diff-del">RISIKO</span> <span class="diff-add">REGEN</span> <span class="diff-del">JEDEN-TAG</span> <span class="diff-add">STERN</span> <span class="diff-del">OST</span> <span class="diff-add">KOMMEN</span> <span class="diff-del">MEHR</span> <span class="diff-del">OST</span> <span class="diff-del">KOENNEN</span> <span class="diff-del">GEWITTER</span> <span class="diff-del">WEST</span></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

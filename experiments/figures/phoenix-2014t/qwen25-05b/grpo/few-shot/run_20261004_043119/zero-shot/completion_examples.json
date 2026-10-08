@@ -1,0 +1,86 @@
+{
+  "model": "run_20261004_043119",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 1040,
+      "rouge_l": 0.8889,
+      "gold": "LIEB ZUSCHAUER GUT ABEND",
+      "prediction": "LIEB EIN ZUSCHAUER GUT ABEND",
+      "prompt": "liebe zuschauer guten abend"
+    },
+    {
+      "group": "best",
+      "index": 988,
+      "rouge_l": 0.8,
+      "gold": "GUT ABEND LIEB DU ZUSCHAUER",
+      "prediction": "GUT-ABEND LIEB EIS ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "best",
+      "index": 798,
+      "rouge_l": 0.6667,
+      "gold": "NORD TROCKEN IX",
+      "prediction": "NORD WIRTSCHAFT TROCKEN",
+      "prompt": "im norden wird es dagegen noch trocken sein"
+    },
+    {
+      "group": "best",
+      "index": 3002,
+      "rouge_l": 0.6667,
+      "gold": "HALLO GUT ABEND",
+      "prediction": "HOLSTEIN GUT ABEND",
+      "prompt": "hallo und guten abend"
+    },
+    {
+      "group": "best",
+      "index": 1914,
+      "rouge_l": 0.625,
+      "gold": "MORGEN TEMPERATUR VOGEL LAND MAXIMAL NEUN GRAD",
+      "prediction": "MORGEN GRAD M VOGEL LAND NEUN GRAD OB ERHOEHEN",
+      "prompt": "morgen reichen die temperaturen von einem grad im vogtland bis neun grad am oberrhein"
+    },
+    {
+      "group": "worst",
+      "index": 0,
+      "rouge_l": 0.0,
+      "gold": "REGEN SCHNEE REGION VERSCHWINDEN NORD REGEN KOENNEN REGION STERN KOENNEN SEHEN",
+      "prediction": "NACH ENDLICH SCHRANK MAERZ HAGEL NORDWEST SCHWIERIG TUN NICHT VON BESONDERS CHAOS",
+      "prompt": "regen und schnee lassen an den alpen in der nacht nach im norden und nordosten fallen hier und da schauer sonst ist das klar"
+    },
+    {
+      "group": "worst",
+      "index": 9,
+      "rouge_l": 0.0,
+      "gold": "DONNERSTAG NORDWEST REGEN REGION SONNE WOLKE WECHSELHAFT DANN FREITAG AEHNLICH WETTER",
+      "prediction": "DAS-IST-ES AM-MEER TAG ES-GIBT ES-GIBT IN-DIESE-WOCHE FOLGE ES-GIBT IN-DIESE-WOCHE ES-GIBT IN-DIESE-WOCHE ES-GIBT AM-MEE...",
+      "prompt": "am donnerstag regen in der nordhälfte in der südhälfte mal sonne mal wolken ähnliches wetter dann auch am freitag"
+    },
+    {
+      "group": "worst",
+      "index": 18,
+      "rouge_l": 0.0,
+      "gold": "WOCHENENDE SONNE SAMSTAG SCHOEN TEMPERATUR BIS SIEBZEHN GRAD REGION",
+      "prediction": "SCHWACH TUN GESCHWINDIGKEIT CHAOS BESONDERS CHAOS TUN CHAOS CHAOS TUN CHAOS TUN",
+      "prompt": "sonnig geht es auch ins wochenende samstag ein herrlicher tag mit temperaturen bis siebzehn grad hier im westen"
+    },
+    {
+      "group": "worst",
+      "index": 30,
+      "rouge_l": 0.0,
+      "gold": "WAHRSCHEINLICH SCHAUER GEWITTER STARK",
+      "prediction": "ORT LESEN HEFTIG WEG SCHAUEN GRUND LIEB EIN NACH HERZ ES-GIBT",
+      "prompt": "örtlich schauer oder gewitter die heftig sein können"
+    },
+    {
+      "group": "worst",
+      "index": 36,
+      "rouge_l": 0.0,
+      "gold": "IM-VERLAUF BLEIBEN KALT ENORM SCHNEE KOENNEN",
+      "prediction": "IHR FOLGE WENIGER TUN GEWESEN WENN JEDEN-TAG EINZELN FROST UND ZURUECK GESTERN MESSEN MACHEN MEISTENS WIESE",
+      "prompt": "in den nächsten tagen geht es auf jeden fall winterlich weiter immer wieder mal mit etwas schnee"
+    }
+  ]
+}

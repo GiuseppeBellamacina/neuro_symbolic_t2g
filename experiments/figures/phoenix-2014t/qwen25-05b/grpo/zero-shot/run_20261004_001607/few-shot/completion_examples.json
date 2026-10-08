@@ -1,0 +1,86 @@
+{
+  "model": "run_20261004_001607",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 197,
+      "rouge_l": 1.0,
+      "gold": "WEST FREUNDLICH",
+      "prediction": "WEST FREUNDLICH",
+      "prompt": "im westen ist es freundlich"
+    },
+    {
+      "group": "best",
+      "index": 886,
+      "rouge_l": 1.0,
+      "gold": "SCHOEN ABEND TSCHUESS",
+      "prediction": "SCHOEN ABEND TSCHUESS",
+      "prompt": "ich wünsche noch einen schönen abend und tschüss"
+    },
+    {
+      "group": "best",
+      "index": 1630,
+      "rouge_l": 1.0,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT ABEND LIEB ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "best",
+      "index": 1095,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI",
+      "prompt": "und nun die wettervorhersage für morgen dienstag den fünfundzwanzigsten mai"
+    },
+    {
+      "group": "best",
+      "index": 1200,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN SAMSTAG ZWEITE APRIL",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN SAMSTAG ZWEITE APRIL",
+      "prompt": "und nun die wettervorhersage für morgen samstag den zweiten april"
+    },
+    {
+      "group": "worst",
+      "index": 17,
+      "rouge_l": 0.0,
+      "gold": "WOCHENENDE SONNE SAMSTAG SCHOEN TEMPERATUR BIS SIEBZEHN GRAD REGION",
+      "prediction": "WIND MONTAG SONNENUNTERGANG TEIL STARK STEIN RISIKO KOMMEN KOMMEN",
+      "prompt": "sonnig geht es auch ins wochenende samstag ein herrlicher tag mit temperaturen bis siebzehn grad hier im westen"
+    },
+    {
+      "group": "worst",
+      "index": 22,
+      "rouge_l": 0.0,
+      "gold": "DEUTSCH LAND MORGEN HOCH DRUCK KOMMEN WOLKE AUFLOESEN",
+      "prediction": "DEUTSCHLAND REGION MONTAG HELL GRUEN FELD",
+      "prompt": "deutschland liegt morgen unter hochdruckeinfluss der die wolken weitgehend vertreibt"
+    },
+    {
+      "group": "worst",
+      "index": 32,
+      "rouge_l": 0.0,
+      "gold": "WAHRSCHEINLICH SCHAUER GEWITTER STARK",
+      "prediction": "DIENSTAG OST REGION SONNE WECHSELHAFT SONNE WOLKE KOMMEN KOENNEN",
+      "prompt": "örtlich schauer oder gewitter die heftig sein können"
+    },
+    {
+      "group": "worst",
+      "index": 36,
+      "rouge_l": 0.0,
+      "gold": "IM-VERLAUF BLEIBEN KALT ENORM SCHNEE KOENNEN",
+      "prediction": "IN-KOMMEND WECHSELHAFT SONNE WECHSELHAFT MEHR KUEHL",
+      "prompt": "in den nächsten tagen geht es auf jeden fall winterlich weiter immer wieder mal mit etwas schnee"
+    },
+    {
+      "group": "worst",
+      "index": 55,
+      "rouge_l": 0.0,
+      "gold": "MORGEN LANG BLEIBEN",
+      "prediction": "MOEGEN ZU HANNOVER",
+      "prompt": "die halten sich morgen recht zäh"
+    }
+  ]
+}

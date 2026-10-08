@@ -6,11 +6,14 @@ comparison table (CSV + Markdown) and a cross-config bar chart.
 Usage:
     python -m src.utils.ablation_summary
     python -m src.utils.ablation_summary --results-dir experiments/results
-    python -m src.utils.ablation_summary --output-dir experiments/figures
+    python -m src.utils.ablation_summary --output-dir experiments/figures  # → <dir>/<dataset>/<model>/
 
 Scans ``experiments/results/<cella>/run_<ts>/`` (at any nesting depth, baselines
-included: ``qwen25-05b/baseline/zero-shot/run_<ts>/``) for ``eval_*.json`` and
-``comparison.json`` files, extracts metrics, and produces:
+included: ``aslg-pc12/qwen25-05b/baseline/zero-shot/run_<ts>/``) for ``eval_*.json``
+and ``comparison.json`` files, extracts metrics, and produces ONE summary per
+``(dataset, model)`` in ``<output-dir>/<dataset>/<model>/`` — values from
+different datasets (different test sets, Trie vocabularies, metrics to read) or
+different models are never put in the same table:
     - ``ablation_summary.csv`` — machine-readable table
     - ``ablation_summary.md`` — human-readable Markdown table
     - ``ablation_comparison.png`` — grouped bar chart (ROUGE-L, Pass@1, etc.)
@@ -31,7 +34,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from src.utils import chart_style
-from src.utils.run_paths import cell_sort_key
+from src.utils.run_paths import cell_sort_key, split_cell
 
 logger = logging.getLogger(__name__)
 
@@ -382,9 +385,6 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     results_dir = Path(args.results_dir)
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     entries = find_eval_results(results_dir)
 
     if not entries:
@@ -392,14 +392,34 @@ def main() -> None:
         print("   Run an ablation study first: bash cluster/run_all.sh --ablation")
         return
 
+    for (dataset, model), group in sorted(group_by_dataset_model(entries).items()):
+        write_summary(
+            group, Path(args.output_dir) / dataset / model, f"{dataset} / {model}"
+        )
+
+
+def group_by_dataset_model(entries: list[dict]) -> dict[tuple[str, str], list[dict]]:
+    """Entries per ``(dataset, modello)``, dal percorso della cella."""
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for entry in entries:
+        dataset, model, _ = split_cell(entry["config_name"])
+        groups.setdefault((dataset, model), []).append(entry)
+    return groups
+
+
+def write_summary(entries: list[dict], output_dir: Path, scope: str) -> None:
+    """Tabella, CSV e grafico di un solo (dataset, modello)."""
+    output_dir.mkdir(parents=True, exist_ok=True)
     print(f"\n{'=' * 60}")
-    print(f"  Ablation Summary — {len(entries)} configs found")
+    print(f"  Ablation Summary — {scope}: {len(entries)} configs found")
     print(f"{'=' * 60}\n")
 
     # Markdown table
     md_table = build_summary_table(entries)
     md_path = output_dir / "ablation_summary.md"
-    md_path.write_text(f"# Ablation Summary\n\n{md_table}\n", encoding="utf-8")
+    md_path.write_text(
+        f"# Ablation Summary — {scope}\n\n{md_table}\n", encoding="utf-8"
+    )
     print(md_table)
     print(f"\n  Markdown: {md_path}")
 

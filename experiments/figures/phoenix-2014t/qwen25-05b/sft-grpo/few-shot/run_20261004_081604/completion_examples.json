@@ -1,0 +1,86 @@
+{
+  "model": "run_20261004_081604",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 770,
+      "rouge_l": 1.0,
+      "gold": "SUED BISSCHEN SCHAUER MOEGLICH",
+      "prediction": "SUED BISSCHEN SCHAUER MOEGLICH",
+      "prompt": "ganz im süden sind einzelne schauer möglich"
+    },
+    {
+      "group": "best",
+      "index": 885,
+      "rouge_l": 1.0,
+      "gold": "SCHOEN ABEND TSCHUESS",
+      "prediction": "SCHOEN ABEND TSCHUESS",
+      "prompt": "ich wünsche noch einen schönen abend und tschüss"
+    },
+    {
+      "group": "best",
+      "index": 1630,
+      "rouge_l": 1.0,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT ABEND LIEB ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "best",
+      "index": 1040,
+      "rouge_l": 1.0,
+      "gold": "LIEB ZUSCHAUER GUT ABEND",
+      "prediction": "LIEB ZUSCHAUER GUT ABEND",
+      "prompt": "liebe zuschauer guten abend"
+    },
+    {
+      "group": "best",
+      "index": 1097,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI",
+      "prompt": "und nun die wettervorhersage für morgen dienstag den fünfundzwanzigsten mai"
+    },
+    {
+      "group": "worst",
+      "index": 473,
+      "rouge_l": 0.0,
+      "gold": "MILD WEHEN ICH",
+      "prediction": "TIEF MAESSIG KOMMEN",
+      "prompt": "sehr milde luft strömt zu uns"
+    },
+    {
+      "group": "worst",
+      "index": 515,
+      "rouge_l": 0.0,
+      "gold": "TRUEB DIESE BILD",
+      "prediction": "BEISPIEL IX IX BISSCHEN MEHR TRINKEN KOENNEN",
+      "prompt": "es bleibt meist trüb wie auf diesem bild hier"
+    },
+    {
+      "group": "worst",
+      "index": 610,
+      "rouge_l": 0.0,
+      "gold": "IX NACHMITTAG KOMMEN REGEN VIERHUNDERT ACHTHUNDERT METER UEBER SCHNEE",
+      "prediction": "SCHAUER NORD SEE GEWITTER",
+      "prompt": "sonst einzelne schauer an der nordsee auch gewitter"
+    },
+    {
+      "group": "worst",
+      "index": 690,
+      "rouge_l": 0.0,
+      "gold": "WENN BERG UNTEN BERG FRISCH WIND",
+      "prediction": "HOCH HOCH HIMMEL WEHEN",
+      "prompt": "in den höhenlagen süddeutschlands frischer wind"
+    },
+    {
+      "group": "worst",
+      "index": 696,
+      "rouge_l": 0.0,
+      "gold": "NAECHSTE ANFANG WOCHE WIE-IMMER SO",
+      "prediction": "WOLKE REGION UEBERALL MEHR KOMMEN MOEGLICH",
+      "prompt": "auch zu beginn der kommenden woche ändert sich nur wenig"
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "model": "run_20261004_112601",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 569,
+      "rouge_l": 1.0,
+      "gold": "SONST REGEN",
+      "prediction": "SONST REGEN",
+      "prompt": "sonst regnet es zeitweise"
+    },
+    {
+      "group": "best",
+      "index": 620,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN MITTWOCH ACHTE SEPTEMBER",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN MITTWOCH ACHTE SEPTEMBER",
+      "prompt": "und nun die wettervorhersage für morgen mittwoch den achten september"
+    },
+    {
+      "group": "best",
+      "index": 1630,
+      "rouge_l": 1.0,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT ABEND LIEB ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "best",
+      "index": 1040,
+      "rouge_l": 1.0,
+      "gold": "LIEB ZUSCHAUER GUT ABEND",
+      "prediction": "LIEB ZUSCHAUER GUT ABEND",
+      "prompt": "liebe zuschauer guten abend"
+    },
+    {
+      "group": "best",
+      "index": 1095,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI",
+      "prompt": "und nun die wettervorhersage für morgen dienstag den fünfundzwanzigsten mai"
+    },
+    {
+      "group": "worst",
+      "index": 470,
+      "rouge_l": 0.0,
+      "gold": "MILD WEHEN ICH",
+      "prediction": "MEHR LUFT MEISTENS KOMMEN",
+      "prompt": "sehr milde luft strömt zu uns"
+    },
+    {
+      "group": "worst",
+      "index": 515,
+      "rouge_l": 0.0,
+      "gold": "TRUEB DIESE BILD",
+      "prediction": "IX MEHR TRINKEN KOMMEN",
+      "prompt": "es bleibt meist trüb wie auf diesem bild hier"
+    },
+    {
+      "group": "worst",
+      "index": 610,
+      "rouge_l": 0.0,
+      "gold": "IX NACHMITTAG KOMMEN REGEN VIERHUNDERT ACHTHUNDERT METER UEBER SCHNEE",
+      "prediction": "REGION SCHAUER AUCH GEWITTER",
+      "prompt": "sonst einzelne schauer an der nordsee auch gewitter"
+    },
+    {
+      "group": "worst",
+      "index": 625,
+      "rouge_l": 0.0,
+      "gold": "NORD FRISCH IX WEHEN IX WEHEN IM-VERLAUF SPAETER NORD STARK WEHEN",
+      "prediction": "SUEDOST SCHWACH MAESSIG BISSCHEN SUEDOST REGION WIND SUEDWEST DREHEN KUESTE STURM KOENNEN",
+      "prompt": "schwacher bis mäßiger im norden zum teil frischer südost bis ostwind der im südwesten später auf südwest dreht an den küsten bläst er stark mit stürmischen böen"
+    },
+    {
+      "group": "worst",
+      "index": 695,
+      "rouge_l": 0.0,
+      "gold": "NAECHSTE ANFANG WOCHE WIE-IMMER SO",
+      "prediction": "IN-KOMMEND WOCHENENDE MEHR KOMMEN NUR MEHR WECHSELHAFT",
+      "prompt": "auch zu beginn der kommenden woche ändert sich nur wenig"
+    }
+  ]
+}

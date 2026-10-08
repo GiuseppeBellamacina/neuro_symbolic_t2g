@@ -1,0 +1,86 @@
+{
+  "model": "run_20261004_043119",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 1630,
+      "rouge_l": 1.0,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT ABEND LIEB ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "best",
+      "index": 1098,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI",
+      "prompt": "und nun die wettervorhersage für morgen dienstag den fünfundzwanzigsten mai"
+    },
+    {
+      "group": "best",
+      "index": 1200,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN SAMSTAG ZWEITE APRIL",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN SAMSTAG ZWEITE APRIL",
+      "prompt": "und nun die wettervorhersage für morgen samstag den zweiten april"
+    },
+    {
+      "group": "best",
+      "index": 1405,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN DONNERSTAG DRITTE DEZEMBER",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN DONNERSTAG DRITTE DEZEMBER",
+      "prompt": "und nun die wettervorhersage für morgen donnerstag den dritten dezember"
+    },
+    {
+      "group": "best",
+      "index": 1440,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN FREITAG ACHTE OKTOBER",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN FREITAG ACHTE OKTOBER",
+      "prompt": "und nun die wettervorhersage für morgen freitag den achten oktober"
+    },
+    {
+      "group": "worst",
+      "index": 35,
+      "rouge_l": 0.0,
+      "gold": "IM-VERLAUF BLEIBEN KALT ENORM SCHNEE KOENNEN",
+      "prediction": "IN-KOMMEND WECHSELHAFT SONNE REGEN WECHSELHAFT MEHR AUF-JEDEN-FALL KUEHL",
+      "prompt": "in den nächsten tagen geht es auf jeden fall winterlich weiter immer wieder mal mit etwas schnee"
+    },
+    {
+      "group": "worst",
+      "index": 61,
+      "rouge_l": 0.0,
+      "gold": "DEUTSCH LAND SCHWACH DRUCK UNTERSCHIED",
+      "prediction": "MORGEN NUR IX BISSCHEN GEWITTER",
+      "prompt": "in deutschland gibt es nur schwache luftdruckunterschiede"
+    },
+    {
+      "group": "worst",
+      "index": 280,
+      "rouge_l": 0.0,
+      "gold": "WIND SCHWACH",
+      "prediction": "REGION WEHEN DREHEN KOENNEN",
+      "prompt": "meist weht der wind schwach aus westlichen richtungen"
+    },
+    {
+      "group": "worst",
+      "index": 290,
+      "rouge_l": 0.0,
+      "gold": "WEST NORDWEST IX SCHAUER IX",
+      "prediction": "NORD KOENNEN ABEND GEWITTER ODER REGEN",
+      "prompt": "im westen und nordwesten fallen einzelne schauer"
+    },
+    {
+      "group": "worst",
+      "index": 387,
+      "rouge_l": 0.0,
+      "gold": "DONNERSTAG MEHR SCHOEN MEHR WARM",
+      "prediction": "DANN SAMSTAG SONNTAG",
+      "prompt": "ja der donnerstag wird fast noch schöner noch ein bisschen wärmer"
+    }
+  ]
+}

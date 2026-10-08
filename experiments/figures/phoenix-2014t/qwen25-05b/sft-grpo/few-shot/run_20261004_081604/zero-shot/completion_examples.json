@@ -1,0 +1,86 @@
+{
+  "model": "run_20261004_081604",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 476,
+      "rouge_l": 1.0,
+      "gold": "MORGEN WETTER WIE-AUSSEHEN DIENSTAG NEUNZEHN APRIL",
+      "prediction": "MORGEN WETTER WIE-AUSSEHEN DIENSTAG NEUNZEHN APRIL",
+      "prompt": "und nun die wettervorhersage für morgen dienstag den neunzehnten april"
+    },
+    {
+      "group": "best",
+      "index": 491,
+      "rouge_l": 1.0,
+      "gold": "NORDOST MEHR WOLKE REGEN",
+      "prediction": "NORDOST MEHR WOLKE REGEN",
+      "prompt": "richtung nordosten gibt es mehr wolken hier und da etwas regen"
+    },
+    {
+      "group": "best",
+      "index": 565,
+      "rouge_l": 1.0,
+      "gold": "SONST REGEN",
+      "prediction": "SONST REGEN",
+      "prompt": "sonst regnet es zeitweise"
+    },
+    {
+      "group": "best",
+      "index": 621,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN MITTWOCH ACHTE SEPTEMBER",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN MITTWOCH ACHTE SEPTEMBER",
+      "prompt": "und nun die wettervorhersage für morgen mittwoch den achten september"
+    },
+    {
+      "group": "best",
+      "index": 1630,
+      "rouge_l": 1.0,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT ABEND LIEB ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "worst",
+      "index": 473,
+      "rouge_l": 0.0,
+      "gold": "MILD WEHEN ICH",
+      "prediction": "LUFT MEHR KOMMEN",
+      "prompt": "sehr milde luft strömt zu uns"
+    },
+    {
+      "group": "worst",
+      "index": 515,
+      "rouge_l": 0.0,
+      "gold": "TRUEB DIESE BILD",
+      "prediction": "REGION MEISTENS BLEIBEN TRINKEN",
+      "prompt": "es bleibt meist trüb wie auf diesem bild hier"
+    },
+    {
+      "group": "worst",
+      "index": 610,
+      "rouge_l": 0.0,
+      "gold": "IX NACHMITTAG KOMMEN REGEN VIERHUNDERT ACHTHUNDERT METER UEBER SCHNEE",
+      "prediction": "SONST REGION SCHAUER GEWITTER",
+      "prompt": "sonst einzelne schauer an der nordsee auch gewitter"
+    },
+    {
+      "group": "worst",
+      "index": 625,
+      "rouge_l": 0.0,
+      "gold": "NORD FRISCH IX WEHEN IX WEHEN IM-VERLAUF SPAETER NORD STARK WEHEN",
+      "prediction": "SUEDOST BISSCHEN SCHWACH MAESSIG REGION SUEDWEST MEISTENS STURM KOENNEN",
+      "prompt": "schwacher bis mäßiger im norden zum teil frischer südost bis ostwind der im südwesten später auf südwest dreht an den küsten bläst er stark mit stürmischen böen"
+    },
+    {
+      "group": "worst",
+      "index": 695,
+      "rouge_l": 0.0,
+      "gold": "NAECHSTE ANFANG WOCHE WIE-IMMER SO",
+      "prediction": "AUCH KOMMEN HEUTE WOCHENENDE MEHR BISSCHEN",
+      "prompt": "auch zu beginn der kommenden woche ändert sich nur wenig"
+    }
+  ]
+}

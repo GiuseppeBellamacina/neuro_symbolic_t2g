@@ -1,0 +1,86 @@
+{
+  "model": "run_20261004_001607",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 1634,
+      "rouge_l": 1.0,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT ABEND LIEB ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "best",
+      "index": 1040,
+      "rouge_l": 0.8889,
+      "gold": "LIEB ZUSCHAUER GUT ABEND",
+      "prediction": "LIEB EIN ZUSCHAUER GUT ABEND",
+      "prompt": "liebe zuschauer guten abend"
+    },
+    {
+      "group": "best",
+      "index": 1146,
+      "rouge_l": 0.8571,
+      "gold": "SCHOTTLAND WOLKE TIEF NORWEGEN",
+      "prediction": "SCHOTTLAND TIEF NORWEGEN",
+      "prompt": "von schottland zieht ein tief nach norwegen"
+    },
+    {
+      "group": "best",
+      "index": 1577,
+      "rouge_l": 0.8571,
+      "gold": "SAMSTAG NORD WIND",
+      "prediction": "SAMSTAG NORD WIND KOMMEN",
+      "prompt": "am samstag im norden sehr windig"
+    },
+    {
+      "group": "best",
+      "index": 1926,
+      "rouge_l": 0.8571,
+      "gold": "DONNERSTAG FREITAG WETTER BLEIBEN",
+      "prediction": "DONNERSTAG FREITAG WETTER",
+      "prompt": "donnerstag und freitag ändert sich wenig an diesem wetter"
+    },
+    {
+      "group": "worst",
+      "index": 0,
+      "rouge_l": 0.0,
+      "gold": "REGEN SCHNEE REGION VERSCHWINDEN NORD REGEN KOENNEN REGION STERN KOENNEN SEHEN",
+      "prediction": "NACH NEU NORDWEST SCHAUER",
+      "prompt": "regen und schnee lassen an den alpen in der nacht nach im norden und nordosten fallen hier und da schauer sonst ist das klar"
+    },
+    {
+      "group": "worst",
+      "index": 15,
+      "rouge_l": 0.0,
+      "gold": "WOCHENENDE SONNE SAMSTAG SCHOEN TEMPERATUR BIS SIEBZEHN GRAD REGION",
+      "prediction": "SCHNEIEN BURG TUN NACH KOMMEN STERN UND ZWEI GEMISCHT WOLKE KOMMEN MONTAG WARTEN SCHNEIEN BURG",
+      "prompt": "sonnig geht es auch ins wochenende samstag ein herrlicher tag mit temperaturen bis siebzehn grad hier im westen"
+    },
+    {
+      "group": "worst",
+      "index": 36,
+      "rouge_l": 0.0,
+      "gold": "IM-VERLAUF BLEIBEN KALT ENORM SCHNEE KOENNEN",
+      "prediction": "NACH KOMMEN WEITER WOLKE KOMMEN WOLKE KOMMEN",
+      "prompt": "in den nächsten tagen geht es auf jeden fall winterlich weiter immer wieder mal mit etwas schnee"
+    },
+    {
+      "group": "worst",
+      "index": 50,
+      "rouge_l": 0.0,
+      "gold": "ABER IM-VERLAUF NEBEL HOCH NEBEL IX",
+      "prediction": "BETT WOLKE KOMMEN FELD HELL STERN KOMMEN",
+      "prompt": "später breiten sich aber nebel oder hochnebelfelder aus"
+    },
+    {
+      "group": "worst",
+      "index": 63,
+      "rouge_l": 0.0,
+      "gold": "DEUTSCH LAND SCHWACH DRUCK UNTERSCHIED",
+      "prediction": "DAS-IST-ES WIND DESHALB ENDE FELD NACH BIS ZWEI UNTER LIEB ERWARTEN KOMMEN",
+      "prompt": "in deutschland gibt es nur schwache luftdruckunterschiede"
+    }
+  ]
+}

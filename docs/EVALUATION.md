@@ -410,6 +410,12 @@ rilevanza:
 Ablation cross-config: `ablation-summary` aggrega `eval_final.json` di ogni run
 (preferisce `eval_final.json`; esclude `eval_baseline.json`).
 
+Entrambi i report (`ablation-summary` e `campaign-report`, §7a) producono UN
+report per coppia (dataset, modello), in `experiments/figures/<dataset>/<modello>/`:
+dataset diversi hanno test set, vocabolario del Trie e metriche da leggere
+diversi, e modelli diversi hanno ciascuno la propria matrice, quindi i loro
+numeri non stanno mai nella stessa tabella.
+
 ### 7a. Campaign report — confronti appaiati cross-fattore
 
 `python -m src.analysis.campaign_report` (alias `campaign-report`) è
@@ -418,7 +424,8 @@ per config, questo appaia i run che differiscono per **un solo fattore
 sperimentale** (metodo di addestramento, prompting, decodifica vincolata) e
 riporta il delta di ogni metrica — le righe che servono per compilare la
 matrice di ablazione. Da lanciare a fine campagna o quando il cluster termina
-una chain; gira senza GPU sui file locali. Output in `experiments/figures/`:
+una chain; gira senza GPU sui file locali. Output in
+`experiments/figures/<dataset>/<modello>/`:
 `campaign_report.json`, `campaign_report.md`,
 `campaign_pairwise_deltas.png`, `campaign_matrix.png`. La matrice di sintesi
 usa una sola metrica (`--metric`, default ROUGE-L); per ogni dataset diverso da

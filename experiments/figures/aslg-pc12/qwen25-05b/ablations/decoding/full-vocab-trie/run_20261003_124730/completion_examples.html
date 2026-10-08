@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completion Examples — run_20261003_124730</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+  h1 { color: #333; font-size: 1.4em; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  th { background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }
+  tr.best { background: #f9fdf9; }
+  tr.worst { background: #fef9f9; }
+  tr:hover { background: #eef6ff; }
+  .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }
+  .prompt { max-width: 300px; color: #555; font-style: italic; }
+  .diff-del { color: #C44E52; text-decoration: line-through; }
+  .diff-add { color: #1a7a1a; font-weight: bold; }
+  .summary { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Completion Examples — run_20261003_124730</h1>
+<p class="summary">10 examples (5 best, 5 worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  <th>Prompt</th>
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="best">
+    <td class="prompt">we see similar packages in america .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .
+</td>
+    <td class="mono">X-WE SEE DESC-SIMILAR PACKAGE IN AMERICA .</td>
+</tr><tr class="best">
+    <td class="prompt">europe must take a different route .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">EUROPE MUST TAKE DESC-DIFFERENT ROUTE .
+</td>
+    <td class="mono">EUROPE MUST TAKE DESC-DIFFERENT ROUTE .</td>
+</tr><tr class="best">
+    <td class="prompt">the current situation is alarming .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">DESC-CURRENT SITUATION BE DESC-ALARMING .
+</td>
+    <td class="mono">DESC-CURRENT SITUATION BE DESC-ALARMING .</td>
+</tr><tr class="best">
+    <td class="prompt">we cannot sweep these problems under the carpet !
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET !
+</td>
+    <td class="mono">X-WE CAN DESC-NOT SWEEP SE PROBLEM UNDER CARPET !</td>
+</tr><tr class="best">
+    <td class="prompt">this , of course , requires clarification .
+</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">THIS , COURSE , REQUIRE CLARIFICATION .
+</td>
+    <td class="mono">THIS , COURSE , REQUIRE CLARIFICATION .</td>
+</tr><tr class="worst">
+    <td class="prompt">vice president of the commission . that is a huge question .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">THAT BE DESC-HUGE QUESTION .
+</td>
+    <td class="mono"><span class="diff-del">THAT</span> <span class="diff-add">?</span> <span class="diff-del">BE</span> <span class="diff-add">PRESIDENT</span> <span class="diff-del">DESC-HUGE</span> <span class="diff-add">COMMISSION</span> <span class="diff-del">QUESTION</span> <span class="diff-add">BIGTHANK</span> <span class="diff-del">.</span> <span class="diff-add">YOU</span> <span class="diff-add">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">.
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">.
+</td>
+    <td class="mono"><span class="diff-del">.</span> <span class="diff-add">X-Y</span> <span class="diff-add">WILL</span> <span class="diff-add">NOTWITHSTANDING</span> <span class="diff-add">FLINCH</span> <span class="diff-add">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">however , this is neither the only way nor inevitable .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">DESC-HOWEVER , THIS BE NEIR DESC-ONLY WAY NOR DESC-INEVITABLE .
+</td>
+    <td class="mono"><span class="diff-del">DESC-HOWEVER</span> <span class="diff-add">TOE</span> , <span class="diff-del">THIS</span> <span class="diff-add">DEPLORE</span> <span class="diff-del">BE</span> <span class="diff-add">,</span> <span class="diff-del">NEIR</span> <span class="diff-add">INNOCENCE</span> <span class="diff-del">DESC-ONLY</span> <span class="diff-add">.</span> <span class="diff-del">WAY</span> <span class="diff-del">NOR</span> <span class="diff-del">DESC-INEVITABLE</span> <span class="diff-del">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">the summit will be an opportunity to again stress the importance of russia's wto accession .
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">SUMMIT WILL BE OPPORTUNITY TO DESC-AGAIN STRESS IMPORTANCE RUSSIUM X-POSS WTO ACCESSION .
+</td>
+    <td class="mono"><span class="diff-del">SUMMIT</span> <span class="diff-add">SUMMER</span> <span class="diff-del">WILL</span> <span class="diff-add">SPEECH</span> <span class="diff-del">BE</span> <span class="diff-add">SPEECH</span> <span class="diff-del">OPPORTUNITY</span> <span class="diff-add">SPEECH</span> <span class="diff-del">TO</span> <span class="diff-add">SUMMER</span> <span class="diff-del">DESC-AGAIN</span> <span class="diff-add">SPEECH</span> <span class="diff-del">STRESS</span> <span class="diff-add">SPEECH</span> <span class="diff-del">IMPORTANCE</span> <span class="diff-add">SUMMER</span> <span class="diff-del">RUSSIUM</span> <span class="diff-add">SPEECH</span> <span class="diff-del">X-POSS</span> <span class="diff-add">SPEECH</span> <span class="diff-del">WTO</span> <span class="diff-add">SUMMER</span> <span class="diff-del">ACCESSION</span> <span class="diff-add">SPEECH</span> <span class="diff-del">.</span> <span class="diff-add">SPEECH</span> <span class="diff-add">.</span></td>
+</tr><tr class="worst">
+    <td class="prompt">in writing . the concerns with the report voted are the following 
+</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">CONCERN WITH REPORT VOTE BE FOLLOW
+</td>
+    <td class="mono"><span class="diff-del">CONCERN</span> <span class="diff-add">IN</span> <span class="diff-del">WITH</span> <span class="diff-add">WRITE</span> <span class="diff-del">REPORT</span> <span class="diff-add">102</span> <span class="diff-del">VOTE</span> <span class="diff-add">.</span> <span class="diff-del">BE</span> <span class="diff-add">IN</span> <span class="diff-del">FOLLOW</span> <span class="diff-add">WRITE</span> <span class="diff-add">34</span> <span class="diff-add">.</span> <span class="diff-add">IN</span> <span class="diff-add">WRITE</span> <span class="diff-add">56</span> <span class="diff-add">.</span> <span class="diff-add">IN</span> <span class="diff-add">WRITE</span> <span class="diff-add">78</span> <span class="diff-add">.</span> <span class="diff-add">IN</span> <span class="diff-add">WRITE</span> <span class="diff-add">91</span> <span class="diff-add">.</span> <span class="diff-add">IN</span> <span class="diff-add">WRITE</span> <span class="diff-add">104.82</span> <span class="diff-add">.</span> <span class="diff-add">IN</span> <span class="diff-add">WRITE</span> <span class="diff-add">116</span> <span class="diff-add">.</span> <span class="diff-add">IN</span> <span class="diff-add">WRITE</span> <span class="diff-add">129</span> <span class="diff-add">.</span> <span class="diff-add">I...</span></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

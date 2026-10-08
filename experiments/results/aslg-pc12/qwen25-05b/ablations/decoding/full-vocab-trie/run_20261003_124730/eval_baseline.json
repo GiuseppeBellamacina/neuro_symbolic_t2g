@@ -1,0 +1,156 @@
+{
+  "rouge_l_mean": 0.46781703236295835,
+  "rouge_l_std": 0.23898853675692663,
+  "rouge_l_median": 0.45454545454545453,
+  "valid_rouge_l_mean": 0.46000448792249693,
+  "valid_rouge_l_mean_v3": 0.4660207325241284,
+  "bleu_sentence_mean": 0.1880600251861204,
+  "bleu_corpus": 0.18850685965672928,
+  "chrf_sentence_mean": 44.84675623083657,
+  "chrf_corpus": 42.10091796684476,
+  "gloss_f1_sentence_mean": 0.44542549060621633,
+  "gloss_f1_micro": 0.4046645942150195,
+  "exact_match": 0.0156,
+  "non_copy_token_accuracy": 0.35480213903743313,
+  "non_copy_token_hits": 16587,
+  "non_copy_token_total": 46750,
+  "bigram_log_prob_mean": -114.90971535768509,
+  "bigram_log_prob_std": 91.81336952115177,
+  "validity_rate": 0.9833,
+  "valid_count": 9833,
+  "invalid_count": 167,
+  "pass_at_1": 0.7255,
+  "reward_breakdown": {
+    "translation_quality_reward": -0.06436593527408233,
+    "bleu_reward": -0.6238799496277574,
+    "gold_structure_reward": -0.5490784885385928,
+    "gloss_order_reward": -0.3195068285407341,
+    "verifier_scaled_reward": -0.7421263914505091,
+    "gloss_format_reward": 0.9838,
+    "gloss_repetition_reward": 0.8949199999999983
+  },
+  "detailed_metrics": {
+    "overall_pass_rate": 0.7338,
+    "overall_rouge_l": 0.4660207325241284,
+    "total_samples": 10000,
+    "valid_samples": 7338,
+    "rouge_l_percentiles": {
+      "25%": 0.28571428571428575,
+      "50%": 0.45454545454545453,
+      "75%": 0.631578947368421,
+      "90%": 0.8
+    },
+    "error_distribution": {
+      "low_rouge_l": 2495,
+      "excessive_repetition": 167
+    }
+  },
+  "error_distribution": {
+    "excessive_repetition": 167
+  },
+  "total_completions": 10000,
+  "evaluation_report": {
+    "total_samples": 10000,
+    "rouge_l": {
+      "mean": 0.46781703236295835,
+      "ci_95": [
+        0.46314427426881993,
+        0.4726725965169954
+      ],
+      "percentiles": {
+        "25%": 0.28571428571428575,
+        "50%": 0.45454545454545453,
+        "75%": 0.631578947368421,
+        "90%": 0.8
+      }
+    },
+    "bleu": {
+      "corpus": 0.18850685965672928,
+      "sentence_mean": 0.1880600251861204,
+      "ci_95": [
+        0.18375310802721273,
+        0.1925265486782336
+      ]
+    },
+    "chrf": {
+      "corpus": 42.10091796684476,
+      "sentence_mean": 44.84675623083657,
+      "ci_95": [
+        44.44589883693188,
+        45.28061601770144
+      ]
+    },
+    "gloss_f1": {
+      "micro": 0.4046645942150195,
+      "sentence_mean": 0.44542549060621633,
+      "ci_95": [
+        0.44066415047078167,
+        0.4503737354455027
+      ]
+    },
+    "pass_at_1": {
+      "mean": 0.7342,
+      "ci_95": [
+        0.7254925,
+        0.7426025
+      ]
+    },
+    "gloss_validity_rate": 0.9833,
+    "error_distribution": {
+      "excessive_repetition": 167
+    }
+  },
+  "pass_at_k": {
+    "pass@1": 0.7255,
+    "pass@2": 0.8565,
+    "pass@3": 0.9085,
+    "pass@4": 0.928,
+    "pass@5": 0.942
+  },
+  "num_samples_evaluated": 2000,
+  "test_set_size": 8109,
+  "num_completions_per_prompt": 5,
+  "best_of_n": false,
+  "prompting": {
+    "mode": "few-shot",
+    "source": "config"
+  },
+  "metrics_version": 2,
+  "prompt_context_fingerprint": "d07952579af0edb1a6d49fafef69f609694636495fa298438d164ee495236283",
+  "decoding": {
+    "do_sample": true,
+    "temperature": 0.7,
+    "num_samples": 5
+  },
+  "resumed_from": {
+    "resumed": false,
+    "resume_count": 0,
+    "recovered_prompts": 0
+  },
+  "difficulty_breakdown": {
+    "simple": {
+      "n_prompts": 94,
+      "rouge_l_mean": 0.6153305783002901,
+      "bleu_sentence_mean": 0.3415980488811994,
+      "chrf_sentence_mean": 60.241349334041544,
+      "validity_rate": 0.9872340425531915,
+      "pass_at_1": 0.8191489361702128
+    },
+    "medium": {
+      "n_prompts": 1430,
+      "rouge_l_mean": 0.4841147433225844,
+      "bleu_sentence_mean": 0.1965253944781395,
+      "chrf_sentence_mean": 46.18539092469471,
+      "validity_rate": 0.986013986013986,
+      "pass_at_1": 0.7559440559440559
+    },
+    "hard": {
+      "n_prompts": 476,
+      "rouge_l_mean": 0.38972459540839016,
+      "bleu_sentence_mean": 0.13230781444048023,
+      "chrf_sentence_mean": 37.78511891168024,
+      "validity_rate": 0.9743697478991596,
+      "pass_at_1": 0.615546218487395
+    }
+  }
+}

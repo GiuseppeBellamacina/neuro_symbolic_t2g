@@ -228,3 +228,34 @@ def test_comparison_chart_stays_a_normal_size_with_chrf_present(tmp_path):
     plot_ablation_comparison(entries, out)
     width, height = Image.open(out).size
     assert width < 2400 and height < 1600, (width, height)
+
+
+def test_main_writes_one_summary_per_dataset_and_model(tmp_path, monkeypatch):
+    """Dataset e modelli diversi non finiscono mai nella stessa tabella."""
+    from src.utils import ablation_summary
+
+    results = tmp_path / "results"
+    for cell in (
+        "aslg-pc12/qwen25-05b/grpo/few-shot",
+        "phoenix-2014t/qwen25-05b/grpo/few-shot",
+        "aslg-pc12/qwen25-15b/grpo/few-shot",
+    ):
+        _write_eval(
+            results / cell / "run_20260101_000000" / "eval_final.json", rouge_l_mean=0.5
+        )
+    out = tmp_path / "figures"
+    monkeypatch.setattr(
+        sys, "argv", ["x", "--results-dir", str(results), "--output-dir", str(out)]
+    )
+    ablation_summary.main()
+    for dataset, model in (
+        ("aslg-pc12", "qwen25-05b"),
+        ("phoenix-2014t", "qwen25-05b"),
+        ("aslg-pc12", "qwen25-15b"),
+    ):
+        md = (out / dataset / model / "ablation_summary.md").read_text(encoding="utf-8")
+        rows = [
+            line for line in md.splitlines() if line.startswith("| ") and "/" in line
+        ]
+        assert rows and all(f"{dataset}/{model}/" in r for r in rows), (dataset, model)
+    assert not (out / "ablation_summary.md").exists()

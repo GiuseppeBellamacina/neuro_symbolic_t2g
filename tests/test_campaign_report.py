@@ -607,3 +607,39 @@ def test_non_aslg_datasets_get_an_all_metrics_table(tmp_path):
     row = next(line for line in table.splitlines() if line.startswith("| conll-2003/"))
     assert "Exact Match" in table and "Gloss F1 (mic)" in table
     assert "0.4200" in row and "aslg-pc12" not in row
+
+
+def test_main_writes_one_report_per_dataset_and_model(tmp_path, monkeypatch):
+    """Un report per (dataset, modello): mai valori di corpora diversi insieme."""
+    import sys
+
+    from src.analysis import campaign_report
+
+    results = tmp_path / "results"
+    for dataset in ("aslg-pc12", "conll-2003"):
+        make_eval(
+            results,
+            f"{dataset}/qwen25-05b/grpo/zero-shot",
+            "run_20260101_000000",
+            "eval_final.json",
+            {"prompting": {"mode": "zero-shot"}},
+        )
+    out = tmp_path / "figures"
+    monkeypatch.setattr(
+        sys, "argv", ["x", "--results-dir", str(results), "--output-dir", str(out)]
+    )
+    campaign_report.main()
+    for dataset in ("aslg-pc12", "conll-2003"):
+        report = json.loads(
+            (out / dataset / "qwen25-05b" / "campaign_report.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        md = (out / dataset / "qwen25-05b" / "campaign_report.md").read_text(
+            encoding="utf-8"
+        )
+        assert md.startswith(f"# Campaign Report — {dataset} / qwen25-05b")
+        assert json.dumps(report).count(f"{dataset}/qwen25-05b/grpo") > 0
+        other = "conll-2003" if dataset == "aslg-pc12" else "aslg-pc12"
+        assert f"{other}/qwen25-05b" not in md
+    assert not (out / "campaign_report.md").exists()
