@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("upload", "download", "download-logs", "download-checkpoints", "download-results", "download-figures", "download-wandb", "download-experiments", "sync-wandb", "push", "pull")]
+    [ValidateSet("upload", "download", "download-logs", "download-checkpoints", "download-results", "download-figures", "download-outputs", "download-wandb", "download-experiments", "sync-wandb", "push", "pull")]
     [string]$Action,
 
     [Parameter(Mandatory = $false)]
@@ -205,6 +205,14 @@ function DownloadFigures {
     Write-Host "  -> saved to experiments\figures" -ForegroundColor Gray
 }
 
+function DownloadOutputs {
+    # results + figures + logs (no checkpoints): what a finished campaign needs locally
+    DownloadResults
+    DownloadFigures
+    DownloadLogs
+    Write-Host "Download complete." -ForegroundColor Green
+}
+
 function DownloadExperiments {
     Write-Host "Downloading entire experiments/ from cluster (excluding configs)..." -ForegroundColor Cyan
     $remoteDirs = @(
@@ -366,6 +374,7 @@ switch ($Action) {
     "download-checkpoints"  { DownloadCheckpoints }
     "download-results"      { DownloadResults }
     "download-figures"      { DownloadFigures }
+    "download-outputs"      { DownloadOutputs }
     "download-wandb"        { DownloadWandb }
     "download-experiments"  { DownloadExperiments }
     "sync-wandb"            { SyncWandb }

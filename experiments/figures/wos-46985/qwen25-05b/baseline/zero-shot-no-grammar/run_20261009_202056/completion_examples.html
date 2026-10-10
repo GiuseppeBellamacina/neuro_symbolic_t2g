@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completion Examples — baseline</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+  h1 { color: #333; font-size: 1.4em; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  th { background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }
+  tr.best { background: #f9fdf9; }
+  tr.worst { background: #fef9f9; }
+  tr:hover { background: #eef6ff; }
+  .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }
+  .prompt { max-width: 300px; color: #555; font-style: italic; }
+  .diff-del { color: #C44E52; text-decoration: line-through; }
+  .diff-add { color: #1a7a1a; font-weight: bold; }
+  .summary { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Completion Examples — baseline</h1>
+<p class="summary">10 examples (5 best, 5 worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  <th>Prompt</th>
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="best">
+    <td class="prompt">2-Hydroxyglutarate (2-HG) is an important epigenetic regulator, with potential roles in cancer and stem cell biology. The d-(R)-enantiomer (d-2-HG) is an oncometabolite generated from -ketoglutarate (...</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">biochemistry Cell_biology</td>
+    <td class="mono"><span class="diff-del">biochemistry</span> <span class="diff-add">Biochemistry,</span> <span class="diff-del">Cell_biology</span> <span class="diff-add">Cell</span> <span class="diff-add">Biology</span></td>
+</tr><tr class="best">
+    <td class="prompt">Apoptosis is required to maintain tissue homeostasis in multicellular organisms. Platelets, the anucleate cells that are essential for blood clotting, are a prime example. Their brief life span in the...</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">biochemistry Cell_biology</td>
+    <td class="mono"><span class="diff-del">biochemistry</span> <span class="diff-add">Biochemistry,</span> <span class="diff-del">Cell_biology</span> <span class="diff-add">Cell</span> <span class="diff-add">Biology</span></td>
+</tr><tr class="best">
+    <td class="prompt">Seven transmembrane G protein-coupled receptors (GPCRs) have gained much interest in recent years as it is the largest class among cell surface receptors. G proteins lie in the heart of GPCRs signalli...</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">biochemistry Cell_biology</td>
+    <td class="mono"><span class="diff-del">biochemistry</span> <span class="diff-add">Biochemistry,</span> <span class="diff-del">Cell_biology</span> <span class="diff-add">Cell</span> <span class="diff-add">Biology</span></td>
+</tr><tr class="best">
+    <td class="prompt">In this paper we describe the expression, purification, kinetics and biophysical characterization of alanine aminotransferase (AlaAT) from the barley plant (Hordeum vulgare). This dimeric PLP-dependen...</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">biochemistry Enzymology</td>
+    <td class="mono"><span class="diff-del">biochemistry</span> <span class="diff-add">Biochemistry,</span> Enzymology</td>
+</tr><tr class="best">
+    <td class="prompt">A thorough understanding of the molecular biosciences requires the ability to visualize and manipulate molecules in order to interpret results or to generate hypotheses. While many instructors in bioc...</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">biochemistry Molecular_biology</td>
+    <td class="mono"><span class="diff-del">biochemistry</span> <span class="diff-add">biochemistry,</span> <span class="diff-del">Molecular_biology</span> <span class="diff-add">molecular</span> <span class="diff-add">biology</span></td>
+</tr><tr class="worst">
+    <td class="prompt">Red eye is used as a general term to describe irritated or bloodshot eyes. It is a recognizable sign of an acute/chronic, localized/systemic underlying inflammatory condition. Conjunctival injection i...</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">Medical Rheumatoid_Arthritis</td>
+    <td class="mono"><span class="diff-del">Medical</span> <span class="diff-add">Ophthalmology,</span> <span class="diff-del">Rheumatoid_Arthritis</span> <span class="diff-add">Eye</span> <span class="diff-add">Diseases</span></td>
+</tr><tr class="worst">
+    <td class="prompt">An association between increased serum concentrations of perfluoroalkyl substances (PFAS) such as perfluorooctane sulfonate (PFOS) and perfluorooctanoate (PFOA) and early menopause has been reported (...</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">Medical Menopause</td>
+    <td class="mono"><span class="diff-del">Medical</span> <span class="diff-add">Pharmacokinetics,</span> <span class="diff-del">Menopause</span> <span class="diff-add">Epidemiology</span></td>
+</tr><tr class="worst">
+    <td class="prompt">Reproduction is essential for the survival of the species and is influenced by external factors such as smoking and exposure to chemotherapy as well as chronic disorders such as obesity and autoimmuni...</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">Medical Menopause</td>
+    <td class="mono"><span class="diff-del">Medical</span> <span class="diff-add">Genetics,</span> <span class="diff-del">Menopause</span> <span class="diff-add">Reproduction,</span> <span class="diff-add">Aging</span></td>
+</tr><tr class="worst">
+    <td class="prompt">Background: Preservatives are added to cosmetics and other consumer products to prevent microbial growth and product degradation. Many cosmetic preservatives are skin sensitizers and frequent causes o...</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">Medical Skin_Care</td>
+    <td class="mono"><span class="diff-del">Medical</span> <span class="diff-add">Cosmetics,</span> <span class="diff-del">Skin_Care</span> <span class="diff-add">preservatives</span></td>
+</tr><tr class="worst">
+    <td class="prompt">Controlling the geometric parameters of the weld pool and the weld bead is the main method for getting better welding quality in industrial robotic welding. This paper presents the technology on a rea...</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">CS Image_processing</td>
+    <td class="mono"><span class="diff-del">CS</span> <span class="diff-add">Robotics,</span> <span class="diff-del">Image_processing</span> <span class="diff-add">Intelligent</span> <span class="diff-add">Systems</span></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

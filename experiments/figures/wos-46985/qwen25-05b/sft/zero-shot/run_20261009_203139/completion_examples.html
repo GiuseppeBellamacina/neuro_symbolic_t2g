@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completion Examples — run_20261009_203139</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+  h1 { color: #333; font-size: 1.4em; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  th { background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }
+  tr.best { background: #f9fdf9; }
+  tr.worst { background: #fef9f9; }
+  tr:hover { background: #eef6ff; }
+  .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }
+  .prompt { max-width: 300px; color: #555; font-style: italic; }
+  .diff-del { color: #C44E52; text-decoration: line-through; }
+  .diff-add { color: #1a7a1a; font-weight: bold; }
+  .summary { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Completion Examples — run_20261009_203139</h1>
+<p class="summary">10 examples (5 best, 5 worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  <th>Prompt</th>
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="best">
+    <td class="prompt">An association between increased serum concentrations of perfluoroalkyl substances (PFAS) such as perfluorooctane sulfonate (PFOS) and perfluorooctanoate (PFOA) and early menopause has been reported (...</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">Medical Menopause</td>
+    <td class="mono">Medical Menopause</td>
+</tr><tr class="best">
+    <td class="prompt">Reproduction is essential for the survival of the species and is influenced by external factors such as smoking and exposure to chemotherapy as well as chronic disorders such as obesity and autoimmuni...</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">Medical Menopause</td>
+    <td class="mono">Medical Menopause</td>
+</tr><tr class="best">
+    <td class="prompt">OBJECTIVE. Despite concerns about exposure to violent media, there are few data on youth exposure to violent movies. In this study we examined such exposure among young US adolescents. METHODS. We use...</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">Psychology Media_violence</td>
+    <td class="mono">Psychology Media_violence</td>
+</tr><tr class="best">
+    <td class="prompt">Background: Preservatives are added to cosmetics and other consumer products to prevent microbial growth and product degradation. Many cosmetic preservatives are skin sensitizers and frequent causes o...</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">Medical Skin_Care</td>
+    <td class="mono">Medical Skin_Care</td>
+</tr><tr class="best">
+    <td class="prompt">Controlling the geometric parameters of the weld pool and the weld bead is the main method for getting better welding quality in industrial robotic welding. This paper presents the technology on a rea...</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">CS Image_processing</td>
+    <td class="mono">CS Image_processing</td>
+</tr><tr class="worst">
+    <td class="prompt">OBJECTIVE. Despite concerns about exposure to violent media, there are few data on youth exposure to violent movies. In this study we examined such exposure among young US adolescents. METHODS. We use...</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">Psychology Media_violence</td>
+    <td class="mono"><span class="diff-del">Psychology</span> <span class="diff-add">Medical</span> <span class="diff-del">Media_violence</span> <span class="diff-add">Parenting</span></td>
+</tr><tr class="worst">
+    <td class="prompt">The Great East Japan Earthquake (GEJE) and subsequent tsunamis that occurred in 2011 caused extensive and severe structural damage and interrupted numerous research activities; however, the majority o...</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">Psychology Attention</td>
+    <td class="mono"><span class="diff-del">Psychology</span> <span class="diff-add">Medical</span> <span class="diff-del">Attention</span> <span class="diff-add">Mental_Health</span></td>
+</tr><tr class="worst">
+    <td class="prompt">Objective: This study evaluates the potential of gingival crevicular fluid and serum cytokines as HIV stage biomarkers. Methods: Gingival crevicular fluid (GCF) and serum samples from 78 HIV-positive ...</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">Medical HIV/AIDS</td>
+    <td class="mono"><span class="diff-del">Medical</span> <span class="diff-add">biochemistry</span> <span class="diff-del">HIV/AIDS</span> <span class="diff-add">Immunology</span></td>
+</tr><tr class="worst">
+    <td class="prompt">Objective: Accurate outcome prediction models for patients with mild traumatic brain injury (MTBI) are key for prognostic assessment and clinical decision-making. Using multivariate machine learning, ...</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">CS Machine_learning</td>
+    <td class="mono"><span class="diff-del">CS</span> <span class="diff-add">Medical</span> <span class="diff-del">Machine_learning</span> <span class="diff-add">Anxiety</span></td>
+</tr><tr class="worst">
+    <td class="prompt">Ultrasound technology and hormone assays have provided a better understanding of folliculogenesis and ovulation in South American camelids in the last two decades. Females exhibit waves of ovarian fol...</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">Psychology Prenatal_development</td>
+    <td class="mono"><span class="diff-del">Psychology</span> <span class="diff-add">Medical</span> <span class="diff-del">Prenatal_development</span> <span class="diff-add">Menopause</span></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

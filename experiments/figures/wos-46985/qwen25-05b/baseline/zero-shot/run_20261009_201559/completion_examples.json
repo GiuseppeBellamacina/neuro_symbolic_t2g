@@ -1,0 +1,86 @@
+{
+  "model": "baseline",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 16,
+      "rouge_l": 1.0,
+      "gold": "Psychology Media_violence",
+      "prediction": "Psychology Media_violence",
+      "prompt": "OBJECTIVE. Despite concerns about exposure to violent media, there are few data on youth exposure to violent movies. In this study we examined such exposure among young US adolescents. METHODS. We use..."
+    },
+    {
+      "group": "best",
+      "index": 36,
+      "rouge_l": 1.0,
+      "gold": "Medical HIV/AIDS",
+      "prediction": "Medical HIV/AIDS",
+      "prompt": "Purpose of reviewIn 2015, the WHO urged countries to provide ART to all people living with HIV, irrespective of their CD4(+) cell count, this new recommendation supports the Joint United Nations Progr..."
+    },
+    {
+      "group": "best",
+      "index": 65,
+      "rouge_l": 1.0,
+      "gold": "ECE Electric_motor",
+      "prediction": "ECE Electric_motor",
+      "prompt": "A gearless one-motor concept for contra-rotating fans is presented in this article. The rotors are mounted to an electric motor using only one shaft. The coupling between both rotors is realised by ut..."
+    },
+    {
+      "group": "best",
+      "index": 73,
+      "rouge_l": 1.0,
+      "gold": "biochemistry Cell_biology",
+      "prediction": "biochemistry Cell_biology",
+      "prompt": "DNA methylation and specifically the DNA methyltransferase enzyme DNMT3A are involved in the pathogenesis of a variety of hematological diseases and in regulating the function of immune cells. Althoug..."
+    },
+    {
+      "group": "best",
+      "index": 100,
+      "rouge_l": 1.0,
+      "gold": "biochemistry Cell_biology",
+      "prediction": "biochemistry Cell_biology",
+      "prompt": "Regenerative medicine strategies for the restoration of functional tissue have evolved from the concept of ex vivo creation of engineered tissue toward the broader concept of in vivo induction of func..."
+    },
+    {
+      "group": "worst",
+      "index": 5,
+      "rouge_l": 0.0,
+      "gold": "Medical Menopause",
+      "prediction": "ECE System_identification",
+      "prompt": "An association between increased serum concentrations of perfluoroalkyl substances (PFAS) such as perfluorooctane sulfonate (PFOS) and perfluorooctanoate (PFOA) and early menopause has been reported (..."
+    },
+    {
+      "group": "worst",
+      "index": 10,
+      "rouge_l": 0.0,
+      "gold": "Medical Menopause",
+      "prediction": "ECE System_identification",
+      "prompt": "Reproduction is essential for the survival of the species and is influenced by external factors such as smoking and exposure to chemotherapy as well as chronic disorders such as obesity and autoimmuni..."
+    },
+    {
+      "group": "worst",
+      "index": 20,
+      "rouge_l": 0.0,
+      "gold": "Medical Skin_Care",
+      "prediction": "ECE Lorentz_force_law",
+      "prompt": "Background: Preservatives are added to cosmetics and other consumer products to prevent microbial growth and product degradation. Many cosmetic preservatives are skin sensitizers and frequent causes o..."
+    },
+    {
+      "group": "worst",
+      "index": 25,
+      "rouge_l": 0.0,
+      "gold": "CS Image_processing",
+      "prediction": "Medical Osteoarthritis",
+      "prompt": "Controlling the geometric parameters of the weld pool and the weld bead is the main method for getting better welding quality in industrial robotic welding. This paper presents the technology on a rea..."
+    },
+    {
+      "group": "worst",
+      "index": 30,
+      "rouge_l": 0.0,
+      "gold": "Psychology Attention",
+      "prediction": "ECE Microcontroller",
+      "prompt": "The Great East Japan Earthquake (GEJE) and subsequent tsunamis that occurred in 2011 caused extensive and severe structural damage and interrupted numerous research activities; however, the majority o..."
+    }
+  ]
+}

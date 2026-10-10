@@ -593,7 +593,7 @@ def build_comparisons(
                     "reason": detail,
                     "available_typologies": sorted(
                         {
-                            "|".join(
+                            (
                                 f"{r['factors'][factor]}"
                                 if _known(r["factors"][factor])
                                 else f"{factor}={UNKNOWN}"

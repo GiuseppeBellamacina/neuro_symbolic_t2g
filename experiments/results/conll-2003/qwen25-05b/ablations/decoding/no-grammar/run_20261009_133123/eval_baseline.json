@@ -1,0 +1,154 @@
+{
+  "rouge_l_mean": 0.3700307534908061,
+  "rouge_l_std": 0.30089569533320965,
+  "rouge_l_median": 0.33333333333333337,
+  "valid_rouge_l_mean": 0.06349727729902233,
+  "valid_rouge_l_mean_v3": 0.09176644935064543,
+  "bleu_sentence_mean": 0.1555860368223591,
+  "bleu_corpus": 0.09608350151346647,
+  "chrf_sentence_mean": 35.90706824157809,
+  "chrf_corpus": 33.219466151202205,
+  "gloss_f1_sentence_mean": 0.14357251823536407,
+  "gloss_f1_micro": 0.08393344921778,
+  "exact_match": 0.0344,
+  "non_copy_token_accuracy": 0.19217199558985668,
+  "non_copy_token_hits": 3486,
+  "non_copy_token_total": 18140,
+  "bigram_log_prob_mean": -71.58072662067413,
+  "bigram_log_prob_std": 139.27894784510974,
+  "validity_rate": 0.1716,
+  "valid_count": 1716,
+  "invalid_count": 8284,
+  "pass_at_1": 0.544,
+  "reward_breakdown": {
+    "translation_quality_reward": -0.2599384930183895,
+    "bleu_reward": -0.6888279263552834,
+    "gloss_order_reward": -0.7852369826330297,
+    "gloss_format_reward": -0.2778,
+    "gloss_repetition_reward": 0.4395599999999987
+  },
+  "detailed_metrics": {
+    "overall_pass_rate": 0.128,
+    "overall_rouge_l": 0.09176644935064543,
+    "total_samples": 10000,
+    "valid_samples": 1280,
+    "rouge_l_percentiles": {
+      "25%": 0.0,
+      "50%": 0.0,
+      "75%": 0.0,
+      "90%": 0.5
+    },
+    "error_distribution": {
+      "grammar_violation": 8284,
+      "low_rouge_l": 436
+    }
+  },
+  "error_distribution": {
+    "grammar_violation": 8284
+  },
+  "total_completions": 10000,
+  "evaluation_report": {
+    "total_samples": 10000,
+    "rouge_l": {
+      "mean": 0.3700307534908061,
+      "ci_95": [
+        0.36391314870079716,
+        0.37630204682200713
+      ],
+      "percentiles": {
+        "25%": 0.1,
+        "50%": 0.33333333333333337,
+        "75%": 0.5714285714285715,
+        "90%": 0.8000000000000002
+      }
+    },
+    "bleu": {
+      "corpus": 0.09608350151346647,
+      "sentence_mean": 0.1555860368223591,
+      "ci_95": [
+        0.1514528834853312,
+        0.16058743470385753
+      ]
+    },
+    "chrf": {
+      "corpus": 33.219466151202205,
+      "sentence_mean": 35.90706824157809,
+      "ci_95": [
+        35.33437450459782,
+        36.4661775637685
+      ]
+    },
+    "gloss_f1": {
+      "micro": 0.08393344921778,
+      "sentence_mean": 0.14357251823536407,
+      "ci_95": [
+        0.13834396140186883,
+        0.14908456319811186
+      ]
+    },
+    "pass_at_1": {
+      "mean": 0.5568,
+      "ci_95": [
+        0.5467,
+        0.5664025
+      ]
+    },
+    "gloss_validity_rate": 0.1716,
+    "error_distribution": {
+      "grammar_violation": 8284
+    }
+  },
+  "pass_at_k": {
+    "pass@1": 0.544,
+    "pass@2": 0.6495,
+    "pass@3": 0.6925,
+    "pass@4": 0.7195,
+    "pass@5": 0.7365
+  },
+  "num_samples_evaluated": 2000,
+  "test_set_size": 3453,
+  "num_completions_per_prompt": 5,
+  "best_of_n": false,
+  "prompting": {
+    "mode": "few-shot",
+    "source": "config"
+  },
+  "metrics_version": 2,
+  "prompt_context_fingerprint": "05d7beedd7fd1f629465e4f4f19ef1c654625f32829cd35b9db749dd5edb4adf",
+  "decoding": {
+    "do_sample": true,
+    "temperature": 0.7,
+    "num_samples": 5
+  },
+  "resumed_from": {
+    "resumed": false,
+    "resume_count": 0,
+    "recovered_prompts": 0
+  },
+  "difficulty_breakdown": {
+    "simple": {
+      "n_prompts": 1960,
+      "rouge_l_mean": 0.36860034149764154,
+      "bleu_sentence_mean": 0.15379804219209064,
+      "chrf_sentence_mean": 35.82650018808083,
+      "validity_rate": 0.17275510204081632,
+      "pass_at_1": 0.539795918367347
+    },
+    "medium": {
+      "n_prompts": 38,
+      "rouge_l_mean": 0.4563785434644042,
+      "bleu_sentence_mean": 0.2553516895644025,
+      "chrf_sentence_mean": 41.348743377763675,
+      "validity_rate": 0.12105263157894737,
+      "pass_at_1": 0.7894736842105263
+    },
+    "hard": {
+      "n_prompts": 2,
+      "rouge_l_mean": 0.13122649729367034,
+      "bleu_sentence_mean": 0.012273372386677413,
+      "chrf_sentence_mean": 11.47193308136745,
+      "validity_rate": 0.0,
+      "pass_at_1": 0.0
+    }
+  }
+}

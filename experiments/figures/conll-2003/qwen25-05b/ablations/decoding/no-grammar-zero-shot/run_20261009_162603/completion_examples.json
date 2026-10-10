@@ -1,0 +1,86 @@
+{
+  "model": "run_20261009_162603",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 81,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "I think now is the right time for him to return . \""
+    },
+    {
+      "group": "best",
+      "index": 180,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Scorers :"
+    },
+    {
+      "group": "best",
+      "index": 200,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Attendence : 3,000"
+    },
+    {
+      "group": "best",
+      "index": 225,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "on Friday :"
+    },
+    {
+      "group": "best",
+      "index": 270,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Extras ( lb-8 nb-2 w-14 ) 24"
+    },
+    {
+      "group": "worst",
+      "index": 37,
+      "rouge_l": 0.0,
+      "gold": "LOC:Syria",
+      "prediction": "NONE",
+      "prompt": "It was the second costly blunder by Syria in four minutes ."
+    },
+    {
+      "group": "worst",
+      "index": 67,
+      "rouge_l": 0.0,
+      "gold": "PER:Marcello_Cuttitta LOC:Italy",
+      "prediction": "NONE",
+      "prompt": "Italy recalled Marcello Cuttitta"
+    },
+    {
+      "group": "worst",
+      "index": 85,
+      "rouge_l": 0.0,
+      "gold": "PER:Javier_Pertile PER:Paolo_Vaccari PER:Marcello_Cuttitta PER:Ivan_Francescato PER:Leandro_Manteri PER:Diego_Dominguez ...",
+      "prediction": "NONE",
+      "prompt": "Squad : Javier Pertile , Paolo Vaccari , Marcello Cuttitta , Ivan Francescato , Leandro Manteri , Diego Dominguez , Francesco Mazzariol , Alessandro Troncon , Orazio Arancio , Andrea Sgorlon , Massimo..."
+    },
+    {
+      "group": "worst",
+      "index": 95,
+      "rouge_l": 0.0,
+      "gold": "MISC:Syrian",
+      "prediction": "NONE NONE Syria",
+      "prompt": "It was the second Syrian defensive blunder in four minutes ."
+    },
+    {
+      "group": "worst",
+      "index": 120,
+      "rouge_l": 0.0,
+      "gold": "MISC:World_Cup",
+      "prediction": "NONE",
+      "prompt": "Results of the World Cup"
+    }
+  ]
+}

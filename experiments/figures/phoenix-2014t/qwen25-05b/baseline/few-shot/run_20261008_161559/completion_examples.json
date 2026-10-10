@@ -1,0 +1,86 @@
+{
+  "model": "baseline",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 1630,
+      "rouge_l": 1.0,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT ABEND LIEB ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "best",
+      "index": 1095,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI",
+      "prompt": "und nun die wettervorhersage für morgen dienstag den fünfundzwanzigsten mai"
+    },
+    {
+      "group": "best",
+      "index": 1202,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN SAMSTAG ZWEITE APRIL",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN SAMSTAG ZWEITE APRIL",
+      "prompt": "und nun die wettervorhersage für morgen samstag den zweiten april"
+    },
+    {
+      "group": "best",
+      "index": 1441,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN FREITAG ACHTE OKTOBER",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN FREITAG ACHTE OKTOBER",
+      "prompt": "und nun die wettervorhersage für morgen freitag den achten oktober"
+    },
+    {
+      "group": "best",
+      "index": 1495,
+      "rouge_l": 1.0,
+      "gold": "SAMSTAG WECHSELHAFT",
+      "prediction": "SAMSTAG WECHSELHAFT",
+      "prompt": "am samstag ist es wieder unbeständig"
+    },
+    {
+      "group": "worst",
+      "index": 30,
+      "rouge_l": 0.0,
+      "gold": "WAHRSCHEINLICH SCHAUER GEWITTER STARK",
+      "prediction": "DIENSTAG OST REGION SONNE WECHSELHAFT SONNE WOLKE HEFTIG REGEN",
+      "prompt": "örtlich schauer oder gewitter die heftig sein können"
+    },
+    {
+      "group": "worst",
+      "index": 35,
+      "rouge_l": 0.0,
+      "gold": "IM-VERLAUF BLEIBEN KALT ENORM SCHNEE KOENNEN",
+      "prediction": "IN-KOMMEND WECHSELHAFT SONNE REGEN WECHSELHAFT MEHR SCHRANK NEU",
+      "prompt": "in den nächsten tagen geht es auf jeden fall winterlich weiter immer wieder mal mit etwas schnee"
+    },
+    {
+      "group": "worst",
+      "index": 55,
+      "rouge_l": 0.0,
+      "gold": "MORGEN LANG BLEIBEN",
+      "prediction": "ZU HELL",
+      "prompt": "die halten sich morgen recht zäh"
+    },
+    {
+      "group": "worst",
+      "index": 102,
+      "rouge_l": 0.0,
+      "gold": "NORD NORDWEST MEISTENS REGEN AUCH MOEGLICH BISSCHEN GEWITTER",
+      "prediction": "MORGENS WOLKE CHAOS WETTER DABEI IM-VERLAUF NEU RUND-UM-DIE-UHR KRAEFTIG GRAD WETTER",
+      "prompt": "im verlauf kommt im norden und nordwesten teilweise kräftiger regen auf einzelne gewitter sind dabei"
+    },
+    {
+      "group": "worst",
+      "index": 106,
+      "rouge_l": 0.0,
+      "gold": "MORGEN UEBERWIEGEND SONNE",
+      "prediction": "SCHON IM-VERLAUF",
+      "prompt": "morgen scheint dann wieder überall die sonne"
+    }
+  ]
+}

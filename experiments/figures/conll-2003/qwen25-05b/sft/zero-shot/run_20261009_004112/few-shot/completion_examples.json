@@ -1,0 +1,86 @@
+{
+  "model": "run_20261009_004112",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 0,
+      "rouge_l": 1.0,
+      "gold": "PER:Nadim_Ladki",
+      "prediction": "PER:Nadim_Ladki",
+      "prompt": "Nadim Ladki"
+    },
+    {
+      "group": "best",
+      "index": 10,
+      "rouge_l": 1.0,
+      "gold": "LOC:Japan LOC:Syria MISC:Asian_Cup",
+      "prediction": "LOC:Japan LOC:Syria MISC:Asian_Cup",
+      "prompt": "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday ."
+    },
+    {
+      "group": "best",
+      "index": 15,
+      "rouge_l": 1.0,
+      "gold": "LOC:China LOC:Uzbekistan",
+      "prediction": "LOC:China LOC:Uzbekistan",
+      "prompt": "But China saw their luck desert them in the second match of the group , crashing to a surprise 2-0 defeat to newcomers Uzbekistan ."
+    },
+    {
+      "group": "best",
+      "index": 20,
+      "rouge_l": 1.0,
+      "gold": "PER:Oleg_Shatskiku",
+      "prediction": "PER:Oleg_Shatskiku",
+      "prompt": "Oleg Shatskiku made sure of the win in injury time , hitting an unstoppable left foot shot from just outside the area ."
+    },
+    {
+      "group": "best",
+      "index": 25,
+      "rouge_l": 1.0,
+      "gold": "LOC:Uzbekistan MISC:Asian_Games",
+      "prediction": "LOC:Uzbekistan MISC:Asian_Games",
+      "prompt": "Despite winning the Asian Games title two years ago , Uzbekistan are in the finals as outsiders ."
+    },
+    {
+      "group": "worst",
+      "index": 57,
+      "rouge_l": 0.0,
+      "gold": "PER:Bitar",
+      "prediction": "NONE",
+      "prompt": "Bitar pulled off fine saves whenever they did ."
+    },
+    {
+      "group": "worst",
+      "index": 95,
+      "rouge_l": 0.0,
+      "gold": "MISC:Syrian",
+      "prediction": "NONE",
+      "prompt": "It was the second Syrian defensive blunder in four minutes ."
+    },
+    {
+      "group": "worst",
+      "index": 121,
+      "rouge_l": 0.0,
+      "gold": "MISC:World_Cup",
+      "prediction": "NONE",
+      "prompt": "Results of the World Cup"
+    },
+    {
+      "group": "worst",
+      "index": 126,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "MISC:freestyle_skiing_moguls",
+      "prompt": "freestyle skiing moguls competition on Friday :"
+    },
+    {
+      "group": "worst",
+      "index": 272,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "ORG:Extras",
+      "prompt": "Extras ( lb-8 nb-2 w-14 ) 24"
+    }
+  ]
+}

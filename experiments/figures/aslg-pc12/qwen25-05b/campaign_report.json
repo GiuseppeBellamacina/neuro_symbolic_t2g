@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-08T13:52:59+00:00",
+  "generated_at": "2026-10-10T12:57:02+00:00",
   "factor_deduction": [
     {
       "factor": "method",
@@ -4862,7 +4862,7 @@
       "factor": "grammar",
       "reason": "6 group(s) with 2+ runs but no pair with a known, differing value of this factor",
       "available_typologies": [
-        "g|r|a|m|m|a|r|=|u|n|k|n|o|w|n"
+        "grammar=unknown"
       ]
     }
   ]

@@ -1,0 +1,86 @@
+{
+  "model": "baseline",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 2614,
+      "rouge_l": 1.0,
+      "gold": "biochemistry Cell_biology",
+      "prediction": "Biochemistry, Cell Biology",
+      "prompt": "2-Hydroxyglutarate (2-HG) is an important epigenetic regulator, with potential roles in cancer and stem cell biology. The d-(R)-enantiomer (d-2-HG) is an oncometabolite generated from -ketoglutarate (..."
+    },
+    {
+      "group": "best",
+      "index": 3946,
+      "rouge_l": 1.0,
+      "gold": "biochemistry Cell_biology",
+      "prediction": "Biochemistry, Cell Biology",
+      "prompt": "Apoptosis is required to maintain tissue homeostasis in multicellular organisms. Platelets, the anucleate cells that are essential for blood clotting, are a prime example. Their brief life span in the..."
+    },
+    {
+      "group": "best",
+      "index": 3974,
+      "rouge_l": 1.0,
+      "gold": "biochemistry Cell_biology",
+      "prediction": "Biochemistry, Cell Biology",
+      "prompt": "Seven transmembrane G protein-coupled receptors (GPCRs) have gained much interest in recent years as it is the largest class among cell surface receptors. G proteins lie in the heart of GPCRs signalli..."
+    },
+    {
+      "group": "best",
+      "index": 5363,
+      "rouge_l": 1.0,
+      "gold": "biochemistry Enzymology",
+      "prediction": "Biochemistry, Enzymology",
+      "prompt": "In this paper we describe the expression, purification, kinetics and biophysical characterization of alanine aminotransferase (AlaAT) from the barley plant (Hordeum vulgare). This dimeric PLP-dependen..."
+    },
+    {
+      "group": "best",
+      "index": 5500,
+      "rouge_l": 1.0,
+      "gold": "biochemistry Molecular_biology",
+      "prediction": "biochemistry, molecular biology",
+      "prompt": "A thorough understanding of the molecular biosciences requires the ability to visualize and manipulate molecules in order to interpret results or to generate hypotheses. While many instructors in bioc..."
+    },
+    {
+      "group": "worst",
+      "index": 0,
+      "rouge_l": 0.0,
+      "gold": "Medical Rheumatoid_Arthritis",
+      "prediction": "Ophthalmology, Eye Diseases",
+      "prompt": "Red eye is used as a general term to describe irritated or bloodshot eyes. It is a recognizable sign of an acute/chronic, localized/systemic underlying inflammatory condition. Conjunctival injection i..."
+    },
+    {
+      "group": "worst",
+      "index": 5,
+      "rouge_l": 0.0,
+      "gold": "Medical Menopause",
+      "prediction": "Pharmacokinetics, Epidemiology",
+      "prompt": "An association between increased serum concentrations of perfluoroalkyl substances (PFAS) such as perfluorooctane sulfonate (PFOS) and perfluorooctanoate (PFOA) and early menopause has been reported (..."
+    },
+    {
+      "group": "worst",
+      "index": 10,
+      "rouge_l": 0.0,
+      "gold": "Medical Menopause",
+      "prediction": "Genetics, Reproduction, Aging",
+      "prompt": "Reproduction is essential for the survival of the species and is influenced by external factors such as smoking and exposure to chemotherapy as well as chronic disorders such as obesity and autoimmuni..."
+    },
+    {
+      "group": "worst",
+      "index": 20,
+      "rouge_l": 0.0,
+      "gold": "Medical Skin_Care",
+      "prediction": "Cosmetics, preservatives",
+      "prompt": "Background: Preservatives are added to cosmetics and other consumer products to prevent microbial growth and product degradation. Many cosmetic preservatives are skin sensitizers and frequent causes o..."
+    },
+    {
+      "group": "worst",
+      "index": 25,
+      "rouge_l": 0.0,
+      "gold": "CS Image_processing",
+      "prediction": "Robotics, Intelligent Systems",
+      "prompt": "Controlling the geometric parameters of the weld pool and the weld bead is the main method for getting better welding quality in industrial robotic welding. This paper presents the technology on a rea..."
+    }
+  ]
+}

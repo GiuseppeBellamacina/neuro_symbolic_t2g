@@ -1,6 +1,6 @@
 # Campaign Report — aslg-pc12 / qwen25-05b
 
-Generated: 2026-10-08T13:52:59+00:00
+Generated: 2026-10-10T12:57:02+00:00
 
 > Complementare ad `ablation-summary`: qui i run sono appaiati
 > per fattore sperimentale. **Legge i JSON di eval: non
@@ -590,7 +590,7 @@ One row per cell (its path under `results/`), one column per prompting mode that
 ## Missing paired comparisons (declared, not fabricated)
 
 - **`grammar`**: 6 group(s) with 2+ runs but no pair with a known, differing value of this factor.
-  Available typologies: `g|r|a|m|m|a|r|=|u|n|k|n|o|w|n`
+  Available typologies: `grammar=unknown`
 
 ## Figures
 

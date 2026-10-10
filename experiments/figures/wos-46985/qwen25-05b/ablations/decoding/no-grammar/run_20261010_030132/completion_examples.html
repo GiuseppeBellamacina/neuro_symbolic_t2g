@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completion Examples — run_20261010_030132</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+  h1 { color: #333; font-size: 1.4em; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  th { background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }
+  tr.best { background: #f9fdf9; }
+  tr.worst { background: #fef9f9; }
+  tr:hover { background: #eef6ff; }
+  .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }
+  .prompt { max-width: 300px; color: #555; font-style: italic; }
+  .diff-del { color: #C44E52; text-decoration: line-through; }
+  .diff-add { color: #1a7a1a; font-weight: bold; }
+  .summary { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Completion Examples — run_20261010_030132</h1>
+<p class="summary">10 examples (5 best, 5 worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  <th>Prompt</th>
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="best">
+    <td class="prompt">The importance of chronic hepatitis C infection is significant. 3% of the World's population is infected. There is at least one extrahepatic manifestation in 50% of HCV patients, which makes the progn...</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">Medical Hepatitis_C</td>
+    <td class="mono">Medical <span class="diff-del">Hepatitis_C</span> <span class="diff-add">Hepatitis</span> <span class="diff-add">C</span></td>
+</tr><tr class="best">
+    <td class="prompt">A Summary The aim of this study is to correlate radiometric indices from cone beam computed tomography (CBCT) images and bone mineral density (BMD) in postmenopausal women. Quantitative CBCT indices c...</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">Medical Osteoporosis</td>
+    <td class="mono">Medical <span class="diff-del">Osteoporosis</span> <span class="diff-add">osteoporosis</span></td>
+</tr><tr class="best">
+    <td class="prompt">Soil moisture distributions with high spatio-temporal resolution are scarce but beneficial for understanding ecohydrological processes and closing the water cycle at the basin scale. Sensor networks a...</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">0.8571</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">Civil Remote_Sensing</td>
+    <td class="mono">Civil <span class="diff-del">Remote_Sensing</span> <span class="diff-add">Engineering,</span> <span class="diff-add">Remote</span> <span class="diff-add">Sensing</span></td>
+</tr><tr class="best">
+    <td class="prompt">In the construction industry,subcontracting is a very common practice. Nowadays, most of the general contractors tend to sublet the large portions of construction works to subcontractors and they only...</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">0.8571</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">Civil Construction_Management</td>
+    <td class="mono">Civil <span class="diff-del">Construction_Management</span> <span class="diff-add">Engineering,</span> <span class="diff-add">Construction</span> <span class="diff-add">Management</span></td>
+</tr><tr class="best">
+    <td class="prompt">The construction of the Three Gorges Dam in China and the subsequent impoundment of the Yangtze River have induced a major land use change in the Three Gorges Reservoir Region, which fosters increased...</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">0.8571</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">Civil Water_Pollution</td>
+    <td class="mono">Civil <span class="diff-del">Water_Pollution</span> <span class="diff-add">Engineering,</span> <span class="diff-add">Water</span> <span class="diff-add">Pollution</span></td>
+</tr><tr class="worst">
+    <td class="prompt">Controlling the geometric parameters of the weld pool and the weld bead is the main method for getting better welding quality in industrial robotic welding. This paper presents the technology on a rea...</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">CS Image_processing</td>
+    <td class="mono"><span class="diff-del">CS</span> <span class="diff-add">Mechanical</span> <span class="diff-del">Image_processing</span> <span class="diff-add">Engineering,</span> <span class="diff-add">Industrial</span> <span class="diff-add">Automation</span></td>
+</tr><tr class="worst">
+    <td class="prompt">The Great East Japan Earthquake (GEJE) and subsequent tsunamis that occurred in 2011 caused extensive and severe structural damage and interrupted numerous research activities; however, the majority o...</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">Psychology Attention</td>
+    <td class="mono"><span class="diff-del">Psychology</span> <span class="diff-add">Medical</span> <span class="diff-del">Attention</span> <span class="diff-add">Science,</span> <span class="diff-add">Epidemiology</span> <span class="diff-add">Studies</span></td>
+</tr><tr class="worst">
+    <td class="prompt">Charge sharing is the fractional collection of the charge cloud generated in a detector by two or more adjacent pixels. It may lead to excessive or inefficient registration of hits comparing to the nu...</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">ECE Electrical_generator</td>
+    <td class="mono"><span class="diff-del">ECE</span> <span class="diff-add">Medical</span> <span class="diff-del">Electrical_generator</span> <span class="diff-add">Imaging,</span> <span class="diff-add">Medical</span> <span class="diff-add">Physics</span></td>
+</tr><tr class="worst">
+    <td class="prompt">The purpose of digital forensic applications is to determine the flow of events as they unfold, before, during or after the alleged incident occurred. The need to identify the cause of an incident, th...</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">CS Operating_systems</td>
+    <td class="mono"><span class="diff-del">CS</span> <span class="diff-add">Computer</span> <span class="diff-del">Operating_systems</span> <span class="diff-add">Science,</span> <span class="diff-add">Digital</span> <span class="diff-add">Forensic</span> <span class="diff-add">Applications</span></td>
+</tr><tr class="worst">
+    <td class="prompt">Background: The resilience of ecosystems to negative impacts is generally higher when high gene flow, species diversity and genetic diversity are present. Population genetic studies are suitable to in...</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">biochemistry Genetics</td>
+    <td class="mono"><span class="diff-del">biochemistry</span> <span class="diff-add">Ecology,</span> <span class="diff-del">Genetics</span> <span class="diff-add">Evolutionary</span> <span class="diff-add">Biology</span></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

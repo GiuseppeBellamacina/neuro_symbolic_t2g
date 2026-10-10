@@ -1,0 +1,86 @@
+{
+  "model": "baseline",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 196,
+      "rouge_l": 1.0,
+      "gold": "WEST FREUNDLICH",
+      "prediction": "west, freundlich",
+      "prompt": "im westen ist es freundlich"
+    },
+    {
+      "group": "best",
+      "index": 796,
+      "rouge_l": 0.8,
+      "gold": "NORD TROCKEN IX",
+      "prediction": "nord, trocken",
+      "prompt": "im norden wird es dagegen noch trocken sein"
+    },
+    {
+      "group": "best",
+      "index": 558,
+      "rouge_l": 0.75,
+      "gold": "AEHNLICH WETTER DONNERSTAG",
+      "prediction": "aehnlich wetter auch am donnerstag",
+      "prompt": "ähnliches wetter auch am donnerstag"
+    },
+    {
+      "group": "best",
+      "index": 1492,
+      "rouge_l": 0.6667,
+      "gold": "MORGEN OST ZEHN BIS DREIZEHN WEST BIS SIEBZEHN GRAD",
+      "prediction": "zehn bis dreizehn grad\nsiebzehn grad",
+      "prompt": "morgen in der osthälfte zehn bis dreizehn grad im westen bis zu siebzehn grad"
+    },
+    {
+      "group": "best",
+      "index": 1577,
+      "rouge_l": 0.6667,
+      "gold": "SAMSTAG NORD WIND",
+      "prediction": "samstag  \nnord  \nwindig",
+      "prompt": "am samstag im norden sehr windig"
+    },
+    {
+      "group": "worst",
+      "index": 21,
+      "rouge_l": 0.0,
+      "gold": "DEUTSCH LAND MORGEN HOCH DRUCK KOMMEN WOLKE AUFLOESEN",
+      "prediction": "der wolkenweit",
+      "prompt": "deutschland liegt morgen unter hochdruckeinfluss der die wolken weitgehend vertreibt"
+    },
+    {
+      "group": "worst",
+      "index": 26,
+      "rouge_l": 0.0,
+      "gold": "SONNTAG NAECHSTE NORDWEST WOLKE SONNE WOLKE GEWITTER REGEN DABEI",
+      "prediction": "am, des, am, im, Nordwesten, ein, Sonnensee, und, Wolken, mit, ein, Einzel, zum, Teil, gewittrig, schauern",
+      "prompt": "am sonntag im nordwesten eine mischung aus sonne und wolken mit einigen zum teil gewittrigen schauern"
+    },
+    {
+      "group": "worst",
+      "index": 32,
+      "rouge_l": 0.0,
+      "gold": "WAHRSCHEINLICH SCHAUER GEWITTER STARK",
+      "prediction": "örtlich schaußen  \nwetterhäuflich sein",
+      "prompt": "örtlich schauer oder gewitter die heftig sein können"
+    },
+    {
+      "group": "worst",
+      "index": 37,
+      "rouge_l": 0.0,
+      "gold": "IM-VERLAUF BLEIBEN KALT ENORM SCHNEE KOENNEN",
+      "prediction": "in, dann, fiel, weiter, immer, mit, neues, schneewasser, viel, wieder, einmal, mal, noch, nochmal, mit, mehr, etwas, sch...",
+      "prompt": "in den nächsten tagen geht es auf jeden fall winterlich weiter immer wieder mal mit etwas schnee"
+    },
+    {
+      "group": "worst",
+      "index": 40,
+      "rouge_l": 0.0,
+      "gold": "WOCHENENDE IX MEHR KALT",
+      "prediction": "und\nzur\nwoche\nbeginnt\nes\ndann\nja\ntut\nes\nwenig\nkälter",
+      "prompt": "und zum wochenende wird es dann sogar wieder ein bisschen kälter"
+    }
+  ]
+}

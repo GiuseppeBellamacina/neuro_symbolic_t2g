@@ -1,0 +1,86 @@
+{
+  "model": "run_20261010_030132",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 1296,
+      "rouge_l": 1.0,
+      "gold": "Medical Hepatitis_C",
+      "prediction": "Medical Hepatitis C",
+      "prompt": "The importance of chronic hepatitis C infection is significant. 3% of the World's population is infected. There is at least one extrahepatic manifestation in 50% of HCV patients, which makes the progn..."
+    },
+    {
+      "group": "best",
+      "index": 9392,
+      "rouge_l": 1.0,
+      "gold": "Medical Osteoporosis",
+      "prediction": "Medical osteoporosis",
+      "prompt": "A Summary The aim of this study is to correlate radiometric indices from cone beam computed tomography (CBCT) images and bone mineral density (BMD) in postmenopausal women. Quantitative CBCT indices c..."
+    },
+    {
+      "group": "best",
+      "index": 131,
+      "rouge_l": 0.8571,
+      "gold": "Civil Remote_Sensing",
+      "prediction": "Civil Engineering, Remote Sensing",
+      "prompt": "Soil moisture distributions with high spatio-temporal resolution are scarce but beneficial for understanding ecohydrological processes and closing the water cycle at the basin scale. Sensor networks a..."
+    },
+    {
+      "group": "best",
+      "index": 215,
+      "rouge_l": 0.8571,
+      "gold": "Civil Construction_Management",
+      "prediction": "Civil Engineering, Construction Management",
+      "prompt": "In the construction industry,subcontracting is a very common practice. Nowadays, most of the general contractors tend to sublet the large portions of construction works to subcontractors and they only..."
+    },
+    {
+      "group": "best",
+      "index": 637,
+      "rouge_l": 0.8571,
+      "gold": "Civil Water_Pollution",
+      "prediction": "Civil Engineering, Water Pollution",
+      "prompt": "The construction of the Three Gorges Dam in China and the subsequent impoundment of the Yangtze River have induced a major land use change in the Three Gorges Reservoir Region, which fosters increased..."
+    },
+    {
+      "group": "worst",
+      "index": 25,
+      "rouge_l": 0.0,
+      "gold": "CS Image_processing",
+      "prediction": "Mechanical Engineering, Industrial Automation",
+      "prompt": "Controlling the geometric parameters of the weld pool and the weld bead is the main method for getting better welding quality in industrial robotic welding. This paper presents the technology on a rea..."
+    },
+    {
+      "group": "worst",
+      "index": 30,
+      "rouge_l": 0.0,
+      "gold": "Psychology Attention",
+      "prediction": "Medical Science, Epidemiology Studies",
+      "prompt": "The Great East Japan Earthquake (GEJE) and subsequent tsunamis that occurred in 2011 caused extensive and severe structural damage and interrupted numerous research activities; however, the majority o..."
+    },
+    {
+      "group": "worst",
+      "index": 45,
+      "rouge_l": 0.0,
+      "gold": "ECE Electrical_generator",
+      "prediction": "Medical Imaging, Medical Physics",
+      "prompt": "Charge sharing is the fractional collection of the charge cloud generated in a detector by two or more adjacent pixels. It may lead to excessive or inefficient registration of hits comparing to the nu..."
+    },
+    {
+      "group": "worst",
+      "index": 50,
+      "rouge_l": 0.0,
+      "gold": "CS Operating_systems",
+      "prediction": "Computer Science, Digital Forensic Applications",
+      "prompt": "The purpose of digital forensic applications is to determine the flow of events as they unfold, before, during or after the alleged incident occurred. The need to identify the cause of an incident, th..."
+    },
+    {
+      "group": "worst",
+      "index": 55,
+      "rouge_l": 0.0,
+      "gold": "biochemistry Genetics",
+      "prediction": "Ecology, Evolutionary Biology",
+      "prompt": "Background: The resilience of ecosystems to negative impacts is generally higher when high gene flow, species diversity and genetic diversity are present. Population genetic studies are suitable to in..."
+    }
+  ]
+}

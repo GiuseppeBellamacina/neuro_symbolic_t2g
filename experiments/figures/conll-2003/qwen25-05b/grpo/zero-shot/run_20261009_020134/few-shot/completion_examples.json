@@ -1,0 +1,86 @@
+{
+  "model": "run_20261009_020134",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 58,
+      "rouge_l": 1.0,
+      "gold": "PER:Bitar",
+      "prediction": "PER:Bitar",
+      "prompt": "Bitar pulled off fine saves whenever they did ."
+    },
+    {
+      "group": "best",
+      "index": 75,
+      "rouge_l": 1.0,
+      "gold": "PER:Coste",
+      "prediction": "PER:Coste",
+      "prompt": "Coste said he had approached the player two months ago about a comeback ."
+    },
+    {
+      "group": "best",
+      "index": 147,
+      "rouge_l": 1.0,
+      "gold": "PER:Korneilus_Hole LOC:Norway",
+      "prediction": "PER:Korneilus_Hole LOC:Norway",
+      "prompt": "5. Korneilus Hole ( Norway ) 23.92"
+    },
+    {
+      "group": "best",
+      "index": 190,
+      "rouge_l": 1.0,
+      "gold": "PER:Nader_Jokhadar LOC:Syria",
+      "prediction": "PER:Nader_Jokhadar LOC:Syria",
+      "prompt": "Syria - Nader Jokhadar 7"
+    },
+    {
+      "group": "best",
+      "index": 260,
+      "rouge_l": 1.0,
+      "gold": "PER:Mushtaq_Ahmad",
+      "prediction": "PER:Mushtaq_Ahmad",
+      "prompt": "Mushtaq Ahmad not out 5"
+    },
+    {
+      "group": "worst",
+      "index": 80,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "PER:I PER:him MISC:now PER:for PER:him PER:to PER:the PER:right PER:time PER:for PER:him PER:to PER:the PER:right PER:ti...",
+      "prompt": "I think now is the right time for him to return . \""
+    },
+    {
+      "group": "worst",
+      "index": 120,
+      "rouge_l": 0.0,
+      "gold": "MISC:World_Cup",
+      "prediction": "NONE",
+      "prompt": "Results of the World Cup"
+    },
+    {
+      "group": "worst",
+      "index": 125,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "PER:freestyle_skiing_moguls_competition ORG:moguls_competition LOC:freestyle_skiing_moguls_competition",
+      "prompt": "freestyle skiing moguls competition on Friday :"
+    },
+    {
+      "group": "worst",
+      "index": 180,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "PER:Scorers MISC:Scorers ORG:Scorers LOC:Scorers",
+      "prompt": "Scorers :"
+    },
+    {
+      "group": "worst",
+      "index": 196,
+      "rouge_l": 0.0,
+      "gold": "PER:Shkvyrin_Igor PER:Shatskikh_Oleg",
+      "prediction": "NONE",
+      "prompt": "Scorers : Shkvyrin Igor 78 , Shatskikh Oleg 90"
+    }
+  ]
+}

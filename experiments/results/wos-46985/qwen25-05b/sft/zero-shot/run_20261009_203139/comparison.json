@@ -1,0 +1,49 @@
+{
+  "decoding": {
+    "do_sample": true,
+    "temperature": 0.7,
+    "num_samples": 5
+  },
+  "baseline": {
+    "rouge_l_mean": 0.2394445238095238,
+    "valid_rouge_l_mean": 0.2394445238095238,
+    "pass_at_1": 0.4435,
+    "exact_match": 0.1039,
+    "validity_rate": 1.0,
+    "bleu_sentence_mean": 0.16268962717145546,
+    "bleu_corpus": 0.12407208101247105,
+    "chrf_sentence_mean": 25.657773926146152,
+    "chrf_corpus": 25.872124971010724,
+    "gloss_f1_sentence_mean": 0.2876,
+    "gloss_f1_micro": 0.2876,
+    "bigram_log_prob_mean": -5.2917351722717285
+  },
+  "checkpoint": {
+    "rouge_l_mean": 0.8124969047619047,
+    "valid_rouge_l_mean": 0.8124969047619047,
+    "pass_at_1": 0.874,
+    "exact_match": 0.7622,
+    "validity_rate": 1.0,
+    "bleu_sentence_mean": 0.7787268175853768,
+    "bleu_corpus": 0.7959594284759264,
+    "chrf_sentence_mean": 81.02917043577533,
+    "chrf_corpus": 81.09495474494737,
+    "gloss_f1_sentence_mean": 0.82695,
+    "gloss_f1_micro": 0.8269499999999999,
+    "bigram_log_prob_mean": -5.197851181030273
+  },
+  "delta": {
+    "rouge_l_mean": 0.5730523809523809,
+    "valid_rouge_l_mean": 0.5730523809523809,
+    "pass_at_1": 0.4305,
+    "exact_match": 0.6583,
+    "validity_rate": 0.0,
+    "bleu_sentence_mean": 0.6160371904139212,
+    "bleu_corpus": 0.6718873474634554,
+    "chrf_sentence_mean": 55.37139650962918,
+    "chrf_corpus": 55.22282977393665,
+    "gloss_f1_sentence_mean": 0.53935,
+    "gloss_f1_micro": 0.5393499999999998,
+    "bigram_log_prob_mean": 0.09388399124145508
+  }
+}

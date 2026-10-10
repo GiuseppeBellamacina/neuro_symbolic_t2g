@@ -1,0 +1,86 @@
+{
+  "model": "run_20261009_220558",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 15,
+      "rouge_l": 1.0,
+      "gold": "Psychology Media_violence",
+      "prediction": "Psychology Media_violence",
+      "prompt": "OBJECTIVE. Despite concerns about exposure to violent media, there are few data on youth exposure to violent movies. In this study we examined such exposure among young US adolescents. METHODS. We use..."
+    },
+    {
+      "group": "best",
+      "index": 20,
+      "rouge_l": 1.0,
+      "gold": "Medical Skin_Care",
+      "prediction": "Medical Skin_Care",
+      "prompt": "Background: Preservatives are added to cosmetics and other consumer products to prevent microbial growth and product degradation. Many cosmetic preservatives are skin sensitizers and frequent causes o..."
+    },
+    {
+      "group": "best",
+      "index": 35,
+      "rouge_l": 1.0,
+      "gold": "Medical HIV/AIDS",
+      "prediction": "Medical HIV/AIDS",
+      "prompt": "Purpose of reviewIn 2015, the WHO urged countries to provide ART to all people living with HIV, irrespective of their CD4(+) cell count, this new recommendation supports the Joint United Nations Progr..."
+    },
+    {
+      "group": "best",
+      "index": 75,
+      "rouge_l": 1.0,
+      "gold": "biochemistry Human_Metabolism",
+      "prediction": "biochemistry Human_Metabolism",
+      "prompt": "The non-pathogenic Gram-positive soil bacterium Streptomyces davawensis synthesizes the riboflavin (vitamin B(2)) analogs roseoflavin (RoF) and 8-demethyl-8-amino-riboflavin (AF). Both compounds are a..."
+    },
+    {
+      "group": "best",
+      "index": 103,
+      "rouge_l": 1.0,
+      "gold": "biochemistry Cell_biology",
+      "prediction": "biochemistry Cell_biology",
+      "prompt": "Regenerative medicine strategies for the restoration of functional tissue have evolved from the concept of ex vivo creation of engineered tissue toward the broader concept of in vivo induction of func..."
+    },
+    {
+      "group": "worst",
+      "index": 5,
+      "rouge_l": 0.0,
+      "gold": "Medical Menopause",
+      "prediction": "ECE System_identification",
+      "prompt": "An association between increased serum concentrations of perfluoroalkyl substances (PFAS) such as perfluorooctane sulfonate (PFOS) and perfluorooctanoate (PFOA) and early menopause has been reported (..."
+    },
+    {
+      "group": "worst",
+      "index": 25,
+      "rouge_l": 0.0,
+      "gold": "CS Image_processing",
+      "prediction": "ECE Control_engineering",
+      "prompt": "Controlling the geometric parameters of the weld pool and the weld bead is the main method for getting better welding quality in industrial robotic welding. This paper presents the technology on a rea..."
+    },
+    {
+      "group": "worst",
+      "index": 30,
+      "rouge_l": 0.0,
+      "gold": "Psychology Attention",
+      "prediction": "ECE PID_controller",
+      "prompt": "The Great East Japan Earthquake (GEJE) and subsequent tsunamis that occurred in 2011 caused extensive and severe structural damage and interrupted numerous research activities; however, the majority o..."
+    },
+    {
+      "group": "worst",
+      "index": 40,
+      "rouge_l": 0.0,
+      "gold": "Medical HIV/AIDS",
+      "prediction": "biochemistry Immunology",
+      "prompt": "Objective: This study evaluates the potential of gingival crevicular fluid and serum cytokines as HIV stage biomarkers. Methods: Gingival crevicular fluid (GCF) and serum samples from 78 HIV-positive ..."
+    },
+    {
+      "group": "worst",
+      "index": 45,
+      "rouge_l": 0.0,
+      "gold": "ECE Electrical_generator",
+      "prediction": "Medical Cancer",
+      "prompt": "Charge sharing is the fractional collection of the charge cloud generated in a detector by two or more adjacent pixels. It may lead to excessive or inefficient registration of hits comparing to the nu..."
+    }
+  ]
+}

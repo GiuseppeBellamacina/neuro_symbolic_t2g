@@ -1,0 +1,86 @@
+{
+  "model": "run_20261009_020134",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 226,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "on Friday :"
+    },
+    {
+      "group": "best",
+      "index": 760,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "9-153 ."
+    },
+    {
+      "group": "best",
+      "index": 860,
+      "rouge_l": 1.0,
+      "gold": "PER:LARA",
+      "prediction": "PER:LARA",
+      "prompt": "CRICKET - LARA SUFFERS MORE AUSTRALIAN TOUR MISERY ."
+    },
+    {
+      "group": "best",
+      "index": 1050,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "NORTHEAST DIVISION"
+    },
+    {
+      "group": "best",
+      "index": 1175,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": ")"
+    },
+    {
+      "group": "worst",
+      "index": 5,
+      "rouge_l": 0.0,
+      "gold": "LOC:AL-AIN LOC:United_Arab_Emirates",
+      "prediction": "NONE",
+      "prompt": "AL-AIN , United Arab Emirates 1996-12-06"
+    },
+    {
+      "group": "worst",
+      "index": 70,
+      "rouge_l": 0.0,
+      "gold": "PER:Cuttitta PER:George_Coste LOC:England LOC:Twickenham",
+      "prediction": "NONE",
+      "prompt": "Cuttitta , who trainer George Coste said was certain to play on Saturday week , was named in a 21-man squad lacking only two of the team beaten 54-21 by England at Twickenham last month ."
+    },
+    {
+      "group": "worst",
+      "index": 80,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "PER:him MISC:now ORG:the MISC:time LOC:for MISC:him",
+      "prompt": "I think now is the right time for him to return . \""
+    },
+    {
+      "group": "worst",
+      "index": 125,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "MISC:competition",
+      "prompt": "freestyle skiing moguls competition on Friday :"
+    },
+    {
+      "group": "worst",
+      "index": 180,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "PER:Scorers",
+      "prompt": "Scorers :"
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "model": "run_20261008_163600",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 886,
+      "rouge_l": 1.0,
+      "gold": "SCHOEN ABEND TSCHUESS",
+      "prediction": "SCHOEN ABEND TSCHUESS",
+      "prompt": "ich wünsche noch einen schönen abend und tschüss"
+    },
+    {
+      "group": "best",
+      "index": 1630,
+      "rouge_l": 1.0,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT ABEND LIEB ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "best",
+      "index": 1040,
+      "rouge_l": 1.0,
+      "gold": "LIEB ZUSCHAUER GUT ABEND",
+      "prediction": "LIEB ZUSCHAUER GUT ABEND",
+      "prompt": "liebe zuschauer guten abend"
+    },
+    {
+      "group": "best",
+      "index": 1200,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN SAMSTAG ZWEITE APRIL",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN SAMSTAG ZWEITE APRIL",
+      "prompt": "und nun die wettervorhersage für morgen samstag den zweiten april"
+    },
+    {
+      "group": "best",
+      "index": 1405,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN DONNERSTAG DRITTE DEZEMBER",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN DONNERSTAG DRITTE DEZEMBER",
+      "prompt": "und nun die wettervorhersage für morgen donnerstag den dritten dezember"
+    },
+    {
+      "group": "worst",
+      "index": 35,
+      "rouge_l": 0.0,
+      "gold": "IM-VERLAUF BLEIBEN KALT ENORM SCHNEE KOENNEN",
+      "prediction": "IN-KOMMEND WECHSELHAFT SONNE REGEN WECHSELHAFT MEHR KUEHL",
+      "prompt": "in den nächsten tagen geht es auf jeden fall winterlich weiter immer wieder mal mit etwas schnee"
+    },
+    {
+      "group": "worst",
+      "index": 60,
+      "rouge_l": 0.0,
+      "gold": "DEUTSCH LAND SCHWACH DRUCK UNTERSCHIED",
+      "prediction": "REGION NUR BISSCHEN LUFTDRUCKUNTERSchiedE",
+      "prompt": "in deutschland gibt es nur schwache luftdruckunterschiede"
+    },
+    {
+      "group": "worst",
+      "index": 221,
+      "rouge_l": 0.0,
+      "gold": "ZUERST GEWITTER NUR WEST RISIKO JEDEN-TAG OST MEHR OST KOENNEN GEWITTER WEST",
+      "prediction": "IN-KOMMEND WOCHE ENORM PASSEN GEFRIEREN KALT FOLGE",
+      "prompt": "zunächst ist das gewitterrisiko nur im westen erhöht von tag zu tag steigt es aber auch richtung osten"
+    },
+    {
+      "group": "worst",
+      "index": 230,
+      "rouge_l": 0.0,
+      "gold": "OBWOHL PLUS SONST REGION FROST",
+      "prediction": "MORGEN BIS SECHS IX SUEDOST KALT BLEIBEN",
+      "prompt": "dort auch bei leichten plusgraden aber sonst bleibt es frostig"
+    },
+    {
+      "group": "worst",
+      "index": 280,
+      "rouge_l": 0.0,
+      "gold": "WIND SCHWACH",
+      "prediction": "REGION WEHEN KOENNEN",
+      "prompt": "meist weht der wind schwach aus westlichen richtungen"
+    }
+  ]
+}

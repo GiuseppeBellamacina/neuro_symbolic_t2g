@@ -1,0 +1,86 @@
+{
+  "model": "run_20261008_223123",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 195,
+      "rouge_l": 1.0,
+      "gold": "WEST FREUNDLICH",
+      "prediction": "WEST FREUNDLICH",
+      "prompt": "im westen ist es freundlich"
+    },
+    {
+      "group": "best",
+      "index": 491,
+      "rouge_l": 1.0,
+      "gold": "NORDOST MEHR WOLKE REGEN",
+      "prediction": "NORDOST MEHR WOLKE REGEN",
+      "prompt": "richtung nordosten gibt es mehr wolken hier und da etwas regen"
+    },
+    {
+      "group": "best",
+      "index": 566,
+      "rouge_l": 1.0,
+      "gold": "SONST REGEN",
+      "prediction": "SONST REGEN",
+      "prompt": "sonst regnet es zeitweise"
+    },
+    {
+      "group": "best",
+      "index": 703,
+      "rouge_l": 1.0,
+      "gold": "WETTER WIE-AUSSEHEN MORGEN MONTAG ACHTZEHN APRIL",
+      "prediction": "WETTER WIE-AUSSEHEN MORGEN MONTAG ACHTZEHN APRIL",
+      "prompt": "und nun die wettervorhersage für morgen montag den achtzehnten april"
+    },
+    {
+      "group": "best",
+      "index": 1630,
+      "rouge_l": 1.0,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT ABEND LIEB ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "worst",
+      "index": 2109,
+      "rouge_l": 0.0,
+      "gold": "JETZT SCHOEN ABEND TSCHUESS",
+      "prediction": "WUENSCHEN HOEHE SUED",
+      "prompt": "jetzt wünsche ich ihnen noch einen schönen abend"
+    },
+    {
+      "group": "worst",
+      "index": 391,
+      "rouge_l": 0.0,
+      "gold": "NACH MITTAG ABEND BISSCHEN REGEN NORD WEST",
+      "prediction": "NORDWEST SCHAUER KOENNEN",
+      "prompt": "gegen späten nachmittag oder abend gibt es wahrscheinlich die ersten regenschauer im nordwesten"
+    },
+    {
+      "group": "worst",
+      "index": 436,
+      "rouge_l": 0.0,
+      "gold": "WIND REGION",
+      "prediction": "STARK WEHEN KOENNEN SEHEN KOENNEN KOMMEN KOMMEN",
+      "prompt": "dazu weht ein starker wind vor allen dingen wieder über vorpommern aus südost"
+    },
+    {
+      "group": "worst",
+      "index": 470,
+      "rouge_l": 0.0,
+      "gold": "MILD WEHEN ICH",
+      "prediction": "LUFT KOMMEN",
+      "prompt": "sehr milde luft strömt zu uns"
+    },
+    {
+      "group": "worst",
+      "index": 515,
+      "rouge_l": 0.0,
+      "gold": "TRUEB DIESE BILD",
+      "prediction": "WOLKE MEHR TRINKEN KOENNEN",
+      "prompt": "es bleibt meist trüb wie auf diesem bild hier"
+    }
+  ]
+}

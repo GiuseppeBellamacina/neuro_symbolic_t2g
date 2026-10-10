@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completion Examples — baseline</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+  h1 { color: #333; font-size: 1.4em; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  th { background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }
+  tr.best { background: #f9fdf9; }
+  tr.worst { background: #fef9f9; }
+  tr:hover { background: #eef6ff; }
+  .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }
+  .prompt { max-width: 300px; color: #555; font-style: italic; }
+  .diff-del { color: #C44E52; text-decoration: line-through; }
+  .diff-add { color: #1a7a1a; font-weight: bold; }
+  .summary { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Completion Examples — baseline</h1>
+<p class="summary">10 examples (5 best, 5 worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  <th>Prompt</th>
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="best">
+    <td class="prompt">guten abend liebe zuschauer</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">GUT ABEND LIEB ZUSCHAUER</td>
+    <td class="mono">GUT ABEND LIEB ZUSCHAUER</td>
+</tr><tr class="best">
+    <td class="prompt">und nun die wettervorhersage für morgen dienstag den fünfundzwanzigsten mai</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI</td>
+    <td class="mono">JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI</td>
+</tr><tr class="best">
+    <td class="prompt">und nun die wettervorhersage für morgen samstag den zweiten april</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">JETZT WETTER WIE-AUSSEHEN MORGEN SAMSTAG ZWEITE APRIL</td>
+    <td class="mono">JETZT WETTER WIE-AUSSEHEN MORGEN SAMSTAG ZWEITE APRIL</td>
+</tr><tr class="best">
+    <td class="prompt">und nun die wettervorhersage für morgen freitag den achten oktober</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">JETZT WETTER WIE-AUSSEHEN MORGEN FREITAG ACHTE OKTOBER</td>
+    <td class="mono">JETZT WETTER WIE-AUSSEHEN MORGEN FREITAG ACHTE OKTOBER</td>
+</tr><tr class="best">
+    <td class="prompt">am samstag ist es wieder unbeständig</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">SAMSTAG WECHSELHAFT</td>
+    <td class="mono">SAMSTAG WECHSELHAFT</td>
+</tr><tr class="worst">
+    <td class="prompt">örtlich schauer oder gewitter die heftig sein können</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">WAHRSCHEINLICH SCHAUER GEWITTER STARK</td>
+    <td class="mono"><span class="diff-del">WAHRSCHEINLICH</span> <span class="diff-add">DIENSTAG</span> <span class="diff-del">SCHAUER</span> <span class="diff-add">OST</span> <span class="diff-del">GEWITTER</span> <span class="diff-add">REGION</span> <span class="diff-del">STARK</span> <span class="diff-add">SONNE</span> <span class="diff-add">WECHSELHAFT</span> <span class="diff-add">SONNE</span> <span class="diff-add">WOLKE</span> <span class="diff-add">HEFTIG</span> <span class="diff-add">REGEN</span></td>
+</tr><tr class="worst">
+    <td class="prompt">in den nächsten tagen geht es auf jeden fall winterlich weiter immer wieder mal mit etwas schnee</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">IM-VERLAUF BLEIBEN KALT ENORM SCHNEE KOENNEN</td>
+    <td class="mono"><span class="diff-del">IM-VERLAUF</span> <span class="diff-add">IN-KOMMEND</span> <span class="diff-del">BLEIBEN</span> <span class="diff-add">WECHSELHAFT</span> <span class="diff-del">KALT</span> <span class="diff-add">SONNE</span> <span class="diff-del">ENORM</span> <span class="diff-add">REGEN</span> <span class="diff-del">SCHNEE</span> <span class="diff-add">WECHSELHAFT</span> <span class="diff-del">KOENNEN</span> <span class="diff-add">MEHR</span> <span class="diff-add">SCHRANK</span> <span class="diff-add">NEU</span></td>
+</tr><tr class="worst">
+    <td class="prompt">die halten sich morgen recht zäh</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">MORGEN LANG BLEIBEN</td>
+    <td class="mono"><span class="diff-del">MORGEN</span> <span class="diff-add">ZU</span> <span class="diff-del">LANG</span> <span class="diff-add">HELL</span> <span class="diff-del">BLEIBEN</span></td>
+</tr><tr class="worst">
+    <td class="prompt">im verlauf kommt im norden und nordwesten teilweise kräftiger regen auf einzelne gewitter sind dabei</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">NORD NORDWEST MEISTENS REGEN AUCH MOEGLICH BISSCHEN GEWITTER</td>
+    <td class="mono"><span class="diff-del">NORD</span> <span class="diff-add">MORGENS</span> <span class="diff-del">NORDWEST</span> <span class="diff-add">WOLKE</span> <span class="diff-del">MEISTENS</span> <span class="diff-add">CHAOS</span> <span class="diff-del">REGEN</span> <span class="diff-add">WETTER</span> <span class="diff-del">AUCH</span> <span class="diff-add">DABEI</span> <span class="diff-del">MOEGLICH</span> <span class="diff-add">IM-VERLAUF</span> <span class="diff-del">BISSCHEN</span> <span class="diff-add">NEU</span> <span class="diff-del">GEWITTER</span> <span class="diff-add">RUND-UM-DIE-UHR</span> <span class="diff-add">KRAEFTIG</span> <span class="diff-add">GRAD</span> <span class="diff-add">WETTER</span></td>
+</tr><tr class="worst">
+    <td class="prompt">morgen scheint dann wieder überall die sonne</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">MORGEN UEBERWIEGEND SONNE</td>
+    <td class="mono"><span class="diff-del">MORGEN</span> <span class="diff-add">SCHON</span> <span class="diff-del">UEBERWIEGEND</span> <span class="diff-add">IM-VERLAUF</span> <span class="diff-del">SONNE</span></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

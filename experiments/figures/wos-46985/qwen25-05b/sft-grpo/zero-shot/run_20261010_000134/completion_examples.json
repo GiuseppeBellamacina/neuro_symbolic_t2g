@@ -1,0 +1,86 @@
+{
+  "model": "run_20261010_000134",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 5,
+      "rouge_l": 1.0,
+      "gold": "Medical Menopause",
+      "prediction": "Medical Menopause",
+      "prompt": "An association between increased serum concentrations of perfluoroalkyl substances (PFAS) such as perfluorooctane sulfonate (PFOS) and perfluorooctanoate (PFOA) and early menopause has been reported (..."
+    },
+    {
+      "group": "best",
+      "index": 10,
+      "rouge_l": 1.0,
+      "gold": "Medical Menopause",
+      "prediction": "Medical Menopause",
+      "prompt": "Reproduction is essential for the survival of the species and is influenced by external factors such as smoking and exposure to chemotherapy as well as chronic disorders such as obesity and autoimmuni..."
+    },
+    {
+      "group": "best",
+      "index": 25,
+      "rouge_l": 1.0,
+      "gold": "CS Image_processing",
+      "prediction": "CS Image_processing",
+      "prompt": "Controlling the geometric parameters of the weld pool and the weld bead is the main method for getting better welding quality in industrial robotic welding. This paper presents the technology on a rea..."
+    },
+    {
+      "group": "best",
+      "index": 35,
+      "rouge_l": 1.0,
+      "gold": "Medical HIV/AIDS",
+      "prediction": "Medical HIV/AIDS",
+      "prompt": "Purpose of reviewIn 2015, the WHO urged countries to provide ART to all people living with HIV, irrespective of their CD4(+) cell count, this new recommendation supports the Joint United Nations Progr..."
+    },
+    {
+      "group": "best",
+      "index": 45,
+      "rouge_l": 1.0,
+      "gold": "ECE Electrical_generator",
+      "prediction": "ECE Electrical_generator",
+      "prompt": "Charge sharing is the fractional collection of the charge cloud generated in a detector by two or more adjacent pixels. It may lead to excessive or inefficient registration of hits comparing to the nu..."
+    },
+    {
+      "group": "worst",
+      "index": 15,
+      "rouge_l": 0.0,
+      "gold": "Psychology Media_violence",
+      "prediction": "Medical Parenting",
+      "prompt": "OBJECTIVE. Despite concerns about exposure to violent media, there are few data on youth exposure to violent movies. In this study we examined such exposure among young US adolescents. METHODS. We use..."
+    },
+    {
+      "group": "worst",
+      "index": 30,
+      "rouge_l": 0.0,
+      "gold": "Psychology Attention",
+      "prediction": "Medical Mental_Health",
+      "prompt": "The Great East Japan Earthquake (GEJE) and subsequent tsunamis that occurred in 2011 caused extensive and severe structural damage and interrupted numerous research activities; however, the majority o..."
+    },
+    {
+      "group": "worst",
+      "index": 40,
+      "rouge_l": 0.0,
+      "gold": "Medical HIV/AIDS",
+      "prediction": "biochemistry Immunology",
+      "prompt": "Objective: This study evaluates the potential of gingival crevicular fluid and serum cytokines as HIV stage biomarkers. Methods: Gingival crevicular fluid (GCF) and serum samples from 78 HIV-positive ..."
+    },
+    {
+      "group": "worst",
+      "index": 80,
+      "rouge_l": 0.0,
+      "gold": "CS Machine_learning",
+      "prediction": "Psychology Depression",
+      "prompt": "Objective: Accurate outcome prediction models for patients with mild traumatic brain injury (MTBI) are key for prognostic assessment and clinical decision-making. Using multivariate machine learning, ..."
+    },
+    {
+      "group": "worst",
+      "index": 150,
+      "rouge_l": 0.0,
+      "gold": "Psychology Prenatal_development",
+      "prediction": "Medical Menopause",
+      "prompt": "Ultrasound technology and hormone assays have provided a better understanding of folliculogenesis and ovulation in South American camelids in the last two decades. Females exhibit waves of ovarian fol..."
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "model": "run_20261009_052104",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 43,
+      "rouge_l": 1.0,
+      "gold": "PER:Hassan_Abbas PER:Bitar",
+      "prediction": "PER:Hassan_Abbas PER:Bitar",
+      "prompt": "Defender Hassan Abbas rose to intercept a long ball into the area in the 84th minute but only managed to divert it into the top corner of Bitar 's goal ."
+    },
+    {
+      "group": "best",
+      "index": 75,
+      "rouge_l": 1.0,
+      "gold": "PER:Coste",
+      "prediction": "PER:Coste",
+      "prompt": "Coste said he had approached the player two months ago about a comeback ."
+    },
+    {
+      "group": "best",
+      "index": 81,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "I think now is the right time for him to return . \""
+    },
+    {
+      "group": "best",
+      "index": 125,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "freestyle skiing moguls competition on Friday :"
+    },
+    {
+      "group": "best",
+      "index": 134,
+      "rouge_l": 1.0,
+      "gold": "PER:Jesper_Ronnback LOC:Sweden",
+      "prediction": "PER:Jesper_Ronnback LOC:Sweden",
+      "prompt": "1. Jesper Ronnback ( Sweden ) 25.76 points"
+    },
+    {
+      "group": "worst",
+      "index": 10,
+      "rouge_l": 0.0,
+      "gold": "LOC:Japan LOC:Syria MISC:Asian_Cup",
+      "prediction": "NONE",
+      "prompt": "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday ."
+    },
+    {
+      "group": "worst",
+      "index": 25,
+      "rouge_l": 0.0,
+      "gold": "LOC:Uzbekistan MISC:Asian_Games",
+      "prediction": "NONE",
+      "prompt": "Despite winning the Asian Games title two years ago , Uzbekistan are in the finals as outsiders ."
+    },
+    {
+      "group": "worst",
+      "index": 30,
+      "rouge_l": 0.0,
+      "gold": "PER:Takuya_Takagi PER:Hiroshige_Yanagimoto PER:Salem_Bitar MISC:Syrian",
+      "prediction": "NONE",
+      "prompt": "Takuya Takagi scored the winner in the 88th minute , rising to head a Hiroshige Yanagimoto cross towards the Syrian goal which goalkeeper Salem Bitar appeared to have covered but then allowed to slip ..."
+    },
+    {
+      "group": "worst",
+      "index": 39,
+      "rouge_l": 0.0,
+      "gold": "LOC:Syria",
+      "prediction": "PER:costly MISC:four_minutes",
+      "prompt": "It was the second costly blunder by Syria in four minutes ."
+    },
+    {
+      "group": "worst",
+      "index": 70,
+      "rouge_l": 0.0,
+      "gold": "PER:Cuttitta PER:George_Coste LOC:England LOC:Twickenham",
+      "prediction": "NONE",
+      "prompt": "Cuttitta , who trainer George Coste said was certain to play on Saturday week , was named in a 21-man squad lacking only two of the team beaten 54-21 by England at Twickenham last month ."
+    }
+  ]
+}

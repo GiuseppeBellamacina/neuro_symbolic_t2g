@@ -1,6 +1,6 @@
 # Campaign Report — phoenix-2014t / qwen25-05b
 
-Generated: 2026-10-08T13:52:59+00:00
+Generated: 2026-10-10T12:57:03+00:00
 
 > Complementare ad `ablation-summary`: qui i run sono appaiati
 > per fattore sperimentale. **Legge i JSON di eval: non
@@ -25,10 +25,19 @@ Generated: 2026-10-08T13:52:59+00:00
 | `reward_stack` | NOT deducible from path / JSON stamp / payload fields (it lives in the resolved config, which eval JSONs do not embed) | always unknown, declared in every pairing caveat |
 | `rl_objective` | NOT deducible from path / JSON stamp / payload fields | always unknown, declared in every pairing caveat |
 
-## Selected runs (20 typologies, latest per typology)
+## Selected runs (29 typologies, latest per typology)
 
 | Run | method | variant | prompting | grammar | Date | Prompts | metrics_version |
 |---|---|---|---|---|---|---|---|
+| `phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar-zero-shot/run_20261008_192559/eval_baseline.json` | baseline | phoenix-2014t-qwen25-05b-ablations-decoding-no-grammar-zero-shot | zero-shot | unknown | 2026-10-08 | 642 | 2 |
+| `phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar-zero-shot/run_20261008_192559/eval_final.json` | unknown | phoenix-2014t-qwen25-05b-ablations-decoding-no-grammar-zero-shot | zero-shot | unknown | 2026-10-08 | 642 | 2 |
+| `phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar/run_20261008_163600/eval_baseline.json` | baseline | phoenix-2014t-qwen25-05b-ablations-decoding-no-grammar | few-shot | unknown | 2026-10-08 | 642 | 2 |
+| `phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar/run_20261008_163600/eval_final.json` | unknown | phoenix-2014t-qwen25-05b-ablations-decoding-no-grammar | few-shot | unknown | 2026-10-08 | 642 | 2 |
+| `phoenix-2014t/qwen25-05b/ablations/objectives/sft-allowed-mass/run_20261008_223123/eval_baseline.json` | baseline | phoenix-2014t-qwen25-05b-ablations-objectives-sft-allowed-mass | zero-shot | unknown | 2026-10-08 | 642 | 2 |
+| `phoenix-2014t/qwen25-05b/ablations/objectives/sft-allowed-mass/run_20261008_223123/eval_final.json` | unknown | phoenix-2014t-qwen25-05b-ablations-objectives-sft-allowed-mass | zero-shot | unknown | 2026-10-08 | 642 | 2 |
+| `phoenix-2014t/qwen25-05b/baseline/few-shot/run_20261008_161559/eval_zero_shot.json` | unknown | phoenix-2014t-qwen25-05b-baseline-few-shot | few-shot | unknown | 2026-10-08 | 642 | 2 |
+| `phoenix-2014t/qwen25-05b/baseline/zero-shot-no-grammar/run_20261008_162552/eval_zero_shot.json` | unknown | phoenix-2014t-qwen25-05b-baseline-zero-shot-no-grammar | zero-shot | unknown | 2026-10-08 | 642 | 2 |
+| `phoenix-2014t/qwen25-05b/baseline/zero-shot/run_20261008_155734/eval_zero_shot.json` | unknown | phoenix-2014t-qwen25-05b-baseline-zero-shot | zero-shot | unknown | 2026-10-08 | 642 | 2 |
 | `phoenix-2014t/qwen25-05b/grpo/few-shot/run_20261004_043119/eval_baseline.json` | baseline | phoenix-2014t-qwen25-05b-grpo-few-shot | few-shot | unknown | 2026-10-04 | 642 | 2 |
 | `phoenix-2014t/qwen25-05b/grpo/few-shot/run_20261004_043119/eval_baseline__zero-shot.json` | baseline | phoenix-2014t-qwen25-05b-grpo-few-shot | zero-shot | unknown | 2026-10-04 | 642 | 2 |
 | `phoenix-2014t/qwen25-05b/grpo/few-shot/run_20261004_043119/eval_final.json` | unknown | phoenix-2014t-qwen25-05b-grpo-few-shot | few-shot | unknown | 2026-10-04 | 642 | 2 |
@@ -56,11 +65,17 @@ One row per cell (its path under `results/`), one column per prompting mode that
 
 | cell | zero-shot | few-shot |
 |---|---|---|
+| phoenix-2014t/qwen25-05b/baseline/few-shot | — | 0.3103 |
+| phoenix-2014t/qwen25-05b/baseline/zero-shot | 0.0961 | — |
+| phoenix-2014t/qwen25-05b/baseline/zero-shot-no-grammar | 0.1528 | — |
 | phoenix-2014t/qwen25-05b/sft/zero-shot | 0.4854 | 0.4121 |
 | phoenix-2014t/qwen25-05b/sft-grpo/few-shot | 0.5106 | 0.5039 |
 | phoenix-2014t/qwen25-05b/sft-grpo/zero-shot | 0.5274 | 0.4460 |
 | phoenix-2014t/qwen25-05b/grpo/few-shot | 0.1337 | 0.3601 |
 | phoenix-2014t/qwen25-05b/grpo/zero-shot | 0.2030 | 0.3312 |
+| phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar | — | 0.3550 |
+| phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar-zero-shot | 0.2898 | — |
+| phoenix-2014t/qwen25-05b/ablations/objectives/sft-allowed-mass | 0.4819 | — |
 
 ## phoenix-2014t — all metrics
 
@@ -68,6 +83,9 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 
 | cell | prompting | ROUGE-L | Valid ROUGE-L | Exact Match | Non-copy Tok Acc | Pass@1 | Validity | BLEU (corpus) | BLEU (sent) | chrF2 (corpus) | chrF2 (sent) | Gloss F1 (mic) | Gloss F1 (sent) |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| phoenix-2014t/qwen25-05b/baseline/few-shot | few-shot | 0.3103 | 0.3090 | 0.0106 | 0.2923 | 0.4424 | 0.9956 | 0.0599 | 0.0841 | 32.2282 | 32.5102 | 0.3194 | 0.3410 |
+| phoenix-2014t/qwen25-05b/baseline/zero-shot | zero-shot | 0.0961 | 0.0921 | 0.0000 | 0.1083 | 0.0732 | 0.9586 | 0.0023 | 0.0150 | 17.4805 | 17.6241 | 0.0856 | 0.0999 |
+| phoenix-2014t/qwen25-05b/baseline/zero-shot-no-grammar | zero-shot | 0.1528 | 0.0000 | 0.0000 | 0.0000 | 0.1573 | 0.0000 | 0.0000 | 0.0000 | 0.1994 | 0.1979 | 0.1009 | 0.1094 |
 | phoenix-2014t/qwen25-05b/sft/zero-shot | zero-shot | 0.4854 | 0.4839 | 0.0184 | 0.3812 | 0.7913 | 0.9969 | 0.1349 | 0.1418 | 42.6928 | 42.5937 | 0.5175 | 0.5195 |
 | phoenix-2014t/qwen25-05b/sft/zero-shot | few-shot | 0.4121 | 0.4109 | 0.0103 | 0.3861 | 0.6994 | 0.9969 | 0.0936 | 0.1085 | 39.8081 | 39.7372 | 0.4465 | 0.4533 |
 | phoenix-2014t/qwen25-05b/sft-grpo/few-shot | zero-shot | 0.5106 | 0.5105 | 0.0227 | 0.4183 | 0.8427 | 0.9997 | 0.1538 | 0.1521 | 45.2330 | 44.9755 | 0.5513 | 0.5486 |
@@ -78,6 +96,9 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 | phoenix-2014t/qwen25-05b/grpo/few-shot | few-shot | 0.3601 | 0.3598 | 0.0162 | 0.3325 | 0.5654 | 0.9991 | 0.0874 | 0.1023 | 35.1035 | 35.1132 | 0.3901 | 0.3979 |
 | phoenix-2014t/qwen25-05b/grpo/zero-shot | zero-shot | 0.2030 | 0.2030 | 0.0003 | 0.1658 | 0.2383 | 0.9997 | 0.0112 | 0.0385 | 22.3499 | 22.4535 | 0.2173 | 0.2250 |
 | phoenix-2014t/qwen25-05b/grpo/zero-shot | few-shot | 0.3312 | 0.3312 | 0.0146 | 0.2711 | 0.4938 | 1.0000 | 0.0794 | 0.0963 | 31.2445 | 31.4494 | 0.3564 | 0.3617 |
+| phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar | few-shot | 0.3550 | 0.3520 | 0.0165 | 0.3339 | 0.5685 | 0.9916 | 0.0840 | 0.0987 | 35.2518 | 35.2276 | 0.3867 | 0.3914 |
+| phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar-zero-shot | zero-shot | 0.2898 | 0.0000 | 0.0000 | 0.0000 | 0.4299 | 0.0000 | 0.0000 | 0.0000 | 0.3499 | 0.3434 | 0.0901 | 0.0942 |
+| phoenix-2014t/qwen25-05b/ablations/objectives/sft-allowed-mass | zero-shot | 0.4819 | 0.4810 | 0.0178 | 0.3709 | 0.7975 | 0.9981 | 0.1313 | 0.1401 | 42.4343 | 42.3137 | 0.5118 | 0.5143 |
 
 ## Paired comparisons — one table per factor
 
@@ -252,6 +273,25 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 - ⚠️ HIGHLIGHT: same model evaluated in both prompting modes — how much does it depend on the prompt as a crutch?
 - ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
 
+**prompting (cross-run)** — `phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar/run_20261008_163600/eval_baseline.json` (2026-10-08, few-shot, unknown) → `phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar-zero-shot/run_20261008_192559/eval_baseline.json` (2026-10-08, zero-shot, unknown)
+
+| Metric | A | B | Δ (B−A) | Interpretation |
+|---|---|---|---|---|
+| ROUGE-L | 0.2996 | 0.1528 | -0.1467 | above noise threshold |
+| Valid ROUGE-L | 0.2522 | 0.0000 | -0.2522 | above noise threshold |
+| Exact Match | 0.0100 | 0.0000 | -0.0100 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| Non-copy Tok Acc | 0.2661 | 0.0000 | -0.2661 | above noise threshold |
+| Pass@1 | 0.4470 | 0.1573 | -0.2897 | above noise threshold |
+| Validity | 0.8421 | 0.0000 | -0.8421 | above noise threshold |
+| BLEU (corpus) | 0.0591 | 0.0000 | -0.0591 | above noise threshold |
+| BLEU (sent) | 0.0817 | 0.0000 | -0.0817 | above noise threshold |
+| chrF2 (corpus) | 31.7592 | 0.1994 | -31.5598 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 32.1165 | 0.1979 | -31.9187 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.3104 | 0.1009 | -0.2095 | above noise threshold |
+| Gloss F1 (sent) | 0.3267 | 0.1094 | -0.2174 | above noise threshold |
+- ⚠️ cross-run comparison: checkpoint identity NOT guaranteed
+- ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
+
 🔴 **prompt-dependence (dual eval, same checkpoint)** — `phoenix-2014t/qwen25-05b/sft-grpo/zero-shot/run_20261004_112601/eval_final__few-shot.json` (2026-10-04, few-shot, unknown) → `phoenix-2014t/qwen25-05b/sft-grpo/zero-shot/run_20261004_112601/eval_final.json` (2026-10-04, zero-shot, unknown)
 
 | Metric | A | B | Δ (B−A) | Interpretation |
@@ -347,6 +387,44 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 - ⚠️ HIGHLIGHT: same model evaluated in both prompting modes — how much does it depend on the prompt as a crutch?
 - ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
 
+**prompting (cross-run)** — `phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar/run_20261008_163600/eval_final.json` (2026-10-08, few-shot, unknown) → `phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar-zero-shot/run_20261008_192559/eval_final.json` (2026-10-08, zero-shot, unknown)
+
+| Metric | A | B | Δ (B−A) | Interpretation |
+|---|---|---|---|---|
+| ROUGE-L | 0.3550 | 0.2898 | -0.0652 | above noise threshold |
+| Valid ROUGE-L | 0.3520 | 0.0000 | -0.3520 | above noise threshold |
+| Exact Match | 0.0165 | 0.0000 | -0.0165 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| Non-copy Tok Acc | 0.3339 | 0.0000 | -0.3339 | above noise threshold |
+| Pass@1 | 0.5685 | 0.4299 | -0.1386 | above noise threshold |
+| Validity | 0.9916 | 0.0000 | -0.9916 | above noise threshold |
+| BLEU (corpus) | 0.0840 | 0.0000 | -0.0840 | above noise threshold |
+| BLEU (sent) | 0.0987 | 0.0000 | -0.0987 | above noise threshold |
+| chrF2 (corpus) | 35.2518 | 0.3499 | -34.9019 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 35.2276 | 0.3434 | -34.8842 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.3867 | 0.0901 | -0.2966 | above noise threshold |
+| Gloss F1 (sent) | 0.3914 | 0.0942 | -0.2973 | above noise threshold |
+- ⚠️ cross-run comparison: checkpoint identity NOT guaranteed
+- ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
+
+**prompting (cross-run)** — `phoenix-2014t/qwen25-05b/ablations/objectives/sft-allowed-mass/run_20261008_223123/eval_final.json` (2026-10-08, zero-shot, unknown) → `phoenix-2014t/qwen25-05b/baseline/few-shot/run_20261008_161559/eval_zero_shot.json` (2026-10-08, few-shot, unknown)
+
+| Metric | A | B | Δ (B−A) | Interpretation |
+|---|---|---|---|---|
+| ROUGE-L | 0.4819 | 0.3103 | -0.1715 | above noise threshold |
+| Valid ROUGE-L | 0.4810 | 0.3090 | -0.1720 | above noise threshold |
+| Exact Match | 0.0178 | 0.0106 | -0.0072 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| Non-copy Tok Acc | 0.3709 | 0.2923 | -0.0785 | above noise threshold |
+| Pass@1 | 0.7975 | 0.4424 | -0.3551 | above noise threshold |
+| Validity | 0.9981 | 0.9956 | -0.0025 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| BLEU (corpus) | 0.1313 | 0.0599 | -0.0714 | above noise threshold |
+| BLEU (sent) | 0.1401 | 0.0841 | -0.0560 | above noise threshold |
+| chrF2 (corpus) | 42.4343 | 32.2282 | -10.2060 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 42.3137 | 32.5102 | -9.8035 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.5118 | 0.3194 | -0.1924 | above noise threshold |
+| Gloss F1 (sent) | 0.5143 | 0.3410 | -0.1733 | above noise threshold |
+- ⚠️ cross-run comparison: checkpoint identity NOT guaranteed
+- ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
+
 ### Factor: `grammar`
 
 **No paired comparison available.** 6 group(s) with 2+ runs but no pair with a known, differing value of this factor
@@ -355,7 +433,7 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 ## Missing paired comparisons (declared, not fabricated)
 
 - **`grammar`**: 6 group(s) with 2+ runs but no pair with a known, differing value of this factor.
-  Available typologies: `g|r|a|m|m|a|r|=|u|n|k|n|o|w|n`
+  Available typologies: `grammar=unknown`
 
 ## Figures
 

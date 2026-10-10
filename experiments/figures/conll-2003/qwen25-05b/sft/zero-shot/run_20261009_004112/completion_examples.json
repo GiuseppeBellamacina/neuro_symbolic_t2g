@@ -1,0 +1,86 @@
+{
+  "model": "run_20261009_004112",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 0,
+      "rouge_l": 1.0,
+      "gold": "PER:Nadim_Ladki",
+      "prediction": "PER:Nadim_Ladki",
+      "prompt": "Nadim Ladki"
+    },
+    {
+      "group": "best",
+      "index": 5,
+      "rouge_l": 1.0,
+      "gold": "LOC:AL-AIN LOC:United_Arab_Emirates",
+      "prediction": "LOC:AL-AIN LOC:United_Arab_Emirates",
+      "prompt": "AL-AIN , United Arab Emirates 1996-12-06"
+    },
+    {
+      "group": "best",
+      "index": 10,
+      "rouge_l": 1.0,
+      "gold": "LOC:Japan LOC:Syria MISC:Asian_Cup",
+      "prediction": "LOC:Japan LOC:Syria MISC:Asian_Cup",
+      "prompt": "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday ."
+    },
+    {
+      "group": "best",
+      "index": 15,
+      "rouge_l": 1.0,
+      "gold": "LOC:China LOC:Uzbekistan",
+      "prediction": "LOC:China LOC:Uzbekistan",
+      "prompt": "But China saw their luck desert them in the second match of the group , crashing to a surprise 2-0 defeat to newcomers Uzbekistan ."
+    },
+    {
+      "group": "best",
+      "index": 20,
+      "rouge_l": 1.0,
+      "gold": "PER:Oleg_Shatskiku",
+      "prediction": "PER:Oleg_Shatskiku",
+      "prompt": "Oleg Shatskiku made sure of the win in injury time , hitting an unstoppable left foot shot from just outside the area ."
+    },
+    {
+      "group": "worst",
+      "index": 719,
+      "rouge_l": 0.0,
+      "gold": "MISC:World_Series",
+      "prediction": "NONE",
+      "prompt": "Scoreboard in the World Series"
+    },
+    {
+      "group": "worst",
+      "index": 1045,
+      "rouge_l": 0.0,
+      "gold": "ORG:League",
+      "prediction": "NONE",
+      "prompt": "League teams after games played on Thursday ( tabulate under"
+    },
+    {
+      "group": "worst",
+      "index": 1050,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "MISC:NORTHEAST_DIVISION",
+      "prompt": "NORTHEAST DIVISION"
+    },
+    {
+      "group": "worst",
+      "index": 1180,
+      "rouge_l": 0.0,
+      "gold": "ORG:League",
+      "prediction": "NONE",
+      "prompt": "League games on Thursday ( home team in CAPS ) :"
+    },
+    {
+      "group": "worst",
+      "index": 1245,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "MISC:EASTERN_CONFERENCE",
+      "prompt": "EASTERN CONFERENCE"
+    }
+  ]
+}

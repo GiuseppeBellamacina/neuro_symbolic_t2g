@@ -1,0 +1,86 @@
+{
+  "model": "run_20261008_192559",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 195,
+      "rouge_l": 1.0,
+      "gold": "WEST FREUNDLICH",
+      "prediction": "west, freundlich",
+      "prompt": "im westen ist es freundlich"
+    },
+    {
+      "group": "best",
+      "index": 247,
+      "rouge_l": 0.8571,
+      "gold": "HEUTE NACHT SINKEN VIERZEHN BIS SIEBEN GRAD",
+      "prediction": "temperaturen, Nacht, sinken, vierzehn bis sieben, Grad",
+      "prompt": "in der nacht sinken die temperaturen auf vierzehn bis sieben grad"
+    },
+    {
+      "group": "best",
+      "index": 1147,
+      "rouge_l": 0.8571,
+      "gold": "SCHOTTLAND WOLKE TIEF NORWEGEN",
+      "prediction": "schottland, tief, norwegen",
+      "prompt": "von schottland zieht ein tief nach norwegen"
+    },
+    {
+      "group": "best",
+      "index": 1620,
+      "rouge_l": 0.8333,
+      "gold": "WETTER MORGEN SIE DIENSTAG VIERZEHN SEPTEMBER",
+      "prediction": "wetter, vorhersage, morgen, Dienstag, vierzehn, September",
+      "prompt": "und nun die wettervorhersage für morgen dienstag den vierzehnten september"
+    },
+    {
+      "group": "best",
+      "index": 2160,
+      "rouge_l": 0.8333,
+      "gold": "JETZT WETTER MORGEN DONNERSTAG SIEBZEHN DEZEMBER",
+      "prediction": "wetter, vorhersage, morgen, donnerstag, siebzehn, Dezember",
+      "prompt": "und nun die wettervorhersage für morgen donnerstag den siebzehnten dezember"
+    },
+    {
+      "group": "worst",
+      "index": 25,
+      "rouge_l": 0.0,
+      "gold": "SONNTAG NAECHSTE NORDWEST WOLKE SONNE WOLKE GEWITTER REGEN DABEI",
+      "prediction": "sonnenschein, wolken, teil gewittrige schauerung",
+      "prompt": "am sonntag im nordwesten eine mischung aus sonne und wolken mit einigen zum teil gewittrigen schauern"
+    },
+    {
+      "group": "worst",
+      "index": 62,
+      "rouge_l": 0.0,
+      "gold": "DEUTSCH LAND SCHWACH DRUCK UNTERSCHIED",
+      "prediction": "Luftdruck\nLuftdruck\nLuftdruck\nLuftdruck\nLuftdruck",
+      "prompt": "in deutschland gibt es nur schwache luftdruckunterschiede"
+    },
+    {
+      "group": "worst",
+      "index": 67,
+      "rouge_l": 0.0,
+      "gold": "REGION FEUCHT REGION IX GEWITTER REGION",
+      "prediction": "mittelmeer, feuchte, luft, kräftige, wetter, teil",
+      "prompt": "vom mittelmeer fließt feuchte luft heran in der sich zum teil kräftige gewitter entwickeln können"
+    },
+    {
+      "group": "worst",
+      "index": 78,
+      "rouge_l": 0.0,
+      "gold": "NORD NACHT ANFANG ENORM SCHAUER GEWITTER DANN WOLKE VERSCHWINDEN",
+      "prediction": "north half, beginning of night, heavy gusts, thunder then clear, partly cloudy",
+      "prompt": "in der nordhälfte gibt es zu beginn der nacht noch einzelne heftige schauer und gewitter dann klar dass dort teilweise auf"
+    },
+    {
+      "group": "worst",
+      "index": 111,
+      "rouge_l": 0.0,
+      "gold": "SAMSTAG SUEDOST REGEN NORD DANN WIND STARK SONST REGEN IX TEILWEISE AUCH SONNE DABEI",
+      "prediction": "sammel, satt, west, öst, schnee, sonnen, heut",
+      "prompt": "am samstag regnet es im südosten und an der ostsee dort ist es teilweise windig sonst regnet es nur vereinzelt teilweise zeigt sich die sonne"
+    }
+  ]
+}

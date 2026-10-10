@@ -1,0 +1,86 @@
+{
+  "model": "baseline",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 1631,
+      "rouge_l": 0.8889,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT-ABEND LIEB EIN ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "best",
+      "index": 1042,
+      "rouge_l": 0.8889,
+      "gold": "LIEB ZUSCHAUER GUT ABEND",
+      "prediction": "LIEB EIN ZUSCHAUER GUT ABEND",
+      "prompt": "liebe zuschauer guten abend"
+    },
+    {
+      "group": "best",
+      "index": 1576,
+      "rouge_l": 0.6667,
+      "gold": "SAMSTAG NORD WIND",
+      "prediction": "NORD WIND SCHAETZEN",
+      "prompt": "am samstag im norden sehr windig"
+    },
+    {
+      "group": "best",
+      "index": 2120,
+      "rouge_l": 0.6667,
+      "gold": "IX MORGEN ZWEI ZWANZIG GRAD",
+      "prediction": "MORGEN ZEIT TAU ZWEI UND ZWANZIG GRAD",
+      "prompt": "dort morgen bis zweiundzwanzig grad"
+    },
+    {
+      "group": "best",
+      "index": 3110,
+      "rouge_l": 0.6667,
+      "gold": "NORDWEST WIND KOMMEN",
+      "prediction": "WIND NORDWEST WIND",
+      "prompt": "im westen und nordwesten frischer wind"
+    },
+    {
+      "group": "worst",
+      "index": 0,
+      "rouge_l": 0.0,
+      "gold": "REGEN SCHNEE REGION VERSCHWINDEN NORD REGEN KOENNEN REGION STERN KOENNEN SEHEN",
+      "prediction": "KRAEFTIG KRAEFTIG KAUM KAUM KRAEFTIG",
+      "prompt": "regen und schnee lassen an den alpen in der nacht nach im norden und nordosten fallen hier und da schauer sonst ist das klar"
+    },
+    {
+      "group": "worst",
+      "index": 5,
+      "rouge_l": 0.0,
+      "gold": "DONNERSTAG NORDWEST REGEN REGION SONNE WOLKE WECHSELHAFT DANN FREITAG AEHNLICH WETTER",
+      "prediction": "DAS-IST-ES IN-DIESE-WOCHE LIEB EIN-PAAR-TAGE WERDEN VON ZEIT DESHALB NEU ZWEI UND SECHZIG TUN NACH ZEIT DESHALB WERT EIN...",
+      "prompt": "am donnerstag regen in der nordhälfte in der südhälfte mal sonne mal wolken ähnliches wetter dann auch am freitag"
+    },
+    {
+      "group": "worst",
+      "index": 14,
+      "rouge_l": 0.0,
+      "gold": "KRAEFTIG AB MORGEN FRUEH MEISTENS SCHNEE SCHNEIEN KALT REGEN",
+      "prediction": "NORD METER ICH ZIEHEN EIN KRATZEN TYPISCH SACHSEN VOR GESCHWINDIGKEIT HIER STERN GEHEN UND ES-BEDEUTET SEHR EINFACH RUND...",
+      "prompt": "vom nordmeer zieht ein kräftiges tief heran und bringt uns ab den morgenstunden heftige schneefälle zum teil auch gefrierenden regen"
+    },
+    {
+      "group": "worst",
+      "index": 16,
+      "rouge_l": 0.0,
+      "gold": "WOCHENENDE SONNE SAMSTAG SCHOEN TEMPERATUR BIS SIEBZEHN GRAD REGION",
+      "prediction": "SCHWACH TUN ES-BEDEUTET EIN WENIG HEFTIG TUN UND HAGEL LIEB ERLEICHERT TUN MACHEN SCHRANK EIN TUN ZURUECK TUN BESONDERS ...",
+      "prompt": "sonnig geht es auch ins wochenende samstag ein herrlicher tag mit temperaturen bis siebzehn grad hier im westen"
+    },
+    {
+      "group": "worst",
+      "index": 30,
+      "rouge_l": 0.0,
+      "gold": "WAHRSCHEINLICH SCHAUER GEWITTER STARK",
+      "prediction": "OBER FLACH SEHR ODER GEBIRGE HEFTIG SIE BEIDE KOMMEN KAUM",
+      "prompt": "örtlich schauer oder gewitter die heftig sein können"
+    }
+  ]
+}
