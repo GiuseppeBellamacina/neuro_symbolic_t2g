@@ -139,6 +139,32 @@ Da qui seguono tre conseguenze che strutturano il resto della relazione:
         l'ingresso (Capitolo~\ref{cap:metriche}).
 \end{enumerate}
 
+\section{Oltre il gloss ASL}
+
+Il text-to-gloss su ASLG-PC12 è il banco di prova di una domanda più generale:
+se il GRPO possa allineare un modello a produrre \emph{uscite strutturate che
+rispettano vincoli rigidi}, con o senza supporti (esempi nel prompt, Trie in
+decodifica, SFT preliminare). Poiché ASLG-PC12 è saturo, il
+Capitolo~\ref{cap:altri-dataset} porta la stessa pipeline su tre compiti in cui
+il margine esiste e la struttura dell'uscita cambia:
+
+\begin{center}
+\footnotesize
+\begin{tabular}{lll}
+\toprule
+Compito & Ingresso & Uscita \\
+\midrule
+gloss DGS (PHOENIX) & \texttt{am donnerstag regen \dots} & \texttt{DONNERSTAG REGEN \dots} \\
+entità (CoNLL) & \texttt{Dominick Gauthier ( Canada )} & \texttt{PER:Dominick\_Gauthier LOC:Canada} \\
+classificazione (WOS) & abstract scientifico & \texttt{CS Software\_engineering} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Ciascuno ha un vincolo di uscita proprio: il vocabolario chiuso per il gloss,
+un Trie costruito dalla frase stessa per le entità, le sole coppie (dominio,
+area) ammesse per la classificazione.
+
 \section{Contributi}
 
 Al netto del risultato negativo, il lavoro produce alcuni contributi
@@ -166,7 +192,14 @@ verificabili:
         ammessa funziona (SFT con massa ammessa: ROUGE-L $0{,}9769$, exact match
         $0{,}8341$, contro $0{,}9681$ e $0{,}7662$ dell'SFT semplice), mentre
         l'obiettivo strutturato fallisce il proprio controllo ($0{,}9430$ e
-        $0{,}6053$).
+        $0{,}6053$);
+  \item su tre dataset aggiuntivi (Capitolo~\ref{cap:altri-dataset}), la
+        misura di \textbf{quando il GRPO impara una struttura senza Trie}: con
+        esempi nel prompt sì (validity $0{,}99$ su PHOENIX-2014T), senza no
+        (validity fra $0$ e $0{,}14$ su tutti e tre);
+  \item un caso documentato di \textbf{reward hacking sotto vincolo}: su
+        CoNLL-2003 il GRPO impara a ripetere ogni entità con tutti i tipi,
+        e la correzione va nella grammatica, non nella reward.
 \end{itemize}
 
 \section{Come leggere questa relazione}
@@ -180,6 +213,8 @@ successivi seguono la pipeline: dati (Capitolo~\ref{cap:dataset}), modello
 (Capitolo~\ref{cap:reward}), il componente simbolico
 (Capitolo~\ref{cap:decoding}), gli obiettivi ausiliari
 (Capitolo~\ref{cap:ausiliari}), le metriche (Capitolo~\ref{cap:metriche}) e i
-risultati (Capitolo~\ref{cap:risultati}). Gli ultimi tre capitoli riguardano
-l'infrastruttura di calcolo, l'organizzazione del codice e le conclusioni.
+risultati (Capitolo~\ref{cap:risultati}). Il
+Capitolo~\ref{cap:altri-dataset} estende l'analisi a PHOENIX-2014T, CoNLL-2003
+e WOS-46985. Gli ultimi due capitoli riguardano l'organizzazione del codice e
+le conclusioni.
 I valori numerici riportati sono tutti misurati.

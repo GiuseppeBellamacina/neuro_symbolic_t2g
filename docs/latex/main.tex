@@ -72,6 +72,15 @@ generazione di gloss?'' --- non è ben posta su questo corpus, e che i numeri
 pubblicati in letteratura su ASLG-PC12 vanno riletti alla luce di tale
 saturazione.
 
+La stessa pipeline è poi portata su tre compiti con margine reale: la
+traduzione in gloss della lingua dei segni tedesca (PHOENIX-2014T), il
+riconoscimento di entità (CoNLL-2003) e la classificazione gerarchica di
+abstract scientifici (WOS-46985), ciascuno con un vincolo di uscita proprio.
+Il risultato trasversale è che il GRPO \emph{rinforza} una struttura che il
+modello già produce, ma non la scopre: senza Trie e senza esempi nel prompt la
+validity resta vicina a zero su tutti e tre; e che, con un vincolo attivo, il
+GRPO trova e sfrutta i varchi che la grammatica lascia aperti.
+
 La relazione è scritta in modo autocontenuto: ogni nozione teorica di
 complessità media viene introdotta prima di essere usata.
 \end{abstract}
@@ -89,6 +98,7 @@ complessità media viene introdotta prima di essere usata.
 \input{capitoli/09_obiettivi_ausiliari}
 \input{capitoli/10_metriche_valutazione}
 \input{capitoli/11_risultati}
+\input{capitoli/12_altri_dataset}
 \input{capitoli/13_codebase}
 \input{capitoli/14_conclusioni}
 

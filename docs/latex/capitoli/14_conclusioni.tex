@@ -73,16 +73,28 @@ grafo permutato ($0{,}9464$ / $0{,}6078$) è pari o migliore di quella con il
 grafo vero ($0{,}9430$ / $0{,}6053$), ed entrambe sono peggiori dell'SFT.
 L'informazione sulle transizioni non contribuisce, e l'obiettivo va abbandonato.
 
+\subsection{Che cosa aggiungono gli altri dataset}
+
+Su PHOENIX-2014T, CoNLL-2003 e WOS-46985 (Capitolo~\ref{cap:altri-dataset}) la
+gerarchia delle celle è la stessa di ASLG-PC12: l'SFT fa quasi tutto, il GRPO
+dopo l'SFT aggiunge due-quattro punti di exact match, il GRPO dal modello base
+resta lontano. Due risultati sono nuovi e riguardano direttamente la domanda
+sui vincoli. Primo: \textbf{senza Trie il GRPO impara il formato solo se il
+prompt contiene esempi} (validity $0{,}99$ few-shot contro $0$ zero-shot su
+PHOENIX); se nessun candidato è valido, la reward di formato è costante e non
+dà gradiente. Secondo: \textbf{con un vincolo attivo il GRPO sfrutta i varchi
+della grammatica}: su CoNLL ha imparato a ripetere ogni entità con tutti i tipi,
+dimezzando l'exact match mentre ROUGE-L saliva. La correzione è stata un vincolo
+più stretto, non una reward diversa.
+
 \section{Lavoro futuro}
 
 \subsection{Cambiare corpus}
 
-La direzione più importante è valutare il compito su PHOENIX-2014T, dove i
-migliori risultati riportati sono intorno a ROUGE-L
-$55{,}18$~\cite{ouargani2023t2g} e dunque esiste un margine reale su cui le
-domande sul reinforcement learning diventano rispondibili. Il \emph{caveat} è che
-il corpus è tedesco e riguarda la lingua dei segni tedesca: cambiano lingua
-sorgente, modello base e analisi degli artefatti. Una direzione più radicale,
+Il passo su PHOENIX-2014T è stato fatto (Capitolo~\ref{cap:altri-dataset}):
+il margine esiste, ma con un modello da mezzo miliardo di parametri l'exact
+match resta sotto il $3\%$, e il prossimo passo naturale è un modello più
+grande. Una direzione più radicale,
 coerente con la critica al gloss come rappresentazione~\cite{yinread2020stmc,yin2021including},
 è abbandonare l'intermedio testuale, applicando il rinforzo alla traduzione
 diretta con segnali di qualità visivi~\cite{rao2025rvlf}.

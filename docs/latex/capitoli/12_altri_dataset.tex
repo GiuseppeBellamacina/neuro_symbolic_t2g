@@ -1,0 +1,423 @@
+\chapter{Oltre ASLG-PC12: altri dataset e altri compiti}
+\label{cap:altri-dataset}
+
+I capitoli precedenti mostrano che su ASLG-PC12 la domanda ``il GRPO aiuta?'' ha
+poco margine per una risposta: il corpus è sintetico e una regola lo satura
+(sezione~\ref{sec:sintetico}). Il progetto, però, non riguarda il gloss in sé: è
+la fase iniziale di una domanda più generale, cioè \textbf{se il GRPO possa
+allineare un modello a produrre uscite strutturate che rispettano vincoli rigidi,
+con o senza supporti} (esempi nel prompt, Trie in decodifica, SFT preliminare).
+
+Per rispondere servono compiti in cui il margine esiste e in cui la struttura
+dell'uscita è diversa. Questo capitolo porta la stessa pipeline (stesso modello,
+stessi iperparametri GRPO, stesso disegno a celle) su tre dataset: un corpus di
+gloss annotato da umani, PHOENIX-2014T, e i due compiti non-gloss di
+GrammarRL~\cite{tuccio2026grammarrl}, la classificazione gerarchica WOS-46985 e
+il riconoscimento di entità CoNLL-2003. GrammarRL valuta la decodifica vincolata
+da grammatica con reinforcement learning proprio su questi tre compiti; qui i
+dataset sono gli stessi ma i numeri non sono confrontabili uno a uno, perché
+split, modello, linearizzazione del target e reward sono diversi.
+
+\section{I tre compiti}
+
+\begin{table}[h]
+\centering
+\footnotesize
+\begin{tabular}{llllr}
+\toprule
+Dataset & Compito & Ingresso & Uscita & Train / val / test \\
+\midrule
+PHOENIX-2014T & traduzione in gloss & frase tedesca & gloss DGS & $7.096$ / $519$ / $642$ \\
+CoNLL-2003    & entità nominate & frase inglese & \texttt{TIPO:entità} & $14.041$ / $3.250$ / $3.453$ \\
+WOS-46985     & classificazione & abstract inglese & \texttt{DOMINIO Area} & $\approx 42.300$ / --- / $4.699$ \\
+\bottomrule
+\end{tabular}
+\caption{I tre dataset aggiunti. PHOENIX e CoNLL usano gli split ufficiali;
+WOS non ne ha, e si usa la stessa logica di ASLG-PC12 (90/10 con seme 42).}
+\label{tab:altri-dataset}
+\end{table}
+
+Tutti e tre si scaricano da soli al primo uso, da copie su Hugging Face fissate
+per revisione e verificate con sha256 contro gli originali. Si usa solo il testo:
+di PHOENIX non si scaricano i video.
+
+\subsection{PHOENIX-2014T: gloss annotati da umani}
+
+PHOENIX-2014T~\cite{camgoz2018phoenix} raccoglie le previsioni del tempo della
+televisione tedesca, con la trascrizione in tedesco e la trascrizione in gloss
+della lingua dei segni tedesca (DGS) fatta da annotatori umani. Un esempio reale
+del test set:
+
+\begin{center}
+\small
+\begin{tabular}{ll}
+\toprule
+Tedesco & \texttt{am donnerstag regen in der nordhälfte in der südhälfte mal sonne} \\
+        & \texttt{mal wolken ähnliches wetter dann auch am freitag} \\
+Gloss   & \texttt{DONNERSTAG NORDWEST REGEN REGION SONNE WOLKE WECHSELHAFT} \\
+        & \texttt{DANN FREITAG AEHNLICH WETTER} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A differenza di ASLG-PC12 il gloss \emph{non} è l'ingresso maiuscolizzato: le
+parole funzionali spariscono, l'ordine cambia, intere espressioni diventano un
+segno (\emph{mal sonne mal wolken} $\to$ \texttt{SONNE WOLKE WECHSELHAFT}),
+le dieresi diventano digrammi (\texttt{AEHNLICH}). La sovrapposizione
+fra ingresso e uscita è del $15{,}59\%$ contro il $98\%$ di ASLG-PC12
+(sezione~\ref{sec:sintetico}). È il corpus su cui la letteratura riporta i
+migliori risultati intorno a ROUGE-L $55{,}18$~\cite{ouargani2023t2g}.
+
+Rispetto ad ASLG cambia solo il profilo del prompt (tedesco $\to$ DGS); il
+vocabolario chiuso del Trie conta circa $1.080$ gloss estratti dal train, e
+tutto il resto (reward, Trie a doppia radice, metriche) è invariato.
+
+\subsection{CoNLL-2003: riconoscimento di entità}
+
+CoNLL-2003~\cite{tjongkimsang2003conll} è il riferimento classico per il
+riconoscimento di entità nominate: frasi di agenzia Reuters in cui ogni entità è
+marcata come persona (\texttt{PER}), organizzazione (\texttt{ORG}), luogo
+(\texttt{LOC}) o altro (\texttt{MISC}). In GrammarRL il modello genera un JSON;
+qui il target è \emph{linearizzato} in una sequenza di token \texttt{TIPO:entità},
+con le parole dell'entità unite da trattini bassi, ordinate per tipo e senza
+ripetizioni, oppure il solo \texttt{NONE}. Esempi reali del test set:
+
+\begin{center}
+\small
+\begin{tabular}{ll}
+\toprule
+Frase & Target \\
+\midrule
+\texttt{8. Dominick Gauthier ( Canada ) 22.73} & \texttt{PER:Dominick\_Gauthier LOC:Canada} \\
+\texttt{Japan then laid siege to the Syrian \dots} & \texttt{LOC:Japan MISC:Syrian} \\
+\texttt{AL-AIN , United Arab Emirates} & \texttt{LOC:AL-AIN LOC:United\_Arab\_Emirates} \\
+\texttt{on Friday :} & \texttt{NONE} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il $20\%$ delle frasi valutate non contiene entità. Il compito è
+strutturalmente diverso dal gloss: l'uscita non traduce l'ingresso, ne
+\emph{seleziona} dei pezzi e li etichetta.
+
+\subsection{WOS-46985: classificazione gerarchica}
+
+Web of Science~\cite{kowsari2017hdltex} raccoglie $46.985$ abstract scientifici
+etichettati con un dominio (sette: informatica, ingegneria elettronica,
+psicologia, ingegneria meccanica, ingegneria civile, medicina, biochimica) e
+un'area di quel dominio, per $134$ coppie (dominio, area) in tutto. Il target è
+linearizzato in due token: il dominio e l'area con le parole unite da trattini
+bassi. Un esempio reale del test set:
+
+\begin{center}
+\small
+\begin{tabular}{p{0.68\textwidth}l}
+\toprule
+Abstract (inizio) & Target \\
+\midrule
+\texttt{This paper is mainly discuss about software component testing as an
+interesting challenge in Component Based Software Engineering (CBSE) area.
+\dots} & \texttt{CS Software\_engineering} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le etichette sono quelle canoniche del codice ufficiale delle classi.
+Gli abstract sono lunghi: vengono troncati alle prime $256$ parole, così il
+prompt resta entro la lunghezza massima. Per lo stesso motivo il dataset si usa
+\textbf{solo in zero-shot}: tre abstract di esempio nel prompt non ci
+starebbero. Con due soli token, ROUGE-L e BLEU dicono poco: la metrica da
+leggere è l'exact match (dominio e area entrambi giusti), e il gloss-F1 dà
+credito parziale al solo dominio giusto.
+
+\section{Un vincolo per ogni compito}
+\label{sec:vincolo-per-compito}
+
+Il Trie a doppia radice (sezione~\ref{sec:trie-dual-root}) ammette qualunque
+sequenza di parole di un vocabolario chiuso. Va bene per il gloss, non per gli
+altri due compiti, e per due ragioni opposte: su CoNLL è troppo stretto, su WOS
+troppo largo. La grammatica dell'uscita diventa quindi una scelta del config
+(\texttt{grammar.mode}), e la \emph{stessa} definizione guida il decoder, la
+validity e la reward di formato, così ciò che il decoder impone e ciò che le
+metriche chiamano ``valido'' non possono divergere.
+
+\begin{itemize}
+  \item \textbf{\texttt{vocab}} (ASLG-PC12, PHOENIX-2014T): il Trie storico sul
+        vocabolario di train, invariato.
+  \item \textbf{\texttt{source\_spans}} (CoNLL-2003): un Trie \emph{per frase},
+        costruito dal prompt stesso. Ogni parola dell'uscita è
+        \texttt{TIPO:pezzo}, dove il pezzo è una sequenza contigua di al più
+        dieci parole della frase; in alternativa, il solo \texttt{NONE}. Con il
+        vocabolario di train il $48\%$ delle entità del test sarebbe stato
+        impossibile da generare (sono nomi propri mai visti); con il Trie per
+        frase ogni entità gold è raggiungibile e non c'è alcuna fuga di
+        informazione dal test.
+  \item \textbf{\texttt{sequences}} (WOS-46985): l'uscita intera deve essere
+        una delle $134$ coppie viste nel train. Il Trie a token libero lasciava
+        generare \texttt{Medical Medical}, l'area prima del dominio, o un'area
+        di un altro dominio; ora il decoder impone dominio, poi un'area di quel
+        dominio, poi la fine.
+\end{itemize}
+
+\subsection{Ogni entità una sola volta}
+\label{sec:span-unici}
+
+La prima campagna su CoNLL ha mostrato che la grammatica \texttt{source\_spans}
+lasciava aperto un varco, e che il GRPO lo ha trovato. Con il Trie attivo il
+GRPO dal modello base ha imparato a scrivere la stessa entità con tutti i tipi:
+
+\begin{center}
+\small
+\begin{tabular}{ll}
+\toprule
+Gold      & \texttt{PER:Oleg\_Shatskiku} \\
+Generato  & \texttt{PER:Oleg\_Shatskiku ORG:Oleg\_Shatskiku LOC:Oleg\_Shatskiku} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+È \emph{reward hacking} nel senso stretto: se il modello non sa il tipo, coprirsi
+con tutti e tre garantisce credito parziale da ROUGE-L e BLEU (qui ROUGE-L
+$0{,}5$) invece di rischiare zero. Il $53\%$ delle uscite del GRPO zero-shot
+ripeteva un'entità, contro il $25\%$ del modello base e meno dell'$1\%$
+dell'SFT. Le metriche lo mostrano in modo netto: ROUGE-L sale da $0{,}27$ a
+$0{,}35$, l'exact match \emph{si dimezza} da $0{,}045$ a $0{,}023$, e la validity
+($0{,}998$) non se ne accorge, perché l'uscita era ammessa dalla grammatica.
+
+La correzione sta nella grammatica, non nella reward: \textbf{ogni pezzo della
+frase può comparire una sola volta, con un solo tipo}. Nel decoder ogni nodo del
+Trie per frase conosce i pezzi che terminano nel suo sottoalbero; un ramo i cui
+pezzi sono già stati emessi viene potato, e una parola può chiudersi solo se il
+suo pezzo è nuovo. Così il decoder non arriva mai in un vicolo cieco: dopo ogni
+prefisso ammesso esiste sempre un token ammesso. Lo stesso vincolo entra nella
+validity e nella reward di formato, quindi penalizza l'hack anche nelle celle
+senza Trie. Nel gold la regola esclude una frase su $14.041$ del train e una su
+$3.453$ del test (lo stesso nome con due tipi nella stessa frase).
+
+I risultati di CoNLL riportati più sotto sono quelli \emph{precedenti} alla
+correzione; l'intera campagna CoNLL è stata rilanciata con la grammatica nuova.
+\todo{aggiornare la tabella~\ref{tab:risultati-conll} con la campagna rilanciata}
+
+\section{Adattamenti della reward}
+
+Per PHOENIX-2014T la reward è quella di ASLG-PC12 (Capitolo~\ref{cap:reward}).
+Per CoNLL e WOS i target sono cortissimi (uno o due token: \texttt{NONE},
+\texttt{PER:Mary}, \texttt{CS Machine\_learning}), e i pesi di ASLG non
+funzionano: la componente di struttura gold vale $-1$ fisso sotto i due token, e
+la componente scalata dal verificatore, che la moltiplica, pure. Una risposta
+corretta di un token prendeva $+0{,}30$ invece di $+1$. Su questi due compiti
+la plausibilità dei bigrammi non porta informazione, e i due pesi passano
+all'ordine dei gloss (distanza di edit a token, sensibile al maiuscolo, l'unica
+componente che premia solo l'etichetta esatta):
+
+\begin{center}
+\small
+\begin{tabular}{lrr}
+\toprule
+Componente & ASLG / PHOENIX & CoNLL / WOS \\
+\midrule
+traduzione (ROUGE-L) & $0{,}20$ & $0{,}20$ \\
+BLEU                 & $0{,}20$ & $0{,}20$ \\
+struttura gold       & $0{,}20$ & $0$ \\
+ordine dei gloss     & $0{,}10$ & $0{,}40$ \\
+verificatore         & $0{,}10$ & $0$ \\
+formato              & $0{,}10$ & $0{,}10$ \\
+ripetizione          & $0{,}10$ & $0{,}10$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Protocollo}
+
+Le celle sono quelle di ASLG-PC12: modello base (zero-shot, few-shot,
+zero-shot senza Trie), solo SFT, solo GRPO, SFT seguito da GRPO, GRPO senza Trie
+(few-shot e zero-shot) e SFT con obiettivo di massa ammessa. WOS ha solo le
+celle zero-shot. Ogni GRPO fa $5.000$ passi, cioè circa $0{,}7$ epoche di
+PHOENIX, $0{,}36$ di CoNLL e $0{,}12$ di WOS; gli SFT si fermano per early
+stopping. La valutazione genera cinque uscite campionate per prompt
+(temperatura $0{,}7$) su tutto il test di PHOENIX ($642$ frasi) e su $2.000$
+prompt del test di CoNLL e WOS. Un solo seme per cella, come per ASLG-PC12
+(sezione~\ref{sec:determinismo}).
+
+\section{Risultati}
+
+\subsection{PHOENIX-2014T}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Cella & ROUGE-L & Exact match & Non-copy & Validity \\
+\midrule
+Base zero-shot                 & $0{,}0961$ & $0{,}0000$ & $0{,}1083$ & $0{,}9586$ \\
+Base few-shot                  & $0{,}3103$ & $0{,}0106$ & $0{,}2923$ & $0{,}9956$ \\
+Base zero-shot senza Trie      & $0{,}1528$ & $0{,}0000$ & $0{,}0000$ & $0{,}0000$ \\
+SFT                            & $0{,}4854$ & $0{,}0184$ & $0{,}3812$ & $0{,}9969$ \\
+GRPO zero-shot                 & $0{,}2030$ & $0{,}0003$ & $0{,}1658$ & $0{,}9997$ \\
+GRPO few-shot                  & $0{,}3601$ & $0{,}0162$ & $0{,}3325$ & $0{,}9991$ \\
+SFT$\to$GRPO zero-shot         & $\mathbf{0{,}5274}$ & $\mathbf{0{,}0283}$ & $\mathbf{0{,}4599}$ & $1{,}0000$ \\
+SFT$\to$GRPO few-shot          & $0{,}5039$ & $0{,}0240$ & $0{,}4429$ & $1{,}0000$ \\
+GRPO senza Trie, few-shot      & $0{,}3550$ & $0{,}0165$ & $0{,}3339$ & $0{,}9916$ \\
+GRPO senza Trie, zero-shot     & $0{,}2898$ & $0{,}0000$ & $0{,}0000$ & $0{,}0000$ \\
+SFT con massa ammessa          & $0{,}4819$ & $0{,}0178$ & $0{,}3709$ & $0{,}9981$ \\
+\bottomrule
+\end{tabular}
+\caption{PHOENIX-2014T, test completo.}
+\label{tab:risultati-phoenix}
+\end{table}
+
+Su PHOENIX il margine c'è, e nessun sistema si avvicina al tetto: l'exact match
+resta sotto il $3\%$ ovunque. Qui, a differenza di ASLG, il GRPO dopo l'SFT
+aggiunge qualcosa di visibile: ROUGE-L da $0{,}4854$ a $0{,}5274$ e non-copy da
+$0{,}3812$ a $0{,}4599$, dello stesso ordine dei migliori valori in
+letteratura~\cite{ouargani2023t2g} (con implementazioni di ROUGE diverse, per
+cui il confronto è solo indicativo). Il GRPO dal modello base impara (ROUGE-L
+da $0{,}0961$ a $0{,}2030$ in zero-shot, da $0{,}3103$ a $0{,}3601$ in
+few-shot) ma resta sotto l'SFT. La massa ammessa, che su ASLG era la cella
+migliore, qui vale quanto l'SFT semplice.
+
+La cella GRPO senza Trie zero-shot ha ROUGE-L $0{,}29$ con validity zero: il
+modello scrive parole tedesche minuscole separate da virgole
+(\texttt{regen, schnee, nacht, nach, nordosten, schauer}), che ROUGE-L,
+insensibile al maiuscolo, premia per accidente (sezione~\ref{sec:difetto-rouge}).
+
+\subsection{CoNLL-2003}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Cella & Exact match & Gloss-F1 & ROUGE-L & Validity \\
+\midrule
+Base zero-shot                 & $0{,}0453$ & $0{,}0893$ & $0{,}2708$ & $0{,}9693$ \\
+Base few-shot                  & $0{,}0662$ & $0{,}1429$ & $0{,}3805$ & $0{,}9739$ \\
+Base zero-shot senza Trie      & $0{,}0011$ & $0{,}0089$ & $0{,}2676$ & $0{,}0079$ \\
+SFT                            & $0{,}7432$ & $0{,}8330$ & $0{,}9003$ & $0{,}9998$ \\
+GRPO zero-shot                 & $0{,}0228$ & $0{,}1964$ & $0{,}3526$ & $0{,}9979$ \\
+GRPO few-shot                  & $0{,}3315$ & $0{,}3885$ & $0{,}5483$ & $0{,}9979$ \\
+SFT$\to$GRPO zero-shot         & $\mathbf{0{,}7807}$ & $\mathbf{0{,}8494}$ & $\mathbf{0{,}9128}$ & $0{,}9999$ \\
+SFT$\to$GRPO few-shot          & $0{,}7289$ & $0{,}8230$ & $0{,}8859$ & $0{,}9995$ \\
+GRPO senza Trie, few-shot      & $0{,}3473$ & $0{,}4205$ & $0{,}5906$ & $0{,}7261$ \\
+GRPO senza Trie, zero-shot     & $0{,}0611$ & $0{,}0142$ & $0{,}4548$ & $0{,}1430$ \\
+SFT con massa ammessa          & $0{,}7469$ & $0{,}8359$ & $0{,}9039$ & $1{,}0000$ \\
+\bottomrule
+\end{tabular}
+\caption{CoNLL-2003, $2.000$ prompt del test, \emph{prima} della correzione
+della sezione~\ref{sec:span-unici}. Gloss-F1 è il micro-F1 sui token
+\texttt{TIPO:entità}, cioè l'F1 a livello di entità.}
+\label{tab:risultati-conll}
+\end{table}
+
+La gerarchia è netta: l'SFT porta l'exact match da $0{,}05$ a $0{,}74$, il GRPO
+dopo l'SFT aggiunge quasi quattro punti in zero-shot ($0{,}7807$), il GRPO dal
+modello base resta lontano. La cella GRPO zero-shot è quella dell'hack della
+sezione~\ref{sec:span-unici}: è l'unica in cui il GRPO \emph{peggiora} l'exact
+match rispetto al punto di partenza. In few-shot, dove gli esempi mostrano il
+formato e una sola etichetta per entità, l'hack è molto più raro ($8\%$ delle
+uscite) e l'exact match sale a $0{,}33$.
+
+\subsection{WOS-46985}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrrr}
+\toprule
+Cella & Exact match & Gloss-F1 & Validity \\
+\midrule
+Base zero-shot                 & $0{,}1039$ & $0{,}2876$ & $1{,}0000$ \\
+Base zero-shot senza Trie      & $0{,}0000$ & $0{,}0146$ & $0{,}0000$ \\
+SFT                            & $0{,}7622$ & $0{,}8269$ & $1{,}0000$ \\
+GRPO zero-shot                 & $0{,}1688$ & $0{,}3702$ & $1{,}0000$ \\
+SFT$\to$GRPO zero-shot         & $\mathbf{0{,}7869}$ & $\mathbf{0{,}8475}$ & $1{,}0000$ \\
+GRPO senza Trie                & $0{,}0000$ & $0{,}1467$ & $0{,}0001$ \\
+SFT con massa ammessa          & $0{,}7572$ & $0{,}8255$ & $1{,}0000$ \\
+\bottomrule
+\end{tabular}
+\caption{WOS-46985, $2.000$ prompt del test, solo zero-shot.}
+\label{tab:risultati-wos}
+\end{table}
+
+Con il Trie a sequenze il modello base è sempre valido ma sceglie quasi a caso
+fra poche classi: \texttt{ECE System\_identification} e \texttt{Psychology
+Social\_cognition} coprono da sole un terzo delle sue uscite. Il GRPO migliora di
+sei punti ($0{,}1039 \to 0{,}1688$) senza uscire da questo regime; l'SFT porta
+l'exact match a $0{,}76$, e il GRPO dopo l'SFT aggiunge due punti e mezzo.
+Senza Trie il modello non produce mai una coppia valida: scrive
+\texttt{Medical Psychology, Medical Psychology}, con dominio e area presi
+dalla stessa lista e una virgola.
+
+\section{Che cosa dicono i tre dataset insieme}
+\label{sec:osservazioni-altri}
+
+\subsection{Senza Trie e senza esempi, il GRPO non trova il formato}
+
+È il risultato più diretto per la domanda del progetto. Senza Trie, la validity
+delle celle GRPO dipende tutta dalla presenza di esempi nel prompt:
+
+\begin{center}
+\small
+\begin{tabular}{lrr}
+\toprule
+GRPO senza Trie & few-shot & zero-shot \\
+\midrule
+ASLG-PC12     & $0{,}99$ & --- \\
+PHOENIX-2014T & $0{,}99$ & $0{,}00$ \\
+CoNLL-2003    & $0{,}73$ & $0{,}14$ \\
+WOS-46985     & ---      & $0{,}0001$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il meccanismo si legge nei log di addestramento. Su PHOENIX zero-shot la
+componente di formato della reward resta fra $-1$ e $-0{,}99$ per tutti i
+$5.000$ passi: nessun candidato ha mai il formato giusto, quindi quasi nessun
+gruppo contiene un confronto fra uscita valida e non valida, e il formato non
+riceve gradiente. Su CoNLL e WOS
+qualche candidato valido compare per caso e la componente sale (da $-0{,}89$ a
+$-0{,}31$ e da $-0{,}98$ a $-0{,}12$), ma non abbastanza da rendere valide le
+uscite in valutazione. Il GRPO, dunque, \textbf{rinforza una struttura che il
+modello già produce qualche volta; non la scopre}. Gli esempi nel prompt, il
+Trie o l'SFT sono i supporti che la rendono presente fin dall'inizio, e senza
+almeno uno dei tre la struttura non arriva.
+
+\subsection{Con un vincolo attivo, il GRPO cerca il varco}
+
+L'hack di CoNLL (sezione~\ref{sec:span-unici}) è il rovescio della stessa
+medaglia: quando la grammatica lascia un'uscita ammessa che la reward premia più
+del dovuto, il GRPO la trova, e la validity non lo segnala perché l'uscita è
+formalmente corretta. Un vincolo rigido va quindi scritto pensando a che cosa
+\emph{non} deve permettere, non solo a che cosa deve garantire.
+
+\subsection{SFT$\to$GRPO è la cella migliore ovunque, ma il guadagno è piccolo}
+
+Su tutti e tre i dataset la cella migliore è l'SFT seguito dal GRPO in
+zero-shot, con un margine di due-quattro punti di exact match sull'SFT. Come
+su ASLG, il segnale di apprendimento si esaurisce: alla fine dell'addestramento
+la frazione di gruppi a varianza nulla è l'$85\%$ su CoNLL e il $77\%$ su WOS
+(su PHOENIX, dove la policy è più lontana dal tetto, solo il $7\%$). La massa
+ammessa, migliore cella su ASLG-PC12, sugli altri tre dataset vale quanto l'SFT
+semplice.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrrrr}
+\toprule
+ & \multicolumn{2}{c}{Reward media} & \multicolumn{2}{c}{Gruppi a varianza nulla} \\
+Cella & inizio & fine & inizio & fine \\
+\midrule
+PHOENIX GRPO zero-shot        & $-0{,}60$ & $-0{,}39$ & $0\%$  & $0\%$  \\
+PHOENIX SFT$\to$GRPO zero-shot & $-0{,}06$ & $0{,}10$ & $0\%$  & $7\%$  \\
+CoNLL GRPO zero-shot          & $-0{,}49$ & $-0{,}28$ & $18\%$ & $18\%$ \\
+CoNLL SFT$\to$GRPO zero-shot  & $0{,}76$ & $0{,}82$  & $72\%$ & $85\%$ \\
+WOS GRPO zero-shot            & $-0{,}38$ & $-0{,}21$ & $34\%$ & $36\%$ \\
+WOS SFT$\to$GRPO zero-shot    & $0{,}56$ & $0{,}68$  & $58\%$ & $77\%$ \\
+\bottomrule
+\end{tabular}
+\caption{Medie sui primi e sugli ultimi $50$ passi registrati di ogni
+addestramento GRPO (dati di CoNLL precedenti alla correzione).}
+\label{tab:dinamica-altri}
+\end{table}
