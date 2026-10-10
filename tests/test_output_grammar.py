@@ -52,6 +52,9 @@ def test_source_spans_accepts_only_pieces_of_the_sentence() -> None:
     assert not g.accepts("XYZ:EU", SENTENCE)
     # Senza frase si controlla solo la forma TIPO:qualcosa.
     assert g.accepts("PER:Mary", None)
+    # Ogni pezzo una volta sola, con un solo tipo (l'hack PER:X ORG:X LOC:X).
+    assert not g.accepts("ORG:EU PER:EU", SENTENCE)
+    assert not g.accepts("ORG:EU ORG:EU", SENTENCE)
 
 
 def test_sequences_accept_only_whole_allowed_pairs() -> None:
@@ -120,6 +123,40 @@ def test_span_trie_admits_gold_and_closes_after_none(tokenizer) -> None:
         mary[k] in _allowed_after(proc, pids, mary[:k]) for k in range(len(mary))
     )
     assert not walked
+
+
+def test_span_trie_emits_each_piece_once(tokenizer) -> None:
+    g = _conll_grammar()
+    proc = build_logits_processor(CONLL_CFG, g, sorted(g.vocab), tokenizer)
+    prompt = build_t2g_prompt(SENTENCE, tokenizer, profile="en-conll")
+    pids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
+    eos = tokenizer.eos_token_id
+
+    def complete(text: str) -> bool:
+        """``text`` è generabile per intero e può finire lì (EOS)."""
+        ids = tokenizer.encode(text, add_special_tokens=False)
+        return all(
+            ids[k] in _allowed_after(proc, pids, ids[:k]) for k in range(len(ids))
+        ) and eos in _allowed_after(proc, pids, ids)
+
+    assert complete("ORG:EU MISC:German")
+    # Lo stesso pezzo con un altro tipo, o ripetuto, non può chiudersi
+    # (il prefisso PER:EU resta percorribile solo verso PER:EU_rejects)...
+    assert not complete("ORG:EU PER:EU")
+    assert not complete("ORG:EU ORG:EU")
+    assert not complete("MISC:German LOC:EU ORG:German")
+    # ...ma i pezzi che lo contengono sì (EU_rejects è un altro pezzo).
+    assert complete("ORG:EU MISC:EU_rejects")
+    # Pezzo usato e senza estensioni: nemmeno il prefisso è percorribile.
+    dot = tokenizer.encode("MISC:. ORG:.", add_special_tokens=False)
+    assert not all(
+        dot[k] in _allowed_after(proc, pids, dot[:k]) for k in range(len(dot))
+    )
+    # Mai un vicolo cieco: dopo ogni prefisso valido c'è almeno un token.
+    ids = tokenizer.encode("ORG:EU MISC:German LOC:British", add_special_tokens=False)
+    for k in range(len(ids) + 1):
+        assert _allowed_after(proc, pids, ids[:k])
+    assert eos in _allowed_after(proc, pids, ids)
 
 
 def test_span_mode_needs_the_prompt(tokenizer) -> None:

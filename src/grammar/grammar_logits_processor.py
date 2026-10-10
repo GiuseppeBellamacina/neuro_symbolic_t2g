@@ -47,12 +47,17 @@ class TrieNode:
             children are space-prefixed first tokens), or ``None`` if no word
             may follow.
         stop: EOS is allowed here (a complete output ends at this node).
+        span: Piece of sentence of the word ending here (``source_spans``).
+        spans: Pieces of the words ending in this subtree (``source_spans``):
+            a branch whose pieces are all used is pruned, never entered.
     """
 
     def __init__(self) -> None:
         self.children: dict[int, TrieNode] = {}
         self.next: TrieNode | None = None
         self.stop: bool = False
+        self.span: str | None = None
+        self.spans: frozenset[str] = frozenset()
 
 
 _SPECIAL_GLOSSES = {"<BOS>", "<EOS>", "<UNK>"}
@@ -66,6 +71,15 @@ def _insert(start: TrieNode, token_ids: list[int]) -> TrieNode:
             node.children[tid] = TrieNode()
         node = node.children[tid]
     return node
+
+
+def _collect_spans(node: TrieNode) -> frozenset[str]:
+    """Fill ``node.spans`` bottom-up (pieces ending in the subtree)."""
+    spans: set[str] = {node.span} if node.span is not None else set()
+    for child in node.children.values():
+        spans |= _collect_spans(child)
+    node.spans = frozenset(spans)
+    return node.spans
 
 
 class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
@@ -167,24 +181,30 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
             final_items=[],
         )
 
-    def _build_items_trie(self, items: list[str], final_items: list[str]) -> TrieNode:
+    def _build_items_trie(
+        self, items: list[str], final_items: list[str], unique_spans: bool = False
+    ) -> TrieNode:
         """Dual-root Trie over ``items`` (any number, any order).
 
         ``final_items`` may only be the WHOLE output: reachable from the
-        bare root, followed only by EOS.
+        bare root, followed only by EOS. With ``unique_spans`` (items
+        ``TYPE:piece``) every node records the pieces ending below it, so
+        :meth:`_allowed` can forbid a piece already emitted under any type.
         """
         root, space_root = TrieNode(), TrieNode()
-        for ids in self._encode(items):
-            if ids:
-                end = _insert(root, ids)
-                end.next, end.stop = space_root, True
-        for ids in self._encode([" " + t for t in items]):
-            if ids:
-                end = _insert(space_root, ids)
-                end.next, end.stop = space_root, True
+        for start, prefix in ((root, ""), (space_root, " ")):
+            for item, ids in zip(items, self._encode([prefix + t for t in items])):
+                if ids:
+                    end = _insert(start, ids)
+                    end.next, end.stop = space_root, True
+                    if unique_spans:
+                        end.span = item.split(":", 1)[-1]
         for ids in self._encode(final_items):
             if ids:
                 _insert(root, ids).stop = True
+        if unique_spans:
+            _collect_spans(root)
+            _collect_spans(space_root)
         return root
 
     def _build_sequences_trie(self, sequences: Any) -> TrieNode:
@@ -222,7 +242,9 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
             )
             source = self.source_extractor(prompt)  # type: ignore[misc]
             empty = [self.grammar.empty_token] if self.grammar.empty_token else []
-            root = self._build_items_trie(self.grammar.span_items(source), empty)
+            root = self._build_items_trie(
+                self.grammar.span_items(source), empty, unique_spans=True
+            )
             self._span_roots[key] = root
         return root
 
@@ -242,22 +264,35 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
         decoder cannot drift apart.
         """
         node = root
+        used: set[str] = set()  # pieces already emitted (source_spans)
         for tok in gen_tokens:
             if tok in node.children:
                 node = node.children[tok]
             elif node.next is not None and tok in node.next.children:
                 # Whitespace boundary: word finished here, the next one
                 # starts from a space-prefixed child (DEBUTRECHT guard).
+                if node.span is not None:
+                    used.add(node.span)
                 node = node.next.children[tok]
             else:
                 # No valid transition. Reset to root as best-effort
                 # recovery — the mask will be very restrictive here.
                 node = root
 
-        allowed = set(node.children.keys())
-        if node.next is not None:
-            allowed.update(node.next.children.keys())
-        if node.stop:
+        def open_children(n: TrieNode, done: set[str]) -> list[int]:
+            # Rami i cui pezzi sono tutti già usati: potati (vocab/sequences
+            # non hanno pezzi, ``done`` resta vuoto e non si pota nulla).
+            if not done:
+                return list(n.children)
+            return [t for t, c in n.children.items() if not c.spans <= done]
+
+        allowed = set(open_children(node, used))
+        # La parola corrente può finire qui solo se il suo pezzo è nuovo.
+        can_end = node.span is None or node.span not in used
+        if node.next is not None and can_end:
+            done = used | {node.span} if node.span is not None else used
+            allowed.update(open_children(node.next, done))
+        if node.stop and can_end:
             allowed.add(self.eos_token_id)
         if node is root and not gen_tokens and self._eos_at_start:
             allowed.add(self.eos_token_id)

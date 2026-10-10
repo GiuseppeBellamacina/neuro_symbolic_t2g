@@ -11,7 +11,10 @@ Tre modalità (``grammar.mode`` nel config, assente = ``vocab``):
   vocabolario non viene dal train ma dall'input di ogni esempio: nessun leak,
   e ogni entità gold è raggiungibile (nel corpus ogni entità è un pezzo della
   frase), mentre con il vocabolario di train il 48% delle entità di test era
-  impossibile da generare.
+  impossibile da generare. Ogni pezzo compare UNA volta, con un solo tipo:
+  senza questo vincolo il GRPO imparava a coprirsi con ``PER:X ORG:X LOC:X``
+  (credito parziale certo da ROUGE/BLEU, 53% delle uscite di GRPO zero-shot);
+  nel gold capita in 1 frase su 14.041 del train e 1 su 3.453 del test.
 * ``sequences`` — classificazione gerarchica (WOS-46985): l'uscita intera
   deve essere una delle sequenze viste negli split del vocabolario (con
   ``vocab_source: train`` solo il train): dominio, poi un'area DI QUEL
@@ -125,7 +128,8 @@ class OutputGrammar:
         if words == [self.empty_token]:
             return True
         items = set(self.span_items(source)) if source is not None else None
-        return all(
+        spans = [w.split(":", 1)[-1] for w in words]
+        return len(set(spans)) == len(spans) and all(
             w != self.empty_token and self._span_word_ok(w, items) for w in words
         )
 
