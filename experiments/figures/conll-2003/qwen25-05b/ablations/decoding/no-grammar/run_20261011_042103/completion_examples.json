@@ -1,0 +1,86 @@
+{
+  "model": "run_20261011_042103",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 0,
+      "rouge_l": 1.0,
+      "gold": "PER:Nadim_Ladki",
+      "prediction": "PER:Nadim_Ladki",
+      "prompt": "Nadim Ladki"
+    },
+    {
+      "group": "best",
+      "index": 40,
+      "rouge_l": 1.0,
+      "gold": "PER:Hassan_Abbas PER:Bitar",
+      "prediction": "PER:Hassan_Abbas PER:Bitar",
+      "prompt": "Defender Hassan Abbas rose to intercept a long ball into the area in the 84th minute but only managed to divert it into the top corner of Bitar 's goal ."
+    },
+    {
+      "group": "best",
+      "index": 75,
+      "rouge_l": 1.0,
+      "gold": "PER:Coste",
+      "prediction": "PER:Coste",
+      "prompt": "Coste said he had approached the player two months ago about a comeback ."
+    },
+    {
+      "group": "best",
+      "index": 125,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "freestyle skiing moguls competition on Friday :"
+    },
+    {
+      "group": "best",
+      "index": 130,
+      "rouge_l": 1.0,
+      "gold": "PER:Jesper_Ronnback LOC:Sweden",
+      "prediction": "PER:Jesper_Ronnback LOC:Sweden",
+      "prompt": "1. Jesper Ronnback ( Sweden ) 25.76 points"
+    },
+    {
+      "group": "worst",
+      "index": 14,
+      "rouge_l": 0.0,
+      "gold": "LOC:Japan LOC:Syria MISC:Asian_Cup",
+      "prediction": "NONE",
+      "prompt": "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday ."
+    },
+    {
+      "group": "worst",
+      "index": 25,
+      "rouge_l": 0.0,
+      "gold": "LOC:Uzbekistan MISC:Asian_Games",
+      "prediction": "NONE",
+      "prompt": "Despite winning the Asian Games title two years ago , Uzbekistan are in the finals as outsiders ."
+    },
+    {
+      "group": "worst",
+      "index": 32,
+      "rouge_l": 0.0,
+      "gold": "PER:Takuya_Takagi PER:Hiroshige_Yanagimoto PER:Salem_Bitar MISC:Syrian",
+      "prediction": "NONE",
+      "prompt": "Takuya Takagi scored the winner in the 88th minute , rising to head a Hiroshige Yanagimoto cross towards the Syrian goal which goalkeeper Salem Bitar appeared to have covered but then allowed to slip ..."
+    },
+    {
+      "group": "worst",
+      "index": 82,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "PER:I\nPER:he",
+      "prompt": "I think now is the right time for him to return . \""
+    },
+    {
+      "group": "worst",
+      "index": 116,
+      "rouge_l": 0.0,
+      "gold": "PER:Salem_Bitar PER:Bachar_Srour PER:Hassan_Abbas PER:Tarek_Jabban PER:Ammar_Awad PER:Louay_Taleb PER:Nihad_al-Boushi PE...",
+      "prediction": "NONE",
+      "prompt": "Syria : 24 - Salem Bitar , 3 - Bachar Srour ; 4 - Hassan Abbas , 5 - Tarek Jabban , 6 - Ammar Awad ( 9 - Louay Taleb 69 ) , 8 - Nihad al-Boushi , 10 - Mohammed Afash , 12 - Ali Dib , 13 - Abdul Latif ..."
+    }
+  ]
+}

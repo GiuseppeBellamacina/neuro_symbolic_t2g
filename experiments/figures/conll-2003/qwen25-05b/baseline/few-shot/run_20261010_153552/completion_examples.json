@@ -1,0 +1,86 @@
+{
+  "model": "baseline",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 75,
+      "rouge_l": 1.0,
+      "gold": "PER:Coste",
+      "prediction": "PER:Coste",
+      "prompt": "Coste said he had approached the player two months ago about a comeback ."
+    },
+    {
+      "group": "best",
+      "index": 207,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "for , goals against , points ) :"
+    },
+    {
+      "group": "best",
+      "index": 227,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "on Friday :"
+    },
+    {
+      "group": "best",
+      "index": 260,
+      "rouge_l": 1.0,
+      "gold": "PER:Mushtaq_Ahmad",
+      "prediction": "PER:Mushtaq_Ahmad",
+      "prompt": "Mushtaq Ahmad not out 5"
+    },
+    {
+      "group": "best",
+      "index": 270,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Extras ( lb-8 nb-2 w-14 ) 24"
+    },
+    {
+      "group": "worst",
+      "index": 33,
+      "rouge_l": 0.0,
+      "gold": "PER:Takuya_Takagi PER:Hiroshige_Yanagimoto PER:Salem_Bitar MISC:Syrian",
+      "prediction": "NONE",
+      "prompt": "Takuya Takagi scored the winner in the 88th minute , rising to head a Hiroshige Yanagimoto cross towards the Syrian goal which goalkeeper Salem Bitar appeared to have covered but then allowed to slip ..."
+    },
+    {
+      "group": "worst",
+      "index": 35,
+      "rouge_l": 0.0,
+      "gold": "LOC:Syria",
+      "prediction": "PER:costly MISC:four_minutes",
+      "prompt": "It was the second costly blunder by Syria in four minutes ."
+    },
+    {
+      "group": "worst",
+      "index": 80,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "PER:now MISC:right MISC:time MISC:for MISC:him MISC:return MISC:to",
+      "prompt": "I think now is the right time for him to return . \""
+    },
+    {
+      "group": "worst",
+      "index": 121,
+      "rouge_l": 0.0,
+      "gold": "MISC:World_Cup",
+      "prediction": "NONE",
+      "prompt": "Results of the World Cup"
+    },
+    {
+      "group": "worst",
+      "index": 125,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "PER:freestyle_skiing MISC:competition LOC:Friday",
+      "prompt": "freestyle skiing moguls competition on Friday :"
+    }
+  ]
+}

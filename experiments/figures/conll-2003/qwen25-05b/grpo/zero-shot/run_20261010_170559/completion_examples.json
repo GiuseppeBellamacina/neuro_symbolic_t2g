@@ -1,0 +1,86 @@
+{
+  "model": "run_20261010_170559",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 365,
+      "rouge_l": 1.0,
+      "gold": "LOC:LONDON",
+      "prediction": "LOC:LONDON",
+      "prompt": "LONDON 1996-12-06"
+    },
+    {
+      "group": "best",
+      "index": 980,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Group D"
+    },
+    {
+      "group": "best",
+      "index": 1050,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "NORTHEAST DIVISION"
+    },
+    {
+      "group": "best",
+      "index": 1175,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": ")"
+    },
+    {
+      "group": "best",
+      "index": 1245,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "EASTERN CONFERENCE"
+    },
+    {
+      "group": "worst",
+      "index": 5,
+      "rouge_l": 0.0,
+      "gold": "LOC:AL-AIN LOC:United_Arab_Emirates",
+      "prediction": "NONE",
+      "prompt": "AL-AIN , United Arab Emirates 1996-12-06"
+    },
+    {
+      "group": "worst",
+      "index": 26,
+      "rouge_l": 0.0,
+      "gold": "LOC:Uzbekistan MISC:Asian_Games",
+      "prediction": "NONE",
+      "prompt": "Despite winning the Asian Games title two years ago , Uzbekistan are in the finals as outsiders ."
+    },
+    {
+      "group": "worst",
+      "index": 60,
+      "rouge_l": 0.0,
+      "gold": "PER:CUTTITTA ORG:RUGBY_UNION LOC:ITALY",
+      "prediction": "NONE",
+      "prompt": "RUGBY UNION - CUTTITTA BACK FOR ITALY AFTER A YEAR ."
+    },
+    {
+      "group": "worst",
+      "index": 70,
+      "rouge_l": 0.0,
+      "gold": "PER:Cuttitta PER:George_Coste LOC:England LOC:Twickenham",
+      "prediction": "NONE",
+      "prompt": "Cuttitta , who trainer George Coste said was certain to play on Saturday week , was named in a 21-man squad lacking only two of the team beaten 54-21 by England at Twickenham last month ."
+    },
+    {
+      "group": "worst",
+      "index": 80,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "PER:him MISC:now LOC:time MISC:for ORG:him_to_return",
+      "prompt": "I think now is the right time for him to return . \""
+    }
+  ]
+}

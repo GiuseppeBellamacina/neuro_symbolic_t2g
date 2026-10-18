@@ -1,0 +1,86 @@
+{
+  "model": "run_20261010_162118",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 0,
+      "rouge_l": 1.0,
+      "gold": "PER:Nadim_Ladki",
+      "prediction": "PER:Nadim_Ladki",
+      "prompt": "Nadim Ladki"
+    },
+    {
+      "group": "best",
+      "index": 10,
+      "rouge_l": 1.0,
+      "gold": "LOC:Japan LOC:Syria MISC:Asian_Cup",
+      "prediction": "LOC:Japan LOC:Syria MISC:Asian_Cup",
+      "prompt": "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday ."
+    },
+    {
+      "group": "best",
+      "index": 15,
+      "rouge_l": 1.0,
+      "gold": "LOC:China LOC:Uzbekistan",
+      "prediction": "LOC:China LOC:Uzbekistan",
+      "prompt": "But China saw their luck desert them in the second match of the group , crashing to a surprise 2-0 defeat to newcomers Uzbekistan ."
+    },
+    {
+      "group": "best",
+      "index": 20,
+      "rouge_l": 1.0,
+      "gold": "PER:Oleg_Shatskiku",
+      "prediction": "PER:Oleg_Shatskiku",
+      "prompt": "Oleg Shatskiku made sure of the win in injury time , hitting an unstoppable left foot shot from just outside the area ."
+    },
+    {
+      "group": "best",
+      "index": 25,
+      "rouge_l": 1.0,
+      "gold": "LOC:Uzbekistan MISC:Asian_Games",
+      "prediction": "LOC:Uzbekistan MISC:Asian_Games",
+      "prompt": "Despite winning the Asian Games title two years ago , Uzbekistan are in the finals as outsiders ."
+    },
+    {
+      "group": "worst",
+      "index": 95,
+      "rouge_l": 0.0,
+      "gold": "MISC:Syrian",
+      "prediction": "NONE",
+      "prompt": "It was the second Syrian defensive blunder in four minutes ."
+    },
+    {
+      "group": "worst",
+      "index": 7720,
+      "rouge_l": 0.0,
+      "gold": "MISC:World_Cup",
+      "prediction": "NONE",
+      "prompt": "Results of the World Cup"
+    },
+    {
+      "group": "worst",
+      "index": 273,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "ORG:Extras",
+      "prompt": "Extras ( lb-8 nb-2 w-14 ) 24"
+    },
+    {
+      "group": "worst",
+      "index": 325,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "ORG:Extras",
+      "prompt": "Extras ( b-9 lb-3 w-12 nb-2 ) 26"
+    },
+    {
+      "group": "worst",
+      "index": 344,
+      "rouge_l": 0.0,
+      "gold": "PER:Wasim_Akram PER:Waqar_Younis",
+      "prediction": "NONE",
+      "prompt": "Bowling : Wasim Akram 8.1-0-43-3 ( 9w , 1nb ) , Waqar Younis"
+    }
+  ]
+}

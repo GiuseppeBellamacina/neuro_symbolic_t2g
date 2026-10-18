@@ -1,0 +1,86 @@
+{
+  "model": "run_20261011_020559",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 75,
+      "rouge_l": 1.0,
+      "gold": "PER:Coste",
+      "prediction": "PER:Coste",
+      "prompt": "Coste said he had approached the player two months ago about a comeback ."
+    },
+    {
+      "group": "best",
+      "index": 203,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Attendence : 3,000"
+    },
+    {
+      "group": "best",
+      "index": 205,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "for , goals against , points ) :"
+    },
+    {
+      "group": "best",
+      "index": 225,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "on Friday :"
+    },
+    {
+      "group": "best",
+      "index": 260,
+      "rouge_l": 1.0,
+      "gold": "PER:Mushtaq_Ahmad",
+      "prediction": "PER:Mushtaq_Ahmad",
+      "prompt": "Mushtaq Ahmad not out 5"
+    },
+    {
+      "group": "worst",
+      "index": 10,
+      "rouge_l": 0.0,
+      "gold": "LOC:Japan LOC:Syria MISC:Asian_Cup",
+      "prediction": "NONE",
+      "prompt": "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday ."
+    },
+    {
+      "group": "worst",
+      "index": 37,
+      "rouge_l": 0.0,
+      "gold": "LOC:Syria",
+      "prediction": "PER:costly MISC:four_minutes",
+      "prompt": "It was the second costly blunder by Syria in four minutes ."
+    },
+    {
+      "group": "worst",
+      "index": 80,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "PER:I PER:him MISC:now PER:the MISC:right MISC:time MISC:for PER:him_to_return MISC:to",
+      "prompt": "I think now is the right time for him to return . \""
+    },
+    {
+      "group": "worst",
+      "index": 120,
+      "rouge_l": 0.0,
+      "gold": "MISC:World_Cup",
+      "prediction": "NONE",
+      "prompt": "Results of the World Cup"
+    },
+    {
+      "group": "worst",
+      "index": 125,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "PER:freestyle_skiing_moguls_competition ORG:skiing ORG:moguls ORG:competition LOC:Friday MISC:competition_on",
+      "prompt": "freestyle skiing moguls competition on Friday :"
+    }
+  ]
+}

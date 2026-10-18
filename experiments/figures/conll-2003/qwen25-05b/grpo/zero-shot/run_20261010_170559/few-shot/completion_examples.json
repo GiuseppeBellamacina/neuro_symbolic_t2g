@@ -1,0 +1,86 @@
+{
+  "model": "run_20261010_170559",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 7,
+      "rouge_l": 1.0,
+      "gold": "LOC:AL-AIN LOC:United_Arab_Emirates",
+      "prediction": "LOC:AL-AIN LOC:United_Arab_Emirates",
+      "prompt": "AL-AIN , United Arab Emirates 1996-12-06"
+    },
+    {
+      "group": "best",
+      "index": 76,
+      "rouge_l": 1.0,
+      "gold": "PER:Coste",
+      "prediction": "PER:Coste",
+      "prompt": "Coste said he had approached the player two months ago about a comeback ."
+    },
+    {
+      "group": "best",
+      "index": 193,
+      "rouge_l": 1.0,
+      "gold": "PER:Nader_Jokhadar LOC:Syria",
+      "prediction": "PER:Nader_Jokhadar LOC:Syria",
+      "prompt": "Syria - Nader Jokhadar 7"
+    },
+    {
+      "group": "best",
+      "index": 208,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "for , goals against , points ) :"
+    },
+    {
+      "group": "best",
+      "index": 226,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "on Friday :"
+    },
+    {
+      "group": "worst",
+      "index": 10,
+      "rouge_l": 0.0,
+      "gold": "LOC:Japan LOC:Syria MISC:Asian_Cup",
+      "prediction": "NONE",
+      "prompt": "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday ."
+    },
+    {
+      "group": "worst",
+      "index": 27,
+      "rouge_l": 0.0,
+      "gold": "LOC:Uzbekistan MISC:Asian_Games",
+      "prediction": "NONE",
+      "prompt": "Despite winning the Asian Games title two years ago , Uzbekistan are in the finals as outsiders ."
+    },
+    {
+      "group": "worst",
+      "index": 70,
+      "rouge_l": 0.0,
+      "gold": "PER:Cuttitta PER:George_Coste LOC:England LOC:Twickenham",
+      "prediction": "NONE",
+      "prompt": "Cuttitta , who trainer George Coste said was certain to play on Saturday week , was named in a 21-man squad lacking only two of the team beaten 54-21 by England at Twickenham last month ."
+    },
+    {
+      "group": "worst",
+      "index": 80,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "PER:I PER:think PER:now MISC:is PER:the PER:right PER:time PER:for PER:him PER:to PER:the_right PER:time_for PER:him_to ...",
+      "prompt": "I think now is the right time for him to return . \""
+    },
+    {
+      "group": "worst",
+      "index": 120,
+      "rouge_l": 0.0,
+      "gold": "MISC:World_Cup",
+      "prediction": "NONE",
+      "prompt": "Results of the World Cup"
+    }
+  ]
+}

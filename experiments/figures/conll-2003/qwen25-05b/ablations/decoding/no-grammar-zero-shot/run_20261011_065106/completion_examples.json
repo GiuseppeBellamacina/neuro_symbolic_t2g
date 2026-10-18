@@ -1,0 +1,86 @@
+{
+  "model": "run_20261011_065106",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 2040,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Correct score :"
+    },
+    {
+      "group": "best",
+      "index": 3830,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "@"
+    },
+    {
+      "group": "best",
+      "index": 6441,
+      "rouge_l": 1.0,
+      "gold": "PER:Clarke PER:Michael_Heseltine MISC:pro-European",
+      "prediction": "PER Clarke; PER Michael Heseltine; MISC Pro-European",
+      "prompt": "His statement was interpreted as a significant victory for Clarke and fellow pro-European Michael Heseltine , deputy prime minister ."
+    },
+    {
+      "group": "best",
+      "index": 7684,
+      "rouge_l": 1.0,
+      "gold": "PER:Hines ORG:Austria_III",
+      "prediction": "PER Hines\nORG Austria III",
+      "prompt": "Hines ) 1:46.34 ( 53.14 / 53.20 ) and Austria III"
+    },
+    {
+      "group": "best",
+      "index": 85,
+      "rouge_l": 0.9922,
+      "gold": "PER:Javier_Pertile PER:Paolo_Vaccari PER:Marcello_Cuttitta PER:Ivan_Francescato PER:Leandro_Manteri PER:Diego_Dominguez ...",
+      "prediction": "PER Javier Pertile; PER Paolo Vaccari; PER Marcello Cuttitta; PER Ivan Francescato; PER Leandro Manteri; PER Diego Domin...",
+      "prompt": "Squad : Javier Pertile , Paolo Vaccari , Marcello Cuttitta , Ivan Francescato , Leandro Manteri , Diego Dominguez , Francesco Mazzariol , Alessandro Troncon , Orazio Arancio , Andrea Sgorlon , Massimo..."
+    },
+    {
+      "group": "worst",
+      "index": 95,
+      "rouge_l": 0.0,
+      "gold": "MISC:Syrian",
+      "prediction": "PER Syria NONE NONE",
+      "prompt": "It was the second Syrian defensive blunder in four minutes ."
+    },
+    {
+      "group": "worst",
+      "index": 210,
+      "rouge_l": 0.0,
+      "gold": "LOC:Uzbekistan",
+      "prediction": "PER UNGUBISTAN NONE NONE",
+      "prompt": "Uzbekistan 1 1 0 0 2 0 3"
+    },
+    {
+      "group": "worst",
+      "index": 415,
+      "rouge_l": 0.0,
+      "gold": "MISC:EuroLeague",
+      "prediction": "PER men NONE NONE",
+      "prompt": "Standings in the men 's EuroLeague"
+    },
+    {
+      "group": "worst",
+      "index": 421,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "PER basketball ORG tabulate MISC",
+      "prompt": "basketball championship after Thursday 's matches ( tabulate under"
+    },
+    {
+      "group": "worst",
+      "index": 480,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "PER C",
+      "prompt": "Group C"
+    }
+  ]
+}
