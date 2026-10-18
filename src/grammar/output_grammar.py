@@ -11,10 +11,14 @@ Tre modalità (``grammar.mode`` nel config, assente = ``vocab``):
   vocabolario non viene dal train ma dall'input di ogni esempio: nessun leak,
   e ogni entità gold è raggiungibile (nel corpus ogni entità è un pezzo della
   frase), mentre con il vocabolario di train il 48% delle entità di test era
-  impossibile da generare. Ogni pezzo compare UNA volta, con un solo tipo:
-  senza questo vincolo il GRPO imparava a coprirsi con ``PER:X ORG:X LOC:X``
-  (credito parziale certo da ROUGE/BLEU, 53% delle uscite di GRPO zero-shot);
-  nel gold capita in 1 frase su 14.041 del train e 1 su 3.453 del test.
+  impossibile da generare. Le entità non si sovrappongono: ogni
+  parola della frase può stare in più entità solo quante volte compare nella
+  frase (:meth:`OutputGrammar.word_budget`). Senza questo vincolo il GRPO
+  imparava a coprirsi con ``PER:X ORG:X LOC:X`` (53% delle uscite di GRPO
+  zero-shot) e, bloccato quello, con pezzi annidati (``PER:siege
+  PER:siege_to PER:siege_to_the``): credito parziale certo da ROUGE/BLEU. Il
+  gold rispetta sempre il budget, perché le sue entità sono porzioni
+  disgiunte della frase.
 * ``sequences`` — classificazione gerarchica (WOS-46985): l'uscita intera
   deve essere una delle sequenze viste negli split del vocabolario (con
   ``vocab_source: train`` solo il train): dominio, poi un'area DI QUEL
@@ -30,6 +34,7 @@ impone e ciò che le metriche chiamano "valido" non possono divergere.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -93,6 +98,20 @@ class OutputGrammar:
         }
         return [f"{t}:{p}" for t in self.span_types for p in sorted(pieces)]
 
+    @staticmethod
+    def piece_words(piece: str) -> Counter:
+        """Parole (separate da ``_``) di un pezzo ``Nadim_Ladki``."""
+        return Counter(piece.split("_"))
+
+    def word_budget(self, source: str) -> Counter:
+        """Quante volte ogni parola compare nella frase: il tetto d'uso."""
+        return Counter(w for sw in source.split() for w in sw.split("_"))
+
+    @classmethod
+    def fits(cls, piece: str, used: Counter, budget: Counter) -> bool:
+        """``piece`` sta nel budget dopo le parole già usate in ``used``."""
+        return all(used[w] + n <= budget[w] for w, n in cls.piece_words(piece).items())
+
     def _span_word_ok(self, word: str, items: set[str] | None) -> bool:
         if items is not None:
             return word in items
@@ -128,10 +147,20 @@ class OutputGrammar:
         if words == [self.empty_token]:
             return True
         items = set(self.span_items(source)) if source is not None else None
-        spans = [w.split(":", 1)[-1] for w in words]
-        return len(set(spans)) == len(spans) and all(
+        if not all(
             w != self.empty_token and self._span_word_ok(w, items) for w in words
-        )
+        ):
+            return False
+        spans = [w.split(":", 1)[-1] for w in words]
+        if source is None:
+            # Senza frase: solo i pezzi identici si vedono.
+            return len(set(spans)) == len(spans)
+        budget, used = self.word_budget(source), Counter()
+        for span in spans:
+            if not self.fits(span, used, budget):
+                return False
+            used.update(self.piece_words(span))
+        return True
 
 
 def build_output_grammar(

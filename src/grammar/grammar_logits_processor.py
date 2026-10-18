@@ -21,6 +21,7 @@ Compatible with Hugging Face ``model.generate()``.
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from collections.abc import Callable
 from typing import Any
 
@@ -49,7 +50,9 @@ class TrieNode:
         stop: EOS is allowed here (a complete output ends at this node).
         span: Piece of sentence of the word ending here (``source_spans``).
         spans: Pieces of the words ending in this subtree (``source_spans``):
-            a branch whose pieces are all used is pruned, never entered.
+            a branch none of whose pieces still fits the word budget is pruned.
+        budget: On a root only: how many times each word occurs in the
+            prompt's sentence (``source_spans``); entities may not overlap.
     """
 
     def __init__(self) -> None:
@@ -58,6 +61,7 @@ class TrieNode:
         self.stop: bool = False
         self.span: str | None = None
         self.spans: frozenset[str] = frozenset()
+        self.budget: Counter | None = None
 
 
 _SPECIAL_GLOSSES = {"<BOS>", "<EOS>", "<UNK>"}
@@ -245,6 +249,7 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
             root = self._build_items_trie(
                 self.grammar.span_items(source), empty, unique_spans=True
             )
+            root.budget = self.grammar.word_budget(source)
             self._span_roots[key] = root
         return root
 
@@ -264,33 +269,41 @@ class GlossVocabularyLogitsProcessor(LogitsProcessor, MaskedMassTracker):
         decoder cannot drift apart.
         """
         node = root
-        used: set[str] = set()  # pieces already emitted (source_spans)
+        grammar, budget = self.grammar, root.budget
+        used: Counter = Counter()  # words of the entities already emitted
         for tok in gen_tokens:
             if tok in node.children:
                 node = node.children[tok]
             elif node.next is not None and tok in node.next.children:
                 # Whitespace boundary: word finished here, the next one
                 # starts from a space-prefixed child (DEBUTRECHT guard).
-                if node.span is not None:
-                    used.add(node.span)
+                if node.span is not None and budget is not None:
+                    used.update(grammar.piece_words(node.span))
                 node = node.next.children[tok]
             else:
                 # No valid transition. Reset to root as best-effort
                 # recovery — the mask will be very restrictive here.
                 node = root
 
-        def open_children(n: TrieNode, done: set[str]) -> list[int]:
-            # Rami i cui pezzi sono tutti già usati: potati (vocab/sequences
-            # non hanno pezzi, ``done`` resta vuoto e non si pota nulla).
+        def open_children(n: TrieNode, done: Counter) -> list[int]:
+            # Rami in cui nessun pezzo sta più nel budget: potati (vocab e
+            # sequences non hanno budget: ``done`` resta vuoto, niente potatura;
+            # any() si ferma al primo pezzo ammesso, quindi costa poco).
             if not done:
                 return list(n.children)
-            return [t for t, c in n.children.items() if not c.spans <= done]
+            return [
+                t
+                for t, c in n.children.items()
+                if any(grammar.fits(p, done, budget) for p in c.spans)
+            ]
 
         allowed = set(open_children(node, used))
-        # La parola corrente può finire qui solo se il suo pezzo è nuovo.
-        can_end = node.span is None or node.span not in used
+        # La parola corrente può finire qui solo se il suo pezzo sta nel budget.
+        can_end = node.span is None or grammar.fits(node.span, used, budget)
         if node.next is not None and can_end:
-            done = used | {node.span} if node.span is not None else used
+            done = used
+            if node.span is not None:
+                done = used + grammar.piece_words(node.span)
             allowed.update(open_children(node.next, done))
         if node.stop and can_end:
             allowed.add(self.eos_token_id)

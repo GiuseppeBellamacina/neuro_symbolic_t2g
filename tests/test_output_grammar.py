@@ -52,9 +52,16 @@ def test_source_spans_accepts_only_pieces_of_the_sentence() -> None:
     assert not g.accepts("XYZ:EU", SENTENCE)
     # Senza frase si controlla solo la forma TIPO:qualcosa.
     assert g.accepts("PER:Mary", None)
-    # Ogni pezzo una volta sola, con un solo tipo (l'hack PER:X ORG:X LOC:X).
+    # Entità disgiunte: né lo stesso pezzo con più tipi (PER:X ORG:X LOC:X),
+    # né pezzi annidati che riusano una parola della frase.
     assert not g.accepts("ORG:EU PER:EU", SENTENCE)
     assert not g.accepts("ORG:EU ORG:EU", SENTENCE)
+    assert not g.accepts("ORG:EU MISC:EU_rejects", SENTENCE)
+    assert not g.accepts("MISC:German MISC:German_call", SENTENCE)
+    # Una parola ripetuta nella frase può stare in due entità, non di più.
+    two = "Costas Simitis and Costas Skandalidis met"
+    assert g.accepts("PER:Costas_Simitis PER:Costas_Skandalidis", two)
+    assert not g.accepts("PER:Costas PER:Costas_Simitis PER:Costas_Skandalidis", two)
 
 
 def test_sequences_accept_only_whole_allowed_pairs() -> None:
@@ -125,7 +132,7 @@ def test_span_trie_admits_gold_and_closes_after_none(tokenizer) -> None:
     assert not walked
 
 
-def test_span_trie_emits_each_piece_once(tokenizer) -> None:
+def test_span_trie_keeps_entities_disjoint(tokenizer) -> None:
     g = _conll_grammar()
     proc = build_logits_processor(CONLL_CFG, g, sorted(g.vocab), tokenizer)
     prompt = build_t2g_prompt(SENTENCE, tokenizer, profile="en-conll")
@@ -140,13 +147,14 @@ def test_span_trie_emits_each_piece_once(tokenizer) -> None:
         ) and eos in _allowed_after(proc, pids, ids)
 
     assert complete("ORG:EU MISC:German")
-    # Lo stesso pezzo con un altro tipo, o ripetuto, non può chiudersi
-    # (il prefisso PER:EU resta percorribile solo verso PER:EU_rejects)...
+    # Lo stesso pezzo con un altro tipo, ripetuto, o annidato in uno già
+    # emesso non può chiudersi.
     assert not complete("ORG:EU PER:EU")
     assert not complete("ORG:EU ORG:EU")
     assert not complete("MISC:German LOC:EU ORG:German")
-    # ...ma i pezzi che lo contengono sì (EU_rejects è un altro pezzo).
-    assert complete("ORG:EU MISC:EU_rejects")
+    assert not complete("ORG:EU MISC:EU_rejects")
+    assert not complete("MISC:German MISC:German_call")
+    assert complete("ORG:EU MISC:German MISC:British")
     # Pezzo usato e senza estensioni: nemmeno il prefisso è percorribile.
     dot = tokenizer.encode("MISC:. ORG:.", add_special_tokens=False)
     assert not all(
