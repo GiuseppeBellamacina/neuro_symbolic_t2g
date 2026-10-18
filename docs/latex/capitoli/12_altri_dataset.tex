@@ -184,18 +184,46 @@ dell'SFT. Le metriche lo mostrano in modo netto: ROUGE-L sale da $0{,}27$ a
 $0{,}35$, l'exact match \emph{si dimezza} da $0{,}045$ a $0{,}023$, e la validity
 ($0{,}998$) non se ne accorge, perché l'uscita era ammessa dalla grammatica.
 
-La correzione sta nella grammatica, non nella reward: \textbf{ogni pezzo della
-frase può comparire una sola volta, con un solo tipo}. Nel decoder ogni nodo del
-Trie per frase conosce i pezzi che terminano nel suo sottoalbero; un ramo i cui
-pezzi sono già stati emessi viene potato, e una parola può chiudersi solo se il
-suo pezzo è nuovo. Così il decoder non arriva mai in un vicolo cieco: dopo ogni
-prefisso ammesso esiste sempre un token ammesso. Lo stesso vincolo entra nella
-validity e nella reward di formato, quindi penalizza l'hack anche nelle celle
-senza Trie. Nel gold la regola esclude una frase su $14.041$ del train e una su
-$3.453$ del test (lo stesso nome con due tipi nella stessa frase).
+Una prima correzione ha vietato il \emph{pezzo identico}: ogni pezzo della
+frase una sola volta, con un solo tipo. Ha funzionato solo a metà. Nella
+campagna rilanciata il GRPO ha trovato subito il varco accanto, scrivendo pezzi
+\emph{annidati}:
 
-I risultati di CoNLL riportati più sotto sono quelli \emph{precedenti} alla
-correzione; l'intera campagna CoNLL è stata rilanciata con la grammatica nuova.
+\begin{center}
+\small
+\begin{tabular}{ll}
+\toprule
+Frase    & \texttt{Japan then laid siege to the Syrian penalty area \dots} \\
+Gold     & \texttt{LOC:Japan MISC:Syrian} \\
+Generato & \texttt{PER:siege PER:siege\_to PER:siege\_to\_the MISC:game} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Con la regola dei pezzi identici, i pezzi annidati erano nel $21$--$24\%$ delle
+uscite delle celle GRPO zero-shot contro l'$1{,}6\%$ dell'SFT, e le uscite
+avevano in media $1{,}9$ volte i token del gold. Nella cella SFT$\to$GRPO,
+prima la migliore, l'exact match crollava da $0{,}78$ a $0{,}09$: la validity
+restava a $0{,}98$, perché la grammatica ammetteva tutto questo.
+
+La correzione definitiva sta ancora nella grammatica, non nella reward:
+\textbf{le entità non si sovrappongono}. Ogni parola della frase può stare in
+più entità solo quante volte compare nella frase (il suo \emph{budget}). Il
+gold rispetta sempre il budget, perché le sue entità sono porzioni disgiunte
+della frase: su tutte le $20.744$ frasi di train, validation e test di
+CoNLL ogni gold è ammesso (anche \texttt{PER:Costas\_Simitis
+PER:Costas\_Skandalidis}, dove \emph{Costas} compare due volte nella frase),
+mentre \texttt{PER:siege PER:siege\_to} è impossibile, perché \emph{siege}
+compare una volta sola. Nel decoder ogni nodo del Trie per frase conosce i
+pezzi che terminano nel suo sottoalbero; un ramo nessuno dei cui pezzi sta
+ancora nel budget viene potato, e una parola può chiudersi solo se il suo pezzo
+ci sta. Così il decoder non arriva mai in un vicolo cieco. Lo stesso vincolo
+entra nella validity e nella reward di formato, quindi penalizza l'hack anche
+nelle celle senza Trie.
+
+I risultati di CoNLL riportati più sotto sono quelli della \emph{prima}
+campagna, prima di qualunque correzione; la campagna con il vincolo definitivo
+è in corso.
 \todo{aggiornare la tabella~\ref{tab:risultati-conll} con la campagna rilanciata}
 
 \section{Adattamenti della reward}
