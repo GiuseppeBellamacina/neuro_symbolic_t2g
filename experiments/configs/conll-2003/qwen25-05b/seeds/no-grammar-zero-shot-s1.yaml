@@ -1,0 +1,16 @@
+# ============================================================================
+# Replica a seme diverso di ablations/decoding/no-grammar-zero-shot (CoNLL-2003).
+# Cambia solo training.seed. La validity di questa cella e' variata molto fra
+# le tre campagne (0,14 / 0,001 / 0,46): la replica dice quanto e' rumore.
+# ============================================================================
+
+extends: ../ablations/decoding/no-grammar-zero-shot.yaml
+
+training:
+  seed: 1
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-05b/seeds/no-grammar-zero-shot-s1"
+  log_dir: "experiments/logs/conll-2003/qwen25-05b/seeds/no-grammar-zero-shot-s1"
+
+wandb:
+  run_name: "conll-2003-qwen25-05b-seeds-no-grammar-zero-shot-s1"
+  tags: ["T2G", "CoNLL-2003", "qwen25-05b", "ablation", "no-grammar", "zero-shot", "seed-replica"]

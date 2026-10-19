@@ -1555,7 +1555,7 @@ def test_configs_exposes_known_config_map(client):
     assert r.status_code == 200
     body = r.json()
     names = [c["name"] for c in body["configs"]]
-    assert len(names) == len(app_module.CONFIG_MAP) == 54
+    assert len(names) == len(app_module.CONFIG_MAP) == 56
     assert "aslg-pc12-sft-grpo-zero-shot" in names
     assert "phoenix-2014t-grpo-few-shot" in names
     assert all(c["path"] for c in body["configs"])

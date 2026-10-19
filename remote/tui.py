@@ -130,6 +130,8 @@ CONFIG_NAMES: tuple[str, ...] = (
     "conll-2003-sft-grpo-zero-shot",
     "conll-2003-ablations-decoding-no-grammar-zero-shot",
     "conll-2003-ablations-objectives-sft-allowed-mass",
+    "conll-2003-seeds-grpo-zero-shot-s1",
+    "conll-2003-seeds-no-grammar-zero-shot-s1",
 )
 CONFIG_NAME_SET: frozenset[str] = frozenset(CONFIG_NAMES)
 

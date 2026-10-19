@@ -576,7 +576,9 @@ def main() -> None:
     dedupe_library_loggers()
 
     # ── Set random seeds for reproducibility ─────────────────────────────
-    seed = config["dataset"].get("seed", 42)
+    # training.seed (repliche a seme diverso, seeds/) cambia solo l'RNG
+    # dell'addestramento; dataset.seed governa anche split e cache, e resta.
+    seed = config.get("training", {}).get("seed", config["dataset"].get("seed", 42))
     random.seed(seed)
     np.random.seed(seed)  # noqa: NPY002
     torch.manual_seed(seed)

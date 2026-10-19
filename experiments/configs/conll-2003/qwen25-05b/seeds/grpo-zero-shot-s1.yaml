@@ -1,0 +1,18 @@
+# ============================================================================
+# Replica a seme diverso di grpo/zero-shot (CoNLL-2003). Tutto identico, cambia
+# solo training.seed (RNG di addestramento: init LoRA, campionamento dei
+# rollout, ordine dei batch); split e campione di eval restano quelli di
+# dataset.seed. Serve a stimare quanto varia una cella GRPO fra semi: tutte le
+# altre celle del progetto hanno un solo seme.
+# ============================================================================
+
+extends: ../grpo/zero-shot.yaml
+
+training:
+  seed: 1
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-05b/seeds/grpo-zero-shot-s1"
+  log_dir: "experiments/logs/conll-2003/qwen25-05b/seeds/grpo-zero-shot-s1"
+
+wandb:
+  run_name: "conll-2003-qwen25-05b-seeds-grpo-zero-shot-s1"
+  tags: ["T2G", "CoNLL-2003", "qwen25-05b", "grpo", "zero-shot", "trie", "seed-replica"]

@@ -196,6 +196,9 @@ CONFIG_MAP: dict[str, str] = {
     "conll-2003-sft-grpo-zero-shot": "experiments/configs/conll-2003/qwen25-05b/sft-grpo/zero-shot.yaml",
     "conll-2003-ablations-decoding-no-grammar-zero-shot": "experiments/configs/conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot.yaml",
     "conll-2003-ablations-objectives-sft-allowed-mass": "experiments/configs/conll-2003/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml",
+    # Repliche a seme diverso (training.seed): fuori dalle campagne.
+    "conll-2003-seeds-grpo-zero-shot-s1": "experiments/configs/conll-2003/qwen25-05b/seeds/grpo-zero-shot-s1.yaml",
+    "conll-2003-seeds-no-grammar-zero-shot-s1": "experiments/configs/conll-2003/qwen25-05b/seeds/no-grammar-zero-shot-s1.yaml",
 }
 
 CONFIG_PATHS: set[str] = set(CONFIG_MAP.values())
