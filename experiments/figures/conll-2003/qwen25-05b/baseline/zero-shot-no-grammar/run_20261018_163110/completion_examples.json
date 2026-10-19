@@ -1,0 +1,86 @@
+{
+  "model": "baseline",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 1176,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "_ none_",
+      "prompt": ")"
+    },
+    {
+      "group": "best",
+      "index": 2042,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Correct score :"
+    },
+    {
+      "group": "best",
+      "index": 2469,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Leading scorers :"
+    },
+    {
+      "group": "best",
+      "index": 3830,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "@"
+    },
+    {
+      "group": "best",
+      "index": 4209,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Avg December 5 price fix :"
+    },
+    {
+      "group": "worst",
+      "index": 33,
+      "rouge_l": 0,
+      "gold": "PER:Takuya_Takagi PER:Hiroshige_Yanagimoto PER:Salem_Bitar MISC:Syrian",
+      "prediction": "_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ...",
+      "prompt": "Takuya Takagi scored the winner in the 88th minute , rising to head a Hiroshige Yanagimoto cross towards the Syrian goal which goalkeeper Salem Bitar appeared to have covered but then allowed to slip ..."
+    },
+    {
+      "group": "worst",
+      "index": 68,
+      "rouge_l": 0.0,
+      "gold": "PER:Marcello_Cuttitta LOC:Italy",
+      "prediction": "MEILAHLOU CUTTITTATO",
+      "prompt": "Italy recalled Marcello Cuttitta"
+    },
+    {
+      "group": "worst",
+      "index": 80,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "return;time",
+      "prompt": "I think now is the right time for him to return . \""
+    },
+    {
+      "group": "worst",
+      "index": 125,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "free-skiing; moguls; competition; frie ; skiing",
+      "prompt": "freestyle skiing moguls competition on Friday :"
+    },
+    {
+      "group": "worst",
+      "index": 175,
+      "rouge_l": 0.0,
+      "gold": "LOC:Japan LOC:Syria",
+      "prediction": "PER,JPN,MISC,SYR,PER",
+      "prompt": "Japan 2 Syria 1 ( halftime 0-1 )"
+    }
+  ]
+}

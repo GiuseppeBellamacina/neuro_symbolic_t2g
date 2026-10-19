@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-18T13:39:37+00:00",
+  "generated_at": "2026-10-19T17:43:44+00:00",
   "factor_deduction": [
     {
       "factor": "method",
@@ -315,10 +315,10 @@
       }
     },
     {
-      "path": "conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261011_000134/eval_final.json",
+      "path": "conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261019_002102/eval_final.json",
       "cell": "conll-2003-qwen25-05b-sft-grpo-few-shot",
       "cell_path": "conll-2003/qwen25-05b/sft-grpo/few-shot",
-      "run_id": "run_20261011_000134",
+      "run_id": "run_20261019_002102",
       "kind": "final",
       "factors": {
         "variant": "few-shot",
@@ -340,31 +340,31 @@
         "rl_objective": "not deducible (config not embedded in eval JSON)",
         "dataset": "first path segment (results/<dataset>/...)"
       },
-      "timestamp": "2026-10-11 00:01:34",
+      "timestamp": "2026-10-19 00:21:02",
       "timestamp_source": "run directory name",
       "num_samples_evaluated": 2000,
       "metrics_version": 2,
       "prompt_context_fingerprint": "61cf650a57b8aaf6dec18cf9b4ae0633a6779b47e2082eb4b4de0f73f10360e2",
       "metrics": {
-        "rouge_l_mean": 0.5090357323992598,
-        "valid_rouge_l_mean": 0.506795975176703,
-        "exact_match": 0.2487,
-        "non_copy_token_accuracy": 0.38638368246968025,
-        "pass_at_1": 0.6685,
-        "validity_rate": 0.9956,
-        "bleu_corpus": 0.2493102161185399,
-        "bleu_sentence_mean": 0.38959634217510664,
-        "chrf_corpus": 45.52600283321422,
-        "chrf_sentence_mean": 52.49234177725569,
-        "gloss_f1_micro": 0.3223201174743025,
-        "gloss_f1_sentence_mean": 0.3995302604167525
+        "rouge_l_mean": 0.5282269437559786,
+        "valid_rouge_l_mean": 0.5279628302841006,
+        "exact_match": 0.2871,
+        "non_copy_token_accuracy": 0.38450937155457554,
+        "pass_at_1": 0.676,
+        "validity_rate": 0.9995,
+        "bleu_corpus": 0.3326193097535171,
+        "bleu_sentence_mean": 0.42211933488748327,
+        "chrf_corpus": 46.54116784148259,
+        "chrf_sentence_mean": 53.61117911236307,
+        "gloss_f1_micro": 0.33915574963609896,
+        "gloss_f1_sentence_mean": 0.4212152656243674
       }
     },
     {
-      "path": "conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261011_000134/eval_final__zero-shot.json",
+      "path": "conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261019_002102/eval_final__zero-shot.json",
       "cell": "conll-2003-qwen25-05b-sft-grpo-few-shot",
       "cell_path": "conll-2003/qwen25-05b/sft-grpo/few-shot",
-      "run_id": "run_20261011_000134",
+      "run_id": "run_20261019_002102",
       "kind": "final",
       "factors": {
         "variant": "few-shot",
@@ -386,31 +386,31 @@
         "rl_objective": "not deducible (config not embedded in eval JSON)",
         "dataset": "first path segment (results/<dataset>/...)"
       },
-      "timestamp": "2026-10-11 00:01:34",
+      "timestamp": "2026-10-19 00:21:02",
       "timestamp_source": "run directory name",
       "num_samples_evaluated": 2000,
       "metrics_version": 2,
       "prompt_context_fingerprint": "8151d62293397be15dd5de7b8fc351db2214db776ba6058f4ed3019c90f8ed04",
       "metrics": {
-        "rouge_l_mean": 0.24034818274879186,
-        "valid_rouge_l_mean": 0.23931468556297206,
-        "exact_match": 0.0936,
-        "non_copy_token_accuracy": 0.10275633958103639,
-        "pass_at_1": 0.345,
-        "validity_rate": 0.9957,
-        "bleu_corpus": 0.12007044209640981,
-        "bleu_sentence_mean": 0.1577384777106834,
-        "chrf_corpus": 22.370550386314886,
-        "chrf_sentence_mean": 25.264825968528204,
-        "gloss_f1_micro": 0.0919590857925904,
-        "gloss_f1_sentence_mean": 0.1249960462927539
+        "rouge_l_mean": 0.2508800581490176,
+        "valid_rouge_l_mean": 0.2508047941315729,
+        "exact_match": 0.1285,
+        "non_copy_token_accuracy": 0.11383682469680265,
+        "pass_at_1": 0.315,
+        "validity_rate": 0.9997,
+        "bleu_corpus": 0.1437389864825297,
+        "bleu_sentence_mean": 0.18456806096707892,
+        "chrf_corpus": 22.618891537676397,
+        "chrf_sentence_mean": 26.427225015864607,
+        "gloss_f1_micro": 0.10224647298825149,
+        "gloss_f1_sentence_mean": 0.15043471175072715
       }
     },
     {
-      "path": "conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261011_020559/eval_final__few-shot.json",
+      "path": "conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261019_022555/eval_final__few-shot.json",
       "cell": "conll-2003-qwen25-05b-sft-grpo-zero-shot",
       "cell_path": "conll-2003/qwen25-05b/sft-grpo/zero-shot",
-      "run_id": "run_20261011_020559",
+      "run_id": "run_20261019_022555",
       "kind": "final",
       "factors": {
         "variant": "zero-shot",
@@ -432,31 +432,31 @@
         "rl_objective": "not deducible (config not embedded in eval JSON)",
         "dataset": "first path segment (results/<dataset>/...)"
       },
-      "timestamp": "2026-10-11 02:05:59",
+      "timestamp": "2026-10-19 02:25:55",
       "timestamp_source": "run directory name",
       "num_samples_evaluated": 2000,
       "metrics_version": 2,
       "prompt_context_fingerprint": "44125bcc2f02578d2b53a8dedd15efefc559d19cc2c3135a74a4d317402dc7c8",
       "metrics": {
-        "rouge_l_mean": 0.43015746048574455,
-        "valid_rouge_l_mean": 0.4204359018787667,
-        "exact_match": 0.1297,
-        "non_copy_token_accuracy": 0.36466372657111357,
-        "pass_at_1": 0.623,
-        "validity_rate": 0.9774,
-        "bleu_corpus": 0.1445010778574392,
-        "bleu_sentence_mean": 0.2824671912230841,
-        "chrf_corpus": 42.64588877924661,
-        "chrf_sentence_mean": 46.81006983257115,
-        "gloss_f1_micro": 0.22860199099394424,
-        "gloss_f1_sentence_mean": 0.3059699370973417
+        "rouge_l_mean": 0.43951019319584,
+        "valid_rouge_l_mean": 0.4389388299446854,
+        "exact_match": 0.1445,
+        "non_copy_token_accuracy": 0.38577728776185227,
+        "pass_at_1": 0.6325,
+        "validity_rate": 0.9987,
+        "bleu_corpus": 0.2052927618086512,
+        "bleu_sentence_mean": 0.29538210215183947,
+        "chrf_corpus": 46.65953821022797,
+        "chrf_sentence_mean": 49.147698649418935,
+        "gloss_f1_micro": 0.2467957746478873,
+        "gloss_f1_sentence_mean": 0.32849610795013096
       }
     },
     {
-      "path": "conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261011_020559/eval_final.json",
+      "path": "conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261019_022555/eval_final.json",
       "cell": "conll-2003-qwen25-05b-sft-grpo-zero-shot",
       "cell_path": "conll-2003/qwen25-05b/sft-grpo/zero-shot",
-      "run_id": "run_20261011_020559",
+      "run_id": "run_20261019_022555",
       "kind": "final",
       "factors": {
         "variant": "zero-shot",
@@ -478,31 +478,31 @@
         "rl_objective": "not deducible (config not embedded in eval JSON)",
         "dataset": "first path segment (results/<dataset>/...)"
       },
-      "timestamp": "2026-10-11 02:05:59",
+      "timestamp": "2026-10-19 02:25:55",
       "timestamp_source": "run directory name",
       "num_samples_evaluated": 2000,
       "metrics_version": 2,
       "prompt_context_fingerprint": "624010924b817420d107e089821d82b05aa6c669c3cc3f5e8b74ca981160404f",
       "metrics": {
-        "rouge_l_mean": 0.2835927544982519,
-        "valid_rouge_l_mean": 0.2786298812945325,
-        "exact_match": 0.0902,
-        "non_copy_token_accuracy": 0.151212789415656,
-        "pass_at_1": 0.4045,
-        "validity_rate": 0.9825,
-        "bleu_corpus": 0.1013189179765865,
-        "bleu_sentence_mean": 0.17270780744616163,
-        "chrf_corpus": 28.84232878822815,
-        "chrf_sentence_mean": 30.100033798703308,
-        "gloss_f1_micro": 0.10507267081928491,
-        "gloss_f1_sentence_mean": 0.14311765953290637
+        "rouge_l_mean": 0.2835699082837848,
+        "valid_rouge_l_mean": 0.2832012674030159,
+        "exact_match": 0.1122,
+        "non_copy_token_accuracy": 0.15088202866593164,
+        "pass_at_1": 0.384,
+        "validity_rate": 0.9987,
+        "bleu_corpus": 0.12017111411281857,
+        "bleu_sentence_mean": 0.1852357108360155,
+        "chrf_corpus": 29.31227381889799,
+        "chrf_sentence_mean": 31.268958936907136,
+        "gloss_f1_micro": 0.10257365959112172,
+        "gloss_f1_sentence_mean": 0.1552273841245404
       }
     },
     {
-      "path": "conll-2003/qwen25-05b/ablations/decoding/no-grammar/run_20261011_042103/eval_final.json",
+      "path": "conll-2003/qwen25-05b/ablations/decoding/no-grammar/run_20261019_043117/eval_final.json",
       "cell": "conll-2003-qwen25-05b-ablations-decoding-no-grammar",
       "cell_path": "conll-2003/qwen25-05b/ablations/decoding/no-grammar",
-      "run_id": "run_20261011_042103",
+      "run_id": "run_20261019_043117",
       "kind": "final",
       "factors": {
         "variant": "conll-2003-qwen25-05b-ablations-decoding-no-grammar",
@@ -524,31 +524,31 @@
         "rl_objective": "not deducible (config not embedded in eval JSON)",
         "dataset": "first path segment (results/<dataset>/...)"
       },
-      "timestamp": "2026-10-11 04:21:03",
+      "timestamp": "2026-10-19 04:31:17",
       "timestamp_source": "run directory name",
       "num_samples_evaluated": 2000,
       "metrics_version": 2,
       "prompt_context_fingerprint": "05d7beedd7fd1f629465e4f4f19ef1c654625f32829cd35b9db749dd5edb4adf",
       "metrics": {
-        "rouge_l_mean": 0.6221601004544869,
-        "valid_rouge_l_mean": 0.3698741797201925,
-        "exact_match": 0.3426,
-        "non_copy_token_accuracy": 0.417199558985667,
-        "pass_at_1": 0.779,
-        "validity_rate": 0.5945,
-        "bleu_corpus": 0.373344056320353,
-        "bleu_sentence_mean": 0.47864932461353055,
-        "chrf_corpus": 49.68248417910035,
-        "chrf_sentence_mean": 59.18539868299633,
-        "gloss_f1_micro": 0.3223531364088948,
-        "gloss_f1_sentence_mean": 0.46945432939106047
+        "rouge_l_mean": 0.611326351001293,
+        "valid_rouge_l_mean": 0.39742326078594054,
+        "exact_match": 0.3476,
+        "non_copy_token_accuracy": 0.422877618522602,
+        "pass_at_1": 0.755,
+        "validity_rate": 0.6501,
+        "bleu_corpus": 0.4346498427503348,
+        "bleu_sentence_mean": 0.483962823019518,
+        "chrf_corpus": 50.54088749855205,
+        "chrf_sentence_mean": 58.49247289010537,
+        "gloss_f1_micro": 0.37755273855627447,
+        "gloss_f1_sentence_mean": 0.47485479476320636
       }
     },
     {
-      "path": "conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot/run_20261011_065106/eval_final.json",
+      "path": "conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot/run_20261019_071102/eval_final.json",
       "cell": "conll-2003-qwen25-05b-ablations-decoding-no-grammar-zero-shot",
       "cell_path": "conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot",
-      "run_id": "run_20261011_065106",
+      "run_id": "run_20261019_071102",
       "kind": "final",
       "factors": {
         "variant": "conll-2003-qwen25-05b-ablations-decoding-no-grammar-zero-shot",
@@ -570,31 +570,31 @@
         "rl_objective": "not deducible (config not embedded in eval JSON)",
         "dataset": "first path segment (results/<dataset>/...)"
       },
-      "timestamp": "2026-10-11 06:51:06",
+      "timestamp": "2026-10-19 07:11:02",
       "timestamp_source": "run directory name",
       "num_samples_evaluated": 2000,
       "metrics_version": 2,
       "prompt_context_fingerprint": "bb84c11785c159d5aaa4324de9b405909d318bd2b4d9846b509327afb3deeeeb",
       "metrics": {
-        "rouge_l_mean": 0.46399945426919037,
-        "valid_rouge_l_mean": 0.0005103993996961095,
-        "exact_match": 0.0004,
-        "non_copy_token_accuracy": 0.10793825799338479,
-        "pass_at_1": 0.832,
-        "validity_rate": 0.0011,
-        "bleu_corpus": 0.020535176803898776,
-        "bleu_sentence_mean": 0.05636841264961749,
-        "chrf_corpus": 29.34980859916073,
-        "chrf_sentence_mean": 34.59158813635057,
-        "gloss_f1_micro": 0.05140326497746724,
-        "gloss_f1_sentence_mean": 0.07635707657254091
+        "rouge_l_mean": 0.4026714532213286,
+        "valid_rouge_l_mean": 0.18434299128472423,
+        "exact_match": 0.1472,
+        "non_copy_token_accuracy": 0.11041896361631753,
+        "pass_at_1": 0.5735,
+        "validity_rate": 0.4578,
+        "bleu_corpus": 0.008344021569963663,
+        "bleu_sentence_mean": 0.1716768465715556,
+        "chrf_corpus": 21.328759901783467,
+        "chrf_sentence_mean": 31.146658792008722,
+        "gloss_f1_micro": 0.0731915202292222,
+        "gloss_f1_sentence_mean": 0.16928437847452224
       }
     },
     {
-      "path": "conll-2003/qwen25-05b/ablations/objectives/sft-allowed-mass/run_20261011_091612/eval_final.json",
+      "path": "conll-2003/qwen25-05b/ablations/objectives/sft-allowed-mass/run_20261019_093124/eval_final.json",
       "cell": "conll-2003-qwen25-05b-ablations-objectives-sft-allowed-mass",
       "cell_path": "conll-2003/qwen25-05b/ablations/objectives/sft-allowed-mass",
-      "run_id": "run_20261011_091612",
+      "run_id": "run_20261019_093124",
       "kind": "final",
       "factors": {
         "variant": "conll-2003-qwen25-05b-ablations-objectives-sft-allowed-mass",
@@ -616,31 +616,31 @@
         "rl_objective": "not deducible (config not embedded in eval JSON)",
         "dataset": "first path segment (results/<dataset>/...)"
       },
-      "timestamp": "2026-10-11 09:16:12",
+      "timestamp": "2026-10-19 09:31:24",
       "timestamp_source": "run directory name",
       "num_samples_evaluated": 2000,
       "metrics_version": 2,
       "prompt_context_fingerprint": "624010924b817420d107e089821d82b05aa6c669c3cc3f5e8b74ca981160404f",
       "metrics": {
-        "rouge_l_mean": 0.8991522578474738,
-        "valid_rouge_l_mean": 0.8991522578474738,
-        "exact_match": 0.7384,
-        "non_copy_token_accuracy": 0.8239801543550166,
-        "pass_at_1": 0.967,
+        "rouge_l_mean": 0.9044360260124493,
+        "valid_rouge_l_mean": 0.9044360260124493,
+        "exact_match": 0.7505,
+        "non_copy_token_accuracy": 0.825303197353914,
+        "pass_at_1": 0.9695,
         "validity_rate": 1.0,
-        "bleu_corpus": 0.8241392454214161,
-        "bleu_sentence_mean": 0.856884491625644,
-        "chrf_corpus": 85.44857579906446,
-        "chrf_sentence_mean": 89.27194533394811,
-        "gloss_f1_micro": 0.8227886386757953,
-        "gloss_f1_sentence_mean": 0.8431839648292949
+        "bleu_corpus": 0.8407281614178921,
+        "bleu_sentence_mean": 0.8645716440363634,
+        "chrf_corpus": 85.72124919048669,
+        "chrf_sentence_mean": 89.71193651801694,
+        "gloss_f1_micro": 0.8253338840699436,
+        "gloss_f1_sentence_mean": 0.8513520772402602
       }
     },
     {
-      "path": "conll-2003/qwen25-05b/baseline/few-shot/run_20261010_153552/eval_zero_shot.json",
+      "path": "conll-2003/qwen25-05b/baseline/few-shot/run_20261018_161555/eval_zero_shot.json",
       "cell": "conll-2003-qwen25-05b-baseline-few-shot",
       "cell_path": "conll-2003/qwen25-05b/baseline/few-shot",
-      "run_id": "run_20261010_153552",
+      "run_id": "run_20261018_161555",
       "kind": "checkpoint",
       "factors": {
         "variant": "conll-2003-qwen25-05b-baseline-few-shot",
@@ -662,31 +662,31 @@
         "rl_objective": "not deducible (config not embedded in eval JSON)",
         "dataset": "first path segment (results/<dataset>/...)"
       },
-      "timestamp": "2026-10-10 15:35:52",
+      "timestamp": "2026-10-18 16:15:55",
       "timestamp_source": "run directory name",
       "num_samples_evaluated": 2000,
       "metrics_version": 2,
       "prompt_context_fingerprint": "61cf650a57b8aaf6dec18cf9b4ae0633a6779b47e2082eb4b4de0f73f10360e2",
       "metrics": {
-        "rouge_l_mean": 0.37570600193823855,
-        "valid_rouge_l_mean": 0.3684173055006367,
-        "exact_match": 0.0708,
-        "non_copy_token_accuracy": 0.28969128996692395,
-        "pass_at_1": 0.5805,
-        "validity_rate": 0.9806,
-        "bleu_corpus": 0.12687102428757843,
-        "bleu_sentence_mean": 0.21911128885208192,
-        "chrf_corpus": 39.29882055002448,
-        "chrf_sentence_mean": 40.85353616459624,
-        "gloss_f1_micro": 0.17797327017425138,
-        "gloss_f1_sentence_mean": 0.2248017079451772
+        "rouge_l_mean": 0.3822795461307216,
+        "valid_rouge_l_mean": 0.38197372249381706,
+        "exact_match": 0.0714,
+        "non_copy_token_accuracy": 0.282800441014333,
+        "pass_at_1": 0.5825,
+        "validity_rate": 0.9992,
+        "bleu_corpus": 0.19290066781961218,
+        "bleu_sentence_mean": 0.22464144099302685,
+        "chrf_corpus": 43.949666840430105,
+        "chrf_sentence_mean": 42.27112907503708,
+        "gloss_f1_micro": 0.18448223231760966,
+        "gloss_f1_sentence_mean": 0.22063629278135713
       }
     },
     {
-      "path": "conll-2003/qwen25-05b/baseline/zero-shot/run_20261010_151445/eval_zero_shot.json",
+      "path": "conll-2003/qwen25-05b/baseline/zero-shot/run_20261018_155358/eval_zero_shot.json",
       "cell": "conll-2003-qwen25-05b-baseline-zero-shot",
       "cell_path": "conll-2003/qwen25-05b/baseline/zero-shot",
-      "run_id": "run_20261010_151445",
+      "run_id": "run_20261018_155358",
       "kind": "checkpoint",
       "factors": {
         "variant": "conll-2003-qwen25-05b-baseline-zero-shot",
@@ -708,31 +708,31 @@
         "rl_objective": "not deducible (config not embedded in eval JSON)",
         "dataset": "first path segment (results/<dataset>/...)"
       },
-      "timestamp": "2026-10-10 15:14:45",
+      "timestamp": "2026-10-18 15:53:58",
       "timestamp_source": "run directory name",
       "num_samples_evaluated": 2000,
       "metrics_version": 2,
       "prompt_context_fingerprint": "624010924b817420d107e089821d82b05aa6c669c3cc3f5e8b74ca981160404f",
       "metrics": {
-        "rouge_l_mean": 0.2711505647032584,
-        "valid_rouge_l_mean": 0.26480564148920216,
-        "exact_match": 0.047,
-        "non_copy_token_accuracy": 0.1350606394707828,
-        "pass_at_1": 0.407,
-        "validity_rate": 0.9766,
-        "bleu_corpus": 0.08594422009480336,
-        "bleu_sentence_mean": 0.132920279131907,
-        "chrf_corpus": 30.00256269774932,
-        "chrf_sentence_mean": 29.574018022409938,
-        "gloss_f1_micro": 0.08093170153967627,
-        "gloss_f1_sentence_mean": 0.10154111046115377
+        "rouge_l_mean": 0.27216813949422686,
+        "valid_rouge_l_mean": 0.2718143209128844,
+        "exact_match": 0.0445,
+        "non_copy_token_accuracy": 0.12976846747519294,
+        "pass_at_1": 0.4115,
+        "validity_rate": 0.9987,
+        "bleu_corpus": 0.11473278529351681,
+        "bleu_sentence_mean": 0.13202524788098277,
+        "chrf_corpus": 32.31533727014361,
+        "chrf_sentence_mean": 30.15150050517656,
+        "gloss_f1_micro": 0.0816185609722414,
+        "gloss_f1_sentence_mean": 0.09745964988663337
       }
     },
     {
-      "path": "conll-2003/qwen25-05b/baseline/zero-shot-no-grammar/run_20261010_155550/eval_zero_shot.json",
+      "path": "conll-2003/qwen25-05b/baseline/zero-shot-no-grammar/run_20261018_163110/eval_zero_shot.json",
       "cell": "conll-2003-qwen25-05b-baseline-zero-shot-no-grammar",
       "cell_path": "conll-2003/qwen25-05b/baseline/zero-shot-no-grammar",
-      "run_id": "run_20261010_155550",
+      "run_id": "run_20261018_163110",
       "kind": "checkpoint",
       "factors": {
         "variant": "conll-2003-qwen25-05b-baseline-zero-shot-no-grammar",
@@ -754,18 +754,18 @@
         "rl_objective": "not deducible (config not embedded in eval JSON)",
         "dataset": "first path segment (results/<dataset>/...)"
       },
-      "timestamp": "2026-10-10 15:55:50",
+      "timestamp": "2026-10-18 16:31:10",
       "timestamp_source": "run directory name",
       "num_samples_evaluated": 2000,
       "metrics_version": 2,
       "prompt_context_fingerprint": "bb84c11785c159d5aaa4324de9b405909d318bd2b4d9846b509327afb3deeeeb",
       "metrics": {
         "rouge_l_mean": 0.26762159539937186,
-        "valid_rouge_l_mean": 0.00171277821055598,
+        "valid_rouge_l_mean": 0.0020071619654952887,
         "exact_match": 0.0011,
         "non_copy_token_accuracy": 0.006560088202866593,
         "pass_at_1": 0.426,
-        "validity_rate": 0.0064,
+        "validity_rate": 0.0075,
         "bleu_corpus": 0.008899798196087313,
         "bleu_sentence_mean": 0.021854946856640814,
         "chrf_corpus": 17.993302854090295,
@@ -775,10 +775,10 @@
       }
     },
     {
-      "path": "conll-2003/qwen25-05b/grpo/few-shot/run_20261010_204103/eval_final.json",
+      "path": "conll-2003/qwen25-05b/grpo/few-shot/run_20261018_212554/eval_final.json",
       "cell": "conll-2003-qwen25-05b-grpo-few-shot",
       "cell_path": "conll-2003/qwen25-05b/grpo/few-shot",
-      "run_id": "run_20261010_204103",
+      "run_id": "run_20261018_212554",
       "kind": "final",
       "factors": {
         "variant": "conll-2003-qwen25-05b-grpo-few-shot",
@@ -800,31 +800,31 @@
         "rl_objective": "not deducible (config not embedded in eval JSON)",
         "dataset": "first path segment (results/<dataset>/...)"
       },
-      "timestamp": "2026-10-10 20:41:03",
+      "timestamp": "2026-10-18 21:25:54",
       "timestamp_source": "run directory name",
       "num_samples_evaluated": 2000,
       "metrics_version": 2,
       "prompt_context_fingerprint": "61cf650a57b8aaf6dec18cf9b4ae0633a6779b47e2082eb4b4de0f73f10360e2",
       "metrics": {
-        "rouge_l_mean": 0.5469913949714144,
-        "valid_rouge_l_mean": 0.5451316242285116,
-        "exact_match": 0.3243,
-        "non_copy_token_accuracy": 0.4167034178610805,
-        "pass_at_1": 0.6895,
-        "validity_rate": 0.9966,
-        "bleu_corpus": 0.30740503682152887,
-        "bleu_sentence_mean": 0.4530018839842506,
-        "chrf_corpus": 47.903853359270734,
-        "chrf_sentence_mean": 54.99690531479097,
-        "gloss_f1_micro": 0.3700029322646858,
-        "gloss_f1_sentence_mean": 0.4508222151718659
+        "rouge_l_mean": 0.5395615391034806,
+        "valid_rouge_l_mean": 0.5393996706417495,
+        "exact_match": 0.3247,
+        "non_copy_token_accuracy": 0.4067254685777288,
+        "pass_at_1": 0.6745,
+        "validity_rate": 0.9997,
+        "bleu_corpus": 0.3949211055497526,
+        "bleu_sentence_mean": 0.4514917530875232,
+        "chrf_corpus": 48.46861181816081,
+        "chrf_sentence_mean": 54.29995397761714,
+        "gloss_f1_micro": 0.3776420374677333,
+        "gloss_f1_sentence_mean": 0.44571366678146807
       }
     },
     {
-      "path": "conll-2003/qwen25-05b/grpo/few-shot/run_20261010_204103/eval_final__zero-shot.json",
+      "path": "conll-2003/qwen25-05b/grpo/few-shot/run_20261018_212554/eval_final__zero-shot.json",
       "cell": "conll-2003-qwen25-05b-grpo-few-shot",
       "cell_path": "conll-2003/qwen25-05b/grpo/few-shot",
-      "run_id": "run_20261010_204103",
+      "run_id": "run_20261018_212554",
       "kind": "final",
       "factors": {
         "variant": "conll-2003-qwen25-05b-grpo-few-shot",
@@ -846,31 +846,31 @@
         "rl_objective": "not deducible (config not embedded in eval JSON)",
         "dataset": "first path segment (results/<dataset>/...)"
       },
-      "timestamp": "2026-10-10 20:41:03",
+      "timestamp": "2026-10-18 21:25:54",
       "timestamp_source": "run directory name",
       "num_samples_evaluated": 2000,
       "metrics_version": 2,
       "prompt_context_fingerprint": "8151d62293397be15dd5de7b8fc351db2214db776ba6058f4ed3019c90f8ed04",
       "metrics": {
-        "rouge_l_mean": 0.26486904072282075,
-        "valid_rouge_l_mean": 0.26240575864409854,
-        "exact_match": 0.1627,
-        "non_copy_token_accuracy": 0.1461962513781698,
-        "pass_at_1": 0.331,
-        "validity_rate": 0.9907,
-        "bleu_corpus": 0.09597215595140504,
-        "bleu_sentence_mean": 0.20307181327261456,
-        "chrf_corpus": 20.353102215304165,
-        "chrf_sentence_mean": 28.678219491790653,
-        "gloss_f1_micro": 0.12360383741947445,
-        "gloss_f1_sentence_mean": 0.19000502922946327
+        "rouge_l_mean": 0.25215189665072457,
+        "valid_rouge_l_mean": 0.2520258207023992,
+        "exact_match": 0.1324,
+        "non_copy_token_accuracy": 0.1348401323042999,
+        "pass_at_1": 0.311,
+        "validity_rate": 0.9995,
+        "bleu_corpus": 0.1151863395793777,
+        "bleu_sentence_mean": 0.18113331355596785,
+        "chrf_corpus": 21.8568395011461,
+        "chrf_sentence_mean": 28.47214808781668,
+        "gloss_f1_micro": 0.11038596963376616,
+        "gloss_f1_sentence_mean": 0.1647569131265337
       }
     },
     {
-      "path": "conll-2003/qwen25-05b/grpo/zero-shot/run_20261010_170559/eval_final__few-shot.json",
+      "path": "conll-2003/qwen25-05b/grpo/zero-shot/run_20261018_174556/eval_final__few-shot.json",
       "cell": "conll-2003-qwen25-05b-grpo-zero-shot",
       "cell_path": "conll-2003/qwen25-05b/grpo/zero-shot",
-      "run_id": "run_20261010_170559",
+      "run_id": "run_20261018_174556",
       "kind": "final",
       "factors": {
         "variant": "conll-2003-qwen25-05b-grpo-zero-shot",
@@ -892,31 +892,31 @@
         "rl_objective": "not deducible (config not embedded in eval JSON)",
         "dataset": "first path segment (results/<dataset>/...)"
       },
-      "timestamp": "2026-10-10 17:05:59",
+      "timestamp": "2026-10-18 17:45:56",
       "timestamp_source": "run directory name",
       "num_samples_evaluated": 2000,
       "metrics_version": 2,
       "prompt_context_fingerprint": "44125bcc2f02578d2b53a8dedd15efefc559d19cc2c3135a74a4d317402dc7c8",
       "metrics": {
-        "rouge_l_mean": 0.43847559513282797,
-        "valid_rouge_l_mean": 0.43702862566888967,
-        "exact_match": 0.1118,
-        "non_copy_token_accuracy": 0.3685777287761852,
-        "pass_at_1": 0.641,
-        "validity_rate": 0.9967,
-        "bleu_corpus": 0.2102884756286771,
-        "bleu_sentence_mean": 0.2901475420357103,
-        "chrf_corpus": 47.9815886681171,
-        "chrf_sentence_mean": 47.82110192613649,
-        "gloss_f1_micro": 0.2610510709687488,
-        "gloss_f1_sentence_mean": 0.30406020471897516
+        "rouge_l_mean": 0.4117218316404348,
+        "valid_rouge_l_mean": 0.4116806594572708,
+        "exact_match": 0.0819,
+        "non_copy_token_accuracy": 0.33875413450937153,
+        "pass_at_1": 0.627,
+        "validity_rate": 0.9999,
+        "bleu_corpus": 0.24399316665039816,
+        "bleu_sentence_mean": 0.26035011283153137,
+        "chrf_corpus": 49.66936903614923,
+        "chrf_sentence_mean": 46.29370494379058,
+        "gloss_f1_micro": 0.23534812547819434,
+        "gloss_f1_sentence_mean": 0.25761451188238277
       }
     },
     {
-      "path": "conll-2003/qwen25-05b/grpo/zero-shot/run_20261010_170559/eval_final.json",
+      "path": "conll-2003/qwen25-05b/grpo/zero-shot/run_20261018_174556/eval_final.json",
       "cell": "conll-2003-qwen25-05b-grpo-zero-shot",
       "cell_path": "conll-2003/qwen25-05b/grpo/zero-shot",
-      "run_id": "run_20261010_170559",
+      "run_id": "run_20261018_174556",
       "kind": "final",
       "factors": {
         "variant": "conll-2003-qwen25-05b-grpo-zero-shot",
@@ -938,31 +938,31 @@
         "rl_objective": "not deducible (config not embedded in eval JSON)",
         "dataset": "first path segment (results/<dataset>/...)"
       },
-      "timestamp": "2026-10-10 17:05:59",
+      "timestamp": "2026-10-18 17:45:56",
       "timestamp_source": "run directory name",
       "num_samples_evaluated": 2000,
       "metrics_version": 2,
       "prompt_context_fingerprint": "624010924b817420d107e089821d82b05aa6c669c3cc3f5e8b74ca981160404f",
       "metrics": {
-        "rouge_l_mean": 0.3381581821165199,
-        "valid_rouge_l_mean": 0.3375156815704985,
-        "exact_match": 0.0382,
-        "non_copy_token_accuracy": 0.21499448732083792,
-        "pass_at_1": 0.5295,
-        "validity_rate": 0.9981,
-        "bleu_corpus": 0.18007398315943615,
-        "bleu_sentence_mean": 0.19593619117764974,
-        "chrf_corpus": 41.051163782794895,
-        "chrf_sentence_mean": 37.76400090428522,
-        "gloss_f1_micro": 0.14805268643987493,
-        "gloss_f1_sentence_mean": 0.15233003917764568
+        "rouge_l_mean": 0.3166934969383611,
+        "valid_rouge_l_mean": 0.3166301582389734,
+        "exact_match": 0.0296,
+        "non_copy_token_accuracy": 0.19630650496141125,
+        "pass_at_1": 0.5015,
+        "validity_rate": 0.9998,
+        "bleu_corpus": 0.1818090751344409,
+        "bleu_sentence_mean": 0.172946336149389,
+        "chrf_corpus": 40.987686088203574,
+        "chrf_sentence_mean": 36.79970719730899,
+        "gloss_f1_micro": 0.12975000455199287,
+        "gloss_f1_sentence_mean": 0.12838458914448095
       }
     },
     {
-      "path": "conll-2003/qwen25-05b/sft/zero-shot/run_20261010_162118/eval_final__few-shot.json",
+      "path": "conll-2003/qwen25-05b/sft/zero-shot/run_20261018_165609/eval_final__few-shot.json",
       "cell": "conll-2003-qwen25-05b-sft-zero-shot",
       "cell_path": "conll-2003/qwen25-05b/sft/zero-shot",
-      "run_id": "run_20261010_162118",
+      "run_id": "run_20261018_165609",
       "kind": "final",
       "factors": {
         "variant": "conll-2003-qwen25-05b-sft-zero-shot",
@@ -984,31 +984,31 @@
         "rl_objective": "not deducible (config not embedded in eval JSON)",
         "dataset": "first path segment (results/<dataset>/...)"
       },
-      "timestamp": "2026-10-10 16:21:18",
+      "timestamp": "2026-10-18 16:56:09",
       "timestamp_source": "run directory name",
       "num_samples_evaluated": 2000,
       "metrics_version": 2,
       "prompt_context_fingerprint": "44125bcc2f02578d2b53a8dedd15efefc559d19cc2c3135a74a4d317402dc7c8",
       "metrics": {
-        "rouge_l_mean": 0.8139527349633668,
-        "valid_rouge_l_mean": 0.8139527349633668,
-        "exact_match": 0.598,
-        "non_copy_token_accuracy": 0.737431091510474,
-        "pass_at_1": 0.923,
+        "rouge_l_mean": 0.8188619206178531,
+        "valid_rouge_l_mean": 0.8188619206178531,
+        "exact_match": 0.6003,
+        "non_copy_token_accuracy": 0.7380374862183021,
+        "pass_at_1": 0.929,
         "validity_rate": 1.0,
-        "bleu_corpus": 0.6707965658839354,
-        "bleu_sentence_mean": 0.7448948436154322,
-        "chrf_corpus": 77.09624444277516,
-        "chrf_sentence_mean": 81.41342211398155,
-        "gloss_f1_micro": 0.720581113801453,
-        "gloss_f1_sentence_mean": 0.7461523748175903
+        "bleu_corpus": 0.7279478359726791,
+        "bleu_sentence_mean": 0.7529571083339542,
+        "chrf_corpus": 77.98005996720482,
+        "chrf_sentence_mean": 81.89834586490751,
+        "gloss_f1_micro": 0.7229624035816387,
+        "gloss_f1_sentence_mean": 0.748510580399485
       }
     },
     {
-      "path": "conll-2003/qwen25-05b/sft/zero-shot/run_20261010_162118/eval_final.json",
+      "path": "conll-2003/qwen25-05b/sft/zero-shot/run_20261018_165609/eval_final.json",
       "cell": "conll-2003-qwen25-05b-sft-zero-shot",
       "cell_path": "conll-2003/qwen25-05b/sft/zero-shot",
-      "run_id": "run_20261010_162118",
+      "run_id": "run_20261018_165609",
       "kind": "final",
       "factors": {
         "variant": "conll-2003-qwen25-05b-sft-zero-shot",
@@ -1030,24 +1030,24 @@
         "rl_objective": "not deducible (config not embedded in eval JSON)",
         "dataset": "first path segment (results/<dataset>/...)"
       },
-      "timestamp": "2026-10-10 16:21:18",
+      "timestamp": "2026-10-18 16:56:09",
       "timestamp_source": "run directory name",
       "num_samples_evaluated": 2000,
       "metrics_version": 2,
       "prompt_context_fingerprint": "624010924b817420d107e089821d82b05aa6c669c3cc3f5e8b74ca981160404f",
       "metrics": {
-        "rouge_l_mean": 0.9001588127417924,
-        "valid_rouge_l_mean": 0.9001588127417924,
-        "exact_match": 0.7434,
-        "non_copy_token_accuracy": 0.8224917309812569,
+        "rouge_l_mean": 0.9005249068609713,
+        "valid_rouge_l_mean": 0.9005249068609713,
+        "exact_match": 0.7448,
+        "non_copy_token_accuracy": 0.8257993384785005,
         "pass_at_1": 0.967,
         "validity_rate": 1.0,
-        "bleu_corpus": 0.8320699934416473,
-        "bleu_sentence_mean": 0.858965438848439,
-        "chrf_corpus": 85.74253439139825,
-        "chrf_sentence_mean": 89.36543129410161,
-        "gloss_f1_micro": 0.8227063651637424,
-        "gloss_f1_sentence_mean": 0.8410095080514906
+        "bleu_corpus": 0.8455813648347795,
+        "bleu_sentence_mean": 0.8604071265228221,
+        "chrf_corpus": 86.13627803541557,
+        "chrf_sentence_mean": 89.45205806250566,
+        "gloss_f1_micro": 0.8254885769336635,
+        "gloss_f1_sentence_mean": 0.8425299769096513
       }
     }
   ],
@@ -1058,7 +1058,17 @@
       "typology": "conll-2003/qwen25-05b|sft-grpo|few-shot|few-shot|unknown"
     },
     {
+      "path": "conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261011_000134/eval_final.json",
+      "reason": "older run of the same typology",
+      "typology": "conll-2003/qwen25-05b|sft-grpo|few-shot|few-shot|unknown"
+    },
+    {
       "path": "conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261009_090130/eval_final__zero-shot.json",
+      "reason": "older run of the same typology",
+      "typology": "conll-2003/qwen25-05b|sft-grpo|few-shot|zero-shot|unknown"
+    },
+    {
+      "path": "conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261011_000134/eval_final__zero-shot.json",
       "reason": "older run of the same typology",
       "typology": "conll-2003/qwen25-05b|sft-grpo|few-shot|zero-shot|unknown"
     },
@@ -1068,7 +1078,17 @@
       "typology": "conll-2003/qwen25-05b|sft-grpo|zero-shot|few-shot|unknown"
     },
     {
+      "path": "conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261011_020559/eval_final__few-shot.json",
+      "reason": "older run of the same typology",
+      "typology": "conll-2003/qwen25-05b|sft-grpo|zero-shot|few-shot|unknown"
+    },
+    {
       "path": "conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261009_113122/eval_final.json",
+      "reason": "older run of the same typology",
+      "typology": "conll-2003/qwen25-05b|sft-grpo|zero-shot|zero-shot|unknown"
+    },
+    {
+      "path": "conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261011_020559/eval_final.json",
       "reason": "older run of the same typology",
       "typology": "conll-2003/qwen25-05b|sft-grpo|zero-shot|zero-shot|unknown"
     },
@@ -1078,7 +1098,17 @@
       "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-ablations-decoding-no-grammar|few-shot|unknown"
     },
     {
+      "path": "conll-2003/qwen25-05b/ablations/decoding/no-grammar/run_20261011_042103/eval_final.json",
+      "reason": "older run of the same typology",
+      "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-ablations-decoding-no-grammar|few-shot|unknown"
+    },
+    {
       "path": "conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot/run_20261009_162603/eval_final.json",
+      "reason": "older run of the same typology",
+      "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-ablations-decoding-no-grammar-zero-shot|zero-shot|unknown"
+    },
+    {
+      "path": "conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot/run_20261011_065106/eval_final.json",
       "reason": "older run of the same typology",
       "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-ablations-decoding-no-grammar-zero-shot|zero-shot|unknown"
     },
@@ -1088,7 +1118,17 @@
       "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-ablations-objectives-sft-allowed-mass|zero-shot|unknown"
     },
     {
+      "path": "conll-2003/qwen25-05b/ablations/objectives/sft-allowed-mass/run_20261011_091612/eval_final.json",
+      "reason": "older run of the same typology",
+      "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-ablations-objectives-sft-allowed-mass|zero-shot|unknown"
+    },
+    {
       "path": "conll-2003/qwen25-05b/baseline/few-shot/run_20261008_235550/eval_zero_shot.json",
+      "reason": "older run of the same typology",
+      "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-baseline-few-shot|few-shot|unknown"
+    },
+    {
+      "path": "conll-2003/qwen25-05b/baseline/few-shot/run_20261010_153552/eval_zero_shot.json",
       "reason": "older run of the same typology",
       "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-baseline-few-shot|few-shot|unknown"
     },
@@ -1098,7 +1138,17 @@
       "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-baseline-zero-shot|zero-shot|unknown"
     },
     {
+      "path": "conll-2003/qwen25-05b/baseline/zero-shot/run_20261010_151445/eval_zero_shot.json",
+      "reason": "older run of the same typology",
+      "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-baseline-zero-shot|zero-shot|unknown"
+    },
+    {
       "path": "conll-2003/qwen25-05b/baseline/zero-shot-no-grammar/run_20261009_001553/eval_zero_shot.json",
+      "reason": "older run of the same typology",
+      "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-baseline-zero-shot-no-grammar|zero-shot|unknown"
+    },
+    {
+      "path": "conll-2003/qwen25-05b/baseline/zero-shot-no-grammar/run_20261010_155550/eval_zero_shot.json",
       "reason": "older run of the same typology",
       "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-baseline-zero-shot-no-grammar|zero-shot|unknown"
     },
@@ -1108,7 +1158,17 @@
       "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-grpo-few-shot|few-shot|unknown"
     },
     {
+      "path": "conll-2003/qwen25-05b/grpo/few-shot/run_20261010_204103/eval_final.json",
+      "reason": "older run of the same typology",
+      "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-grpo-few-shot|few-shot|unknown"
+    },
+    {
       "path": "conll-2003/qwen25-05b/grpo/few-shot/run_20261009_052104/eval_final__zero-shot.json",
+      "reason": "older run of the same typology",
+      "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-grpo-few-shot|zero-shot|unknown"
+    },
+    {
+      "path": "conll-2003/qwen25-05b/grpo/few-shot/run_20261010_204103/eval_final__zero-shot.json",
       "reason": "older run of the same typology",
       "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-grpo-few-shot|zero-shot|unknown"
     },
@@ -1118,7 +1178,17 @@
       "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-grpo-zero-shot|few-shot|unknown"
     },
     {
+      "path": "conll-2003/qwen25-05b/grpo/zero-shot/run_20261010_170559/eval_final__few-shot.json",
+      "reason": "older run of the same typology",
+      "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-grpo-zero-shot|few-shot|unknown"
+    },
+    {
       "path": "conll-2003/qwen25-05b/grpo/zero-shot/run_20261009_020134/eval_final.json",
+      "reason": "older run of the same typology",
+      "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-grpo-zero-shot|zero-shot|unknown"
+    },
+    {
+      "path": "conll-2003/qwen25-05b/grpo/zero-shot/run_20261010_170559/eval_final.json",
       "reason": "older run of the same typology",
       "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-grpo-zero-shot|zero-shot|unknown"
     },
@@ -1128,7 +1198,17 @@
       "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-sft-zero-shot|few-shot|unknown"
     },
     {
+      "path": "conll-2003/qwen25-05b/sft/zero-shot/run_20261010_162118/eval_final__few-shot.json",
+      "reason": "older run of the same typology",
+      "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-sft-zero-shot|few-shot|unknown"
+    },
+    {
       "path": "conll-2003/qwen25-05b/sft/zero-shot/run_20261009_004112/eval_final.json",
+      "reason": "older run of the same typology",
+      "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-sft-zero-shot|zero-shot|unknown"
+    },
+    {
+      "path": "conll-2003/qwen25-05b/sft/zero-shot/run_20261010_162118/eval_final.json",
       "reason": "older run of the same typology",
       "typology": "conll-2003/qwen25-05b|unknown|conll-2003-qwen25-05b-sft-zero-shot|zero-shot|unknown"
     }
@@ -1136,10 +1216,10 @@
   "excluded_runs": [],
   "malformed_files": [],
   "warnings": [
-    "[method] conll-2003/qwen25-05b/ablations/decoding/no-grammar/run_20261009_133123/eval_baseline.json vs conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261011_000134/eval_final.json: prompt_context_fingerprint DIFFERS: the eval contexts (prompting/grammar/num_samples/model) are not identical — this pair may differ in more than the method factor",
-    "[method] conll-2003/qwen25-05b/grpo/few-shot/run_20261009_052104/eval_baseline.json vs conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261011_020559/eval_final__few-shot.json: prompt_context_fingerprint DIFFERS: the eval contexts (prompting/grammar/num_samples/model) are not identical — this pair may differ in more than the method factor",
-    "[method] conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot/run_20261009_162603/eval_baseline.json vs conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261011_000134/eval_final__zero-shot.json: prompt_context_fingerprint DIFFERS: the eval contexts (prompting/grammar/num_samples/model) are not identical — this pair may differ in more than the method factor",
-    "[method] conll-2003/qwen25-05b/grpo/few-shot/run_20261009_052104/eval_baseline__zero-shot.json vs conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261011_020559/eval_final.json: prompt_context_fingerprint DIFFERS: the eval contexts (prompting/grammar/num_samples/model) are not identical — this pair may differ in more than the method factor"
+    "[method] conll-2003/qwen25-05b/ablations/decoding/no-grammar/run_20261009_133123/eval_baseline.json vs conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261019_002102/eval_final.json: prompt_context_fingerprint DIFFERS: the eval contexts (prompting/grammar/num_samples/model) are not identical — this pair may differ in more than the method factor",
+    "[method] conll-2003/qwen25-05b/grpo/few-shot/run_20261009_052104/eval_baseline.json vs conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261019_022555/eval_final__few-shot.json: prompt_context_fingerprint DIFFERS: the eval contexts (prompting/grammar/num_samples/model) are not identical — this pair may differ in more than the method factor",
+    "[method] conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot/run_20261009_162603/eval_baseline.json vs conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261019_002102/eval_final__zero-shot.json: prompt_context_fingerprint DIFFERS: the eval contexts (prompting/grammar/num_samples/model) are not identical — this pair may differ in more than the method factor",
+    "[method] conll-2003/qwen25-05b/grpo/few-shot/run_20261009_052104/eval_baseline__zero-shot.json vs conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261019_022555/eval_final.json: prompt_context_fingerprint DIFFERS: the eval contexts (prompting/grammar/num_samples/model) are not identical — this pair may differ in more than the method factor"
   ],
   "comparisons": [
     {
@@ -1159,8 +1239,8 @@
         "metrics_version": 2
       },
       "b": {
-        "path": "conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261011_000134/eval_final.json",
-        "timestamp": "2026-10-11 00:01:34",
+        "path": "conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261019_002102/eval_final.json",
+        "timestamp": "2026-10-19 00:21:02",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "sft-grpo",
@@ -1174,74 +1254,74 @@
       "deltas": {
         "rouge_l_mean": {
           "a": 0.3700307534908061,
-          "b": 0.5090357323992598,
-          "delta": 0.139005,
+          "b": 0.5282269437559786,
+          "delta": 0.158196,
           "interpretation": "above noise threshold"
         },
         "valid_rouge_l_mean": {
           "a": 0.06349727729902233,
-          "b": 0.506795975176703,
-          "delta": 0.443299,
+          "b": 0.5279628302841006,
+          "delta": 0.464466,
           "interpretation": "above noise threshold"
         },
         "exact_match": {
           "a": 0.0344,
-          "b": 0.2487,
-          "delta": 0.2143,
+          "b": 0.2871,
+          "delta": 0.2527,
           "interpretation": "above noise threshold"
         },
         "non_copy_token_accuracy": {
           "a": 0.19217199558985668,
-          "b": 0.38638368246968025,
-          "delta": 0.194212,
+          "b": 0.38450937155457554,
+          "delta": 0.192337,
           "interpretation": "above noise threshold"
         },
         "pass_at_1": {
           "a": 0.544,
-          "b": 0.6685,
-          "delta": 0.1245,
+          "b": 0.676,
+          "delta": 0.132,
           "interpretation": "above noise threshold"
         },
         "validity_rate": {
           "a": 0.1716,
-          "b": 0.9956,
-          "delta": 0.824,
+          "b": 0.9995,
+          "delta": 0.8279,
           "interpretation": "above noise threshold"
         },
         "bleu_corpus": {
           "a": 0.09608350151346647,
-          "b": 0.2493102161185399,
-          "delta": 0.153227,
+          "b": 0.3326193097535171,
+          "delta": 0.236536,
           "interpretation": "above noise threshold"
         },
         "bleu_sentence_mean": {
           "a": 0.1555860368223591,
-          "b": 0.38959634217510664,
-          "delta": 0.23401,
+          "b": 0.42211933488748327,
+          "delta": 0.266533,
           "interpretation": "above noise threshold"
         },
         "chrf_corpus": {
           "a": 33.219466151202205,
-          "b": 45.52600283321422,
-          "delta": 12.306537,
+          "b": 46.54116784148259,
+          "delta": 13.321702,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "chrf_sentence_mean": {
           "a": 35.90706824157809,
-          "b": 52.49234177725569,
-          "delta": 16.585274,
+          "b": 53.61117911236307,
+          "delta": 17.704111,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "gloss_f1_micro": {
           "a": 0.08393344921778,
-          "b": 0.3223201174743025,
-          "delta": 0.238387,
+          "b": 0.33915574963609896,
+          "delta": 0.255222,
           "interpretation": "above noise threshold"
         },
         "gloss_f1_sentence_mean": {
           "a": 0.14357251823536407,
-          "b": 0.3995302604167525,
-          "delta": 0.255958,
+          "b": 0.4212152656243674,
+          "delta": 0.277643,
           "interpretation": "above noise threshold"
         }
       },
@@ -1267,8 +1347,8 @@
         "metrics_version": 2
       },
       "b": {
-        "path": "conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261011_020559/eval_final__few-shot.json",
-        "timestamp": "2026-10-11 02:05:59",
+        "path": "conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261019_022555/eval_final__few-shot.json",
+        "timestamp": "2026-10-19 02:25:55",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "sft-grpo",
@@ -1282,74 +1362,74 @@
       "deltas": {
         "rouge_l_mean": {
           "a": 0.3805174876886396,
-          "b": 0.43015746048574455,
-          "delta": 0.04964,
+          "b": 0.43951019319584,
+          "delta": 0.058993,
           "interpretation": "above noise threshold"
         },
         "valid_rouge_l_mean": {
           "a": 0.37058598125996606,
-          "b": 0.4204359018787667,
-          "delta": 0.04985,
+          "b": 0.4389388299446854,
+          "delta": 0.068353,
           "interpretation": "above noise threshold"
         },
         "exact_match": {
           "a": 0.0662,
-          "b": 0.1297,
-          "delta": 0.0635,
+          "b": 0.1445,
+          "delta": 0.0783,
           "interpretation": "above noise threshold"
         },
         "non_copy_token_accuracy": {
           "a": 0.31686879823594266,
-          "b": 0.36466372657111357,
-          "delta": 0.047795,
+          "b": 0.38577728776185227,
+          "delta": 0.068908,
           "interpretation": "above noise threshold"
         },
         "pass_at_1": {
           "a": 0.5865,
-          "b": 0.623,
-          "delta": 0.0365,
+          "b": 0.6325,
+          "delta": 0.046,
           "interpretation": "above noise threshold"
         },
         "validity_rate": {
           "a": 0.9739,
-          "b": 0.9774,
-          "delta": 0.0035,
-          "interpretation": "NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret"
+          "b": 0.9987,
+          "delta": 0.0248,
+          "interpretation": "above noise threshold"
         },
         "bleu_corpus": {
           "a": 0.1429000460013132,
-          "b": 0.1445010778574392,
-          "delta": 0.001601,
-          "interpretation": "NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret"
+          "b": 0.2052927618086512,
+          "delta": 0.062393,
+          "interpretation": "above noise threshold"
         },
         "bleu_sentence_mean": {
           "a": 0.22041080550909634,
-          "b": 0.2824671912230841,
-          "delta": 0.062056,
+          "b": 0.29538210215183947,
+          "delta": 0.074971,
           "interpretation": "above noise threshold"
         },
         "chrf_corpus": {
           "a": 39.826054068272434,
-          "b": 42.64588877924661,
-          "delta": 2.819835,
+          "b": 46.65953821022797,
+          "delta": 6.833484,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "chrf_sentence_mean": {
           "a": 41.45123713675729,
-          "b": 46.81006983257115,
-          "delta": 5.358833,
+          "b": 49.147698649418935,
+          "delta": 7.696462,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "gloss_f1_micro": {
           "a": 0.17140303842716711,
-          "b": 0.22860199099394424,
-          "delta": 0.057199,
+          "b": 0.2467957746478873,
+          "delta": 0.075393,
           "interpretation": "above noise threshold"
         },
         "gloss_f1_sentence_mean": {
           "a": 0.236613123666114,
-          "b": 0.3059699370973417,
-          "delta": 0.069357,
+          "b": 0.32849610795013096,
+          "delta": 0.091883,
           "interpretation": "above noise threshold"
         }
       },
@@ -1375,8 +1455,8 @@
         "metrics_version": 2
       },
       "b": {
-        "path": "conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261011_000134/eval_final__zero-shot.json",
-        "timestamp": "2026-10-11 00:01:34",
+        "path": "conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261019_002102/eval_final__zero-shot.json",
+        "timestamp": "2026-10-19 00:21:02",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "sft-grpo",
@@ -1390,74 +1470,74 @@
       "deltas": {
         "rouge_l_mean": {
           "a": 0.26762159539937186,
-          "b": 0.24034818274879186,
-          "delta": -0.027273,
-          "interpretation": "above noise threshold"
+          "b": 0.2508800581490176,
+          "delta": -0.016742,
+          "interpretation": "NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret"
         },
         "valid_rouge_l_mean": {
           "a": 0.002114210603655038,
-          "b": 0.23931468556297206,
-          "delta": 0.2372,
+          "b": 0.2508047941315729,
+          "delta": 0.248691,
           "interpretation": "above noise threshold"
         },
         "exact_match": {
           "a": 0.0011,
-          "b": 0.0936,
-          "delta": 0.0925,
+          "b": 0.1285,
+          "delta": 0.1274,
           "interpretation": "above noise threshold"
         },
         "non_copy_token_accuracy": {
           "a": 0.006560088202866593,
-          "b": 0.10275633958103639,
-          "delta": 0.096196,
+          "b": 0.11383682469680265,
+          "delta": 0.107277,
           "interpretation": "above noise threshold"
         },
         "pass_at_1": {
           "a": 0.426,
-          "b": 0.345,
-          "delta": -0.081,
+          "b": 0.315,
+          "delta": -0.111,
           "interpretation": "above noise threshold"
         },
         "validity_rate": {
           "a": 0.0079,
-          "b": 0.9957,
-          "delta": 0.9878,
+          "b": 0.9997,
+          "delta": 0.9918,
           "interpretation": "above noise threshold"
         },
         "bleu_corpus": {
           "a": 0.008899798196087313,
-          "b": 0.12007044209640981,
-          "delta": 0.111171,
+          "b": 0.1437389864825297,
+          "delta": 0.134839,
           "interpretation": "above noise threshold"
         },
         "bleu_sentence_mean": {
           "a": 0.021854946856640814,
-          "b": 0.1577384777106834,
-          "delta": 0.135884,
+          "b": 0.18456806096707892,
+          "delta": 0.162713,
           "interpretation": "above noise threshold"
         },
         "chrf_corpus": {
           "a": 17.993302854090295,
-          "b": 22.370550386314886,
-          "delta": 4.377248,
+          "b": 22.618891537676397,
+          "delta": 4.625589,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "chrf_sentence_mean": {
           "a": 18.22894894925115,
-          "b": 25.264825968528204,
-          "delta": 7.035877,
+          "b": 26.427225015864607,
+          "delta": 8.198276,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "gloss_f1_micro": {
           "a": 0.002165433759246805,
-          "b": 0.0919590857925904,
-          "delta": 0.089794,
+          "b": 0.10224647298825149,
+          "delta": 0.100081,
           "interpretation": "above noise threshold"
         },
         "gloss_f1_sentence_mean": {
           "a": 0.005567600867648321,
-          "b": 0.1249960462927539,
-          "delta": 0.119428,
+          "b": 0.15043471175072715,
+          "delta": 0.144867,
           "interpretation": "above noise threshold"
         }
       },
@@ -1483,8 +1563,8 @@
         "metrics_version": 2
       },
       "b": {
-        "path": "conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261011_020559/eval_final.json",
-        "timestamp": "2026-10-11 02:05:59",
+        "path": "conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261019_022555/eval_final.json",
+        "timestamp": "2026-10-19 02:25:55",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "sft-grpo",
@@ -1498,74 +1578,74 @@
       "deltas": {
         "rouge_l_mean": {
           "a": 0.27083818432639134,
-          "b": 0.2835927544982519,
-          "delta": 0.012755,
+          "b": 0.2835699082837848,
+          "delta": 0.012732,
           "interpretation": "NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret"
         },
         "valid_rouge_l_mean": {
           "a": 0.26252345206757116,
-          "b": 0.2786298812945325,
-          "delta": 0.016106,
-          "interpretation": "NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret"
+          "b": 0.2832012674030159,
+          "delta": 0.020678,
+          "interpretation": "above noise threshold"
         },
         "exact_match": {
           "a": 0.0453,
-          "b": 0.0902,
-          "delta": 0.0449,
+          "b": 0.1122,
+          "delta": 0.0669,
           "interpretation": "above noise threshold"
         },
         "non_copy_token_accuracy": {
           "a": 0.14575523704520396,
-          "b": 0.151212789415656,
-          "delta": 0.005458,
+          "b": 0.15088202866593164,
+          "delta": 0.005127,
           "interpretation": "NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret"
         },
         "pass_at_1": {
           "a": 0.4145,
-          "b": 0.4045,
-          "delta": -0.01,
-          "interpretation": "NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret"
+          "b": 0.384,
+          "delta": -0.0305,
+          "interpretation": "above noise threshold"
         },
         "validity_rate": {
           "a": 0.9693,
-          "b": 0.9825,
-          "delta": 0.0132,
-          "interpretation": "NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret"
+          "b": 0.9987,
+          "delta": 0.0294,
+          "interpretation": "above noise threshold"
         },
         "bleu_corpus": {
           "a": 0.08927780164391813,
-          "b": 0.1013189179765865,
-          "delta": 0.012041,
-          "interpretation": "NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret"
+          "b": 0.12017111411281857,
+          "delta": 0.030893,
+          "interpretation": "above noise threshold"
         },
         "bleu_sentence_mean": {
           "a": 0.13291113676911676,
-          "b": 0.17270780744616163,
-          "delta": 0.039797,
+          "b": 0.1852357108360155,
+          "delta": 0.052325,
           "interpretation": "above noise threshold"
         },
         "chrf_corpus": {
           "a": 29.50920474802352,
-          "b": 28.84232878822815,
-          "delta": -0.666876,
+          "b": 29.31227381889799,
+          "delta": -0.196931,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "chrf_sentence_mean": {
           "a": 29.57636451273057,
-          "b": 30.100033798703308,
-          "delta": 0.523669,
+          "b": 31.268958936907136,
+          "delta": 1.692594,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "gloss_f1_micro": {
           "a": 0.07619102300945929,
-          "b": 0.10507267081928491,
-          "delta": 0.028882,
+          "b": 0.10257365959112172,
+          "delta": 0.026383,
           "interpretation": "above noise threshold"
         },
         "gloss_f1_sentence_mean": {
           "a": 0.10329276293626638,
-          "b": 0.14311765953290637,
-          "delta": 0.039825,
+          "b": 0.1552273841245404,
+          "delta": 0.051935,
           "interpretation": "above noise threshold"
         }
       },
@@ -1902,8 +1982,8 @@
       "factor": "prompting",
       "kind": "prompt-dependence (dual eval, same checkpoint)",
       "a": {
-        "path": "conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261011_020559/eval_final__few-shot.json",
-        "timestamp": "2026-10-11 02:05:59",
+        "path": "conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261019_022555/eval_final__few-shot.json",
+        "timestamp": "2026-10-19 02:25:55",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "sft-grpo",
@@ -1915,8 +1995,8 @@
         "metrics_version": 2
       },
       "b": {
-        "path": "conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261011_020559/eval_final.json",
-        "timestamp": "2026-10-11 02:05:59",
+        "path": "conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261019_022555/eval_final.json",
+        "timestamp": "2026-10-19 02:25:55",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "sft-grpo",
@@ -1929,75 +2009,75 @@
       },
       "deltas": {
         "rouge_l_mean": {
-          "a": 0.43015746048574455,
-          "b": 0.2835927544982519,
-          "delta": -0.146565,
+          "a": 0.43951019319584,
+          "b": 0.2835699082837848,
+          "delta": -0.15594,
           "interpretation": "above noise threshold"
         },
         "valid_rouge_l_mean": {
-          "a": 0.4204359018787667,
-          "b": 0.2786298812945325,
-          "delta": -0.141806,
+          "a": 0.4389388299446854,
+          "b": 0.2832012674030159,
+          "delta": -0.155738,
           "interpretation": "above noise threshold"
         },
         "exact_match": {
-          "a": 0.1297,
-          "b": 0.0902,
-          "delta": -0.0395,
+          "a": 0.1445,
+          "b": 0.1122,
+          "delta": -0.0323,
           "interpretation": "above noise threshold"
         },
         "non_copy_token_accuracy": {
-          "a": 0.36466372657111357,
-          "b": 0.151212789415656,
-          "delta": -0.213451,
+          "a": 0.38577728776185227,
+          "b": 0.15088202866593164,
+          "delta": -0.234895,
           "interpretation": "above noise threshold"
         },
         "pass_at_1": {
-          "a": 0.623,
-          "b": 0.4045,
-          "delta": -0.2185,
+          "a": 0.6325,
+          "b": 0.384,
+          "delta": -0.2485,
           "interpretation": "above noise threshold"
         },
         "validity_rate": {
-          "a": 0.9774,
-          "b": 0.9825,
-          "delta": 0.0051,
+          "a": 0.9987,
+          "b": 0.9987,
+          "delta": 0.0,
           "interpretation": "NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret"
         },
         "bleu_corpus": {
-          "a": 0.1445010778574392,
-          "b": 0.1013189179765865,
-          "delta": -0.043182,
+          "a": 0.2052927618086512,
+          "b": 0.12017111411281857,
+          "delta": -0.085122,
           "interpretation": "above noise threshold"
         },
         "bleu_sentence_mean": {
-          "a": 0.2824671912230841,
-          "b": 0.17270780744616163,
-          "delta": -0.109759,
+          "a": 0.29538210215183947,
+          "b": 0.1852357108360155,
+          "delta": -0.110146,
           "interpretation": "above noise threshold"
         },
         "chrf_corpus": {
-          "a": 42.64588877924661,
-          "b": 28.84232878822815,
-          "delta": -13.80356,
+          "a": 46.65953821022797,
+          "b": 29.31227381889799,
+          "delta": -17.347264,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "chrf_sentence_mean": {
-          "a": 46.81006983257115,
-          "b": 30.100033798703308,
-          "delta": -16.710036,
+          "a": 49.147698649418935,
+          "b": 31.268958936907136,
+          "delta": -17.87874,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "gloss_f1_micro": {
-          "a": 0.22860199099394424,
-          "b": 0.10507267081928491,
-          "delta": -0.123529,
+          "a": 0.2467957746478873,
+          "b": 0.10257365959112172,
+          "delta": -0.144222,
           "interpretation": "above noise threshold"
         },
         "gloss_f1_sentence_mean": {
-          "a": 0.3059699370973417,
-          "b": 0.14311765953290637,
-          "delta": -0.162852,
+          "a": 0.32849610795013096,
+          "b": 0.1552273841245404,
+          "delta": -0.173269,
           "interpretation": "above noise threshold"
         }
       },
@@ -2010,8 +2090,8 @@
       "factor": "prompting",
       "kind": "prompt-dependence (dual eval, same checkpoint)",
       "a": {
-        "path": "conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261011_000134/eval_final.json",
-        "timestamp": "2026-10-11 00:01:34",
+        "path": "conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261019_002102/eval_final.json",
+        "timestamp": "2026-10-19 00:21:02",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "sft-grpo",
@@ -2023,8 +2103,8 @@
         "metrics_version": 2
       },
       "b": {
-        "path": "conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261011_000134/eval_final__zero-shot.json",
-        "timestamp": "2026-10-11 00:01:34",
+        "path": "conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261019_002102/eval_final__zero-shot.json",
+        "timestamp": "2026-10-19 00:21:02",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "sft-grpo",
@@ -2037,75 +2117,75 @@
       },
       "deltas": {
         "rouge_l_mean": {
-          "a": 0.5090357323992598,
-          "b": 0.24034818274879186,
-          "delta": -0.268688,
+          "a": 0.5282269437559786,
+          "b": 0.2508800581490176,
+          "delta": -0.277347,
           "interpretation": "above noise threshold"
         },
         "valid_rouge_l_mean": {
-          "a": 0.506795975176703,
-          "b": 0.23931468556297206,
-          "delta": -0.267481,
+          "a": 0.5279628302841006,
+          "b": 0.2508047941315729,
+          "delta": -0.277158,
           "interpretation": "above noise threshold"
         },
         "exact_match": {
-          "a": 0.2487,
-          "b": 0.0936,
-          "delta": -0.1551,
+          "a": 0.2871,
+          "b": 0.1285,
+          "delta": -0.1586,
           "interpretation": "above noise threshold"
         },
         "non_copy_token_accuracy": {
-          "a": 0.38638368246968025,
-          "b": 0.10275633958103639,
-          "delta": -0.283627,
+          "a": 0.38450937155457554,
+          "b": 0.11383682469680265,
+          "delta": -0.270673,
           "interpretation": "above noise threshold"
         },
         "pass_at_1": {
-          "a": 0.6685,
-          "b": 0.345,
-          "delta": -0.3235,
+          "a": 0.676,
+          "b": 0.315,
+          "delta": -0.361,
           "interpretation": "above noise threshold"
         },
         "validity_rate": {
-          "a": 0.9956,
-          "b": 0.9957,
-          "delta": 0.0001,
+          "a": 0.9995,
+          "b": 0.9997,
+          "delta": 0.0002,
           "interpretation": "NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret"
         },
         "bleu_corpus": {
-          "a": 0.2493102161185399,
-          "b": 0.12007044209640981,
-          "delta": -0.12924,
+          "a": 0.3326193097535171,
+          "b": 0.1437389864825297,
+          "delta": -0.18888,
           "interpretation": "above noise threshold"
         },
         "bleu_sentence_mean": {
-          "a": 0.38959634217510664,
-          "b": 0.1577384777106834,
-          "delta": -0.231858,
+          "a": 0.42211933488748327,
+          "b": 0.18456806096707892,
+          "delta": -0.237551,
           "interpretation": "above noise threshold"
         },
         "chrf_corpus": {
-          "a": 45.52600283321422,
-          "b": 22.370550386314886,
-          "delta": -23.155452,
+          "a": 46.54116784148259,
+          "b": 22.618891537676397,
+          "delta": -23.922276,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "chrf_sentence_mean": {
-          "a": 52.49234177725569,
-          "b": 25.264825968528204,
-          "delta": -27.227516,
+          "a": 53.61117911236307,
+          "b": 26.427225015864607,
+          "delta": -27.183954,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "gloss_f1_micro": {
-          "a": 0.3223201174743025,
-          "b": 0.0919590857925904,
-          "delta": -0.230361,
+          "a": 0.33915574963609896,
+          "b": 0.10224647298825149,
+          "delta": -0.236909,
           "interpretation": "above noise threshold"
         },
         "gloss_f1_sentence_mean": {
-          "a": 0.3995302604167525,
-          "b": 0.1249960462927539,
-          "delta": -0.274534,
+          "a": 0.4212152656243674,
+          "b": 0.15043471175072715,
+          "delta": -0.270781,
           "interpretation": "above noise threshold"
         }
       },
@@ -2118,8 +2198,8 @@
       "factor": "prompting",
       "kind": "prompt-dependence (dual eval, same checkpoint)",
       "a": {
-        "path": "conll-2003/qwen25-05b/grpo/few-shot/run_20261010_204103/eval_final.json",
-        "timestamp": "2026-10-10 20:41:03",
+        "path": "conll-2003/qwen25-05b/grpo/few-shot/run_20261018_212554/eval_final.json",
+        "timestamp": "2026-10-18 21:25:54",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "unknown",
@@ -2131,8 +2211,8 @@
         "metrics_version": 2
       },
       "b": {
-        "path": "conll-2003/qwen25-05b/grpo/few-shot/run_20261010_204103/eval_final__zero-shot.json",
-        "timestamp": "2026-10-10 20:41:03",
+        "path": "conll-2003/qwen25-05b/grpo/few-shot/run_20261018_212554/eval_final__zero-shot.json",
+        "timestamp": "2026-10-18 21:25:54",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "unknown",
@@ -2145,75 +2225,75 @@
       },
       "deltas": {
         "rouge_l_mean": {
-          "a": 0.5469913949714144,
-          "b": 0.26486904072282075,
-          "delta": -0.282122,
+          "a": 0.5395615391034806,
+          "b": 0.25215189665072457,
+          "delta": -0.28741,
           "interpretation": "above noise threshold"
         },
         "valid_rouge_l_mean": {
-          "a": 0.5451316242285116,
-          "b": 0.26240575864409854,
-          "delta": -0.282726,
+          "a": 0.5393996706417495,
+          "b": 0.2520258207023992,
+          "delta": -0.287374,
           "interpretation": "above noise threshold"
         },
         "exact_match": {
-          "a": 0.3243,
-          "b": 0.1627,
-          "delta": -0.1616,
+          "a": 0.3247,
+          "b": 0.1324,
+          "delta": -0.1923,
           "interpretation": "above noise threshold"
         },
         "non_copy_token_accuracy": {
-          "a": 0.4167034178610805,
-          "b": 0.1461962513781698,
-          "delta": -0.270507,
+          "a": 0.4067254685777288,
+          "b": 0.1348401323042999,
+          "delta": -0.271885,
           "interpretation": "above noise threshold"
         },
         "pass_at_1": {
-          "a": 0.6895,
-          "b": 0.331,
-          "delta": -0.3585,
+          "a": 0.6745,
+          "b": 0.311,
+          "delta": -0.3635,
           "interpretation": "above noise threshold"
         },
         "validity_rate": {
-          "a": 0.9966,
-          "b": 0.9907,
-          "delta": -0.0059,
+          "a": 0.9997,
+          "b": 0.9995,
+          "delta": -0.0002,
           "interpretation": "NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret"
         },
         "bleu_corpus": {
-          "a": 0.30740503682152887,
-          "b": 0.09597215595140504,
-          "delta": -0.211433,
+          "a": 0.3949211055497526,
+          "b": 0.1151863395793777,
+          "delta": -0.279735,
           "interpretation": "above noise threshold"
         },
         "bleu_sentence_mean": {
-          "a": 0.4530018839842506,
-          "b": 0.20307181327261456,
-          "delta": -0.24993,
+          "a": 0.4514917530875232,
+          "b": 0.18113331355596785,
+          "delta": -0.270358,
           "interpretation": "above noise threshold"
         },
         "chrf_corpus": {
-          "a": 47.903853359270734,
-          "b": 20.353102215304165,
-          "delta": -27.550751,
+          "a": 48.46861181816081,
+          "b": 21.8568395011461,
+          "delta": -26.611772,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "chrf_sentence_mean": {
-          "a": 54.99690531479097,
-          "b": 28.678219491790653,
-          "delta": -26.318686,
+          "a": 54.29995397761714,
+          "b": 28.47214808781668,
+          "delta": -25.827806,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "gloss_f1_micro": {
-          "a": 0.3700029322646858,
-          "b": 0.12360383741947445,
-          "delta": -0.246399,
+          "a": 0.3776420374677333,
+          "b": 0.11038596963376616,
+          "delta": -0.267256,
           "interpretation": "above noise threshold"
         },
         "gloss_f1_sentence_mean": {
-          "a": 0.4508222151718659,
-          "b": 0.19000502922946327,
-          "delta": -0.260817,
+          "a": 0.44571366678146807,
+          "b": 0.1647569131265337,
+          "delta": -0.280957,
           "interpretation": "above noise threshold"
         }
       },
@@ -2226,8 +2306,8 @@
       "factor": "prompting",
       "kind": "prompt-dependence (dual eval, same checkpoint)",
       "a": {
-        "path": "conll-2003/qwen25-05b/grpo/zero-shot/run_20261010_170559/eval_final__few-shot.json",
-        "timestamp": "2026-10-10 17:05:59",
+        "path": "conll-2003/qwen25-05b/grpo/zero-shot/run_20261018_174556/eval_final__few-shot.json",
+        "timestamp": "2026-10-18 17:45:56",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "unknown",
@@ -2239,8 +2319,8 @@
         "metrics_version": 2
       },
       "b": {
-        "path": "conll-2003/qwen25-05b/grpo/zero-shot/run_20261010_170559/eval_final.json",
-        "timestamp": "2026-10-10 17:05:59",
+        "path": "conll-2003/qwen25-05b/grpo/zero-shot/run_20261018_174556/eval_final.json",
+        "timestamp": "2026-10-18 17:45:56",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "unknown",
@@ -2253,75 +2333,75 @@
       },
       "deltas": {
         "rouge_l_mean": {
-          "a": 0.43847559513282797,
-          "b": 0.3381581821165199,
-          "delta": -0.100317,
+          "a": 0.4117218316404348,
+          "b": 0.3166934969383611,
+          "delta": -0.095028,
           "interpretation": "above noise threshold"
         },
         "valid_rouge_l_mean": {
-          "a": 0.43702862566888967,
-          "b": 0.3375156815704985,
-          "delta": -0.099513,
+          "a": 0.4116806594572708,
+          "b": 0.3166301582389734,
+          "delta": -0.095051,
           "interpretation": "above noise threshold"
         },
         "exact_match": {
-          "a": 0.1118,
-          "b": 0.0382,
-          "delta": -0.0736,
+          "a": 0.0819,
+          "b": 0.0296,
+          "delta": -0.0523,
           "interpretation": "above noise threshold"
         },
         "non_copy_token_accuracy": {
-          "a": 0.3685777287761852,
-          "b": 0.21499448732083792,
-          "delta": -0.153583,
+          "a": 0.33875413450937153,
+          "b": 0.19630650496141125,
+          "delta": -0.142448,
           "interpretation": "above noise threshold"
         },
         "pass_at_1": {
-          "a": 0.641,
-          "b": 0.5295,
-          "delta": -0.1115,
+          "a": 0.627,
+          "b": 0.5015,
+          "delta": -0.1255,
           "interpretation": "above noise threshold"
         },
         "validity_rate": {
-          "a": 0.9967,
-          "b": 0.9981,
-          "delta": 0.0014,
+          "a": 0.9999,
+          "b": 0.9998,
+          "delta": -0.0001,
           "interpretation": "NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret"
         },
         "bleu_corpus": {
-          "a": 0.2102884756286771,
-          "b": 0.18007398315943615,
-          "delta": -0.030214,
+          "a": 0.24399316665039816,
+          "b": 0.1818090751344409,
+          "delta": -0.062184,
           "interpretation": "above noise threshold"
         },
         "bleu_sentence_mean": {
-          "a": 0.2901475420357103,
-          "b": 0.19593619117764974,
-          "delta": -0.094211,
+          "a": 0.26035011283153137,
+          "b": 0.172946336149389,
+          "delta": -0.087404,
           "interpretation": "above noise threshold"
         },
         "chrf_corpus": {
-          "a": 47.9815886681171,
-          "b": 41.051163782794895,
-          "delta": -6.930425,
+          "a": 49.66936903614923,
+          "b": 40.987686088203574,
+          "delta": -8.681683,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "chrf_sentence_mean": {
-          "a": 47.82110192613649,
-          "b": 37.76400090428522,
-          "delta": -10.057101,
+          "a": 46.29370494379058,
+          "b": 36.79970719730899,
+          "delta": -9.493998,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "gloss_f1_micro": {
-          "a": 0.2610510709687488,
-          "b": 0.14805268643987493,
-          "delta": -0.112998,
+          "a": 0.23534812547819434,
+          "b": 0.12975000455199287,
+          "delta": -0.105598,
           "interpretation": "above noise threshold"
         },
         "gloss_f1_sentence_mean": {
-          "a": 0.30406020471897516,
-          "b": 0.15233003917764568,
-          "delta": -0.15173,
+          "a": 0.25761451188238277,
+          "b": 0.12838458914448095,
+          "delta": -0.12923,
           "interpretation": "above noise threshold"
         }
       },
@@ -2334,8 +2414,8 @@
       "factor": "prompting",
       "kind": "prompt-dependence (dual eval, same checkpoint)",
       "a": {
-        "path": "conll-2003/qwen25-05b/sft/zero-shot/run_20261010_162118/eval_final__few-shot.json",
-        "timestamp": "2026-10-10 16:21:18",
+        "path": "conll-2003/qwen25-05b/sft/zero-shot/run_20261018_165609/eval_final__few-shot.json",
+        "timestamp": "2026-10-18 16:56:09",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "unknown",
@@ -2347,8 +2427,8 @@
         "metrics_version": 2
       },
       "b": {
-        "path": "conll-2003/qwen25-05b/sft/zero-shot/run_20261010_162118/eval_final.json",
-        "timestamp": "2026-10-10 16:21:18",
+        "path": "conll-2003/qwen25-05b/sft/zero-shot/run_20261018_165609/eval_final.json",
+        "timestamp": "2026-10-18 16:56:09",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "unknown",
@@ -2361,33 +2441,33 @@
       },
       "deltas": {
         "rouge_l_mean": {
-          "a": 0.8139527349633668,
-          "b": 0.9001588127417924,
-          "delta": 0.086206,
+          "a": 0.8188619206178531,
+          "b": 0.9005249068609713,
+          "delta": 0.081663,
           "interpretation": "above noise threshold"
         },
         "valid_rouge_l_mean": {
-          "a": 0.8139527349633668,
-          "b": 0.9001588127417924,
-          "delta": 0.086206,
+          "a": 0.8188619206178531,
+          "b": 0.9005249068609713,
+          "delta": 0.081663,
           "interpretation": "above noise threshold"
         },
         "exact_match": {
-          "a": 0.598,
-          "b": 0.7434,
-          "delta": 0.1454,
+          "a": 0.6003,
+          "b": 0.7448,
+          "delta": 0.1445,
           "interpretation": "above noise threshold"
         },
         "non_copy_token_accuracy": {
-          "a": 0.737431091510474,
-          "b": 0.8224917309812569,
-          "delta": 0.085061,
+          "a": 0.7380374862183021,
+          "b": 0.8257993384785005,
+          "delta": 0.087762,
           "interpretation": "above noise threshold"
         },
         "pass_at_1": {
-          "a": 0.923,
+          "a": 0.929,
           "b": 0.967,
-          "delta": 0.044,
+          "delta": 0.038,
           "interpretation": "above noise threshold"
         },
         "validity_rate": {
@@ -2397,39 +2477,39 @@
           "interpretation": "NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret"
         },
         "bleu_corpus": {
-          "a": 0.6707965658839354,
-          "b": 0.8320699934416473,
-          "delta": 0.161273,
+          "a": 0.7279478359726791,
+          "b": 0.8455813648347795,
+          "delta": 0.117634,
           "interpretation": "above noise threshold"
         },
         "bleu_sentence_mean": {
-          "a": 0.7448948436154322,
-          "b": 0.858965438848439,
-          "delta": 0.114071,
+          "a": 0.7529571083339542,
+          "b": 0.8604071265228221,
+          "delta": 0.10745,
           "interpretation": "above noise threshold"
         },
         "chrf_corpus": {
-          "a": 77.09624444277516,
-          "b": 85.74253439139825,
-          "delta": 8.64629,
+          "a": 77.98005996720482,
+          "b": 86.13627803541557,
+          "delta": 8.156218,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "chrf_sentence_mean": {
-          "a": 81.41342211398155,
-          "b": 89.36543129410161,
-          "delta": 7.952009,
+          "a": 81.89834586490751,
+          "b": 89.45205806250566,
+          "delta": 7.553712,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "gloss_f1_micro": {
-          "a": 0.720581113801453,
-          "b": 0.8227063651637424,
-          "delta": 0.102125,
+          "a": 0.7229624035816387,
+          "b": 0.8254885769336635,
+          "delta": 0.102526,
           "interpretation": "above noise threshold"
         },
         "gloss_f1_sentence_mean": {
-          "a": 0.7461523748175903,
-          "b": 0.8410095080514906,
-          "delta": 0.094857,
+          "a": 0.748510580399485,
+          "b": 0.8425299769096513,
+          "delta": 0.094019,
           "interpretation": "above noise threshold"
         }
       },
@@ -2442,8 +2522,8 @@
       "factor": "prompting",
       "kind": "prompting (cross-run)",
       "a": {
-        "path": "conll-2003/qwen25-05b/ablations/decoding/no-grammar/run_20261011_042103/eval_final.json",
-        "timestamp": "2026-10-11 04:21:03",
+        "path": "conll-2003/qwen25-05b/ablations/decoding/no-grammar/run_20261019_043117/eval_final.json",
+        "timestamp": "2026-10-19 04:31:17",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "unknown",
@@ -2455,8 +2535,8 @@
         "metrics_version": 2
       },
       "b": {
-        "path": "conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot/run_20261011_065106/eval_final.json",
-        "timestamp": "2026-10-11 06:51:06",
+        "path": "conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot/run_20261019_071102/eval_final.json",
+        "timestamp": "2026-10-19 07:11:02",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "unknown",
@@ -2469,75 +2549,75 @@
       },
       "deltas": {
         "rouge_l_mean": {
-          "a": 0.6221601004544869,
-          "b": 0.46399945426919037,
-          "delta": -0.158161,
+          "a": 0.611326351001293,
+          "b": 0.4026714532213286,
+          "delta": -0.208655,
           "interpretation": "above noise threshold"
         },
         "valid_rouge_l_mean": {
-          "a": 0.3698741797201925,
-          "b": 0.0005103993996961095,
-          "delta": -0.369364,
+          "a": 0.39742326078594054,
+          "b": 0.18434299128472423,
+          "delta": -0.21308,
           "interpretation": "above noise threshold"
         },
         "exact_match": {
-          "a": 0.3426,
-          "b": 0.0004,
-          "delta": -0.3422,
+          "a": 0.3476,
+          "b": 0.1472,
+          "delta": -0.2004,
           "interpretation": "above noise threshold"
         },
         "non_copy_token_accuracy": {
-          "a": 0.417199558985667,
-          "b": 0.10793825799338479,
-          "delta": -0.309261,
+          "a": 0.422877618522602,
+          "b": 0.11041896361631753,
+          "delta": -0.312459,
           "interpretation": "above noise threshold"
         },
         "pass_at_1": {
-          "a": 0.779,
-          "b": 0.832,
-          "delta": 0.053,
+          "a": 0.755,
+          "b": 0.5735,
+          "delta": -0.1815,
           "interpretation": "above noise threshold"
         },
         "validity_rate": {
-          "a": 0.5945,
-          "b": 0.0011,
-          "delta": -0.5934,
+          "a": 0.6501,
+          "b": 0.4578,
+          "delta": -0.1923,
           "interpretation": "above noise threshold"
         },
         "bleu_corpus": {
-          "a": 0.373344056320353,
-          "b": 0.020535176803898776,
-          "delta": -0.352809,
+          "a": 0.4346498427503348,
+          "b": 0.008344021569963663,
+          "delta": -0.426306,
           "interpretation": "above noise threshold"
         },
         "bleu_sentence_mean": {
-          "a": 0.47864932461353055,
-          "b": 0.05636841264961749,
-          "delta": -0.422281,
+          "a": 0.483962823019518,
+          "b": 0.1716768465715556,
+          "delta": -0.312286,
           "interpretation": "above noise threshold"
         },
         "chrf_corpus": {
-          "a": 49.68248417910035,
-          "b": 29.34980859916073,
-          "delta": -20.332676,
+          "a": 50.54088749855205,
+          "b": 21.328759901783467,
+          "delta": -29.212128,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "chrf_sentence_mean": {
-          "a": 59.18539868299633,
-          "b": 34.59158813635057,
-          "delta": -24.593811,
+          "a": 58.49247289010537,
+          "b": 31.146658792008722,
+          "delta": -27.345814,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "gloss_f1_micro": {
-          "a": 0.3223531364088948,
-          "b": 0.05140326497746724,
-          "delta": -0.27095,
+          "a": 0.37755273855627447,
+          "b": 0.0731915202292222,
+          "delta": -0.304361,
           "interpretation": "above noise threshold"
         },
         "gloss_f1_sentence_mean": {
-          "a": 0.46945432939106047,
-          "b": 0.07635707657254091,
-          "delta": -0.393097,
+          "a": 0.47485479476320636,
+          "b": 0.16928437847452224,
+          "delta": -0.30557,
           "interpretation": "above noise threshold"
         }
       },
@@ -2550,8 +2630,8 @@
       "factor": "prompting",
       "kind": "prompting (cross-run)",
       "a": {
-        "path": "conll-2003/qwen25-05b/ablations/objectives/sft-allowed-mass/run_20261011_091612/eval_final.json",
-        "timestamp": "2026-10-11 09:16:12",
+        "path": "conll-2003/qwen25-05b/ablations/objectives/sft-allowed-mass/run_20261019_093124/eval_final.json",
+        "timestamp": "2026-10-19 09:31:24",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "unknown",
@@ -2563,8 +2643,8 @@
         "metrics_version": 2
       },
       "b": {
-        "path": "conll-2003/qwen25-05b/baseline/few-shot/run_20261010_153552/eval_zero_shot.json",
-        "timestamp": "2026-10-10 15:35:52",
+        "path": "conll-2003/qwen25-05b/baseline/few-shot/run_20261018_161555/eval_zero_shot.json",
+        "timestamp": "2026-10-18 16:15:55",
         "factors": {
           "model_tag": "conll-2003/qwen25-05b",
           "method": "unknown",
@@ -2577,75 +2657,75 @@
       },
       "deltas": {
         "rouge_l_mean": {
-          "a": 0.8991522578474738,
-          "b": 0.37570600193823855,
-          "delta": -0.523446,
+          "a": 0.9044360260124493,
+          "b": 0.3822795461307216,
+          "delta": -0.522156,
           "interpretation": "above noise threshold"
         },
         "valid_rouge_l_mean": {
-          "a": 0.8991522578474738,
-          "b": 0.3684173055006367,
-          "delta": -0.530735,
+          "a": 0.9044360260124493,
+          "b": 0.38197372249381706,
+          "delta": -0.522462,
           "interpretation": "above noise threshold"
         },
         "exact_match": {
-          "a": 0.7384,
-          "b": 0.0708,
-          "delta": -0.6676,
+          "a": 0.7505,
+          "b": 0.0714,
+          "delta": -0.6791,
           "interpretation": "above noise threshold"
         },
         "non_copy_token_accuracy": {
-          "a": 0.8239801543550166,
-          "b": 0.28969128996692395,
-          "delta": -0.534289,
+          "a": 0.825303197353914,
+          "b": 0.282800441014333,
+          "delta": -0.542503,
           "interpretation": "above noise threshold"
         },
         "pass_at_1": {
-          "a": 0.967,
-          "b": 0.5805,
-          "delta": -0.3865,
+          "a": 0.9695,
+          "b": 0.5825,
+          "delta": -0.387,
           "interpretation": "above noise threshold"
         },
         "validity_rate": {
           "a": 1.0,
-          "b": 0.9806,
-          "delta": -0.0194,
+          "b": 0.9992,
+          "delta": -0.0008,
           "interpretation": "NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret"
         },
         "bleu_corpus": {
-          "a": 0.8241392454214161,
-          "b": 0.12687102428757843,
-          "delta": -0.697268,
+          "a": 0.8407281614178921,
+          "b": 0.19290066781961218,
+          "delta": -0.647827,
           "interpretation": "above noise threshold"
         },
         "bleu_sentence_mean": {
-          "a": 0.856884491625644,
-          "b": 0.21911128885208192,
-          "delta": -0.637773,
+          "a": 0.8645716440363634,
+          "b": 0.22464144099302685,
+          "delta": -0.63993,
           "interpretation": "above noise threshold"
         },
         "chrf_corpus": {
-          "a": 85.44857579906446,
-          "b": 39.29882055002448,
-          "delta": -46.149755,
+          "a": 85.72124919048669,
+          "b": 43.949666840430105,
+          "delta": -41.771582,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "chrf_sentence_mean": {
-          "a": 89.27194533394811,
-          "b": 40.85353616459624,
-          "delta": -48.418409,
+          "a": 89.71193651801694,
+          "b": 42.27112907503708,
+          "delta": -47.440807,
           "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
         },
         "gloss_f1_micro": {
-          "a": 0.8227886386757953,
-          "b": 0.17797327017425138,
-          "delta": -0.644815,
+          "a": 0.8253338840699436,
+          "b": 0.18448223231760966,
+          "delta": -0.640852,
           "interpretation": "above noise threshold"
         },
         "gloss_f1_sentence_mean": {
-          "a": 0.8431839648292949,
-          "b": 0.2248017079451772,
-          "delta": -0.618382,
+          "a": 0.8513520772402602,
+          "b": 0.22063629278135713,
+          "delta": -0.630716,
           "interpretation": "above noise threshold"
         }
       },

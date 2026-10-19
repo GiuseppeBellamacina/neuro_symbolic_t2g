@@ -1,0 +1,86 @@
+{
+  "model": "run_20261019_022555",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 80,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "I think now is the right time for him to return . \""
+    },
+    {
+      "group": "best",
+      "index": 7722,
+      "rouge_l": 1.0,
+      "gold": "MISC:World_Cup",
+      "prediction": "MISC:World_Cup",
+      "prompt": "Results of the World Cup"
+    },
+    {
+      "group": "best",
+      "index": 180,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Scorers :"
+    },
+    {
+      "group": "best",
+      "index": 200,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Attendence : 3,000"
+    },
+    {
+      "group": "best",
+      "index": 225,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "on Friday :"
+    },
+    {
+      "group": "worst",
+      "index": 5,
+      "rouge_l": 0.0,
+      "gold": "LOC:AL-AIN LOC:United_Arab_Emirates",
+      "prediction": "NONE",
+      "prompt": "AL-AIN , United Arab Emirates 1996-12-06"
+    },
+    {
+      "group": "worst",
+      "index": 11,
+      "rouge_l": 0.0,
+      "gold": "LOC:Japan LOC:Syria MISC:Asian_Cup",
+      "prediction": "NONE",
+      "prompt": "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday ."
+    },
+    {
+      "group": "worst",
+      "index": 25,
+      "rouge_l": 0.0,
+      "gold": "LOC:Uzbekistan MISC:Asian_Games",
+      "prediction": "NONE",
+      "prompt": "Despite winning the Asian Games title two years ago , Uzbekistan are in the finals as outsiders ."
+    },
+    {
+      "group": "worst",
+      "index": 35,
+      "rouge_l": 0.0,
+      "gold": "LOC:Syria",
+      "prediction": "NONE",
+      "prompt": "It was the second costly blunder by Syria in four minutes ."
+    },
+    {
+      "group": "worst",
+      "index": 51,
+      "rouge_l": 0.0,
+      "gold": "LOC:Japan MISC:Syrian",
+      "prediction": "NONE",
+      "prompt": "Japan then laid siege to the Syrian penalty area for most of the game but rarely breached the Syrian defence ."
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "model": "run_20261019_071102",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 80,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "I think now is the right time for him to return . \""
+    },
+    {
+      "group": "best",
+      "index": 125,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "freestyle skiing moguls competition on Friday :"
+    },
+    {
+      "group": "best",
+      "index": 180,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Scorers :"
+    },
+    {
+      "group": "best",
+      "index": 200,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Attendence : 3,000"
+    },
+    {
+      "group": "best",
+      "index": 205,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "for , goals against , points ) :"
+    },
+    {
+      "group": "worst",
+      "index": 1,
+      "rouge_l": 0.0,
+      "gold": "PER:Nadim_Ladki",
+      "prediction": "NONE",
+      "prompt": "Nadim Ladki"
+    },
+    {
+      "group": "worst",
+      "index": 14,
+      "rouge_l": 0.0,
+      "gold": "LOC:Japan LOC:Syria MISC:Asian_Cup",
+      "prediction": "NONE",
+      "prompt": "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday ."
+    },
+    {
+      "group": "worst",
+      "index": 15,
+      "rouge_l": 0.0,
+      "gold": "LOC:China LOC:Uzbekistan",
+      "prediction": "NONE",
+      "prompt": "But China saw their luck desert them in the second match of the group , crashing to a surprise 2-0 defeat to newcomers Uzbekistan ."
+    },
+    {
+      "group": "worst",
+      "index": 30,
+      "rouge_l": 0.0,
+      "gold": "PER:Takuya_Takagi PER:Hiroshige_Yanagimoto PER:Salem_Bitar MISC:Syrian",
+      "prediction": "NONE",
+      "prompt": "Takuya Takagi scored the winner in the 88th minute , rising to head a Hiroshige Yanagimoto cross towards the Syrian goal which goalkeeper Salem Bitar appeared to have covered but then allowed to slip ..."
+    },
+    {
+      "group": "worst",
+      "index": 35,
+      "rouge_l": 0.0,
+      "gold": "LOC:Syria",
+      "prediction": "NONE",
+      "prompt": "It was the second costly blunder by Syria in four minutes ."
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "model": "baseline",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 81,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "I think now is the right time for him to return . \""
+    },
+    {
+      "group": "best",
+      "index": 96,
+      "rouge_l": 1.0,
+      "gold": "MISC:Syrian",
+      "prediction": "MISC:Syrian",
+      "prompt": "It was the second Syrian defensive blunder in four minutes ."
+    },
+    {
+      "group": "best",
+      "index": 760,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "9-153 ."
+    },
+    {
+      "group": "best",
+      "index": 901,
+      "rouge_l": 1.0,
+      "gold": "PER:Lloyd",
+      "prediction": "PER:Lloyd",
+      "prompt": "Lloyd did not say what form the discipline would take ."
+    },
+    {
+      "group": "best",
+      "index": 1050,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "NORTHEAST DIVISION"
+    },
+    {
+      "group": "worst",
+      "index": 5,
+      "rouge_l": 0.0,
+      "gold": "LOC:AL-AIN LOC:United_Arab_Emirates",
+      "prediction": "NONE",
+      "prompt": "AL-AIN , United Arab Emirates 1996-12-06"
+    },
+    {
+      "group": "worst",
+      "index": 60,
+      "rouge_l": 0.0,
+      "gold": "PER:CUTTITTA ORG:RUGBY_UNION LOC:ITALY",
+      "prediction": "NONE",
+      "prompt": "RUGBY UNION - CUTTITTA BACK FOR ITALY AFTER A YEAR ."
+    },
+    {
+      "group": "worst",
+      "index": 70,
+      "rouge_l": 0.0,
+      "gold": "PER:Cuttitta PER:George_Coste LOC:England LOC:Twickenham",
+      "prediction": "NONE",
+      "prompt": "Cuttitta , who trainer George Coste said was certain to play on Saturday week , was named in a 21-man squad lacking only two of the team beaten 54-21 by England at Twickenham last month ."
+    },
+    {
+      "group": "worst",
+      "index": 80,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "PER:him MISC:now",
+      "prompt": "I think now is the right time for him to return . \""
+    },
+    {
+      "group": "worst",
+      "index": 97,
+      "rouge_l": 0.0,
+      "gold": "MISC:Syrian",
+      "prediction": "PER:defensive",
+      "prompt": "It was the second Syrian defensive blunder in four minutes ."
+    }
+  ]
+}

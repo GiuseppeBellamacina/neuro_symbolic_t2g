@@ -1,0 +1,86 @@
+{
+  "model": "run_20261018_212554",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 80,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "I think now is the right time for him to return . \""
+    },
+    {
+      "group": "best",
+      "index": 180,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Scorers :"
+    },
+    {
+      "group": "best",
+      "index": 200,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Attendence : 3,000"
+    },
+    {
+      "group": "best",
+      "index": 225,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "on Friday :"
+    },
+    {
+      "group": "best",
+      "index": 270,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Extras ( lb-8 nb-2 w-14 ) 24"
+    },
+    {
+      "group": "worst",
+      "index": 1,
+      "rouge_l": 0.0,
+      "gold": "PER:Nadim_Ladki",
+      "prediction": "NONE",
+      "prompt": "Nadim Ladki"
+    },
+    {
+      "group": "worst",
+      "index": 5,
+      "rouge_l": 0.0,
+      "gold": "LOC:AL-AIN LOC:United_Arab_Emirates",
+      "prediction": "NONE",
+      "prompt": "AL-AIN , United Arab Emirates 1996-12-06"
+    },
+    {
+      "group": "worst",
+      "index": 11,
+      "rouge_l": 0.0,
+      "gold": "LOC:Japan LOC:Syria MISC:Asian_Cup",
+      "prediction": "NONE",
+      "prompt": "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday ."
+    },
+    {
+      "group": "worst",
+      "index": 15,
+      "rouge_l": 0.0,
+      "gold": "LOC:China LOC:Uzbekistan",
+      "prediction": "NONE",
+      "prompt": "But China saw their luck desert them in the second match of the group , crashing to a surprise 2-0 defeat to newcomers Uzbekistan ."
+    },
+    {
+      "group": "worst",
+      "index": 20,
+      "rouge_l": 0.0,
+      "gold": "PER:Oleg_Shatskiku",
+      "prediction": "NONE",
+      "prompt": "Oleg Shatskiku made sure of the win in injury time , hitting an unstoppable left foot shot from just outside the area ."
+    }
+  ]
+}

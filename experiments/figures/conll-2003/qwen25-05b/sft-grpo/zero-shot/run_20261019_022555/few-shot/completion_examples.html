@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completion Examples — run_20261019_022555</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+  h1 { color: #333; font-size: 1.4em; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  th { background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }
+  tr.best { background: #f9fdf9; }
+  tr.worst { background: #fef9f9; }
+  tr:hover { background: #eef6ff; }
+  .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }
+  .prompt { max-width: 300px; color: #555; font-style: italic; }
+  .diff-del { color: #C44E52; text-decoration: line-through; }
+  .diff-add { color: #1a7a1a; font-weight: bold; }
+  .summary { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Completion Examples — run_20261019_022555</h1>
+<p class="summary">10 examples (5 best, 5 worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  <th>Prompt</th>
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="best">
+    <td class="prompt">Nadim Ladki</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">PER:Nadim_Ladki</td>
+    <td class="mono">PER:Nadim_Ladki</td>
+</tr><tr class="best">
+    <td class="prompt">Coste said he had approached the player two months ago about a comeback .</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">PER:Coste</td>
+    <td class="mono">PER:Coste</td>
+</tr><tr class="best">
+    <td class="prompt">Attendence : 3,000</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">NONE</td>
+    <td class="mono">NONE</td>
+</tr><tr class="best">
+    <td class="prompt">for , goals against , points ) :</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">NONE</td>
+    <td class="mono">NONE</td>
+</tr><tr class="best">
+    <td class="prompt">on Friday :</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">NONE</td>
+    <td class="mono">NONE</td>
+</tr><tr class="worst">
+    <td class="prompt">Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday .</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">LOC:Japan LOC:Syria MISC:Asian_Cup</td>
+    <td class="mono"><span class="diff-del">LOC:Japan</span> <span class="diff-add">NONE</span> <span class="diff-del">LOC:Syria</span> <span class="diff-del">MISC:Asian_Cup</span></td>
+</tr><tr class="worst">
+    <td class="prompt">Despite winning the Asian Games title two years ago , Uzbekistan are in the finals as outsiders .</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">LOC:Uzbekistan MISC:Asian_Games</td>
+    <td class="mono"><span class="diff-del">LOC:Uzbekistan</span> <span class="diff-add">NONE</span> <span class="diff-del">MISC:Asian_Games</span></td>
+</tr><tr class="worst">
+    <td class="prompt">It was the second costly blunder by Syria in four minutes .</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">LOC:Syria</td>
+    <td class="mono"><span class="diff-del">LOC:Syria</span> <span class="diff-add">PER:costly</span> <span class="diff-add">MISC:four_minutes</span></td>
+</tr><tr class="worst">
+    <td class="prompt">I think now is the right time for him to return . "</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">NONE</td>
+    <td class="mono"><span class="diff-del">NONE</span> <span class="diff-add">PER:I</span> <span class="diff-add">PER:him</span> <span class="diff-add">MISC:right</span> <span class="diff-add">MISC:time</span> <span class="diff-add">MISC:for</span> <span class="diff-add">MISC:the</span> <span class="diff-add">MISC:is</span> <span class="diff-add">MISC:to</span> <span class="diff-add">MISC:think</span> <span class="diff-add">MISC:now</span> <span class="diff-add">MISC:._"</span></td>
+</tr><tr class="worst">
+    <td class="prompt">Results of the World Cup</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">MISC:World_Cup</td>
+    <td class="mono"><span class="diff-del">MISC:World_Cup</span> <span class="diff-add">NONE</span></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>
