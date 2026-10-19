@@ -201,6 +201,7 @@ def _sft_pretrain_adapter_sibling(checkpoint_path: Path) -> Path | None:
 def load_model_for_eval(
     checkpoint_path: str,
     base_model_name: str,
+    require_sft_phase: bool = False,
 ) -> tuple[Any, Any]:
     """Load a trained model for evaluation.
 
@@ -214,6 +215,14 @@ def load_model_for_eval(
     ckpt_path = Path(checkpoint_path)
     is_peft = (ckpt_path / "adapter_config.json").exists()
     sft_adapter_path = _sft_pretrain_adapter_sibling(ckpt_path) if is_peft else None
+    if is_peft and require_sft_phase and sft_adapter_path is None:
+        # Senza la fase SFT si valuterebbe base + solo adapter GRPO, un
+        # modello che non e' quello addestrato: meglio fermarsi.
+        raise FileNotFoundError(
+            f"{ckpt_path.parent / 'sft_pretrain' / 'final'} manca: il config ha "
+            "sft_pretrain.enabled, ma l'adapter SFT di questo run non c'e'. "
+            "Copiarlo li' (quello riusato e' nel log di train, riga [sft-reuse])."
+        )
 
     logger.info(
         f"Loading model from {checkpoint_path} (is_peft={is_peft}, "
@@ -1419,6 +1428,9 @@ def evaluate_checkpoint(
         model, tokenizer = load_model_for_eval(
             checkpoint_path,
             config["model"]["name"],
+            require_sft_phase=bool(
+                (config.get("sft_pretrain") or {}).get("enabled", False)
+            ),
         )
 
     # ── Constrained decoding ─────────────────────────────────────────────

@@ -102,3 +102,17 @@ def test_real_cluster_layout_snapshot(tmp_path):
     found = _sft_pretrain_adapter_sibling(run_dir / "final")
     assert found is not None
     assert json.loads((found / "adapter_config.json").read_text(encoding="utf-8")) == {}
+
+
+def test_eval_refuses_sft_grpo_checkpoint_without_its_sft_phase(tmp_path):
+    """Riuso SFT dallo stesso tag senza copia (CoNLL, 2026-10): l'eval caricava
+    base + solo adapter GRPO e misurava 0,09 invece di 0,78. Con
+    ``sft_pretrain.enabled`` l'adapter mancante deve fermare l'eval."""
+    import pytest
+
+    from src.training.eval_t2g import load_model_for_eval
+
+    grpo_final = tmp_path / "run_1" / "final"
+    _make_adapter_dir(grpo_final)
+    with pytest.raises(FileNotFoundError, match="sft_pretrain"):
+        load_model_for_eval(str(grpo_final), "unused", require_sft_phase=True)

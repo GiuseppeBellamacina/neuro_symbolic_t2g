@@ -680,9 +680,8 @@ def main() -> None:
             # sft-grpo/few-shot/run_*/sft_pretrain/final); (2) ANY other cell
             # sotto experiments/checkpoints/<dataset>/<model> con sezione sft_pretrain
             # IDENTICA (il fingerprint e' tag-independent), cosi' un nuovo
-            # config salta il ~2h di retrain SFT. I match cross-tag vengono
-            # COPIATI in sft_pretrain/final di questo run perche' resti
-            # self-contained.
+            # config salta il ~2h di retrain SFT. Ogni adapter riusato viene
+            # poi COPIATO in sft_pretrain/final di questo run (sotto).
             #
             # Il root del cross-tag search e' experiments/checkpoints/
             # <dataset>/<model> (es. aslg-pc12/qwen25-05b; layout legacy senza
@@ -722,21 +721,25 @@ def main() -> None:
                 )
                 if cross is not None:
                     src_adapter, src_tag = cross
-                    dest = (
-                        Path(config["training"]["output_dir"])
-                        / "sft_pretrain"
-                        / "final"
-                    )
-                    clone_sft_adapter(src_adapter, dest)
-                    reused_adapter = str(dest)
+                    reused_adapter = str(src_adapter)
                     print(
                         f"  Reusing SFT adapter from tag '{src_tag}' "
-                        "(identical SFT config — fingerprint match), "
-                        f"copied to {dest} — skipping SFT training"
+                        "(identical SFT config — fingerprint match) "
+                        "— skipping SFT training"
                     )
 
         if reused_adapter is not None:
-            sft_adapter_path = reused_adapter
+            # QUALUNQUE riuso (stesso tag, altro tag, adapter_path esplicito)
+            # finisce copiato in sft_pretrain/final di QUESTO run: l'eval
+            # cerca la fase SFT solo li' (eval_t2g._sft_pretrain_adapter_sibling)
+            # e senza la copia valutava base + solo adapter GRPO. Era successo
+            # col riuso dallo stesso tag: CoNLL sft-grpo, exact match 0,78
+            # misurato come 0,09.
+            dest = Path(config["training"]["output_dir"]) / "sft_pretrain" / "final"
+            if Path(reused_adapter).resolve() != dest.resolve():
+                clone_sft_adapter(reused_adapter, dest)
+                print(f"  SFT adapter copied to {dest}")
+            sft_adapter_path = str(dest)
         else:
             if args.force_sft:
                 print(
