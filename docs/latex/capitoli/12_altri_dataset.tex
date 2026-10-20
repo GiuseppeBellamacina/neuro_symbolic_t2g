@@ -202,9 +202,8 @@ Generato & \texttt{PER:siege PER:siege\_to PER:siege\_to\_the MISC:game} \\
 
 Con la regola dei pezzi identici, i pezzi annidati erano nel $21$--$24\%$ delle
 uscite delle celle GRPO zero-shot contro l'$1{,}6\%$ dell'SFT, e le uscite
-avevano in media $1{,}9$ volte i token del gold. Nella cella SFT$\to$GRPO,
-prima la migliore, l'exact match crollava da $0{,}78$ a $0{,}09$: la validity
-restava a $0{,}98$, perché la grammatica ammetteva tutto questo.
+avevano in media $1{,}9$ volte i token del gold; la validity restava a
+$0{,}98$, perché la grammatica ammetteva tutto questo.
 
 La correzione definitiva sta ancora nella grammatica, non nella reward:
 \textbf{le entità non si sovrappongono}. Ogni parola della frase può stare in
@@ -221,10 +220,15 @@ ci sta. Così il decoder non arriva mai in un vicolo cieco. Lo stesso vincolo
 entra nella validity e nella reward di formato, quindi penalizza l'hack anche
 nelle celle senza Trie.
 
-I risultati di CoNLL riportati più sotto sono quelli della \emph{prima}
-campagna, prima di qualunque correzione; la campagna con il vincolo definitivo
-è in corso.
-\todo{aggiornare la tabella~\ref{tab:risultati-conll} con la campagna rilanciata}
+I risultati di CoNLL riportati più sotto sono quelli della campagna con il
+vincolo definitivo. Un'avvertenza sul percorso: nelle due campagne rilanciate
+la cella SFT$\to$GRPO sembrava crollata (exact match $0{,}09$). Non era il
+modello ma la pipeline: riusando l'adapter SFT di una run precedente della
+stessa cella, il train non lo copiava nella run nuova, e la valutazione
+caricava il modello base con il solo adapter GRPO, senza la fase SFT. Corretta
+la copia, le stesse run rivalutate danno $0{,}78$; da allora la valutazione si
+ferma se la fase SFT attesa manca, invece di valutare in silenzio il modello
+sbagliato.
 
 \section{Adattamenti della reward}
 
@@ -319,32 +323,68 @@ insensibile al maiuscolo, premia per accidente (sezione~\ref{sec:difetto-rouge})
 \toprule
 Cella & Exact match & Gloss-F1 & ROUGE-L & Validity \\
 \midrule
-Base zero-shot                 & $0{,}0453$ & $0{,}0893$ & $0{,}2708$ & $0{,}9693$ \\
-Base few-shot                  & $0{,}0662$ & $0{,}1429$ & $0{,}3805$ & $0{,}9739$ \\
-Base zero-shot senza Trie      & $0{,}0011$ & $0{,}0089$ & $0{,}2676$ & $0{,}0079$ \\
-SFT                            & $0{,}7432$ & $0{,}8330$ & $0{,}9003$ & $0{,}9998$ \\
-GRPO zero-shot                 & $0{,}0228$ & $0{,}1964$ & $0{,}3526$ & $0{,}9979$ \\
-GRPO few-shot                  & $0{,}3315$ & $0{,}3885$ & $0{,}5483$ & $0{,}9979$ \\
-SFT$\to$GRPO zero-shot         & $\mathbf{0{,}7807}$ & $\mathbf{0{,}8494}$ & $\mathbf{0{,}9128}$ & $0{,}9999$ \\
-SFT$\to$GRPO few-shot          & $0{,}7289$ & $0{,}8230$ & $0{,}8859$ & $0{,}9995$ \\
-GRPO senza Trie, few-shot      & $0{,}3473$ & $0{,}4205$ & $0{,}5906$ & $0{,}7261$ \\
-GRPO senza Trie, zero-shot     & $0{,}0611$ & $0{,}0142$ & $0{,}4548$ & $0{,}1430$ \\
-SFT con massa ammessa          & $0{,}7469$ & $0{,}8359$ & $0{,}9039$ & $1{,}0000$ \\
+Base zero-shot                 & $0{,}0445$ & $0{,}0816$ & $0{,}2722$ & $0{,}9987$ \\
+Base few-shot                  & $0{,}0714$ & $0{,}1845$ & $0{,}3823$ & $0{,}9992$ \\
+Base zero-shot senza Trie      & $0{,}0011$ & $0{,}0022$ & $0{,}2676$ & $0{,}0075$ \\
+SFT                            & $0{,}7448$ & $0{,}8255$ & $0{,}9005$ & $1{,}0000$ \\
+GRPO zero-shot                 & $0{,}0296$ & $0{,}1298$ & $0{,}3167$ & $0{,}9998$ \\
+GRPO few-shot                  & $0{,}3247$ & $0{,}3776$ & $0{,}5396$ & $0{,}9997$ \\
+SFT$\to$GRPO zero-shot         & $\mathbf{0{,}7811}$ & $\mathbf{0{,}8546}$ & $\mathbf{0{,}9148}$ & $1{,}0000$ \\
+SFT$\to$GRPO few-shot          & $0{,}7159$ & $0{,}8149$ & $0{,}8852$ & $1{,}0000$ \\
+GRPO senza Trie, few-shot      & $0{,}3476$ & $0{,}3776$ & $0{,}6113$ & $0{,}6501$ \\
+GRPO senza Trie, zero-shot     & $0{,}1472$ & $0{,}0732$ & $0{,}4027$ & $0{,}4578$ \\
+SFT con massa ammessa          & $0{,}7505$ & $0{,}8253$ & $0{,}9044$ & $1{,}0000$ \\
 \bottomrule
 \end{tabular}
-\caption{CoNLL-2003, $2.000$ prompt del test, \emph{prima} della correzione
-della sezione~\ref{sec:span-unici}. Gloss-F1 è il micro-F1 sui token
+\caption{CoNLL-2003, $2.000$ prompt del test, con il vincolo delle entità non
+sovrapposte (sezione~\ref{sec:span-unici}). Gloss-F1 è il micro-F1 sui token
 \texttt{TIPO:entità}, cioè l'F1 a livello di entità.}
 \label{tab:risultati-conll}
 \end{table}
 
-La gerarchia è netta: l'SFT porta l'exact match da $0{,}05$ a $0{,}74$, il GRPO
-dopo l'SFT aggiunge quasi quattro punti in zero-shot ($0{,}7807$), il GRPO dal
-modello base resta lontano. La cella GRPO zero-shot è quella dell'hack della
-sezione~\ref{sec:span-unici}: è l'unica in cui il GRPO \emph{peggiora} l'exact
-match rispetto al punto di partenza. In few-shot, dove gli esempi mostrano il
-formato e una sola etichetta per entità, l'hack è molto più raro ($8\%$ delle
-uscite) e l'exact match sale a $0{,}33$.
+La gerarchia è netta: l'SFT porta l'exact match da $0{,}04$ a $0{,}74$, il GRPO
+dopo l'SFT aggiunge quasi quattro punti in zero-shot ($0{,}7811$, lo stesso
+valore della prima campagna senza vincolo: alla policy SFT il vincolo non
+toglie nulla), il GRPO dal modello base resta lontano.
+
+Con il vincolo l'hack non c'è più, ma il GRPO zero-shot dal modello base non
+impara comunque il compito (exact match $0{,}030$). Separando le due metà del
+compito si vede dove fallisce: gli \emph{span} li trova (richiamo $0{,}66$
+contro $0{,}50$ del modello base, ignorando il tipo), i \emph{tipi} no. Emette
+\texttt{MISC} $15.004$ volte contro le $1.990$ del gold, e sulle entità tipate
+la precisione è $0{,}09$. Il segnale per imparare il tipo è debole: ROUGE-L
+spezza \texttt{LOC:Japan} in due parole, e con tutti gli span giusti ma i tipi
+sbagliati dà ancora fra $+0{,}14$ e $+0{,}43$ (contro $-1$ di \texttt{NONE});
+tutti \texttt{MISC} rende più di tutti \texttt{ORG}. In few-shot, dove gli
+esempi mostrano i tipi, l'exact match sale a $0{,}32$.
+
+\subsection{Quanto pesano i semi}
+\label{sec:semi-conll}
+
+Ogni cella del progetto ha un solo seme, e a seme fisso l'addestramento è
+deterministico (sezione~\ref{sec:determinismo}): la variabilità fra semi non è
+mai stata misurata. Su CoNLL due celle GRPO sono state replicate con un
+secondo seme di addestramento, a parità di split e di prompt valutati:
+
+\begin{center}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+ & \multicolumn{2}{c}{Exact match} & \multicolumn{2}{c}{Validity} \\
+Cella & seme 42 & seme 1 & seme 42 & seme 1 \\
+\midrule
+GRPO zero-shot             & $0{,}030$ & $0{,}038$ & $1{,}000$ & $1{,}000$ \\
+GRPO senza Trie, zero-shot & $0{,}147$ & $0{,}057$ & $0{,}458$ & $0{,}202$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Con il Trie la cella è stabile: le due repliche differiscono di meno di un
+punto di exact match. Senza Trie no: la validity passa da $0{,}46$ a $0{,}20$ e
+l'exact match da $0{,}15$ a $0{,}06$. Quando la struttura non è garantita dal
+decoder, che il GRPO la trovi o meno dipende dal caso dei primi rollout; il
+singolo valore di quella cella va letto come un ordine di grandezza, non come
+una misura.
 
 \subsection{WOS-46985}
 
@@ -380,10 +420,10 @@ dalla stessa lista e una virgola.
 \section{Che cosa dicono i tre dataset insieme}
 \label{sec:osservazioni-altri}
 
-\subsection{Senza Trie e senza esempi, il GRPO non trova il formato}
+\subsection{Senza Trie e senza esempi, il GRPO trova il formato a fatica}
 
 È il risultato più diretto per la domanda del progetto. Senza Trie, la validity
-delle celle GRPO dipende tutta dalla presenza di esempi nel prompt:
+delle celle GRPO dipende soprattutto dalla presenza di esempi nel prompt:
 
 \begin{center}
 \small
@@ -393,7 +433,7 @@ GRPO senza Trie & few-shot & zero-shot \\
 \midrule
 ASLG-PC12     & $0{,}99$ & --- \\
 PHOENIX-2014T & $0{,}99$ & $0{,}00$ \\
-CoNLL-2003    & $0{,}73$ & $0{,}14$ \\
+CoNLL-2003    & $0{,}65$ & $0{,}20$--$0{,}46$ \\
 WOS-46985     & ---      & $0{,}0001$ \\
 \bottomrule
 \end{tabular}
@@ -403,11 +443,15 @@ Il meccanismo si legge nei log di addestramento. Su PHOENIX zero-shot la
 componente di formato della reward resta fra $-1$ e $-0{,}99$ per tutti i
 $5.000$ passi: nessun candidato ha mai il formato giusto, quindi quasi nessun
 gruppo contiene un confronto fra uscita valida e non valida, e il formato non
-riceve gradiente. Su CoNLL e WOS
-qualche candidato valido compare per caso e la componente sale (da $-0{,}89$ a
-$-0{,}31$ e da $-0{,}98$ a $-0{,}12$), ma non abbastanza da rendere valide le
-uscite in valutazione. Il GRPO, dunque, \textbf{rinforza una struttura che il
-modello già produce qualche volta; non la scopre}. Gli esempi nel prompt, il
+riceve gradiente. Su WOS qualche candidato valido compare per caso e la
+componente sale (da $-0{,}98$ a $-0{,}12$), ma non abbastanza da rendere valide
+le uscite in valutazione. Su CoNLL, dove il formato
+\texttt{TIPO:entità} è più vicino a ciò che il modello scrive spontaneamente,
+la componente sale di più (da $-0{,}93$ a $-0{,}28$ e da $-0{,}87$ a $-0{,}35$
+nelle due repliche) e la validity arriva a metà, ma con una variabilità fra
+semi che la rende instabile (sezione~\ref{sec:semi-conll}). Il GRPO, dunque,
+\textbf{rinforza una struttura che il modello già produce qualche volta; non la
+scopre}. Gli esempi nel prompt, il
 Trie o l'SFT sono i supporti che la rendono presente fin dall'inizio, e senza
 almeno uno dei tre la struttura non arriva.
 
@@ -416,15 +460,18 @@ almeno uno dei tre la struttura non arriva.
 L'hack di CoNLL (sezione~\ref{sec:span-unici}) è il rovescio della stessa
 medaglia: quando la grammatica lascia un'uscita ammessa che la reward premia più
 del dovuto, il GRPO la trova, e la validity non lo segnala perché l'uscita è
-formalmente corretta. Un vincolo rigido va quindi scritto pensando a che cosa
-\emph{non} deve permettere, non solo a che cosa deve garantire.
+formalmente corretta. Su CoNLL è successo due volte di fila: chiuso il varco
+dei tipi ripetuti, il GRPO ha aperto quello delle entità annidate. Un vincolo
+rigido va quindi scritto pensando a che cosa \emph{non} deve permettere, non
+solo a che cosa deve garantire. E chiudere il varco non basta a far imparare il
+compito: tolto l'hack, il GRPO zero-shot resta a un exact match di $0{,}03$.
 
 \subsection{SFT$\to$GRPO è la cella migliore ovunque, ma il guadagno è piccolo}
 
 Su tutti e tre i dataset la cella migliore è l'SFT seguito dal GRPO in
 zero-shot, con un margine di due-quattro punti di exact match sull'SFT. Come
 su ASLG, il segnale di apprendimento si esaurisce: alla fine dell'addestramento
-la frazione di gruppi a varianza nulla è l'$85\%$ su CoNLL e il $77\%$ su WOS
+la frazione di gruppi a varianza nulla è l'$83\%$ su CoNLL e il $77\%$ su WOS
 (su PHOENIX, dove la policy è più lontana dal tetto, solo il $7\%$). La massa
 ammessa, migliore cella su ASLG-PC12, sugli altri tre dataset vale quanto l'SFT
 semplice.
@@ -439,13 +486,13 @@ Cella & inizio & fine & inizio & fine \\
 \midrule
 PHOENIX GRPO zero-shot        & $-0{,}60$ & $-0{,}39$ & $0\%$  & $0\%$  \\
 PHOENIX SFT$\to$GRPO zero-shot & $-0{,}06$ & $0{,}10$ & $0\%$  & $7\%$  \\
-CoNLL GRPO zero-shot          & $-0{,}49$ & $-0{,}28$ & $18\%$ & $18\%$ \\
-CoNLL SFT$\to$GRPO zero-shot  & $0{,}76$ & $0{,}82$  & $72\%$ & $85\%$ \\
+CoNLL GRPO zero-shot          & $-0{,}47$ & $-0{,}37$ & $24\%$ & $26\%$ \\
+CoNLL SFT$\to$GRPO zero-shot  & $0{,}76$ & $0{,}82$  & $74\%$ & $83\%$ \\
 WOS GRPO zero-shot            & $-0{,}38$ & $-0{,}21$ & $34\%$ & $36\%$ \\
 WOS SFT$\to$GRPO zero-shot    & $0{,}56$ & $0{,}68$  & $58\%$ & $77\%$ \\
 \bottomrule
 \end{tabular}
 \caption{Medie sui primi e sugli ultimi $50$ passi registrati di ogni
-addestramento GRPO (dati di CoNLL precedenti alla correzione).}
+addestramento GRPO.}
 \label{tab:dinamica-altri}
 \end{table}

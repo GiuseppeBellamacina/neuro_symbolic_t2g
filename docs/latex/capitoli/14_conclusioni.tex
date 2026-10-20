@@ -81,11 +81,13 @@ dopo l'SFT aggiunge due-quattro punti di exact match, il GRPO dal modello base
 resta lontano. Due risultati sono nuovi e riguardano direttamente la domanda
 sui vincoli. Primo: \textbf{senza Trie il GRPO impara il formato solo se il
 prompt contiene esempi} (validity $0{,}99$ few-shot contro $0$ zero-shot su
-PHOENIX); se nessun candidato è valido, la reward di formato è costante e non
-dà gradiente. Secondo: \textbf{con un vincolo attivo il GRPO sfrutta i varchi
-della grammatica}: su CoNLL ha imparato a ripetere ogni entità con tutti i tipi,
-dimezzando l'exact match mentre ROUGE-L saliva. La correzione è stata un vincolo
-più stretto, non una reward diversa.
+PHOENIX; su CoNLL zero-shot al più a metà, e in modo instabile fra semi); se
+nessun candidato è valido, la reward di formato è costante e non dà gradiente.
+Secondo: \textbf{con un vincolo attivo il GRPO sfrutta i varchi della
+grammatica}: su CoNLL ha imparato a ripetere ogni entità con tutti i tipi,
+dimezzando l'exact match mentre ROUGE-L saliva, e bloccato quello a scrivere
+entità annidate. La correzione è stata un vincolo più stretto, non una reward
+diversa; tolto l'hack, però, il GRPO dal modello base non impara i tipi.
 
 \section{Lavoro futuro}
 
