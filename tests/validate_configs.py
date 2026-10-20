@@ -174,6 +174,7 @@ TYPE_CONSTRAINTS: dict[str, type | tuple[type, ...]] = {
     "reward.weight_repetition": (int, float),
     "reward.weight_bleu": (int, float),
     "reward.weight_edit_validity": (int, float),
+    "reward.weight_entity_f1": (int, float),
     "reward.edit_validity_oov_weight": (int, float),
     "reward.format_max_token_len": int,
     "grammar.track_diagnostics": bool,

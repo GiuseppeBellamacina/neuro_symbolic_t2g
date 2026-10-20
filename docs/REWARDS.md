@@ -18,7 +18,9 @@
 >
 > **Reward attive oggi**: `translation_quality`, `bleu`, `gold_structure`,
 > `gloss_order`, `verifier_scaled`, `gloss_format`, `gloss_repetition` (stack
-> storico, somma 1.0) più `edit_validity` opt-in (`weight_edit_validity`).
+> storico, somma 1.0) più `edit_validity` opt-in (`weight_edit_validity`) e
+> `entity_f1` opt-in (`weight_entity_f1`: F1 sulle entità tipate di CoNLL, lo
+> span col tipo sbagliato vale zero; celle `ablations/rewards/entity-f1*`).
 > Per lo stato corrente vedi `docs/RECOVERY_REPORT.md` §5 e §9b.
 
 ---

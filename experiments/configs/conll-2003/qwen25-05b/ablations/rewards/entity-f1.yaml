@@ -1,0 +1,22 @@
+# ============================================================================
+# ABLATION REWARD (CoNLL-2003) — F1 sulle entita' tipate, few-shot
+#
+# Come entity-f1-zero-shot.yaml (vedi li' il perche'), ma a partire da
+# grpo/few-shot.yaml: unico fattore la reward. Confronto diretto: grpo/few-shot
+# (exact match 0,325).
+# ============================================================================
+
+extends: ../../grpo/few-shot.yaml
+
+reward:
+  weight_translation: 0.0
+  weight_bleu: 0.0
+  weight_entity_f1: 0.40
+
+training:
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-05b/ablations/rewards/entity-f1"
+  log_dir: "experiments/logs/conll-2003/qwen25-05b/ablations/rewards/entity-f1"
+
+wandb:
+  run_name: "conll-2003-qwen25-05b-ablations-rewards-entity-f1"
+  tags: ["T2G", "CoNLL-2003", "qwen25-05b", "ablation", "rewards", "entity-f1", "few-shot", "retrieval"]

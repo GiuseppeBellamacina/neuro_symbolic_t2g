@@ -275,6 +275,7 @@ _GOLD_REWARD_COMPONENTS: tuple[str, ...] = (
     "gloss_order_reward",
     "verifier_scaled_reward",
     "edit_validity_reward",
+    "entity_f1_reward",
 )
 
 #: Reward components that score the completion alone (no gold needed).

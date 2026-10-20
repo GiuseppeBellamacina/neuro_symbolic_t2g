@@ -34,6 +34,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+from collections import Counter
 from typing import Any, Callable
 
 import numpy as np
@@ -412,6 +413,39 @@ def gloss_order_reward(
     max_len = max(len(gen_tokens), len(gold_tokens))
 
     return _to_symmetric(float(max(0.0, 1.0 - distance / max_len)))
+
+
+def entity_f1_reward(
+    completion: str,
+    gold_gloss: str,
+) -> float:
+    """F1 fra i token dell'uscita e quelli del gold, come multiinsiemi.
+
+    Pensata per CoNLL-2003, dove un token e' un'entita' tipata
+    (``LOC:Japan``): conta solo il token identico, quindi lo span giusto con
+    il tipo sbagliato vale zero. ROUGE-L e BLEU invece spezzano
+    ``LOC:Japan`` in due parole e danno credito allo span anche col tipo
+    sbagliato (fra +0,14 e +0,43 con tutti i tipi sbagliati), e il GRPO
+    zero-shot imparava gli span ma non i tipi. Indifferente all'ordine (le
+    entita' sono un insieme), sensibile al maiuscolo; ``NONE`` contro
+    ``NONE`` vale 1, contro entita' vale 0.
+
+    Args:
+        completion: Uscita generata.
+        gold_gloss: Target gold.
+
+    Returns:
+        F1 in ``[-1, 1]`` (simmetrico); ``-1.0`` se una delle due e' vuota.
+    """
+    generated = extract_gloss_text(completion).split()
+    gold = gold_gloss.split()
+    if not generated or not gold:
+        return -1.0
+    common = sum((Counter(generated) & Counter(gold)).values())
+    if common == 0:
+        return -1.0
+    precision, recall = common / len(generated), common / len(gold)
+    return _to_symmetric(2 * precision * recall / (precision + recall))
 
 
 def edit_validity_reward(
@@ -983,6 +1017,8 @@ def build_t2g_reward_functions(
       proxy borrowed from summarization) with a signal that is sensitive to
       long-range gloss **ordering**, which bigram-based structural rewards
       do not capture (see docs/T2G_PIPELINE_REVIEW.md §5.3).
+    - ``weight_entity_f1``: F1 fra i token di uscita e gold (entita'
+      tipate di CoNLL: lo span col tipo sbagliato vale zero).
     - ``weight_format``: Clean gloss-only format reward.
     - ``weight_repetition``: Repetition penalty.
 
@@ -1062,6 +1098,12 @@ def build_t2g_reward_functions(
             return edit_validity_reward(completion, gold_gloss, oov_weight=oov_weight)
 
         funcs.append(_make_gloss_reward_fn(_edit_validity, needs_gold_gloss=True))
+        weights.append(w)
+
+    # Entity F1 (needs gold gloss): token identici, tipo compreso.
+    w = reward_config.get("weight_entity_f1", 0.0)
+    if w > 0:
+        funcs.append(_make_gloss_reward_fn(entity_f1_reward, needs_gold_gloss=True))
         weights.append(w)
 
     # Format reward

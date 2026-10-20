@@ -1,0 +1,36 @@
+# ============================================================================
+# ABLATION REWARD (CoNLL-2003) — F1 sulle entita' tipate al posto di ROUGE/BLEU
+#
+# Fattore unico rispetto a grpo/zero-shot.yaml: cambia SOLO la reward.
+# Il GRPO zero-shot dal modello base trova gli span (richiamo 0,66) ma non i
+# tipi: emette MISC 15.004 volte contro 1.990 nel gold, exact match 0,03.
+# ROUGE-L spezza LOC:Japan in due parole e, con tutti gli span giusti e i tipi
+# sbagliati, da' ancora fra +0,14 e +0,43; BLEU uguale. Qui i 0,40 di
+# ROUGE-L + BLEU passano a entity_f1 (F1 fra token identici, tipo compreso:
+# lo span col tipo sbagliato vale zero, vedi t2g_rewards.entity_f1_reward).
+#
+#   translation (ROUGE-L)  0.20 -> 0.00
+#   bleu                   0.20 -> 0.00
+#   entity_f1                 0 -> 0.40
+#   gloss_order            0.40 (invariato: edit distance a token, gia' tipata)
+#   format / repetition    0.10 / 0.10 (invariati)
+#
+# Domanda: col segnale giusto sul tipo, il GRPO dal modello base impara il
+# compito? Confronto diretto: grpo/zero-shot (exact match 0,030; 0,038 col
+# seme 1).
+# ============================================================================
+
+extends: ../../grpo/zero-shot.yaml
+
+reward:
+  weight_translation: 0.0
+  weight_bleu: 0.0
+  weight_entity_f1: 0.40
+
+training:
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-05b/ablations/rewards/entity-f1-zero-shot"
+  log_dir: "experiments/logs/conll-2003/qwen25-05b/ablations/rewards/entity-f1-zero-shot"
+
+wandb:
+  run_name: "conll-2003-qwen25-05b-ablations-rewards-entity-f1-zero-shot"
+  tags: ["T2G", "CoNLL-2003", "qwen25-05b", "ablation", "rewards", "entity-f1", "zero-shot"]

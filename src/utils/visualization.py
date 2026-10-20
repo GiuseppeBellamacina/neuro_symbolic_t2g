@@ -67,6 +67,7 @@ _PLOT_METRICS = [
     ("rewards/gold_structure_reward/mean", "Gold Structure (Bigram vs Gold)"),
     ("rewards/verifier_scaled_reward/mean", "Verifier-Scaled (RECIPE)"),
     ("rewards/gloss_order_reward/mean", "Gloss Order (Edit Dist)"),
+    ("rewards/entity_f1_reward/mean", "Entity F1"),
     ("rewards/gloss_format_reward/mean", "Format Reward"),
     ("rewards/gloss_repetition_reward/mean", "Repetition Penalty"),
     ("completion_length", "Completion Length"),
@@ -207,6 +208,7 @@ _COMPONENT_ORDER = [
     "gloss_format_reward",
     "gloss_repetition_reward",
     "edit_validity_reward",
+    "entity_f1_reward",
 ]
 
 _COMPONENT_COLORS = {
@@ -218,6 +220,7 @@ _COMPONENT_COLORS = {
     "gloss_format_reward": "#DD8452",
     "gloss_repetition_reward": "#C44E52",
     "edit_validity_reward": "#9B59B6",
+    "entity_f1_reward": "#2E8B8B",
 }
 
 _COMPONENT_LABELS = {
@@ -229,6 +232,7 @@ _COMPONENT_LABELS = {
     "gloss_format_reward": "Format",
     "gloss_repetition_reward": "Repetition",
     "edit_validity_reward": "Edit Validity",
+    "entity_f1_reward": "Entity F1",
 }
 
 
@@ -983,6 +987,7 @@ def plot_reward_radar(
         "gloss_order_reward": "Gloss Order",
         "gloss_format_reward": "Format",
         "gloss_repetition_reward": "Repetition",
+        "entity_f1_reward": "Entity F1",
     }
 
     components = list(reward_breakdown.keys())
