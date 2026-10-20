@@ -186,3 +186,60 @@ presets:
       - {type: eval, config: wos-46985-ablations-decoding-no-grammar, tag: wos-46985-ablations-decoding-no-grammar}
       - {type: train, config: wos-46985-ablations-objectives-sft-allowed-mass, tag: wos-46985-ablations-objectives-sft-allowed-mass}
       - {type: eval, config: wos-46985-ablations-objectives-sft-allowed-mass, tag: wos-46985-ablations-objectives-sft-allowed-mass}
+
+  # ── Prossimi passi dopo la campagna CoNLL (2026-10) ─────────────────────
+  - id: next-entity-f1
+    label: "CoNLL — reward a entità tipate"
+    description: >-
+      GRPO dal modello base con F1 sulle entità tipate al posto di ROUGE-L e
+      BLEU (zero-shot e few-shot, ~6 h). Dice se il GRPO impara i tipi quando
+      la reward li distingue: oggi GRPO zero-shot trova gli span ma non i
+      tipi (exact match 0,03).
+    jobs:
+      - {type: train, config: conll-2003-ablations-rewards-entity-f1-zero-shot, tag: conll-2003-ablations-rewards-entity-f1-zero-shot}
+      - {type: eval, config: conll-2003-ablations-rewards-entity-f1-zero-shot, tag: conll-2003-ablations-rewards-entity-f1-zero-shot}
+      - {type: train, config: conll-2003-ablations-rewards-entity-f1, tag: conll-2003-ablations-rewards-entity-f1}
+      - {type: eval, config: conll-2003-ablations-rewards-entity-f1, tag: conll-2003-ablations-rewards-entity-f1}
+
+  - id: next-seeds
+    label: "Repliche a seme 1"
+    description: >-
+      SFT->GRPO zero-shot su CoNLL, WOS e PHOENIX (riusa la fase SFT
+      originale, cambia solo il seme del GRPO) e GRPO senza Trie few-shot su
+      PHOENIX. Dicono se il +2-4 punti di SFT->GRPO sull'SFT e la validity
+      0,99 senza Trie reggono a un altro seme. ~2-3 h l'una.
+    jobs:
+      - {type: train, config: conll-2003-seeds-sft-grpo-zero-shot-s1, tag: conll-2003-seeds-sft-grpo-zero-shot-s1}
+      - {type: eval, config: conll-2003-seeds-sft-grpo-zero-shot-s1, tag: conll-2003-seeds-sft-grpo-zero-shot-s1}
+      - {type: train, config: wos-46985-seeds-sft-grpo-zero-shot-s1, tag: wos-46985-seeds-sft-grpo-zero-shot-s1}
+      - {type: eval, config: wos-46985-seeds-sft-grpo-zero-shot-s1, tag: wos-46985-seeds-sft-grpo-zero-shot-s1}
+      - {type: train, config: phoenix-2014t-seeds-sft-grpo-zero-shot-s1, tag: phoenix-2014t-seeds-sft-grpo-zero-shot-s1}
+      - {type: eval, config: phoenix-2014t-seeds-sft-grpo-zero-shot-s1, tag: phoenix-2014t-seeds-sft-grpo-zero-shot-s1}
+      - {type: train, config: phoenix-2014t-seeds-no-grammar-s1, tag: phoenix-2014t-seeds-no-grammar-s1}
+      - {type: eval, config: phoenix-2014t-seeds-no-grammar-s1, tag: phoenix-2014t-seeds-no-grammar-s1}
+
+  - id: next-phoenix-leak
+    label: "PHOENIX — Trie su tutto il dataset (DATA LEAK)"
+    description: >-
+      Solo la cella PHOENIX del preset leak-full-vocab-trie: GRPO few-shot con
+      il vocabolario del Trie estratto anche dal test (~3 h). Misura quanto
+      costa il tetto del vocabolario di train su un corpus annotato da umani.
+    jobs:
+      - {type: train, config: phoenix-2014t-ablations-decoding-full-vocab-trie, tag: phoenix-2014t-ablations-decoding-full-vocab-trie}
+      - {type: eval, config: phoenix-2014t-ablations-decoding-full-vocab-trie, tag: phoenix-2014t-ablations-decoding-full-vocab-trie}
+
+  - id: next-phoenix-15b
+    label: "PHOENIX — Qwen2.5-1.5B"
+    description: >-
+      Le celle principali di PHOENIX con un modello 3x piu' grande (~20 h).
+      PRIMA scaricare i pesi sul cluster: bash cluster/setup.sh --models-only.
+      Con 0,5B l'exact match resta sotto il 3% ovunque.
+    jobs:
+      - {type: eval, config: phoenix-2014t-qwen25-15b-baseline-zero-shot, tag: phoenix-2014t-qwen25-15b-baseline-zero-shot}
+      - {type: eval, config: phoenix-2014t-qwen25-15b-baseline-few-shot, tag: phoenix-2014t-qwen25-15b-baseline-few-shot}
+      - {type: train, config: phoenix-2014t-qwen25-15b-sft-zero-shot, tag: phoenix-2014t-qwen25-15b-sft-zero-shot}
+      - {type: eval, config: phoenix-2014t-qwen25-15b-sft-zero-shot, tag: phoenix-2014t-qwen25-15b-sft-zero-shot}
+      - {type: train, config: phoenix-2014t-qwen25-15b-sft-grpo-zero-shot, tag: phoenix-2014t-qwen25-15b-sft-grpo-zero-shot}
+      - {type: eval, config: phoenix-2014t-qwen25-15b-sft-grpo-zero-shot, tag: phoenix-2014t-qwen25-15b-sft-grpo-zero-shot}
+      - {type: train, config: phoenix-2014t-qwen25-15b-grpo-few-shot, tag: phoenix-2014t-qwen25-15b-grpo-few-shot}
+      - {type: eval, config: phoenix-2014t-qwen25-15b-grpo-few-shot, tag: phoenix-2014t-qwen25-15b-grpo-few-shot}

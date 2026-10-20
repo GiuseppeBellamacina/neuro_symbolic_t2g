@@ -199,6 +199,18 @@ CONFIG_MAP: dict[str, str] = {
     # Repliche a seme diverso (training.seed): fuori dalle campagne.
     "conll-2003-seeds-grpo-zero-shot-s1": "experiments/configs/conll-2003/qwen25-05b/seeds/grpo-zero-shot-s1.yaml",
     "conll-2003-seeds-no-grammar-zero-shot-s1": "experiments/configs/conll-2003/qwen25-05b/seeds/no-grammar-zero-shot-s1.yaml",
+    # Reward a entita' tipate (CoNLL), repliche a seme 1, PHOENIX con 1,5B.
+    "conll-2003-ablations-rewards-entity-f1-zero-shot": "experiments/configs/conll-2003/qwen25-05b/ablations/rewards/entity-f1-zero-shot.yaml",
+    "conll-2003-ablations-rewards-entity-f1": "experiments/configs/conll-2003/qwen25-05b/ablations/rewards/entity-f1.yaml",
+    "conll-2003-seeds-sft-grpo-zero-shot-s1": "experiments/configs/conll-2003/qwen25-05b/seeds/sft-grpo-zero-shot-s1.yaml",
+    "wos-46985-seeds-sft-grpo-zero-shot-s1": "experiments/configs/wos-46985/qwen25-05b/seeds/sft-grpo-zero-shot-s1.yaml",
+    "phoenix-2014t-seeds-sft-grpo-zero-shot-s1": "experiments/configs/phoenix-2014t/qwen25-05b/seeds/sft-grpo-zero-shot-s1.yaml",
+    "phoenix-2014t-seeds-no-grammar-s1": "experiments/configs/phoenix-2014t/qwen25-05b/seeds/no-grammar-s1.yaml",
+    "phoenix-2014t-qwen25-15b-baseline-zero-shot": "experiments/configs/phoenix-2014t/qwen25-15b/baseline/zero-shot.yaml",
+    "phoenix-2014t-qwen25-15b-baseline-few-shot": "experiments/configs/phoenix-2014t/qwen25-15b/baseline/few-shot.yaml",
+    "phoenix-2014t-qwen25-15b-sft-zero-shot": "experiments/configs/phoenix-2014t/qwen25-15b/sft/zero-shot.yaml",
+    "phoenix-2014t-qwen25-15b-sft-grpo-zero-shot": "experiments/configs/phoenix-2014t/qwen25-15b/sft-grpo/zero-shot.yaml",
+    "phoenix-2014t-qwen25-15b-grpo-few-shot": "experiments/configs/phoenix-2014t/qwen25-15b/grpo/few-shot.yaml",
 }
 
 CONFIG_PATHS: set[str] = set(CONFIG_MAP.values())

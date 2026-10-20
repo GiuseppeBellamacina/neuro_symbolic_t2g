@@ -132,6 +132,17 @@ CONFIG_NAMES: tuple[str, ...] = (
     "conll-2003-ablations-objectives-sft-allowed-mass",
     "conll-2003-seeds-grpo-zero-shot-s1",
     "conll-2003-seeds-no-grammar-zero-shot-s1",
+    "conll-2003-ablations-rewards-entity-f1-zero-shot",
+    "conll-2003-ablations-rewards-entity-f1",
+    "conll-2003-seeds-sft-grpo-zero-shot-s1",
+    "wos-46985-seeds-sft-grpo-zero-shot-s1",
+    "phoenix-2014t-seeds-sft-grpo-zero-shot-s1",
+    "phoenix-2014t-seeds-no-grammar-s1",
+    "phoenix-2014t-qwen25-15b-baseline-zero-shot",
+    "phoenix-2014t-qwen25-15b-baseline-few-shot",
+    "phoenix-2014t-qwen25-15b-sft-zero-shot",
+    "phoenix-2014t-qwen25-15b-sft-grpo-zero-shot",
+    "phoenix-2014t-qwen25-15b-grpo-few-shot",
 )
 CONFIG_NAME_SET: frozenset[str] = frozenset(CONFIG_NAMES)
 

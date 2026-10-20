@@ -156,6 +156,10 @@ def test_default_presets_path_resolves_and_loads(tmp_path):
         "leak-full-vocab-trie",
         "phoenix-core",
         "grammarrl-tasks",
+        "next-entity-f1",
+        "next-seeds",
+        "next-phoenix-leak",
+        "next-phoenix-15b",
     ]
     assert all(p.job_count > 0 for p in presets)
 
