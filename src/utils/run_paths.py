@@ -42,6 +42,7 @@ from typing import Any
 __all__ = [
     "DATASET_KEYS",
     "DEFAULT_DATASET_KEY",
+    "DEFAULT_MODEL_KEY",
     "cell_from_config",
     "cell_sort_key",
     "cell_tag",
@@ -62,6 +63,11 @@ DATASET_KEYS: tuple[str, ...] = (
 
 #: Dataset implicito del layout legacy (cartelle senza segmento di dataset).
 DEFAULT_DATASET_KEY = "aslg-pc12"
+
+#: Modello di riferimento: il suo segmento NON entra nel tag (tag storici
+#: invariati); ogni altro modello si', subito dopo il dataset. Specchio di
+#: ``T2G_DEFAULT_MODEL`` in ``cluster/_lib.sh``.
+DEFAULT_MODEL_KEY = "qwen25-05b"
 
 
 def split_cell(cell: str) -> tuple[str, str, str]:
@@ -90,17 +96,24 @@ def cell_tag(cell: str) -> str:
     Ogni tag comincia con la chiave del dataset, ASLG-PC12 compreso
     (``aslg-pc12-grpo-few-shot``, ``phoenix-2014t-grpo-few-shot``): due dataset
     non si contendono mai lo stesso tag e nella TUI ogni job dice a quale
-    dataset appartiene. Il modello NON entra nel tag. Le celle legacy senza
-    segmento di dataset sono ASLG-PC12 e ricevono lo stesso prefisso.
+    dataset appartiene. Il modello di riferimento (:data:`DEFAULT_MODEL_KEY`)
+    non entra nel tag, così i tag storici restano quelli; ogni altro modello
+    sì, dopo il dataset, altrimenti la stessa cella su due modelli avrebbe lo
+    stesso nome di job SLURM, gli stessi retry e la stessa riga di monitor. Le
+    celle legacy senza segmento di dataset sono ASLG-PC12 e ricevono lo stesso
+    prefisso.
 
     Examples:
         >>> cell_tag("aslg-pc12/qwen25-05b/ablations/loss/dr-grpo")
         'aslg-pc12-ablations-loss-dr-grpo'
         >>> cell_tag("phoenix-2014t/qwen25-05b/grpo/few-shot")
         'phoenix-2014t-grpo-few-shot'
+        >>> cell_tag("phoenix-2014t/qwen25-15b/sft/zero-shot")
+        'phoenix-2014t-qwen25-15b-sft-zero-shot'
     """
-    dataset, _model, rest = split_cell(cell)
-    return f"{dataset}-" + rest.replace("/", "-").replace("_", "-")
+    dataset, model, rest = split_cell(cell)
+    prefix = dataset if model == DEFAULT_MODEL_KEY else f"{dataset}-{model}"
+    return f"{prefix}-" + rest.replace("/", "-").replace("_", "-")
 
 
 def _after_last(parts: tuple[str, ...], anchor: str) -> tuple[str, ...] | None:

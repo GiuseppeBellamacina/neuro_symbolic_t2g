@@ -101,6 +101,9 @@ t2g_dataset_of_config() {
 #       → aslg-pc12-grpo-few-shot
 #   experiments/configs/phoenix-2014t/qwen25-05b/grpo/few-shot.yaml
 #       → phoenix-2014t-grpo-few-shot
+# Un modello diverso da T2G_DEFAULT_MODEL entra nel tag dopo il dataset:
+#   experiments/configs/phoenix-2014t/qwen25-15b/sft/zero-shot.yaml
+#       → phoenix-2014t-qwen25-15b-sft-zero-shot
 t2g_tag_from_config() {
     local rel="${1#./}"
     rel="${rel#"$PROJ_DIR"/}"
@@ -112,9 +115,11 @@ t2g_tag_from_config() {
         dataset="$first"
         rel="${rel#*/}"
     fi
+    local model="${rel%%/*}" prefix="$dataset"
+    [ "$model" != "$T2G_DEFAULT_MODEL" ] && prefix="${dataset}-${model}"
     rel="${rel#*/}" # via il modello
     local tag
-    tag="${dataset}-$(printf '%s' "$rel" | tr '/_' '--')"
+    tag="${prefix}-$(printf '%s' "$rel" | tr '/_' '--')"
     printf '%s\n' "$tag"
 }
 

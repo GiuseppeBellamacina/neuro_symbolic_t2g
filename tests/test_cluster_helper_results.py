@@ -95,7 +95,11 @@ def test_cell_key_mirrors_python_cell_tag(project: Path) -> None:
     """La chiave bash e' la stessa di run_paths.cell_tag (anche layout legacy)."""
     from src.utils.run_paths import cell_tag
 
-    for cell in [*CELLS, "qwen25-05b/grpo/zero-shot"]:
+    for cell in [
+        *CELLS,
+        "qwen25-05b/grpo/zero-shot",
+        "phoenix-2014t/qwen25-15b/sft/zero-shot",
+    ]:
         assert _call(project, "_cell_key", cell).strip() == cell_tag(cell), cell
 
 

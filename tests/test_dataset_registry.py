@@ -224,9 +224,11 @@ def test_cells_resolve_to_their_dataset_everywhere(dataset: str, rel: str) -> No
     for key in ("dataset_cache", "vocab_path", "bigram_matrix_path"):
         assert cfg["dataset"][key].startswith(f"data/{dataset}"), key
     assert cfg["retrieval"]["cache_path"].startswith(f"data/{dataset}")
+    # Output sotto <dataset>/<modello del config>/ (qwen25-05b, qwen25-15b, ...).
+    model = Path(rel).parts[0]
     for key in ("output_dir", "log_dir"):
         if key in cfg.get("training", {}):
-            assert f"/{dataset}/qwen25-05b/" in cfg["training"][key], key
+            assert f"/{dataset}/{model}/" in cfg["training"][key], key
     assert cfg["wandb"]["run_name"].startswith(f"{dataset}-")
 
 

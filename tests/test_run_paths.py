@@ -193,9 +193,9 @@ def test_every_eval_location_is_inside_a_run() -> None:
             path, resolve_config(str(path)), None, "20260929_120000"
         )
         assert run_id.startswith("run_"), path
-        dataset = path.relative_to("experiments/configs").parts[0]
+        dataset, model = path.relative_to("experiments/configs").parts[:2]
         assert dataset in DATASET_KEYS, path
-        assert cell.startswith(f"{dataset}/qwen25-05b/"), (path, cell)
+        assert cell.startswith(f"{dataset}/{model}/"), (path, cell)
 
 
 def test_split_cell_and_tag_with_dataset_segment() -> None:

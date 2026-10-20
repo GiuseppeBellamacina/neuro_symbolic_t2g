@@ -5,6 +5,7 @@
 # Uso (dal login node):
 #   cd ~/neuro_symbolic_t2g
 #   bash cluster/setup.sh
+#   bash cluster/setup.sh --models-only   # solo i pesi dei modelli (T2G_MODELS)
 #
 # Lo script rilancia se stesso dentro srun + Apptainer automaticamente.
 # ============================================================================
@@ -39,6 +40,37 @@ else
     exit 1
 fi
 echo "   Python: $($PY --version 2>&1)"
+
+# Modelli da mettere nella cache offline (i nodi di calcolo non hanno rete).
+# Per ognuno servono TRE repository: Qwen/<nome> (l'eval lo carica con
+# transformers), la copia Unsloth a precisione piena (usata quando la fase SFT
+# viene fusa in memoria) e quella Unsloth a 4 bit (train in QLoRA).
+T2G_MODELS="${T2G_MODELS:-Qwen/Qwen2.5-0.5B-Instruct Qwen/Qwen2.5-1.5B-Instruct}"
+
+download_models() {
+    echo ""
+    echo "📥 Download modelli per la cache offline: $T2G_MODELS"
+    HF_HUB_OFFLINE=0 TRANSFORMERS_OFFLINE=0 T2G_MODELS="$T2G_MODELS" $PY -c "
+import os
+from huggingface_hub import snapshot_download
+for name in os.environ['T2G_MODELS'].split():
+    try:
+        print(f'  {name}: snapshot per transformers...')
+        snapshot_download(name)
+        from unsloth import FastLanguageModel
+        for four_bit in (True, False):
+            print(f'  {name}: Unsloth load_in_4bit={four_bit}...')
+            FastLanguageModel.from_pretrained(name, load_in_4bit=four_bit)
+        print(f'  ✅ {name} in cache.')
+    except Exception as e:
+        print(f'  ⚠️ Errore nel download di {name}: {e}')
+"
+}
+
+if [ "${1:-}" = "--models-only" ]; then
+    download_models
+    exit 0
+fi
 if command -v nvidia-smi &>/dev/null; then
     nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1
 fi
@@ -102,18 +134,8 @@ echo ""
 echo "📊 Download PHOENIX-2014T, WOS-46985, CoNLL-2003..."
 RUN_PY_FORCE_BARE=1 HF_HUB_OFFLINE=0 run_py -m src.datasets.download     || echo "⚠️  Download di uno o piu' dataset fallito — rilanciare setup.sh"
 
-# ── 5. Pre-download modello per Unsloth (offline cache) ────────────────────────
-echo ""
-echo "📥 Download modello Qwen2.5-0.5B-Instruct per la cache offline..."
-$PY -c "
-try:
-    from unsloth import FastLanguageModel
-    print('  Download Qwen2.5-0.5B-Instruct BNB 4-bit...')
-    FastLanguageModel.from_pretrained('Qwen/Qwen2.5-0.5B-Instruct', load_in_4bit=True)
-    print('  ✅ Modello scaricato e salvato nella cache locale.')
-except Exception as e:
-    print(f'  ⚠️ Errore nel download del modello: {e}')
-"
+# ── 5. Pre-download modelli (offline cache) ────────────────────────────────────
+download_models
 
 # ── 6. Verifica installazione ─────────────────────────────────────────────────
 echo ""

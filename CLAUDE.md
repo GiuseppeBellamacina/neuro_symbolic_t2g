@@ -126,7 +126,9 @@ Outputs live at `experiments/{checkpoints,logs,results,figures}/<dataset>/<model
 — the cell mirrors the config path under `experiments/configs/` (`src/utils/run_paths.py`:
 `split_cell`, `cell_tag`, `cell_sort_key`; legacy `<model>/...` paths still parse as
 ASLG-PC12). Job tags are the path below `<dataset>/<model>/` with `/`→`-`, always prefixed
-with the dataset (`aslg-pc12-grpo-few-shot`, `phoenix-2014t-grpo-few-shot`), and the wandb
+with the dataset (`aslg-pc12-grpo-few-shot`, `phoenix-2014t-grpo-few-shot`); a model other
+than the reference `qwen25-05b` also enters the tag after the dataset
+(`phoenix-2014t-qwen25-15b-sft-zero-shot`), so existing tags never change; and the wandb
 `run_name` is `<dataset>-<model>-<cell path>` (enforced by a test); the bash mirrors are
 `cluster/_lib.sh::t2g_tag_from_config` and `remote/cluster_helper.sh::_cell_key`.
 `cluster/migrate_dataset_layout.sh` moves a pre-existing cluster tree to this layout.

@@ -99,6 +99,19 @@ cd ~/neuro_symbolic_t2g
 bash cluster/setup.sh
 ```
 
+Solo i pesi dei modelli, senza reinstallare le dipendenze (per esempio dopo aver
+aggiunto un modello, come `Qwen/Qwen2.5-1.5B-Instruct` per
+`experiments/configs/phoenix-2014t/qwen25-15b/`):
+
+```bash
+bash cluster/setup.sh --models-only            # modelli in T2G_MODELS
+T2G_MODELS="Qwen/Qwen2.5-1.5B-Instruct" bash cluster/setup.sh --models-only
+```
+
+Per ogni modello scarica i tre repository che servono offline: `Qwen/<nome>`
+(l'eval lo carica con transformers) e le copie Unsloth a precisione piena e a
+4 bit (train). Circa 7,5 GB per l'1,5B.
+
 Lo script (rilancia se stesso dentro srun + Apptainer):
 
 - Installa le dipendenze da `pyproject.toml`

@@ -383,6 +383,8 @@ _cell_key() {
             c="${c#*/}"
             ;;
     esac
+    # Modello di riferimento fuori dal tag (run_paths.DEFAULT_MODEL_KEY).
+    [ "${c%%/*}" != "qwen25-05b" ] && dataset="${dataset}-${c%%/*}"
     key="${c#*/}"
     key="${key//\//-}"
     key="${key//_/-}"

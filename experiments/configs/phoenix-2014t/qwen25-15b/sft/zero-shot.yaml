@@ -1,0 +1,25 @@
+# ============================================================================
+# PHOENIX-2014T con Qwen2.5-1.5B-Instruct: SFT
+#
+# Identica alla cella qwen25-05b/sft/zero-shot (estesa qui sotto): cambiano SOLO il
+# modello, i percorsi di output e i nomi wandb, cosi' le due taglie sono
+# confrontabili a parita' di tutto il resto. Motivo: con 0,5B l'exact match
+# su PHOENIX resta sotto il 3% in ogni cella (miglior SFT->GRPO 0,028).
+#
+# I pesi devono essere nella cache del cluster (nodi offline):
+#   bash cluster/setup.sh --models-only
+# Tempi attesi ~2,5-3x il 0,5B (GRPO 5000 passi: ~8 h, sotto le 12 h del job).
+# ============================================================================
+
+extends: ../../qwen25-05b/sft/zero-shot.yaml
+
+model:
+  name: "Qwen/Qwen2.5-1.5B-Instruct"
+
+training:
+  output_dir: "experiments/checkpoints/phoenix-2014t/qwen25-15b/sft/zero-shot"
+  log_dir: "experiments/logs/phoenix-2014t/qwen25-15b/sft/zero-shot"
+
+wandb:
+  run_name: "phoenix-2014t-qwen25-15b-sft-zero-shot"
+  tags: ["T2G", "PHOENIX-2014T", "qwen25-15b", "sft", "zero-shot", "trie", "DGS"]
