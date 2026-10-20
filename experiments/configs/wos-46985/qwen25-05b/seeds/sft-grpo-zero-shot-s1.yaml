@@ -1,0 +1,24 @@
+# ============================================================================
+# Replica a seme diverso di sft-grpo/zero-shot (WOS-46985). Cambia solo
+# training.seed, cioe' l'RNG della fase GRPO (init LoRA, rollout, ordine dei
+# batch); split e campione di eval restano quelli di dataset.seed.
+#
+# La fase SFT NON si rifa': adapter_path punta all'adapter SFT della run
+# originale, che viene copiato in sft_pretrain/final di questa run. Cosi' la
+# replica misura la variabilita' del solo GRPO, cioe' quanto e' solido il
+# guadagno di SFT->GRPO sull'SFT (exact match 0,787 contro 0,762).
+# ============================================================================
+
+extends: ../sft-grpo/zero-shot.yaml
+
+sft_pretrain:
+  adapter_path: "experiments/checkpoints/wos-46985/qwen25-05b/sft-grpo/zero-shot/run_20261010_000134/sft_pretrain/final"
+
+training:
+  seed: 1
+  output_dir: "experiments/checkpoints/wos-46985/qwen25-05b/seeds/sft-grpo-zero-shot-s1"
+  log_dir: "experiments/logs/wos-46985/qwen25-05b/seeds/sft-grpo-zero-shot-s1"
+
+wandb:
+  run_name: "wos-46985-qwen25-05b-seeds-sft-grpo-zero-shot-s1"
+  tags: ["T2G", "WOS-46985", "qwen25-05b", "sft-grpo", "zero-shot", "seed-replica"]

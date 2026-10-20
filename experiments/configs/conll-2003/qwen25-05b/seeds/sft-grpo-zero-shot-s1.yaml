@@ -1,0 +1,24 @@
+# ============================================================================
+# Replica a seme diverso di sft-grpo/zero-shot (CoNLL-2003). Cambia solo
+# training.seed, cioe' l'RNG della fase GRPO (init LoRA, rollout, ordine dei
+# batch); split e campione di eval restano quelli di dataset.seed.
+#
+# La fase SFT NON si rifa': adapter_path punta all'adapter SFT della run
+# originale, che viene copiato in sft_pretrain/final di questa run. Cosi' la
+# replica misura la variabilita' del solo GRPO, cioe' quanto e' solido il
+# guadagno di SFT->GRPO sull'SFT (exact match 0,781 contro 0,745).
+# ============================================================================
+
+extends: ../sft-grpo/zero-shot.yaml
+
+sft_pretrain:
+  adapter_path: "experiments/checkpoints/conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261009_113122/sft_pretrain/final"
+
+training:
+  seed: 1
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-05b/seeds/sft-grpo-zero-shot-s1"
+  log_dir: "experiments/logs/conll-2003/qwen25-05b/seeds/sft-grpo-zero-shot-s1"
+
+wandb:
+  run_name: "conll-2003-qwen25-05b-seeds-sft-grpo-zero-shot-s1"
+  tags: ["T2G", "CoNLL-2003", "qwen25-05b", "sft-grpo", "zero-shot", "seed-replica"]

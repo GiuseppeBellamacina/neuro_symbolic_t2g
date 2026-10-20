@@ -1,0 +1,17 @@
+# ============================================================================
+# Replica a seme diverso di ablations/decoding/no-grammar (PHOENIX-2014T,
+# GRPO senza Trie, few-shot). Cambia solo training.seed. E' la cella che regge
+# "con gli esempi nel prompt il GRPO impara il formato anche senza Trie"
+# (validity 0,99): la replica dice se il risultato tiene a un altro seme.
+# ============================================================================
+
+extends: ../ablations/decoding/no-grammar.yaml
+
+training:
+  seed: 1
+  output_dir: "experiments/checkpoints/phoenix-2014t/qwen25-05b/seeds/no-grammar-s1"
+  log_dir: "experiments/logs/phoenix-2014t/qwen25-05b/seeds/no-grammar-s1"
+
+wandb:
+  run_name: "phoenix-2014t-qwen25-05b-seeds-no-grammar-s1"
+  tags: ["T2G", "PHOENIX-2014T", "qwen25-05b", "ablation", "no-grammar", "few-shot", "seed-replica"]
