@@ -1,6 +1,6 @@
 # Campaign Report — conll-2003 / qwen25-05b
 
-Generated: 2026-10-19T17:43:44+00:00
+Generated: 2026-10-20T10:53:19+00:00
 
 > Complementare ad `ablation-summary`: qui i run sono appaiati
 > per fattore sperimentale. **Legge i JSON di eval: non
@@ -30,7 +30,7 @@ Generated: 2026-10-19T17:43:44+00:00
 | `reward_stack` | NOT deducible from path / JSON stamp / payload fields (it lives in the resolved config, which eval JSONs do not embed) | always unknown, declared in every pairing caveat |
 | `rl_objective` | NOT deducible from path / JSON stamp / payload fields | always unknown, declared in every pairing caveat |
 
-## Selected runs (22 typologies, latest per typology)
+## Selected runs (25 typologies, latest per typology)
 
 | Run | method | variant | prompting | grammar | Date | Prompts | metrics_version |
 |---|---|---|---|---|---|---|---|
@@ -48,6 +48,9 @@ Generated: 2026-10-19T17:43:44+00:00
 | `conll-2003/qwen25-05b/grpo/few-shot/run_20261018_212554/eval_final__zero-shot.json` | unknown | conll-2003-qwen25-05b-grpo-few-shot | zero-shot | unknown | 2026-10-18 | 2000 | 2 |
 | `conll-2003/qwen25-05b/grpo/zero-shot/run_20261018_174556/eval_final.json` | unknown | conll-2003-qwen25-05b-grpo-zero-shot | zero-shot | unknown | 2026-10-18 | 2000 | 2 |
 | `conll-2003/qwen25-05b/grpo/zero-shot/run_20261018_174556/eval_final__few-shot.json` | unknown | conll-2003-qwen25-05b-grpo-zero-shot | few-shot | unknown | 2026-10-18 | 2000 | 2 |
+| `conll-2003/qwen25-05b/seeds/grpo-zero-shot-s1/run_20261019_202106/eval_final.json` | unknown | conll-2003-qwen25-05b-seeds-grpo-zero-shot-s1 | zero-shot | unknown | 2026-10-19 | 2000 | 2 |
+| `conll-2003/qwen25-05b/seeds/grpo-zero-shot-s1/run_20261019_202106/eval_final__few-shot.json` | unknown | conll-2003-qwen25-05b-seeds-grpo-zero-shot-s1 | few-shot | unknown | 2026-10-19 | 2000 | 2 |
+| `conll-2003/qwen25-05b/seeds/no-grammar-zero-shot-s1/run_20261019_233119/eval_final.json` | unknown | conll-2003-qwen25-05b-seeds-no-grammar-zero-shot-s1 | zero-shot | unknown | 2026-10-19 | 2000 | 2 |
 | `conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261019_002102/eval_final.json` | sft-grpo | few-shot | few-shot | unknown | 2026-10-19 | 2000 | 2 |
 | `conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261019_002102/eval_final__zero-shot.json` | sft-grpo | few-shot | zero-shot | unknown | 2026-10-19 | 2000 | 2 |
 | `conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261019_022555/eval_final.json` | sft-grpo | zero-shot | zero-shot | unknown | 2026-10-19 | 2000 | 2 |
@@ -69,13 +72,15 @@ One row per cell (its path under `results/`), one column per prompting mode that
 | conll-2003/qwen25-05b/baseline/zero-shot | 0.2722 | — |
 | conll-2003/qwen25-05b/baseline/zero-shot-no-grammar | 0.2676 | — |
 | conll-2003/qwen25-05b/sft/zero-shot | 0.9005 | 0.8189 |
-| conll-2003/qwen25-05b/sft-grpo/few-shot | 0.2509 | 0.5282 |
-| conll-2003/qwen25-05b/sft-grpo/zero-shot | 0.2836 | 0.4395 |
+| conll-2003/qwen25-05b/sft-grpo/few-shot | 0.9017 | 0.8852 |
+| conll-2003/qwen25-05b/sft-grpo/zero-shot | 0.9148 | 0.8260 |
 | conll-2003/qwen25-05b/grpo/few-shot | 0.2522 | 0.5396 |
 | conll-2003/qwen25-05b/grpo/zero-shot | 0.3167 | 0.4117 |
 | conll-2003/qwen25-05b/ablations/decoding/no-grammar | — | 0.6113 |
 | conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot | 0.4027 | — |
 | conll-2003/qwen25-05b/ablations/objectives/sft-allowed-mass | 0.9044 | — |
+| conll-2003/qwen25-05b/seeds/grpo-zero-shot-s1 | 0.3231 | 0.4153 |
+| conll-2003/qwen25-05b/seeds/no-grammar-zero-shot-s1 | 0.4571 | — |
 
 ## conll-2003 — all metrics
 
@@ -88,10 +93,10 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 | conll-2003/qwen25-05b/baseline/zero-shot-no-grammar | zero-shot | 0.2676 | 0.0020 | 0.0011 | 0.0066 | 0.4260 | 0.0075 | 0.0089 | 0.0219 | 17.9933 | 18.2289 | 0.0022 | 0.0056 |
 | conll-2003/qwen25-05b/sft/zero-shot | zero-shot | 0.9005 | 0.9005 | 0.7448 | 0.8258 | 0.9670 | 1.0000 | 0.8456 | 0.8604 | 86.1363 | 89.4521 | 0.8255 | 0.8425 |
 | conll-2003/qwen25-05b/sft/zero-shot | few-shot | 0.8189 | 0.8189 | 0.6003 | 0.7380 | 0.9290 | 1.0000 | 0.7279 | 0.7530 | 77.9801 | 81.8983 | 0.7230 | 0.7485 |
-| conll-2003/qwen25-05b/sft-grpo/few-shot | zero-shot | 0.2509 | 0.2508 | 0.1285 | 0.1138 | 0.3150 | 0.9997 | 0.1437 | 0.1846 | 22.6189 | 26.4272 | 0.1022 | 0.1504 |
-| conll-2003/qwen25-05b/sft-grpo/few-shot | few-shot | 0.5282 | 0.5280 | 0.2871 | 0.3845 | 0.6760 | 0.9995 | 0.3326 | 0.4221 | 46.5412 | 53.6112 | 0.3392 | 0.4212 |
-| conll-2003/qwen25-05b/sft-grpo/zero-shot | zero-shot | 0.2836 | 0.2832 | 0.1122 | 0.1509 | 0.3840 | 0.9987 | 0.1202 | 0.1852 | 29.3123 | 31.2690 | 0.1026 | 0.1552 |
-| conll-2003/qwen25-05b/sft-grpo/zero-shot | few-shot | 0.4395 | 0.4389 | 0.1445 | 0.3858 | 0.6325 | 0.9987 | 0.2053 | 0.2954 | 46.6595 | 49.1477 | 0.2468 | 0.3285 |
+| conll-2003/qwen25-05b/sft-grpo/few-shot | zero-shot | 0.9017 | 0.9017 | 0.7540 | 0.8377 | 0.9695 | 1.0000 | 0.8523 | 0.8635 | 87.1416 | 89.6895 | 0.8365 | 0.8453 |
+| conll-2003/qwen25-05b/sft-grpo/few-shot | few-shot | 0.8852 | 0.8852 | 0.7159 | 0.8260 | 0.9655 | 1.0000 | 0.8110 | 0.8379 | 85.4507 | 88.3649 | 0.8149 | 0.8272 |
+| conll-2003/qwen25-05b/sft-grpo/zero-shot | zero-shot | 0.9148 | 0.9148 | 0.7811 | 0.8615 | 0.9710 | 1.0000 | 0.8515 | 0.8803 | 88.4057 | 91.1192 | 0.8546 | 0.8715 |
+| conll-2003/qwen25-05b/sft-grpo/zero-shot | few-shot | 0.8260 | 0.8260 | 0.6268 | 0.7736 | 0.9265 | 1.0000 | 0.7305 | 0.7689 | 80.4619 | 83.1901 | 0.7461 | 0.7681 |
 | conll-2003/qwen25-05b/grpo/few-shot | zero-shot | 0.2522 | 0.2520 | 0.1324 | 0.1348 | 0.3110 | 0.9995 | 0.1152 | 0.1811 | 21.8568 | 28.4721 | 0.1104 | 0.1648 |
 | conll-2003/qwen25-05b/grpo/few-shot | few-shot | 0.5396 | 0.5394 | 0.3247 | 0.4067 | 0.6745 | 0.9997 | 0.3949 | 0.4515 | 48.4686 | 54.3000 | 0.3776 | 0.4457 |
 | conll-2003/qwen25-05b/grpo/zero-shot | zero-shot | 0.3167 | 0.3166 | 0.0296 | 0.1963 | 0.5015 | 0.9998 | 0.1818 | 0.1729 | 40.9877 | 36.7997 | 0.1298 | 0.1284 |
@@ -99,6 +104,9 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 | conll-2003/qwen25-05b/ablations/decoding/no-grammar | few-shot | 0.6113 | 0.3974 | 0.3476 | 0.4229 | 0.7550 | 0.6501 | 0.4346 | 0.4840 | 50.5409 | 58.4925 | 0.3776 | 0.4749 |
 | conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot | zero-shot | 0.4027 | 0.1843 | 0.1472 | 0.1104 | 0.5735 | 0.4578 | 0.0083 | 0.1717 | 21.3288 | 31.1467 | 0.0732 | 0.1693 |
 | conll-2003/qwen25-05b/ablations/objectives/sft-allowed-mass | zero-shot | 0.9044 | 0.9044 | 0.7505 | 0.8253 | 0.9695 | 1.0000 | 0.8407 | 0.8646 | 85.7212 | 89.7119 | 0.8253 | 0.8514 |
+| conll-2003/qwen25-05b/seeds/grpo-zero-shot-s1 | zero-shot | 0.3231 | 0.3231 | 0.0378 | 0.2016 | 0.5090 | 1.0000 | 0.1924 | 0.1827 | 40.9927 | 37.0738 | 0.1400 | 0.1400 |
+| conll-2003/qwen25-05b/seeds/grpo-zero-shot-s1 | few-shot | 0.4153 | 0.4151 | 0.0883 | 0.3205 | 0.6240 | 0.9997 | 0.2544 | 0.2664 | 49.4475 | 46.0264 | 0.2311 | 0.2469 |
+| conll-2003/qwen25-05b/seeds/no-grammar-zero-shot-s1 | zero-shot | 0.4571 | 0.0922 | 0.0567 | 0.1088 | 0.7450 | 0.2016 | 0.0138 | 0.1043 | 27.7587 | 34.5595 | 0.0605 | 0.1192 |
 
 ## Paired comparisons — one table per factor
 
@@ -108,18 +116,18 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 
 | Metric | A | B | Δ (B−A) | Interpretation |
 |---|---|---|---|---|
-| ROUGE-L | 0.3700 | 0.5282 | +0.1582 | above noise threshold |
-| Valid ROUGE-L | 0.0635 | 0.5280 | +0.4645 | above noise threshold |
-| Exact Match | 0.0344 | 0.2871 | +0.2527 | above noise threshold |
-| Non-copy Tok Acc | 0.1922 | 0.3845 | +0.1923 | above noise threshold |
-| Pass@1 | 0.5440 | 0.6760 | +0.1320 | above noise threshold |
-| Validity | 0.1716 | 0.9995 | +0.8279 | above noise threshold |
-| BLEU (corpus) | 0.0961 | 0.3326 | +0.2365 | above noise threshold |
-| BLEU (sent) | 0.1556 | 0.4221 | +0.2665 | above noise threshold |
-| chrF2 (corpus) | 33.2195 | 46.5412 | +13.3217 | scale 0-100: 0.02 noise threshold not applicable |
-| chrF2 (sent) | 35.9071 | 53.6112 | +17.7041 | scale 0-100: 0.02 noise threshold not applicable |
-| Gloss F1 (mic) | 0.0839 | 0.3392 | +0.2552 | above noise threshold |
-| Gloss F1 (sent) | 0.1436 | 0.4212 | +0.2776 | above noise threshold |
+| ROUGE-L | 0.3700 | 0.8852 | +0.5152 | above noise threshold |
+| Valid ROUGE-L | 0.0635 | 0.8852 | +0.8217 | above noise threshold |
+| Exact Match | 0.0344 | 0.7159 | +0.6815 | above noise threshold |
+| Non-copy Tok Acc | 0.1922 | 0.8260 | +0.6338 | above noise threshold |
+| Pass@1 | 0.5440 | 0.9655 | +0.4215 | above noise threshold |
+| Validity | 0.1716 | 1.0000 | +0.8284 | above noise threshold |
+| BLEU (corpus) | 0.0961 | 0.8110 | +0.7149 | above noise threshold |
+| BLEU (sent) | 0.1556 | 0.8379 | +0.6824 | above noise threshold |
+| chrF2 (corpus) | 33.2195 | 85.4507 | +52.2312 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 35.9071 | 88.3649 | +52.4579 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.0839 | 0.8149 | +0.7309 | above noise threshold |
+| Gloss F1 (sent) | 0.1436 | 0.8272 | +0.6836 | above noise threshold |
 - ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
 - ⚠️ prompt_context_fingerprint DIFFERS: the eval contexts (prompting/grammar/num_samples/model) are not identical — this pair may differ in more than the method factor
 
@@ -127,18 +135,18 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 
 | Metric | A | B | Δ (B−A) | Interpretation |
 |---|---|---|---|---|
-| ROUGE-L | 0.3805 | 0.4395 | +0.0590 | above noise threshold |
-| Valid ROUGE-L | 0.3706 | 0.4389 | +0.0684 | above noise threshold |
-| Exact Match | 0.0662 | 0.1445 | +0.0783 | above noise threshold |
-| Non-copy Tok Acc | 0.3169 | 0.3858 | +0.0689 | above noise threshold |
-| Pass@1 | 0.5865 | 0.6325 | +0.0460 | above noise threshold |
-| Validity | 0.9739 | 0.9987 | +0.0248 | above noise threshold |
-| BLEU (corpus) | 0.1429 | 0.2053 | +0.0624 | above noise threshold |
-| BLEU (sent) | 0.2204 | 0.2954 | +0.0750 | above noise threshold |
-| chrF2 (corpus) | 39.8261 | 46.6595 | +6.8335 | scale 0-100: 0.02 noise threshold not applicable |
-| chrF2 (sent) | 41.4512 | 49.1477 | +7.6965 | scale 0-100: 0.02 noise threshold not applicable |
-| Gloss F1 (mic) | 0.1714 | 0.2468 | +0.0754 | above noise threshold |
-| Gloss F1 (sent) | 0.2366 | 0.3285 | +0.0919 | above noise threshold |
+| ROUGE-L | 0.3805 | 0.8260 | +0.4455 | above noise threshold |
+| Valid ROUGE-L | 0.3706 | 0.8260 | +0.4554 | above noise threshold |
+| Exact Match | 0.0662 | 0.6268 | +0.5606 | above noise threshold |
+| Non-copy Tok Acc | 0.3169 | 0.7736 | +0.4568 | above noise threshold |
+| Pass@1 | 0.5865 | 0.9265 | +0.3400 | above noise threshold |
+| Validity | 0.9739 | 1.0000 | +0.0261 | above noise threshold |
+| BLEU (corpus) | 0.1429 | 0.7305 | +0.5876 | above noise threshold |
+| BLEU (sent) | 0.2204 | 0.7689 | +0.5485 | above noise threshold |
+| chrF2 (corpus) | 39.8261 | 80.4619 | +40.6358 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 41.4512 | 83.1901 | +41.7389 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.1714 | 0.7461 | +0.5747 | above noise threshold |
+| Gloss F1 (sent) | 0.2366 | 0.7681 | +0.5315 | above noise threshold |
 - ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
 - ⚠️ prompt_context_fingerprint DIFFERS: the eval contexts (prompting/grammar/num_samples/model) are not identical — this pair may differ in more than the method factor
 
@@ -146,18 +154,18 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 
 | Metric | A | B | Δ (B−A) | Interpretation |
 |---|---|---|---|---|
-| ROUGE-L | 0.2676 | 0.2509 | -0.0167 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
-| Valid ROUGE-L | 0.0021 | 0.2508 | +0.2487 | above noise threshold |
-| Exact Match | 0.0011 | 0.1285 | +0.1274 | above noise threshold |
-| Non-copy Tok Acc | 0.0066 | 0.1138 | +0.1073 | above noise threshold |
-| Pass@1 | 0.4260 | 0.3150 | -0.1110 | above noise threshold |
-| Validity | 0.0079 | 0.9997 | +0.9918 | above noise threshold |
-| BLEU (corpus) | 0.0089 | 0.1437 | +0.1348 | above noise threshold |
-| BLEU (sent) | 0.0219 | 0.1846 | +0.1627 | above noise threshold |
-| chrF2 (corpus) | 17.9933 | 22.6189 | +4.6256 | scale 0-100: 0.02 noise threshold not applicable |
-| chrF2 (sent) | 18.2289 | 26.4272 | +8.1983 | scale 0-100: 0.02 noise threshold not applicable |
-| Gloss F1 (mic) | 0.0022 | 0.1022 | +0.1001 | above noise threshold |
-| Gloss F1 (sent) | 0.0056 | 0.1504 | +0.1449 | above noise threshold |
+| ROUGE-L | 0.2676 | 0.9017 | +0.6341 | above noise threshold |
+| Valid ROUGE-L | 0.0021 | 0.9017 | +0.8996 | above noise threshold |
+| Exact Match | 0.0011 | 0.7540 | +0.7529 | above noise threshold |
+| Non-copy Tok Acc | 0.0066 | 0.8377 | +0.8311 | above noise threshold |
+| Pass@1 | 0.4260 | 0.9695 | +0.5435 | above noise threshold |
+| Validity | 0.0079 | 1.0000 | +0.9921 | above noise threshold |
+| BLEU (corpus) | 0.0089 | 0.8523 | +0.8434 | above noise threshold |
+| BLEU (sent) | 0.0219 | 0.8635 | +0.8417 | above noise threshold |
+| chrF2 (corpus) | 17.9933 | 87.1416 | +69.1483 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 18.2289 | 89.6895 | +71.4605 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.0022 | 0.8365 | +0.8344 | above noise threshold |
+| Gloss F1 (sent) | 0.0056 | 0.8453 | +0.8397 | above noise threshold |
 - ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
 - ⚠️ prompt_context_fingerprint DIFFERS: the eval contexts (prompting/grammar/num_samples/model) are not identical — this pair may differ in more than the method factor
 
@@ -165,18 +173,18 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 
 | Metric | A | B | Δ (B−A) | Interpretation |
 |---|---|---|---|---|
-| ROUGE-L | 0.2708 | 0.2836 | +0.0127 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
-| Valid ROUGE-L | 0.2625 | 0.2832 | +0.0207 | above noise threshold |
-| Exact Match | 0.0453 | 0.1122 | +0.0669 | above noise threshold |
-| Non-copy Tok Acc | 0.1458 | 0.1509 | +0.0051 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
-| Pass@1 | 0.4145 | 0.3840 | -0.0305 | above noise threshold |
-| Validity | 0.9693 | 0.9987 | +0.0294 | above noise threshold |
-| BLEU (corpus) | 0.0893 | 0.1202 | +0.0309 | above noise threshold |
-| BLEU (sent) | 0.1329 | 0.1852 | +0.0523 | above noise threshold |
-| chrF2 (corpus) | 29.5092 | 29.3123 | -0.1969 | scale 0-100: 0.02 noise threshold not applicable |
-| chrF2 (sent) | 29.5764 | 31.2690 | +1.6926 | scale 0-100: 0.02 noise threshold not applicable |
-| Gloss F1 (mic) | 0.0762 | 0.1026 | +0.0264 | above noise threshold |
-| Gloss F1 (sent) | 0.1033 | 0.1552 | +0.0519 | above noise threshold |
+| ROUGE-L | 0.2708 | 0.9148 | +0.6440 | above noise threshold |
+| Valid ROUGE-L | 0.2625 | 0.9148 | +0.6523 | above noise threshold |
+| Exact Match | 0.0453 | 0.7811 | +0.7358 | above noise threshold |
+| Non-copy Tok Acc | 0.1458 | 0.8615 | +0.7157 | above noise threshold |
+| Pass@1 | 0.4145 | 0.9710 | +0.5565 | above noise threshold |
+| Validity | 0.9693 | 1.0000 | +0.0307 | above noise threshold |
+| BLEU (corpus) | 0.0893 | 0.8515 | +0.7622 | above noise threshold |
+| BLEU (sent) | 0.1329 | 0.8803 | +0.7474 | above noise threshold |
+| chrF2 (corpus) | 29.5092 | 88.4057 | +58.8965 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 29.5764 | 91.1192 | +61.5429 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.0762 | 0.8546 | +0.7784 | above noise threshold |
+| Gloss F1 (sent) | 0.1033 | 0.8715 | +0.7682 | above noise threshold |
 - ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
 - ⚠️ prompt_context_fingerprint DIFFERS: the eval contexts (prompting/grammar/num_samples/model) are not identical — this pair may differ in more than the method factor
 
@@ -243,18 +251,18 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 
 | Metric | A | B | Δ (B−A) | Interpretation |
 |---|---|---|---|---|
-| ROUGE-L | 0.4395 | 0.2836 | -0.1559 | above noise threshold |
-| Valid ROUGE-L | 0.4389 | 0.2832 | -0.1557 | above noise threshold |
-| Exact Match | 0.1445 | 0.1122 | -0.0323 | above noise threshold |
-| Non-copy Tok Acc | 0.3858 | 0.1509 | -0.2349 | above noise threshold |
-| Pass@1 | 0.6325 | 0.3840 | -0.2485 | above noise threshold |
-| Validity | 0.9987 | 0.9987 | +0.0000 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
-| BLEU (corpus) | 0.2053 | 0.1202 | -0.0851 | above noise threshold |
-| BLEU (sent) | 0.2954 | 0.1852 | -0.1101 | above noise threshold |
-| chrF2 (corpus) | 46.6595 | 29.3123 | -17.3473 | scale 0-100: 0.02 noise threshold not applicable |
-| chrF2 (sent) | 49.1477 | 31.2690 | -17.8787 | scale 0-100: 0.02 noise threshold not applicable |
-| Gloss F1 (mic) | 0.2468 | 0.1026 | -0.1442 | above noise threshold |
-| Gloss F1 (sent) | 0.3285 | 0.1552 | -0.1733 | above noise threshold |
+| ROUGE-L | 0.8260 | 0.9148 | +0.0888 | above noise threshold |
+| Valid ROUGE-L | 0.8260 | 0.9148 | +0.0888 | above noise threshold |
+| Exact Match | 0.6268 | 0.7811 | +0.1543 | above noise threshold |
+| Non-copy Tok Acc | 0.7736 | 0.8615 | +0.0878 | above noise threshold |
+| Pass@1 | 0.9265 | 0.9710 | +0.0445 | above noise threshold |
+| Validity | 1.0000 | 1.0000 | +0.0000 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| BLEU (corpus) | 0.7305 | 0.8515 | +0.1210 | above noise threshold |
+| BLEU (sent) | 0.7689 | 0.8803 | +0.1114 | above noise threshold |
+| chrF2 (corpus) | 80.4619 | 88.4057 | +7.9438 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 83.1901 | 91.1192 | +7.9291 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.7461 | 0.8546 | +0.1085 | above noise threshold |
+| Gloss F1 (sent) | 0.7681 | 0.8715 | +0.1033 | above noise threshold |
 - ⚠️ HIGHLIGHT: same model evaluated in both prompting modes — how much does it depend on the prompt as a crutch?
 - ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
 
@@ -262,18 +270,37 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 
 | Metric | A | B | Δ (B−A) | Interpretation |
 |---|---|---|---|---|
-| ROUGE-L | 0.5282 | 0.2509 | -0.2773 | above noise threshold |
-| Valid ROUGE-L | 0.5280 | 0.2508 | -0.2772 | above noise threshold |
-| Exact Match | 0.2871 | 0.1285 | -0.1586 | above noise threshold |
-| Non-copy Tok Acc | 0.3845 | 0.1138 | -0.2707 | above noise threshold |
-| Pass@1 | 0.6760 | 0.3150 | -0.3610 | above noise threshold |
-| Validity | 0.9995 | 0.9997 | +0.0002 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
-| BLEU (corpus) | 0.3326 | 0.1437 | -0.1889 | above noise threshold |
-| BLEU (sent) | 0.4221 | 0.1846 | -0.2376 | above noise threshold |
-| chrF2 (corpus) | 46.5412 | 22.6189 | -23.9223 | scale 0-100: 0.02 noise threshold not applicable |
-| chrF2 (sent) | 53.6112 | 26.4272 | -27.1840 | scale 0-100: 0.02 noise threshold not applicable |
-| Gloss F1 (mic) | 0.3392 | 0.1022 | -0.2369 | above noise threshold |
-| Gloss F1 (sent) | 0.4212 | 0.1504 | -0.2708 | above noise threshold |
+| ROUGE-L | 0.8852 | 0.9017 | +0.0165 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| Valid ROUGE-L | 0.8852 | 0.9017 | +0.0165 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| Exact Match | 0.7159 | 0.7540 | +0.0381 | above noise threshold |
+| Non-copy Tok Acc | 0.8260 | 0.8377 | +0.0117 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| Pass@1 | 0.9655 | 0.9695 | +0.0040 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| Validity | 1.0000 | 1.0000 | +0.0000 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| BLEU (corpus) | 0.8110 | 0.8523 | +0.0413 | above noise threshold |
+| BLEU (sent) | 0.8379 | 0.8635 | +0.0256 | above noise threshold |
+| chrF2 (corpus) | 85.4507 | 87.1416 | +1.6909 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 88.3649 | 89.6895 | +1.3245 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.8149 | 0.8365 | +0.0217 | above noise threshold |
+| Gloss F1 (sent) | 0.8272 | 0.8453 | +0.0180 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+- ⚠️ HIGHLIGHT: same model evaluated in both prompting modes — how much does it depend on the prompt as a crutch?
+- ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
+
+🔴 **prompt-dependence (dual eval, same checkpoint)** — `conll-2003/qwen25-05b/seeds/grpo-zero-shot-s1/run_20261019_202106/eval_final__few-shot.json` (2026-10-19, few-shot, unknown) → `conll-2003/qwen25-05b/seeds/grpo-zero-shot-s1/run_20261019_202106/eval_final.json` (2026-10-19, zero-shot, unknown)
+
+| Metric | A | B | Δ (B−A) | Interpretation |
+|---|---|---|---|---|
+| ROUGE-L | 0.4153 | 0.3231 | -0.0921 | above noise threshold |
+| Valid ROUGE-L | 0.4151 | 0.3231 | -0.0920 | above noise threshold |
+| Exact Match | 0.0883 | 0.0378 | -0.0505 | above noise threshold |
+| Non-copy Tok Acc | 0.3205 | 0.2016 | -0.1189 | above noise threshold |
+| Pass@1 | 0.6240 | 0.5090 | -0.1150 | above noise threshold |
+| Validity | 0.9997 | 1.0000 | +0.0003 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| BLEU (corpus) | 0.2544 | 0.1924 | -0.0619 | above noise threshold |
+| BLEU (sent) | 0.2664 | 0.1827 | -0.0837 | above noise threshold |
+| chrF2 (corpus) | 49.4475 | 40.9927 | -8.4549 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 46.0264 | 37.0738 | -8.9526 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.2311 | 0.1400 | -0.0911 | above noise threshold |
+| Gloss F1 (sent) | 0.2469 | 0.1400 | -0.1069 | above noise threshold |
 - ⚠️ HIGHLIGHT: same model evaluated in both prompting modes — how much does it depend on the prompt as a crutch?
 - ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
 

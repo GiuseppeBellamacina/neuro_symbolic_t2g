@@ -1,0 +1,86 @@
+{
+  "model": "run_20261019_233119",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 88,
+      "rouge_l": 1.0,
+      "gold": "PER:Javier_Pertile PER:Paolo_Vaccari PER:Marcello_Cuttitta PER:Ivan_Francescato PER:Leandro_Manteri PER:Diego_Dominguez ...",
+      "prediction": "PER Javier Pertile\nPER Paolo Vaccari\nPER Marcello Cuttitta\nPER Ivan Francescato\nPER Leandro Manteri\nPER Diego Dominguez\n...",
+      "prompt": "Squad : Javier Pertile , Paolo Vaccari , Marcello Cuttitta , Ivan Francescato , Leandro Manteri , Diego Dominguez , Francesco Mazzariol , Alessandro Troncon , Orazio Arancio , Andrea Sgorlon , Massimo..."
+    },
+    {
+      "group": "best",
+      "index": 127,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "freestyle skiing moguls competition on Friday :"
+    },
+    {
+      "group": "best",
+      "index": 180,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Scorers :"
+    },
+    {
+      "group": "best",
+      "index": 203,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "Attendence : 3,000"
+    },
+    {
+      "group": "best",
+      "index": 225,
+      "rouge_l": 1.0,
+      "gold": "NONE",
+      "prediction": "NONE",
+      "prompt": "on Friday :"
+    },
+    {
+      "group": "worst",
+      "index": 8,
+      "rouge_l": 0.0,
+      "gold": "LOC:AL-AIN LOC:United_Arab_Emirates",
+      "prediction": "NONE",
+      "prompt": "AL-AIN , United Arab Emirates 1996-12-06"
+    },
+    {
+      "group": "worst",
+      "index": 26,
+      "rouge_l": 0.0,
+      "gold": "LOC:Uzbekistan MISC:Asian_Games",
+      "prediction": "PER UNGERISTAN NONE NONE",
+      "prompt": "Despite winning the Asian Games title two years ago , Uzbekistan are in the finals as outsiders ."
+    },
+    {
+      "group": "worst",
+      "index": 38,
+      "rouge_l": 0.0,
+      "gold": "LOC:Syria",
+      "prediction": "NONE",
+      "prompt": "It was the second costly blunder by Syria in four minutes ."
+    },
+    {
+      "group": "worst",
+      "index": 85,
+      "rouge_l": 0.0,
+      "gold": "PER:Javier_Pertile PER:Paolo_Vaccari PER:Marcello_Cuttitta PER:Ivan_Francescato PER:Leandro_Manteri PER:Diego_Dominguez ...",
+      "prediction": "NONE",
+      "prompt": "Squad : Javier Pertile , Paolo Vaccari , Marcello Cuttitta , Ivan Francescato , Leandro Manteri , Diego Dominguez , Francesco Mazzariol , Alessandro Troncon , Orazio Arancio , Andrea Sgorlon , Massimo..."
+    },
+    {
+      "group": "worst",
+      "index": 95,
+      "rouge_l": 0.0,
+      "gold": "MISC:Syrian",
+      "prediction": "PER Syria NONE NONE",
+      "prompt": "It was the second Syrian defensive blunder in four minutes ."
+    }
+  ]
+}

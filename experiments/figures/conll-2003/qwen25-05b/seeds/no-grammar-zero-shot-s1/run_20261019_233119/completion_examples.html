@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completion Examples — run_20261019_233119</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+  h1 { color: #333; font-size: 1.4em; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  th { background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }
+  tr.best { background: #f9fdf9; }
+  tr.worst { background: #fef9f9; }
+  tr:hover { background: #eef6ff; }
+  .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }
+  .prompt { max-width: 300px; color: #555; font-style: italic; }
+  .diff-del { color: #C44E52; text-decoration: line-through; }
+  .diff-add { color: #1a7a1a; font-weight: bold; }
+  .summary { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Completion Examples — run_20261019_233119</h1>
+<p class="summary">10 examples (5 best, 5 worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  <th>Prompt</th>
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="best">
+    <td class="prompt">Squad : Javier Pertile , Paolo Vaccari , Marcello Cuttitta , Ivan Francescato , Leandro Manteri , Diego Dominguez , Francesco Mazzariol , Alessandro Troncon , Orazio Arancio , Andrea Sgorlon , Massimo...</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">PER:Javier_Pertile PER:Paolo_Vaccari PER:Marcello_Cuttitta PER:Ivan_Francescato PER:Leandro_Manteri PER:Diego_Dominguez ...</td>
+    <td class="mono"><span class="diff-del">PER:Javier_Pertile</span> <span class="diff-add">PER</span> <span class="diff-del">PER:Paolo_Vaccari</span> <span class="diff-add">Javier</span> <span class="diff-del">PER:Marcello_Cuttitta</span> <span class="diff-add">Pertile</span> <span class="diff-del">PER:Ivan_Francescato</span> <span class="diff-add">PER</span> <span class="diff-del">PER:Leandro_Manteri</span> <span class="diff-add">Paolo</span> <span class="diff-del">PER:Diego_Dominguez</span> <span class="diff-add">Vaccari</span> <span class="diff-del">...</span> <span class="diff-add">PER</span> <span class="diff-add">Marcello</span> <span class="diff-add">Cuttitta</span> <span class="diff-add">PER</span> <span class="diff-add">Ivan</span> <span class="diff-add">Francescato</span> <span class="diff-add">PER</span> <span class="diff-add">Leandro</span> <span class="diff-add">Manteri</span> <span class="diff-add">PER</span> <span class="diff-add">Diego</span> <span class="diff-add">Dominguez</span> <span class="diff-add">...</span></td>
+</tr><tr class="best">
+    <td class="prompt">freestyle skiing moguls competition on Friday :</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">NONE</td>
+    <td class="mono">NONE</td>
+</tr><tr class="best">
+    <td class="prompt">Scorers :</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">NONE</td>
+    <td class="mono">NONE</td>
+</tr><tr class="best">
+    <td class="prompt">Attendence : 3,000</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">NONE</td>
+    <td class="mono">NONE</td>
+</tr><tr class="best">
+    <td class="prompt">on Friday :</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">NONE</td>
+    <td class="mono">NONE</td>
+</tr><tr class="worst">
+    <td class="prompt">AL-AIN , United Arab Emirates 1996-12-06</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">LOC:AL-AIN LOC:United_Arab_Emirates</td>
+    <td class="mono"><span class="diff-del">LOC:AL-AIN</span> <span class="diff-add">NONE</span> <span class="diff-del">LOC:United_Arab_Emirates</span></td>
+</tr><tr class="worst">
+    <td class="prompt">Despite winning the Asian Games title two years ago , Uzbekistan are in the finals as outsiders .</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">LOC:Uzbekistan MISC:Asian_Games</td>
+    <td class="mono"><span class="diff-del">LOC:Uzbekistan</span> <span class="diff-add">PER</span> <span class="diff-del">MISC:Asian_Games</span> <span class="diff-add">UNGERISTAN</span> <span class="diff-add">NONE</span> <span class="diff-add">NONE</span></td>
+</tr><tr class="worst">
+    <td class="prompt">It was the second costly blunder by Syria in four minutes .</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">LOC:Syria</td>
+    <td class="mono"><span class="diff-del">LOC:Syria</span> <span class="diff-add">NONE</span></td>
+</tr><tr class="worst">
+    <td class="prompt">Squad : Javier Pertile , Paolo Vaccari , Marcello Cuttitta , Ivan Francescato , Leandro Manteri , Diego Dominguez , Francesco Mazzariol , Alessandro Troncon , Orazio Arancio , Andrea Sgorlon , Massimo...</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">PER:Javier_Pertile PER:Paolo_Vaccari PER:Marcello_Cuttitta PER:Ivan_Francescato PER:Leandro_Manteri PER:Diego_Dominguez ...</td>
+    <td class="mono"><span class="diff-del">PER:Javier_Pertile</span> <span class="diff-add">NONE</span> <span class="diff-del">PER:Paolo_Vaccari</span> <span class="diff-del">PER:Marcello_Cuttitta</span> <span class="diff-del">PER:Ivan_Francescato</span> <span class="diff-del">PER:Leandro_Manteri</span> <span class="diff-del">PER:Diego_Dominguez</span> <span class="diff-del">...</span></td>
+</tr><tr class="worst">
+    <td class="prompt">It was the second Syrian defensive blunder in four minutes .</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">MISC:Syrian</td>
+    <td class="mono"><span class="diff-del">MISC:Syrian</span> <span class="diff-add">PER</span> <span class="diff-add">Syria</span> <span class="diff-add">NONE</span> <span class="diff-add">NONE</span></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

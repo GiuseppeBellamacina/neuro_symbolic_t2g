@@ -4,83 +4,83 @@
   "examples": [
     {
       "group": "best",
-      "index": 80,
+      "index": 0,
       "rouge_l": 1.0,
-      "gold": "NONE",
-      "prediction": "NONE",
-      "prompt": "I think now is the right time for him to return . \""
+      "gold": "PER:Nadim_Ladki",
+      "prediction": "PER:Nadim_Ladki",
+      "prompt": "Nadim Ladki"
     },
     {
       "group": "best",
-      "index": 7722,
-      "rouge_l": 1.0,
-      "gold": "MISC:World_Cup",
-      "prediction": "MISC:World_Cup",
-      "prompt": "Results of the World Cup"
-    },
-    {
-      "group": "best",
-      "index": 180,
-      "rouge_l": 1.0,
-      "gold": "NONE",
-      "prediction": "NONE",
-      "prompt": "Scorers :"
-    },
-    {
-      "group": "best",
-      "index": 200,
-      "rouge_l": 1.0,
-      "gold": "NONE",
-      "prediction": "NONE",
-      "prompt": "Attendence : 3,000"
-    },
-    {
-      "group": "best",
-      "index": 225,
-      "rouge_l": 1.0,
-      "gold": "NONE",
-      "prediction": "NONE",
-      "prompt": "on Friday :"
-    },
-    {
-      "group": "worst",
       "index": 5,
-      "rouge_l": 0.0,
+      "rouge_l": 1.0,
       "gold": "LOC:AL-AIN LOC:United_Arab_Emirates",
-      "prediction": "NONE",
+      "prediction": "LOC:AL-AIN LOC:United_Arab_Emirates",
       "prompt": "AL-AIN , United Arab Emirates 1996-12-06"
     },
     {
-      "group": "worst",
-      "index": 11,
-      "rouge_l": 0.0,
+      "group": "best",
+      "index": 10,
+      "rouge_l": 1.0,
       "gold": "LOC:Japan LOC:Syria MISC:Asian_Cup",
-      "prediction": "NONE",
+      "prediction": "LOC:Japan LOC:Syria MISC:Asian_Cup",
       "prompt": "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday ."
     },
     {
-      "group": "worst",
-      "index": 25,
-      "rouge_l": 0.0,
-      "gold": "LOC:Uzbekistan MISC:Asian_Games",
-      "prediction": "NONE",
-      "prompt": "Despite winning the Asian Games title two years ago , Uzbekistan are in the finals as outsiders ."
+      "group": "best",
+      "index": 15,
+      "rouge_l": 1.0,
+      "gold": "LOC:China LOC:Uzbekistan",
+      "prediction": "LOC:China LOC:Uzbekistan",
+      "prompt": "But China saw their luck desert them in the second match of the group , crashing to a surprise 2-0 defeat to newcomers Uzbekistan ."
+    },
+    {
+      "group": "best",
+      "index": 20,
+      "rouge_l": 1.0,
+      "gold": "PER:Oleg_Shatskiku",
+      "prediction": "PER:Oleg_Shatskiku",
+      "prompt": "Oleg Shatskiku made sure of the win in injury time , hitting an unstoppable left foot shot from just outside the area ."
     },
     {
       "group": "worst",
-      "index": 35,
+      "index": 375,
       "rouge_l": 0.0,
-      "gold": "LOC:Syria",
+      "gold": "PER:BLINKER",
       "prediction": "NONE",
-      "prompt": "It was the second costly blunder by Syria in four minutes ."
+      "prompt": "SOCCER - BLINKER BAN LIFTED ."
     },
     {
       "group": "worst",
-      "index": 51,
+      "index": 1045,
       "rouge_l": 0.0,
-      "gold": "LOC:Japan MISC:Syrian",
+      "gold": "ORG:League",
       "prediction": "NONE",
-      "prompt": "Japan then laid siege to the Syrian penalty area for most of the game but rarely breached the Syrian defence ."
+      "prompt": "League teams after games played on Thursday ( tabulate under"
+    },
+    {
+      "group": "worst",
+      "index": 1050,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "MISC:NORTHEAST_DIVISION",
+      "prompt": "NORTHEAST DIVISION"
+    },
+    {
+      "group": "worst",
+      "index": 1180,
+      "rouge_l": 0.0,
+      "gold": "ORG:League",
+      "prediction": "NONE",
+      "prompt": "League games on Thursday ( home team in CAPS ) :"
+    },
+    {
+      "group": "worst",
+      "index": 1245,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "MISC:EASTERN_CONFERENCE",
+      "prompt": "EASTERN CONFERENCE"
     }
   ]
 }

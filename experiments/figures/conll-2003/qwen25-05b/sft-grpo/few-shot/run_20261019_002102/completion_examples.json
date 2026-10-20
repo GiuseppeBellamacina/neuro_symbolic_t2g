@@ -12,75 +12,75 @@
     },
     {
       "group": "best",
-      "index": 75,
-      "rouge_l": 1.0,
-      "gold": "PER:Coste",
-      "prediction": "PER:Coste",
-      "prompt": "Coste said he had approached the player two months ago about a comeback ."
-    },
-    {
-      "group": "best",
-      "index": 190,
-      "rouge_l": 1.0,
-      "gold": "PER:Nader_Jokhadar LOC:Syria",
-      "prediction": "PER:Nader_Jokhadar LOC:Syria",
-      "prompt": "Syria - Nader Jokhadar 7"
-    },
-    {
-      "group": "best",
-      "index": 200,
-      "rouge_l": 1.0,
-      "gold": "NONE",
-      "prediction": "NONE",
-      "prompt": "Attendence : 3,000"
-    },
-    {
-      "group": "best",
-      "index": 205,
-      "rouge_l": 1.0,
-      "gold": "NONE",
-      "prediction": "NONE",
-      "prompt": "for , goals against , points ) :"
-    },
-    {
-      "group": "worst",
       "index": 10,
-      "rouge_l": 0.0,
+      "rouge_l": 1.0,
       "gold": "LOC:Japan LOC:Syria MISC:Asian_Cup",
-      "prediction": "NONE",
+      "prediction": "LOC:Japan LOC:Syria MISC:Asian_Cup",
       "prompt": "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday ."
     },
     {
-      "group": "worst",
+      "group": "best",
+      "index": 15,
+      "rouge_l": 1.0,
+      "gold": "LOC:China LOC:Uzbekistan",
+      "prediction": "LOC:China LOC:Uzbekistan",
+      "prompt": "But China saw their luck desert them in the second match of the group , crashing to a surprise 2-0 defeat to newcomers Uzbekistan ."
+    },
+    {
+      "group": "best",
+      "index": 20,
+      "rouge_l": 1.0,
+      "gold": "PER:Oleg_Shatskiku",
+      "prediction": "PER:Oleg_Shatskiku",
+      "prompt": "Oleg Shatskiku made sure of the win in injury time , hitting an unstoppable left foot shot from just outside the area ."
+    },
+    {
+      "group": "best",
       "index": 25,
-      "rouge_l": 0.0,
+      "rouge_l": 1.0,
       "gold": "LOC:Uzbekistan MISC:Asian_Games",
-      "prediction": "NONE",
+      "prediction": "LOC:Uzbekistan MISC:Asian_Games",
       "prompt": "Despite winning the Asian Games title two years ago , Uzbekistan are in the finals as outsiders ."
     },
     {
       "group": "worst",
-      "index": 39,
+      "index": 376,
       "rouge_l": 0.0,
-      "gold": "LOC:Syria",
-      "prediction": "PER:costly MISC:blunder",
-      "prompt": "It was the second costly blunder by Syria in four minutes ."
+      "gold": "PER:BLINKER",
+      "prediction": "MISC:BAN",
+      "prompt": "SOCCER - BLINKER BAN LIFTED ."
     },
     {
       "group": "worst",
-      "index": 70,
-      "rouge_l": 0.0,
-      "gold": "PER:Cuttitta PER:George_Coste LOC:England LOC:Twickenham",
-      "prediction": "NONE",
-      "prompt": "Cuttitta , who trainer George Coste said was certain to play on Saturday week , was named in a 21-man squad lacking only two of the team beaten 54-21 by England at Twickenham last month ."
-    },
-    {
-      "group": "worst",
-      "index": 80,
+      "index": 425,
       "rouge_l": 0.0,
       "gold": "NONE",
-      "prediction": "PER:I",
-      "prompt": "I think now is the right time for him to return . \""
+      "prediction": "ORG:Group_A",
+      "prompt": "Group A"
+    },
+    {
+      "group": "worst",
+      "index": 455,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "ORG:Group_B",
+      "prompt": "Group B"
+    },
+    {
+      "group": "worst",
+      "index": 480,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "ORG:Group_C",
+      "prompt": "Group C"
+    },
+    {
+      "group": "worst",
+      "index": 902,
+      "rouge_l": 0.0,
+      "gold": "PER:Lloyd",
+      "prediction": "NONE",
+      "prompt": "Lloyd did not say what form the discipline would take ."
     }
   ]
 }

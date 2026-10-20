@@ -12,67 +12,51 @@
     },
     {
       "group": "best",
-      "index": 75,
-      "rouge_l": 1.0,
-      "gold": "PER:Coste",
-      "prediction": "PER:Coste",
-      "prompt": "Coste said he had approached the player two months ago about a comeback ."
-    },
-    {
-      "group": "best",
-      "index": 200,
-      "rouge_l": 1.0,
-      "gold": "NONE",
-      "prediction": "NONE",
-      "prompt": "Attendence : 3,000"
-    },
-    {
-      "group": "best",
-      "index": 205,
-      "rouge_l": 1.0,
-      "gold": "NONE",
-      "prediction": "NONE",
-      "prompt": "for , goals against , points ) :"
-    },
-    {
-      "group": "best",
-      "index": 225,
-      "rouge_l": 1.0,
-      "gold": "NONE",
-      "prediction": "NONE",
-      "prompt": "on Friday :"
-    },
-    {
-      "group": "worst",
       "index": 10,
-      "rouge_l": 0.0,
+      "rouge_l": 1.0,
       "gold": "LOC:Japan LOC:Syria MISC:Asian_Cup",
-      "prediction": "NONE",
+      "prediction": "LOC:Japan LOC:Syria MISC:Asian_Cup",
       "prompt": "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday ."
     },
     {
-      "group": "worst",
+      "group": "best",
+      "index": 15,
+      "rouge_l": 1.0,
+      "gold": "LOC:China LOC:Uzbekistan",
+      "prediction": "LOC:China LOC:Uzbekistan",
+      "prompt": "But China saw their luck desert them in the second match of the group , crashing to a surprise 2-0 defeat to newcomers Uzbekistan ."
+    },
+    {
+      "group": "best",
+      "index": 20,
+      "rouge_l": 1.0,
+      "gold": "PER:Oleg_Shatskiku",
+      "prediction": "PER:Oleg_Shatskiku",
+      "prompt": "Oleg Shatskiku made sure of the win in injury time , hitting an unstoppable left foot shot from just outside the area ."
+    },
+    {
+      "group": "best",
       "index": 25,
-      "rouge_l": 0.0,
+      "rouge_l": 1.0,
       "gold": "LOC:Uzbekistan MISC:Asian_Games",
-      "prediction": "NONE",
+      "prediction": "LOC:Uzbekistan MISC:Asian_Games",
       "prompt": "Despite winning the Asian Games title two years ago , Uzbekistan are in the finals as outsiders ."
     },
     {
       "group": "worst",
-      "index": 36,
+      "index": 55,
       "rouge_l": 0.0,
-      "gold": "LOC:Syria",
-      "prediction": "PER:costly MISC:four_minutes",
-      "prompt": "It was the second costly blunder by Syria in four minutes ."
+      "gold": "PER:Bitar",
+      "prediction": "NONE",
+      "prompt": "Bitar pulled off fine saves whenever they did ."
     },
     {
       "group": "worst",
-      "index": 80,
+      "index": 96,
       "rouge_l": 0.0,
-      "gold": "NONE",
-      "prediction": "PER:I PER:him MISC:right MISC:time MISC:for MISC:the MISC:is MISC:to MISC:think MISC:now MISC:._\"",
-      "prompt": "I think now is the right time for him to return . \""
+      "gold": "MISC:Syrian",
+      "prediction": "NONE",
+      "prompt": "It was the second Syrian defensive blunder in four minutes ."
     },
     {
       "group": "worst",
@@ -81,6 +65,22 @@
       "gold": "MISC:World_Cup",
       "prediction": "NONE",
       "prompt": "Results of the World Cup"
+    },
+    {
+      "group": "worst",
+      "index": 325,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "ORG:Extras",
+      "prompt": "Extras ( b-9 lb-3 w-12 nb-2 ) 26"
+    },
+    {
+      "group": "worst",
+      "index": 341,
+      "rouge_l": 0.0,
+      "gold": "PER:Wasim_Akram PER:Waqar_Younis",
+      "prediction": "NONE",
+      "prompt": "Bowling : Wasim Akram 8.1-0-43-3 ( 9w , 1nb ) , Waqar Younis"
     }
   ]
 }
