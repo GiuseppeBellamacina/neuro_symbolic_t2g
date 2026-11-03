@@ -23,11 +23,9 @@ function Download-RemoteDir($remoteSubpath, $localDest) {
 }
 
 function Filter-EnvForUpload($envPath) {
-    # Security: strip secrets before uploading .env to the cluster.
-    # 1. The local TUI credentials section (marker '# >>> t2g-tui >>>' ...
-    #    '# <<< t2g-tui <<<', containing the Render service URL + auth token).
-    # 2. Standalone T2G_AUTH_TOKEN / T2G_SERVICE_URL lines — the API token
-    #    must never leave this machine (the cluster does not need it).
+    # Security: strip local-only settings before uploading .env to the cluster
+    # (leftover TUI section and T2G_AUTH_TOKEN / T2G_SERVICE_URL lines of the
+    # old remote driver): they must never leave this machine.
     if (-not (Test-Path $envPath)) { return $envPath }
     $tmp = Join-Path $env:TEMP "t2g_env_upload_$PID.env"
     $inSection = $false
@@ -65,10 +63,8 @@ function Upload {
 
     # Collect all individual files to upload (flatten directories)
     # NOTE: "data" is excluded — the dataset is generated on the cluster by setup.sh/train.sh
-    # NOTE: "remote/" is NOT uploaded as a whole: only cluster_helper.sh is
-    # pushed, and it lands in cluster/ (where the Render service expects it —
-    # see remote/app.py HELPER_REMOTE). This also prevents the upload's
-    # rm -rf of cluster/ from deleting a previously installed helper.
+    # NOTE: the ClusterControl app keeps the same set in sync from GitHub
+    # (src/*.py, cluster/*.sh, experiments/configs/*.yaml, main.py, pyproject.toml).
     $items = @(
         "src",
         "cluster",
@@ -76,8 +72,7 @@ function Upload {
         "main.py",
         "pyproject.toml",
         "README.md",
-        ".env",
-        "remote/cluster_helper.sh"
+        ".env"
     )
 
     # Build flat list of (localPath, remotePath) pairs
@@ -91,15 +86,12 @@ function Upload {
             continue
         }
 
-        # .env: strip the local TUI credentials (service URL + auth token)
-        # before it leaves this machine — the cluster never needs them.
+        # .env: strip the local-only settings before it leaves this machine.
         if ($item -eq ".env") {
             $localPath = Filter-EnvForUpload $localPath
         }
 
-        # The cluster helper lives in remote/ locally but must be installed
-        # in cluster/ on the remote (HELPER_REMOTE contract of remote/app.py).
-        $remoteRel = $item -replace '^remote/', 'cluster/'
+        $remoteRel = $item
 
         if (Test-Path $localPath -PathType Container) {
             # Track top-level dirs for remote cleanup
