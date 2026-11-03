@@ -1,0 +1,86 @@
+{
+  "model": "run_20261021_175106",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 195,
+      "rouge_l": 1.0,
+      "gold": "WEST FREUNDLICH",
+      "prediction": "WEST FREUNDLICH",
+      "prompt": "im westen ist es freundlich"
+    },
+    {
+      "group": "best",
+      "index": 1950,
+      "rouge_l": 1.0,
+      "gold": "JETZT SCHOEN ABEND MITTEILEN",
+      "prediction": "JETZT SCHOEN ABEND MITTEILEN",
+      "prompt": "jetzt wünsche ich ihnen noch einen schönen abend"
+    },
+    {
+      "group": "best",
+      "index": 768,
+      "rouge_l": 1.0,
+      "gold": "SAMSTAG VIEL SONNE BESONDERS ALPEN KUESTE WOLKE KOENNEN",
+      "prediction": "SAMSTAG VIEL SONNE BESONDERS ALPEN KUESTE WOLKE KOENNEN",
+      "prompt": "am samstag viel sonnenschein vor allem an alpen und küsten ist es auch mal wolkig"
+    },
+    {
+      "group": "best",
+      "index": 927,
+      "rouge_l": 1.0,
+      "gold": "SCHOEN ABEND poss-EUCH MACHEN GUT",
+      "prediction": "SCHOEN ABEND poss-EUCH MACHEN GUT",
+      "prompt": "ich wünsche ihnen einen schönen abend und machen sie es gut"
+    },
+    {
+      "group": "best",
+      "index": 885,
+      "rouge_l": 1.0,
+      "gold": "SCHOEN ABEND TSCHUESS",
+      "prediction": "SCHOEN ABEND TSCHUESS",
+      "prompt": "ich wünsche noch einen schönen abend und tschüss"
+    },
+    {
+      "group": "worst",
+      "index": 35,
+      "rouge_l": 0.0,
+      "gold": "IM-VERLAUF BLEIBEN KALT ENORM SCHNEE KOENNEN",
+      "prediction": "IN-KOMMEND WINTER WEITER MEHR SCHAETZEN SUED",
+      "prompt": "in den nächsten tagen geht es auf jeden fall winterlich weiter immer wieder mal mit etwas schnee"
+    },
+    {
+      "group": "worst",
+      "index": 64,
+      "rouge_l": 0.0,
+      "gold": "DEUTSCH LAND SCHWACH DRUCK UNTERSCHIED",
+      "prediction": "MORGEN NUR WEIN LEBEN UND WIND UND LUFT DRAUSSEN UND KONSTANT KEIN HABEN",
+      "prompt": "in deutschland gibt es nur schwache luftdruckunterschiede"
+    },
+    {
+      "group": "worst",
+      "index": 66,
+      "rouge_l": 0.0,
+      "gold": "REGION FEUCHT REGION IX GEWITTER REGION",
+      "prediction": "WARM KOMMEN MEHR REGEN POLEN WETTER",
+      "prompt": "vom mittelmeer fließt feuchte luft heran in der sich zum teil kräftige gewitter entwickeln können"
+    },
+    {
+      "group": "worst",
+      "index": 386,
+      "rouge_l": 0.0,
+      "gold": "DONNERSTAG MEHR SCHOEN MEHR WARM",
+      "prediction": "DANN DOCH FRISCH HEISS SAMSTAG",
+      "prompt": "ja der donnerstag wird fast noch schöner noch ein bisschen wärmer"
+    },
+    {
+      "group": "worst",
+      "index": 470,
+      "rouge_l": 0.0,
+      "gold": "MILD WEHEN ICH",
+      "prediction": "TROCKEN KALT LUFT KOMMEN",
+      "prompt": "sehr milde luft strömt zu uns"
+    }
+  ]
+}

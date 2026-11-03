@@ -1,0 +1,86 @@
+{
+  "model": "run_20261021_175106",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 337,
+      "rouge_l": 0.8571,
+      "gold": "SAMSTAG MEHR FREUNDLICH TROCKEN MEHR WARM",
+      "prediction": "SAGEN SAMSTAG MEHR FREUNDLICH MEHR TROCKEN MEHR WARM",
+      "prompt": "am samstag überwiegend freundlich meist trocken und wärmer"
+    },
+    {
+      "group": "best",
+      "index": 1147,
+      "rouge_l": 0.8571,
+      "gold": "SCHOTTLAND WOLKE TIEF NORWEGEN",
+      "prediction": "SCHOTTLAND TIEF NORWEGEN",
+      "prompt": "von schottland zieht ein tief nach norwegen"
+    },
+    {
+      "group": "best",
+      "index": 1575,
+      "rouge_l": 0.8571,
+      "gold": "SAMSTAG NORD WIND",
+      "prediction": "SAMSTAG NORD WIND WIESE",
+      "prompt": "am samstag im norden sehr windig"
+    },
+    {
+      "group": "best",
+      "index": 3004,
+      "rouge_l": 0.8571,
+      "gold": "HALLO GUT ABEND",
+      "prediction": "HALLO GUT ENDE ABEND",
+      "prompt": "hallo und guten abend"
+    },
+    {
+      "group": "best",
+      "index": 1470,
+      "rouge_l": 0.8,
+      "gold": "GUT ABEND LIEB ZUSCHAUER BEGRUESSEN",
+      "prediction": "GUT-ABEND LIEB KEIN ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "worst",
+      "index": 1,
+      "rouge_l": 0.0,
+      "gold": "REGEN SCHNEE REGION VERSCHWINDEN NORD REGEN KOENNEN REGION STERN KOENNEN SEHEN",
+      "prediction": "GRENZE GRENZE SIEBEN HANNOVER KILOMETER NORDWEST EISEN ENDE EIS FALLEN SCHAUER",
+      "prompt": "regen und schnee lassen an den alpen in der nacht nach im norden und nordosten fallen hier und da schauer sonst ist das klar"
+    },
+    {
+      "group": "worst",
+      "index": 5,
+      "rouge_l": 0.0,
+      "gold": "DONNERSTAG NORDWEST REGEN REGION SONNE WOLKE WECHSELHAFT DANN FREITAG AEHNLICH WETTER",
+      "prediction": "DUNST TROCKEN WOCHE WEIT HAUPT WOCHE WEIT HOCH WEIT NACHT HAUPT HOCH WEIT NACHT HOCH WEIT HOCH WEIT HOCH WEIT",
+      "prompt": "am donnerstag regen in der nordhälfte in der südhälfte mal sonne mal wolken ähnliches wetter dann auch am freitag"
+    },
+    {
+      "group": "worst",
+      "index": 30,
+      "rouge_l": 0.0,
+      "gold": "WAHRSCHEINLICH SCHAUER GEWITTER STARK",
+      "prediction": "GROSS WEIT GLEICH GROB GLEICH WEIT GLEICH WEIT GLEICH WEIT",
+      "prompt": "örtlich schauer oder gewitter die heftig sein können"
+    },
+    {
+      "group": "worst",
+      "index": 40,
+      "rouge_l": 0.0,
+      "gold": "WOCHENENDE IX MEHR KALT",
+      "prediction": "WOCHE ENDLICH WIEVIEL KLEIN MITTE LEBEN",
+      "prompt": "und zum wochenende wird es dann sogar wieder ein bisschen kälter"
+    },
+    {
+      "group": "worst",
+      "index": 55,
+      "rouge_l": 0.0,
+      "gold": "MORGEN LANG BLEIBEN",
+      "prediction": "HANNOVER SACHSEN",
+      "prompt": "die halten sich morgen recht zäh"
+    }
+  ]
+}

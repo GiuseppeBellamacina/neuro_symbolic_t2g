@@ -1,0 +1,86 @@
+{
+  "model": "run_20261021_085605",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 885,
+      "rouge_l": 1.0,
+      "gold": "SCHOEN ABEND TSCHUESS",
+      "prediction": "SCHOEN ABEND TSCHUESS",
+      "prompt": "ich wünsche noch einen schönen abend und tschüss"
+    },
+    {
+      "group": "best",
+      "index": 1630,
+      "rouge_l": 1.0,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT ABEND LIEB ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "best",
+      "index": 1095,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI",
+      "prompt": "und nun die wettervorhersage für morgen dienstag den fünfundzwanzigsten mai"
+    },
+    {
+      "group": "best",
+      "index": 1200,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN SAMSTAG ZWEITE APRIL",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN SAMSTAG ZWEITE APRIL",
+      "prompt": "und nun die wettervorhersage für morgen samstag den zweiten april"
+    },
+    {
+      "group": "best",
+      "index": 1405,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN DONNERSTAG DRITTE DEZEMBER",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN DONNERSTAG DRITTE DEZEMBER",
+      "prompt": "und nun die wettervorhersage für morgen donnerstag den dritten dezember"
+    },
+    {
+      "group": "worst",
+      "index": 18,
+      "rouge_l": 0.0,
+      "gold": "WOCHENENDE SONNE SAMSTAG SCHOEN TEMPERATUR BIS SIEBZEHN GRAD REGION",
+      "prediction": "WECHSELHAFT KALT BLEIBEN WECHSELHAFT KALT BLEIBEN WECHSELHAFT KALT BLEIBEN WECHSELHAFT KALT BLEIBEN",
+      "prompt": "sonnig geht es auch ins wochenende samstag ein herrlicher tag mit temperaturen bis siebzehn grad hier im westen"
+    },
+    {
+      "group": "worst",
+      "index": 31,
+      "rouge_l": 0.0,
+      "gold": "WAHRSCHEINLICH SCHAUER GEWITTER STARK",
+      "prediction": "DIENSTAG OST REGION SONNE WECHSELHAFT SONNE WOLKE KOENNEN",
+      "prompt": "örtlich schauer oder gewitter die heftig sein können"
+    },
+    {
+      "group": "worst",
+      "index": 35,
+      "rouge_l": 0.0,
+      "gold": "IM-VERLAUF BLEIBEN KALT ENORM SCHNEE KOENNEN",
+      "prediction": "IN-KOMMEND WECHSELHAFT SONNE REGEN WECHSELHAFT MEHR AUF-JEDEN-FALL KUEHL",
+      "prompt": "in den nächsten tagen geht es auf jeden fall winterlich weiter immer wieder mal mit etwas schnee"
+    },
+    {
+      "group": "worst",
+      "index": 221,
+      "rouge_l": 0.0,
+      "gold": "ZUERST GEWITTER NUR WEST RISIKO JEDEN-TAG OST MEHR OST KOENNEN GEWITTER WEST",
+      "prediction": "IN-KOMMEND WOCHE ENORM PASSEN GEFRIEREN KALT FOLGE",
+      "prompt": "zunächst ist das gewitterrisiko nur im westen erhöht von tag zu tag steigt es aber auch richtung osten"
+    },
+    {
+      "group": "worst",
+      "index": 280,
+      "rouge_l": 0.0,
+      "gold": "WIND SCHWACH",
+      "prediction": "REGION WEHEN DREHEN KOENNEN",
+      "prompt": "meist weht der wind schwach aus westlichen richtungen"
+    }
+  ]
+}

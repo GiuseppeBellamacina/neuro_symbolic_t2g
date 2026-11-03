@@ -1,0 +1,86 @@
+{
+  "model": "baseline",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 336,
+      "rouge_l": 0.8571,
+      "gold": "SAMSTAG MEHR FREUNDLICH TROCKEN MEHR WARM",
+      "prediction": "SAGEN SAMSTAG MEHR FREUNDLICH MEHR TROCKEN MEHR WARM",
+      "prompt": "am samstag überwiegend freundlich meist trocken und wärmer"
+    },
+    {
+      "group": "best",
+      "index": 1148,
+      "rouge_l": 0.8571,
+      "gold": "SCHOTTLAND WOLKE TIEF NORWEGEN",
+      "prediction": "SCHOTTLAND TIEF NORWEGEN",
+      "prompt": "von schottland zieht ein tief nach norwegen"
+    },
+    {
+      "group": "best",
+      "index": 986,
+      "rouge_l": 0.8,
+      "gold": "GUT ABEND LIEB DU ZUSCHAUER",
+      "prediction": "GUT-ABEND LIEB KEIN ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "best",
+      "index": 198,
+      "rouge_l": 0.8,
+      "gold": "WEST FREUNDLICH",
+      "prediction": "WEST ENDE FREUNDLICH",
+      "prompt": "im westen ist es freundlich"
+    },
+    {
+      "group": "best",
+      "index": 1042,
+      "rouge_l": 0.8,
+      "gold": "LIEB ZUSCHAUER GUT ABEND",
+      "prediction": "LIEB LUECKE ZUSCHAUER GUT TUN ABEND",
+      "prompt": "liebe zuschauer guten abend"
+    },
+    {
+      "group": "worst",
+      "index": 24,
+      "rouge_l": 0.0,
+      "gold": "DEUTSCH LAND MORGEN HOCH DRUCK KOMMEN WOLKE AUFLOESEN",
+      "prediction": "DAS-IST-ES DEUTSCHLAND LIEB TROTZDEM DIESE KONSTANT ENDE LIEB HIER MACHEN EINFLUSS DEUTSCHLAND LIEB MITTE LIEB UND ENDE ...",
+      "prompt": "deutschland liegt morgen unter hochdruckeinfluss der die wolken weitgehend vertreibt"
+    },
+    {
+      "group": "worst",
+      "index": 30,
+      "rouge_l": 0.0,
+      "gold": "WAHRSCHEINLICH SCHAUER GEWITTER STARK",
+      "prediction": "OFT LIEB TROCKEN ORT GRENZE HEFTIG SEHEN KONSTANT WIND UND FLOCKEN WETTER HABEN",
+      "prompt": "örtlich schauer oder gewitter die heftig sein können"
+    },
+    {
+      "group": "worst",
+      "index": 36,
+      "rouge_l": 0.0,
+      "gold": "IM-VERLAUF BLEIBEN KALT ENORM SCHNEE KOENNEN",
+      "prediction": "GUT TATSAECHLICH GESCHWINDIGKEIT WEITER HIER MIT EIN BISSCHEN SCHAETZEN",
+      "prompt": "in den nächsten tagen geht es auf jeden fall winterlich weiter immer wieder mal mit etwas schnee"
+    },
+    {
+      "group": "worst",
+      "index": 41,
+      "rouge_l": 0.0,
+      "gold": "WOCHENENDE IX MEHR KALT",
+      "prediction": "WENIGER KLEIN MIT ENDE WIE ES-GIBT SIEBEN KLEIN ERST ENDE KLEIN KLEIN KLEIN KLEIN KLEIN KLEIN KLEIN KLEIN KLEIN KLEIN KL...",
+      "prompt": "und zum wochenende wird es dann sogar wieder ein bisschen kälter"
+    },
+    {
+      "group": "worst",
+      "index": 51,
+      "rouge_l": 0.0,
+      "gold": "ABER IM-VERLAUF NEBEL HOCH NEBEL IX",
+      "prediction": "LICHT LICHT LICHT LICHT LIEB LICHT LICHT LICHT LICHT LICHT LICHT LICHT LICHT LICHT LICHT LICHT LICHT LICHT LICHT LICHT L...",
+      "prompt": "später breiten sich aber nebel oder hochnebelfelder aus"
+    }
+  ]
+}

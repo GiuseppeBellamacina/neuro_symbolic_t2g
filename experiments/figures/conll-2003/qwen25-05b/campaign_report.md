@@ -1,6 +1,6 @@
 # Campaign Report — conll-2003 / qwen25-05b
 
-Generated: 2026-10-20T10:53:19+00:00
+Generated: 2026-11-03T15:28:38+00:00
 
 > Complementare ad `ablation-summary`: qui i run sono appaiati
 > per fattore sperimentale. **Legge i JSON di eval: non
@@ -30,7 +30,7 @@ Generated: 2026-10-20T10:53:19+00:00
 | `reward_stack` | NOT deducible from path / JSON stamp / payload fields (it lives in the resolved config, which eval JSONs do not embed) | always unknown, declared in every pairing caveat |
 | `rl_objective` | NOT deducible from path / JSON stamp / payload fields | always unknown, declared in every pairing caveat |
 
-## Selected runs (25 typologies, latest per typology)
+## Selected runs (31 typologies, latest per typology)
 
 | Run | method | variant | prompting | grammar | Date | Prompts | metrics_version |
 |---|---|---|---|---|---|---|---|
@@ -39,6 +39,10 @@ Generated: 2026-10-20T10:53:19+00:00
 | `conll-2003/qwen25-05b/ablations/decoding/no-grammar/run_20261009_133123/eval_baseline.json` | baseline | conll-2003-qwen25-05b-ablations-decoding-no-grammar | few-shot | unknown | 2026-10-09 | 2000 | 2 |
 | `conll-2003/qwen25-05b/ablations/decoding/no-grammar/run_20261019_043117/eval_final.json` | unknown | conll-2003-qwen25-05b-ablations-decoding-no-grammar | few-shot | unknown | 2026-10-19 | 2000 | 2 |
 | `conll-2003/qwen25-05b/ablations/objectives/sft-allowed-mass/run_20261019_093124/eval_final.json` | unknown | conll-2003-qwen25-05b-ablations-objectives-sft-allowed-mass | zero-shot | unknown | 2026-10-19 | 2000 | 2 |
+| `conll-2003/qwen25-05b/ablations/rewards/entity-f1-zero-shot/run_20261020_133542/eval_final.json` | unknown | conll-2003-qwen25-05b-ablations-rewards-entity-f1-zero-shot | zero-shot | unknown | 2026-10-20 | 2000 | 2 |
+| `conll-2003/qwen25-05b/ablations/rewards/entity-f1-zero-shot/run_20261020_133542/eval_final__few-shot.json` | unknown | conll-2003-qwen25-05b-ablations-rewards-entity-f1-zero-shot | few-shot | unknown | 2026-10-20 | 2000 | 2 |
+| `conll-2003/qwen25-05b/ablations/rewards/entity-f1/run_20261020_184102/eval_final.json` | unknown | conll-2003-qwen25-05b-ablations-rewards-entity-f1 | few-shot | unknown | 2026-10-20 | 2000 | 2 |
+| `conll-2003/qwen25-05b/ablations/rewards/entity-f1/run_20261020_184102/eval_final__zero-shot.json` | unknown | conll-2003-qwen25-05b-ablations-rewards-entity-f1 | zero-shot | unknown | 2026-10-20 | 2000 | 2 |
 | `conll-2003/qwen25-05b/baseline/few-shot/run_20261018_161555/eval_zero_shot.json` | unknown | conll-2003-qwen25-05b-baseline-few-shot | few-shot | unknown | 2026-10-18 | 2000 | 2 |
 | `conll-2003/qwen25-05b/baseline/zero-shot-no-grammar/run_20261018_163110/eval_zero_shot.json` | unknown | conll-2003-qwen25-05b-baseline-zero-shot-no-grammar | zero-shot | unknown | 2026-10-18 | 2000 | 2 |
 | `conll-2003/qwen25-05b/baseline/zero-shot/run_20261018_155358/eval_zero_shot.json` | unknown | conll-2003-qwen25-05b-baseline-zero-shot | zero-shot | unknown | 2026-10-18 | 2000 | 2 |
@@ -51,6 +55,8 @@ Generated: 2026-10-20T10:53:19+00:00
 | `conll-2003/qwen25-05b/seeds/grpo-zero-shot-s1/run_20261019_202106/eval_final.json` | unknown | conll-2003-qwen25-05b-seeds-grpo-zero-shot-s1 | zero-shot | unknown | 2026-10-19 | 2000 | 2 |
 | `conll-2003/qwen25-05b/seeds/grpo-zero-shot-s1/run_20261019_202106/eval_final__few-shot.json` | unknown | conll-2003-qwen25-05b-seeds-grpo-zero-shot-s1 | few-shot | unknown | 2026-10-19 | 2000 | 2 |
 | `conll-2003/qwen25-05b/seeds/no-grammar-zero-shot-s1/run_20261019_233119/eval_final.json` | unknown | conll-2003-qwen25-05b-seeds-no-grammar-zero-shot-s1 | zero-shot | unknown | 2026-10-19 | 2000 | 2 |
+| `conll-2003/qwen25-05b/seeds/sft-grpo-zero-shot-s1/run_20261020_213557/eval_final.json` | sft-grpo | zero-shot-s1 | zero-shot | unknown | 2026-10-20 | 2000 | 2 |
+| `conll-2003/qwen25-05b/seeds/sft-grpo-zero-shot-s1/run_20261020_213557/eval_final__few-shot.json` | sft-grpo | zero-shot-s1 | few-shot | unknown | 2026-10-20 | 2000 | 2 |
 | `conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261019_002102/eval_final.json` | sft-grpo | few-shot | few-shot | unknown | 2026-10-19 | 2000 | 2 |
 | `conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261019_002102/eval_final__zero-shot.json` | sft-grpo | few-shot | zero-shot | unknown | 2026-10-19 | 2000 | 2 |
 | `conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261019_022555/eval_final.json` | sft-grpo | zero-shot | zero-shot | unknown | 2026-10-19 | 2000 | 2 |
@@ -79,8 +85,11 @@ One row per cell (its path under `results/`), one column per prompting mode that
 | conll-2003/qwen25-05b/ablations/decoding/no-grammar | — | 0.6113 |
 | conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot | 0.4027 | — |
 | conll-2003/qwen25-05b/ablations/objectives/sft-allowed-mass | 0.9044 | — |
+| conll-2003/qwen25-05b/ablations/rewards/entity-f1 | 0.2726 | 0.5350 |
+| conll-2003/qwen25-05b/ablations/rewards/entity-f1-zero-shot | 0.2831 | 0.3743 |
 | conll-2003/qwen25-05b/seeds/grpo-zero-shot-s1 | 0.3231 | 0.4153 |
 | conll-2003/qwen25-05b/seeds/no-grammar-zero-shot-s1 | 0.4571 | — |
+| conll-2003/qwen25-05b/seeds/sft-grpo-zero-shot-s1 | 0.9176 | 0.8356 |
 
 ## conll-2003 — all metrics
 
@@ -104,9 +113,15 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 | conll-2003/qwen25-05b/ablations/decoding/no-grammar | few-shot | 0.6113 | 0.3974 | 0.3476 | 0.4229 | 0.7550 | 0.6501 | 0.4346 | 0.4840 | 50.5409 | 58.4925 | 0.3776 | 0.4749 |
 | conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot | zero-shot | 0.4027 | 0.1843 | 0.1472 | 0.1104 | 0.5735 | 0.4578 | 0.0083 | 0.1717 | 21.3288 | 31.1467 | 0.0732 | 0.1693 |
 | conll-2003/qwen25-05b/ablations/objectives/sft-allowed-mass | zero-shot | 0.9044 | 0.9044 | 0.7505 | 0.8253 | 0.9695 | 1.0000 | 0.8407 | 0.8646 | 85.7212 | 89.7119 | 0.8253 | 0.8514 |
+| conll-2003/qwen25-05b/ablations/rewards/entity-f1 | zero-shot | 0.2726 | 0.2724 | 0.1432 | 0.1441 | 0.3390 | 0.9994 | 0.1300 | 0.1961 | 23.6592 | 30.0173 | 0.1200 | 0.1770 |
+| conll-2003/qwen25-05b/ablations/rewards/entity-f1 | few-shot | 0.5350 | 0.5349 | 0.3340 | 0.4007 | 0.6595 | 0.9998 | 0.3959 | 0.4509 | 46.9459 | 53.8466 | 0.3773 | 0.4492 |
+| conll-2003/qwen25-05b/ablations/rewards/entity-f1-zero-shot | zero-shot | 0.2831 | 0.2830 | 0.0415 | 0.1732 | 0.4325 | 0.9994 | 0.1333 | 0.1453 | 36.5978 | 33.3169 | 0.1020 | 0.1165 |
+| conll-2003/qwen25-05b/ablations/rewards/entity-f1-zero-shot | few-shot | 0.3743 | 0.3741 | 0.0576 | 0.3075 | 0.5700 | 0.9995 | 0.1943 | 0.2163 | 46.0106 | 42.9608 | 0.1915 | 0.2203 |
 | conll-2003/qwen25-05b/seeds/grpo-zero-shot-s1 | zero-shot | 0.3231 | 0.3231 | 0.0378 | 0.2016 | 0.5090 | 1.0000 | 0.1924 | 0.1827 | 40.9927 | 37.0738 | 0.1400 | 0.1400 |
 | conll-2003/qwen25-05b/seeds/grpo-zero-shot-s1 | few-shot | 0.4153 | 0.4151 | 0.0883 | 0.3205 | 0.6240 | 0.9997 | 0.2544 | 0.2664 | 49.4475 | 46.0264 | 0.2311 | 0.2469 |
 | conll-2003/qwen25-05b/seeds/no-grammar-zero-shot-s1 | zero-shot | 0.4571 | 0.0922 | 0.0567 | 0.1088 | 0.7450 | 0.2016 | 0.0138 | 0.1043 | 27.7587 | 34.5595 | 0.0605 | 0.1192 |
+| conll-2003/qwen25-05b/seeds/sft-grpo-zero-shot-s1 | zero-shot | 0.9176 | 0.9176 | 0.7873 | 0.8599 | 0.9735 | 1.0000 | 0.8591 | 0.8845 | 88.3527 | 91.4008 | 0.8570 | 0.8758 |
+| conll-2003/qwen25-05b/seeds/sft-grpo-zero-shot-s1 | few-shot | 0.8356 | 0.8356 | 0.6352 | 0.7833 | 0.9375 | 1.0000 | 0.7192 | 0.7768 | 80.8448 | 84.2907 | 0.7506 | 0.7784 |
 
 ## Paired comparisons — one table per factor
 
@@ -150,6 +165,24 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 - ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
 - ⚠️ prompt_context_fingerprint DIFFERS: the eval contexts (prompting/grammar/num_samples/model) are not identical — this pair may differ in more than the method factor
 
+**method effect (cross-run)** — `conll-2003/qwen25-05b/sft/zero-shot/run_20261009_004112/eval_baseline__few-shot.json` (2026-10-09, few-shot, unknown) → `conll-2003/qwen25-05b/seeds/sft-grpo-zero-shot-s1/run_20261020_213557/eval_final__few-shot.json` (2026-10-20, few-shot, unknown)
+
+| Metric | A | B | Δ (B−A) | Interpretation |
+|---|---|---|---|---|
+| ROUGE-L | 0.3805 | 0.8356 | +0.4551 | above noise threshold |
+| Valid ROUGE-L | 0.3706 | 0.8356 | +0.4650 | above noise threshold |
+| Exact Match | 0.0662 | 0.6352 | +0.5690 | above noise threshold |
+| Non-copy Tok Acc | 0.3169 | 0.7833 | +0.4664 | above noise threshold |
+| Pass@1 | 0.5865 | 0.9375 | +0.3510 | above noise threshold |
+| Validity | 0.9739 | 1.0000 | +0.0261 | above noise threshold |
+| BLEU (corpus) | 0.1429 | 0.7192 | +0.5763 | above noise threshold |
+| BLEU (sent) | 0.2204 | 0.7768 | +0.5563 | above noise threshold |
+| chrF2 (corpus) | 39.8261 | 80.8448 | +41.0188 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 41.4512 | 84.2907 | +42.8394 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.1714 | 0.7506 | +0.5792 | above noise threshold |
+| Gloss F1 (sent) | 0.2366 | 0.7784 | +0.5418 | above noise threshold |
+- ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
+
 **method effect (cross-run)** — `conll-2003/qwen25-05b/ablations/decoding/no-grammar-zero-shot/run_20261009_162603/eval_baseline.json` (2026-10-09, zero-shot, unknown) → `conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261019_002102/eval_final__zero-shot.json` (2026-10-19, zero-shot, unknown)
 
 | Metric | A | B | Δ (B−A) | Interpretation |
@@ -187,6 +220,24 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 | Gloss F1 (sent) | 0.1033 | 0.8715 | +0.7682 | above noise threshold |
 - ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
 - ⚠️ prompt_context_fingerprint DIFFERS: the eval contexts (prompting/grammar/num_samples/model) are not identical — this pair may differ in more than the method factor
+
+**method effect (cross-run)** — `conll-2003/qwen25-05b/sft/zero-shot/run_20261009_004112/eval_baseline.json` (2026-10-09, zero-shot, unknown) → `conll-2003/qwen25-05b/seeds/sft-grpo-zero-shot-s1/run_20261020_213557/eval_final.json` (2026-10-20, zero-shot, unknown)
+
+| Metric | A | B | Δ (B−A) | Interpretation |
+|---|---|---|---|---|
+| ROUGE-L | 0.2708 | 0.9176 | +0.6468 | above noise threshold |
+| Valid ROUGE-L | 0.2625 | 0.9176 | +0.6551 | above noise threshold |
+| Exact Match | 0.0453 | 0.7873 | +0.7420 | above noise threshold |
+| Non-copy Tok Acc | 0.1458 | 0.8599 | +0.7141 | above noise threshold |
+| Pass@1 | 0.4145 | 0.9735 | +0.5590 | above noise threshold |
+| Validity | 0.9693 | 1.0000 | +0.0307 | above noise threshold |
+| BLEU (corpus) | 0.0893 | 0.8591 | +0.7698 | above noise threshold |
+| BLEU (sent) | 0.1329 | 0.8845 | +0.7516 | above noise threshold |
+| chrF2 (corpus) | 29.5092 | 88.3527 | +58.8435 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 29.5764 | 91.4008 | +61.8244 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.0762 | 0.8570 | +0.7808 | above noise threshold |
+| Gloss F1 (sent) | 0.1033 | 0.8758 | +0.7725 | above noise threshold |
+- ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
 
 ### Factor: `prompting`
 
@@ -247,6 +298,25 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 - ⚠️ cross-run comparison: checkpoint identity NOT guaranteed
 - ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
 
+🔴 **prompt-dependence (dual eval, same checkpoint)** — `conll-2003/qwen25-05b/seeds/sft-grpo-zero-shot-s1/run_20261020_213557/eval_final__few-shot.json` (2026-10-20, few-shot, unknown) → `conll-2003/qwen25-05b/seeds/sft-grpo-zero-shot-s1/run_20261020_213557/eval_final.json` (2026-10-20, zero-shot, unknown)
+
+| Metric | A | B | Δ (B−A) | Interpretation |
+|---|---|---|---|---|
+| ROUGE-L | 0.8356 | 0.9176 | +0.0821 | above noise threshold |
+| Valid ROUGE-L | 0.8356 | 0.9176 | +0.0821 | above noise threshold |
+| Exact Match | 0.6352 | 0.7873 | +0.1521 | above noise threshold |
+| Non-copy Tok Acc | 0.7833 | 0.8599 | +0.0766 | above noise threshold |
+| Pass@1 | 0.9375 | 0.9735 | +0.0360 | above noise threshold |
+| Validity | 1.0000 | 1.0000 | +0.0000 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| BLEU (corpus) | 0.7192 | 0.8591 | +0.1399 | above noise threshold |
+| BLEU (sent) | 0.7768 | 0.8845 | +0.1078 | above noise threshold |
+| chrF2 (corpus) | 80.8448 | 88.3527 | +7.5078 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 84.2907 | 91.4008 | +7.1101 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.7506 | 0.8570 | +0.1064 | above noise threshold |
+| Gloss F1 (sent) | 0.7784 | 0.8758 | +0.0974 | above noise threshold |
+- ⚠️ HIGHLIGHT: same model evaluated in both prompting modes — how much does it depend on the prompt as a crutch?
+- ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
+
 🔴 **prompt-dependence (dual eval, same checkpoint)** — `conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261019_022555/eval_final__few-shot.json` (2026-10-19, few-shot, unknown) → `conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261019_022555/eval_final.json` (2026-10-19, zero-shot, unknown)
 
 | Metric | A | B | Δ (B−A) | Interpretation |
@@ -282,6 +352,44 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 | chrF2 (sent) | 88.3649 | 89.6895 | +1.3245 | scale 0-100: 0.02 noise threshold not applicable |
 | Gloss F1 (mic) | 0.8149 | 0.8365 | +0.0217 | above noise threshold |
 | Gloss F1 (sent) | 0.8272 | 0.8453 | +0.0180 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+- ⚠️ HIGHLIGHT: same model evaluated in both prompting modes — how much does it depend on the prompt as a crutch?
+- ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
+
+🔴 **prompt-dependence (dual eval, same checkpoint)** — `conll-2003/qwen25-05b/ablations/rewards/entity-f1/run_20261020_184102/eval_final.json` (2026-10-20, few-shot, unknown) → `conll-2003/qwen25-05b/ablations/rewards/entity-f1/run_20261020_184102/eval_final__zero-shot.json` (2026-10-20, zero-shot, unknown)
+
+| Metric | A | B | Δ (B−A) | Interpretation |
+|---|---|---|---|---|
+| ROUGE-L | 0.5350 | 0.2726 | -0.2625 | above noise threshold |
+| Valid ROUGE-L | 0.5349 | 0.2724 | -0.2625 | above noise threshold |
+| Exact Match | 0.3340 | 0.1432 | -0.1908 | above noise threshold |
+| Non-copy Tok Acc | 0.4007 | 0.1441 | -0.2566 | above noise threshold |
+| Pass@1 | 0.6595 | 0.3390 | -0.3205 | above noise threshold |
+| Validity | 0.9998 | 0.9994 | -0.0004 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| BLEU (corpus) | 0.3959 | 0.1300 | -0.2659 | above noise threshold |
+| BLEU (sent) | 0.4509 | 0.1961 | -0.2548 | above noise threshold |
+| chrF2 (corpus) | 46.9459 | 23.6592 | -23.2868 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 53.8466 | 30.0173 | -23.8293 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.3773 | 0.1200 | -0.2573 | above noise threshold |
+| Gloss F1 (sent) | 0.4492 | 0.1770 | -0.2722 | above noise threshold |
+- ⚠️ HIGHLIGHT: same model evaluated in both prompting modes — how much does it depend on the prompt as a crutch?
+- ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
+
+🔴 **prompt-dependence (dual eval, same checkpoint)** — `conll-2003/qwen25-05b/ablations/rewards/entity-f1-zero-shot/run_20261020_133542/eval_final__few-shot.json` (2026-10-20, few-shot, unknown) → `conll-2003/qwen25-05b/ablations/rewards/entity-f1-zero-shot/run_20261020_133542/eval_final.json` (2026-10-20, zero-shot, unknown)
+
+| Metric | A | B | Δ (B−A) | Interpretation |
+|---|---|---|---|---|
+| ROUGE-L | 0.3743 | 0.2831 | -0.0912 | above noise threshold |
+| Valid ROUGE-L | 0.3741 | 0.2830 | -0.0911 | above noise threshold |
+| Exact Match | 0.0576 | 0.0415 | -0.0161 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| Non-copy Tok Acc | 0.3075 | 0.1732 | -0.1343 | above noise threshold |
+| Pass@1 | 0.5700 | 0.4325 | -0.1375 | above noise threshold |
+| Validity | 0.9995 | 0.9994 | -0.0001 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| BLEU (corpus) | 0.1943 | 0.1333 | -0.0610 | above noise threshold |
+| BLEU (sent) | 0.2163 | 0.1453 | -0.0711 | above noise threshold |
+| chrF2 (corpus) | 46.0106 | 36.5978 | -9.4128 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 42.9608 | 33.3169 | -9.6439 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.1915 | 0.1020 | -0.0895 | above noise threshold |
+| Gloss F1 (sent) | 0.2203 | 0.1165 | -0.1039 | above noise threshold |
 - ⚠️ HIGHLIGHT: same model evaluated in both prompting modes — how much does it depend on the prompt as a crutch?
 - ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
 

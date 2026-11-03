@@ -1,0 +1,86 @@
+{
+  "model": "run_20261021_031603",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 620,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN MITTWOCH ACHTE SEPTEMBER",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN MITTWOCH ACHTE SEPTEMBER",
+      "prompt": "und nun die wettervorhersage für morgen mittwoch den achten september"
+    },
+    {
+      "group": "best",
+      "index": 1630,
+      "rouge_l": 1.0,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT ABEND LIEB ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "best",
+      "index": 1040,
+      "rouge_l": 1.0,
+      "gold": "LIEB ZUSCHAUER GUT ABEND",
+      "prediction": "LIEB ZUSCHAUER GUT ABEND",
+      "prompt": "liebe zuschauer guten abend"
+    },
+    {
+      "group": "best",
+      "index": 1095,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI",
+      "prompt": "und nun die wettervorhersage für morgen dienstag den fünfundzwanzigsten mai"
+    },
+    {
+      "group": "best",
+      "index": 1200,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN SAMSTAG ZWEITE APRIL",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN SAMSTAG ZWEITE APRIL",
+      "prompt": "und nun die wettervorhersage für morgen samstag den zweiten april"
+    },
+    {
+      "group": "worst",
+      "index": 237,
+      "rouge_l": 0.0,
+      "gold": "BESONDERS KALT SUED SUEDOST",
+      "prediction": "REGION KOMMEN KOENNEN GEWITTER",
+      "prompt": "und die kälteste ecke wird der gesamte südosten bleiben"
+    },
+    {
+      "group": "worst",
+      "index": 471,
+      "rouge_l": 0.0,
+      "gold": "MILD WEHEN ICH",
+      "prediction": "SEHR LUFT KOMMEN",
+      "prompt": "sehr milde luft strömt zu uns"
+    },
+    {
+      "group": "worst",
+      "index": 515,
+      "rouge_l": 0.0,
+      "gold": "TRUEB DIESE BILD",
+      "prediction": "REGION MEISTENS TRINKEN KOENNEN",
+      "prompt": "es bleibt meist trüb wie auf diesem bild hier"
+    },
+    {
+      "group": "worst",
+      "index": 544,
+      "rouge_l": 0.0,
+      "gold": "IM-VERLAUF UMSTELLEN REDUZIEREN KUEHL BESONDERS SAMSTAG SONNTAG",
+      "prediction": "IN-KOMMEND TAG NUR MEHR KALT REGION BISSCHEN KOELN WECHSELHAFT",
+      "prompt": "in den nächsten tagen wird das dann nicht mehr der fall sein dann wird es insgesamt ein bisschen kühler vor allen dingen zum wochenende hin"
+    },
+    {
+      "group": "worst",
+      "index": 610,
+      "rouge_l": 0.0,
+      "gold": "IX NACHMITTAG KOMMEN REGEN VIERHUNDERT ACHTHUNDERT METER UEBER SCHNEE",
+      "prediction": "SONST REGION SCHAUER AUCH GEWITTER",
+      "prompt": "sonst einzelne schauer an der nordsee auch gewitter"
+    }
+  ]
+}

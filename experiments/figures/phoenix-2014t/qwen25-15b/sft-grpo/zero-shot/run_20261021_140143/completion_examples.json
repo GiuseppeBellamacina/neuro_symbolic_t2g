@@ -1,0 +1,86 @@
+{
+  "model": "run_20261021_140143",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 131,
+      "rouge_l": 1.0,
+      "gold": "TEMPERATUR NULL GRAD KALT NORD MINUS FUENF GRAD",
+      "prediction": "TEMPERATUR NULL GRAD KALT NORD MINUS FUENF GRAD",
+      "prompt": "temperaturen nur so um die null grad am kältesten im norden bis minus fünf grad"
+    },
+    {
+      "group": "best",
+      "index": 195,
+      "rouge_l": 1.0,
+      "gold": "WEST FREUNDLICH",
+      "prediction": "WEST FREUNDLICH",
+      "prompt": "im westen ist es freundlich"
+    },
+    {
+      "group": "best",
+      "index": 620,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN MITTWOCH ACHTE SEPTEMBER",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN MITTWOCH ACHTE SEPTEMBER",
+      "prompt": "und nun die wettervorhersage für morgen mittwoch den achten september"
+    },
+    {
+      "group": "best",
+      "index": 885,
+      "rouge_l": 1.0,
+      "gold": "SCHOEN ABEND TSCHUESS",
+      "prediction": "SCHOEN ABEND TSCHUESS",
+      "prompt": "ich wünsche noch einen schönen abend und tschüss"
+    },
+    {
+      "group": "best",
+      "index": 1630,
+      "rouge_l": 1.0,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT ABEND LIEB ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "worst",
+      "index": 515,
+      "rouge_l": 0.0,
+      "gold": "TRUEB DIESE BILD",
+      "prediction": "MEISTENS BISSCHEN WOLKE SONST REGION",
+      "prompt": "es bleibt meist trüb wie auf diesem bild hier"
+    },
+    {
+      "group": "worst",
+      "index": 610,
+      "rouge_l": 0.0,
+      "gold": "IX NACHMITTAG KOMMEN REGEN VIERHUNDERT ACHTHUNDERT METER UEBER SCHNEE",
+      "prediction": "SONST REGION SCHAUER AUCH GEWITTER",
+      "prompt": "sonst einzelne schauer an der nordsee auch gewitter"
+    },
+    {
+      "group": "worst",
+      "index": 695,
+      "rouge_l": 0.0,
+      "gold": "NAECHSTE ANFANG WOCHE WIE-IMMER SO",
+      "prediction": "KOMMEN WOCHENENDE AUCH BISSCHEN CHAOS",
+      "prompt": "auch zu beginn der kommenden woche ändert sich nur wenig"
+    },
+    {
+      "group": "worst",
+      "index": 845,
+      "rouge_l": 0.0,
+      "gold": "FUER HEUTE WETTER BESSER RUHIG",
+      "prediction": "WOCHENENDE MEHR BERUHIGEN LANG KOENNEN",
+      "prompt": "am wochenende beruhigt sich dann das wetter langsam"
+    },
+    {
+      "group": "worst",
+      "index": 1370,
+      "rouge_l": 0.0,
+      "gold": "MONTAG ANFANG AB LOS WECHSELHAFT KUEHL",
+      "prediction": "JETZT NEU WOCHE KOMMEN BISSCHEN REGEN KOELN",
+      "prompt": "auch die neue woche beginnt durchwachsen und recht kühl"
+    }
+  ]
+}

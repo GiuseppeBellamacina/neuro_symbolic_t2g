@@ -1,0 +1,86 @@
+{
+  "model": "run_20261021_031603",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 1630,
+      "rouge_l": 1.0,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT ABEND LIEB ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "best",
+      "index": 1440,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN FREITAG ACHTE OKTOBER",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN FREITAG ACHTE OKTOBER",
+      "prompt": "und nun die wettervorhersage für morgen freitag den achten oktober"
+    },
+    {
+      "group": "best",
+      "index": 1499,
+      "rouge_l": 1.0,
+      "gold": "SAMSTAG WECHSELHAFT",
+      "prediction": "SAMSTAG WECHSELHAFT",
+      "prompt": "am samstag ist es wieder unbeständig"
+    },
+    {
+      "group": "best",
+      "index": 1882,
+      "rouge_l": 1.0,
+      "gold": "OST MEISTENS SONNE",
+      "prediction": "OST MEISTENS SONNE",
+      "prompt": "richtung osten ist es meist sonnig"
+    },
+    {
+      "group": "best",
+      "index": 2016,
+      "rouge_l": 1.0,
+      "gold": "BERG ORKAN MOEGLICH",
+      "prediction": "BERG ORKAN MOEGLICH",
+      "prompt": "auf den bergen sind orkanartige böen möglich"
+    },
+    {
+      "group": "worst",
+      "index": 67,
+      "rouge_l": 0.0,
+      "gold": "REGION FEUCHT REGION IX GEWITTER REGION",
+      "prediction": "MEISTENS MITTE MERKEN FUER WIND KOENNEN KOMMEN MEHR REGEN KOENNEN",
+      "prompt": "vom mittelmeer fließt feuchte luft heran in der sich zum teil kräftige gewitter entwickeln können"
+    },
+    {
+      "group": "worst",
+      "index": 220,
+      "rouge_l": 0.0,
+      "gold": "ZUERST GEWITTER NUR WEST RISIKO JEDEN-TAG OST MEHR OST KOENNEN GEWITTER WEST",
+      "prediction": "IX REGION WEITER REGEN KOMMEN OESTERREICH",
+      "prompt": "zunächst ist das gewitterrisiko nur im westen erhöht von tag zu tag steigt es aber auch richtung osten"
+    },
+    {
+      "group": "worst",
+      "index": 424,
+      "rouge_l": 0.0,
+      "gold": "WIND SCHWACH SUED WIND ZEIGEN-BILDSCHIRM",
+      "prediction": "IX GEWITTER neg-WOLKE BISSCHEN MAESSIG IX WEHEN",
+      "prompt": "abseits der gewitter schwacher bis mäßiger wind"
+    },
+    {
+      "group": "worst",
+      "index": 515,
+      "rouge_l": 0.0,
+      "gold": "TRUEB DIESE BILD",
+      "prediction": "SAMSTAG DANN WETTER WENIGER NEBEL BLEIBEN BERLIN SCHAU-MAL IX FUEHLEN KALT",
+      "prompt": "es bleibt meist trüb wie auf diesem bild hier"
+    },
+    {
+      "group": "worst",
+      "index": 613,
+      "rouge_l": 0.0,
+      "gold": "IX NACHMITTAG KOMMEN REGEN VIERHUNDERT ACHTHUNDERT METER UEBER SCHNEE",
+      "prediction": "REGION SCHAUER NORD SEE GEWITTER REGION SCHWER WEHEN",
+      "prompt": "sonst einzelne schauer an der nordsee auch gewitter"
+    }
+  ]
+}
