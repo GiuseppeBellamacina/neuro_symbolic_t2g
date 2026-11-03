@@ -75,7 +75,7 @@ class HighPrecisionLogCallback(TrainerCallback):
         # Formato: "  step=<int>  <k>=<v>  ..." — 2 spazi iniziali, 2 spazi di
         # separatore, float a 8 decimali. Consumatori, ognuno con la propria
         # regex: src/utils/chain_monitor.py (_KV_STEP), live_training_table.py,
-        # remote/app.py. Cambiare indentazione/separatore/precisione li rompe
+        # cluster/cluster_helper.sh (timeseries) e l'app ClusterControl. Cambiare indentazione/separatore/precisione li rompe
         # TUTTI in silenzio: una regex che non aggancia non errore, restituisce
         # zero punti. Consolidare i parser resta un debito aperto.
         # └────────────────────────────────────────────────────────────────────────┘

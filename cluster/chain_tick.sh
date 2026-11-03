@@ -4,7 +4,7 @@
 #
 # CORE della catena: tick BREVI e statelèssi, invocabili da:
 #   - l'hook bashrc PROMPT_COMMAND      (chain-hook-install — PRIMARIO)
-#   - il server esterno / cron         (remote/cluster_helper.sh tick)
+#   - il server esterno / cron         (cluster/cluster_helper.sh tick)
 #   - un comando manuale               (chain-start / run-all)
 #
 # Ogni tick:

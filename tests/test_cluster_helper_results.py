@@ -1,4 +1,4 @@
-"""Risoluzione delle celle di risultati in ``remote/cluster_helper.sh``.
+"""Risoluzione delle celle di risultati in ``cluster/cluster_helper.sh``.
 
 Il client (TUI e app remota) chiede i risultati o con il percorso esatto di una
 cella, dalla discovery, o con la chiave del config (``grpo-few-shot``,
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-HELPER = Path(__file__).resolve().parents[1] / "remote" / "cluster_helper.sh"
+HELPER = Path(__file__).resolve().parents[1] / "cluster" / "cluster_helper.sh"
 BASH = shutil.which("bash")
 
 CELLS = [

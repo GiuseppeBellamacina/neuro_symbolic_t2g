@@ -69,7 +69,7 @@ run() {
     fi
 }
 
-# Il servizio su Render manda un tick ogni 5 minuti: senza la catena ferma un
+# Un driver esterno (app, cron) manda tick periodici: senza la catena ferma un
 # tick puo' sottomettere un job fra il controllo su squeue e gli spostamenti.
 if [ "$APPLY" -eq 1 ] && [ ! -f "$STOPPED_FILE" ]; then
     echo "❌ La catena non e' ferma: esegui chain-stop prima di migrare" >&2

@@ -28,8 +28,7 @@ Trust the structure below and the filesystem over that tree.
 ```bash
 # Install (uv preferred; pip -e . works too)
 uv sync                      # core deps
-uv sync --extra dev          # + pytest, ruff, black, isort, fastapi/uvicorn/httpx
-uv sync --extra tui          # + textual/httpx for remote/tui.py (self-contained, no `dev` needed)
+uv sync --extra dev          # + pytest, ruff, black, isort
 uv sync --extra retrieval    # + sentence-transformers (minilm retrieval backend; tfidf is default and needs no extra)
 
 # Tests
@@ -130,7 +129,7 @@ with the dataset (`aslg-pc12-grpo-few-shot`, `phoenix-2014t-grpo-few-shot`); a m
 than the reference `qwen25-05b` also enters the tag after the dataset
 (`phoenix-2014t-qwen25-15b-sft-zero-shot`), so existing tags never change; and the wandb
 `run_name` is `<dataset>-<model>-<cell path>` (enforced by a test); the bash mirrors are
-`cluster/_lib.sh::t2g_tag_from_config` and `remote/cluster_helper.sh::_cell_key`.
+`cluster/_lib.sh::t2g_tag_from_config` and `cluster/cluster_helper.sh::_cell_key`.
 `cluster/migrate_dataset_layout.sh` moves a pre-existing cluster tree to this layout.
 
 ### Centralized prompting
@@ -153,12 +152,10 @@ avoid silent ROUGE-L=0 mismatches.
   everything is a stateless one-shot tick against `.chain_state/` on disk.
 - `sync_cluster.ps1` — PowerShell upload/download to the cluster (also auto-triggered
   best-effort by the `pre-push` hook).
-- `remote/` — a separate FastAPI microservice (`app.py`) + Textual TUI (`tui.py`) that
-  drives the same tick/chain mechanism over SSH + a `cluster_helper.sh` remote helper,
-  meant for deployment on Render with cronjob.org pinging `/tick` every 5 min (so the
-  chain advances without you being at a terminal). See `remote/README.md` for the full
-  protocol, env vars, and API. `.env` (gitignored; copy from `.env.example`) configures
-  local cluster SSH access and, for the TUI, the driver's URL/token.
+- `cluster/cluster_helper.sh` + `cluster/presets.yaml` — the one-ssh-per-operation protocol
+  (`KEY=VALUE` snapshots, queue entries separated by `\x1f`) and the job presets used by the
+  Android app ClusterControl (separate repo `cluster-control-android`) to tick, monitor and
+  manage the queue from a phone, over an on-demand VPN tunnel.
 - `src/analysis/campaign_report.py` — aggregates results across an ablation campaign run.
 
 ### Tests

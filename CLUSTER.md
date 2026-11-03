@@ -39,7 +39,7 @@ Traduzione English → ASL Glosses (T2G) con:
 | Coda | **max 1 job attivo, 0 pending** (QOSMaxSubmitJobPerUserLimit=1) | la pipeline è **sequenziale**; niente array job |
 | `sbatch` | funziona solo dal **login node** | il tick invoca sbatch: è l'unico modo per sottomettere |
 | `at` | **NON disponibile su gcluster** (verificato) | non usato: catena guidata da hook/server/tick manuali |
-| cron | NON disponibile sul login node | serve il fallback esterno (remote_tick) |
+| cron | NON disponibile sul login node | serve un driver esterno (app ClusterControl) |
 | python/pip | NON presenti sul login node | i comandi login-node sono **solo shell** |
 | Login-node reaper | uccide i processi long-lived (ipotesi: systemd KillUserProcesses al logout) | niente daemon fidato: la catena è guidata da **tick one-shot** |
 | QoS time limits | gpu-small 4h · gpu-medium 6h · gpu-large/xlarge 12h | i training lunghi devono usare `--resume` dopo il TIMEOUT |
@@ -260,9 +260,9 @@ Le modalità di guida (primaria → ultima ratio):
 | # | Modalità | Prerequisito | Comando |
 | - | -------- | ------------ | ------- |
 | 1 | **bashrc-hook** (PRIMARIO / raccomandato) | `~/.bashrc` col blocco `t2g-chain-hook` | `chain-hook-install` (poi `source ~/.bashrc`); `PROMPT_COMMAND` throttled 300s |
-| 2 | **server esterno** (`POST /tick` → cronjob.org) | nessuno | chiama `cluster_helper.sh tick` via ssh |
+| 2 | **app Android ClusterControl** | telefono con VPN d'Ateneo (tunnel on-demand) | chiama `cluster_helper.sh tick` via ssh |
 | 3 | **at-mode** (opportunistico) | `at` presente sul login node (oggi ASSENTE su gcluster) | `chain_tick.sh --schedule`; dedup = max 1 job at pendente; se un giorno `at` comparisse, rilevato automaticamente senza danni |
-| 4 | **esterno** (primario se `remote/` è deployato) | Render + cronjob.org (o cron/ssh semplice) | `remote/app.py` → `cluster_helper.sh` / `cluster/remote_tick.sh` |
+| 4 | **cron/ssh esterno** | una macchina con accesso al cluster | `ssh gcluster 'bash ~/neuro_symbolic_t2g/cluster/cluster_helper.sh tick'` ogni 5 min |
 
 Il tick è **innocuo e idempotente**: se c'è un job attivo non tocca la coda,
 se la coda è vuota non fa nulla, se due istanze partono insieme il `flock` ne
@@ -321,41 +321,21 @@ eval associato viene saltato (per non valutare un modello non addestrato) e la
 catena continua con l'entry successiva (continue-on-failure, pensato per
 l'ablation study).
 
-### 6.6. Driver esterno (Render + cronjob.org)
+### 6.6. Driver esterno (app Android ClusterControl)
 
-> Quando `remote/` è deployato, il driver diventa la modalità **PRIMARIA** di
-> avanzamento; l'hook bashrc resta installato come driver innocuo.
-> (il tick è idempotente, più driver non si pestano i piedi).
+L'app **ClusterControl** (repo `cluster-control-android`) pilota la catena dal telefono: apre un tunnel
+VPN d'Ateneo solo durante l'azione, esegue **una** ssh e chiama
+`cluster/cluster_helper.sh <sottocomando>` (`tick`, `status`, `monitor`, `enqueue_batch`,
+`rewrite_queue`, `pause`, `resume`, `scancel`, `timeseries`, `results`). L'output è `KEY=VALUE`
+(coda separata da `\x1f`); la **fonte di verità resta `.chain_state/` sul cluster**.
 
-**Architettura (in 5 righe):** cronjob.org POSTa `/tick` ogni 5 min (header
-`X-Auth-Token`) → il servizio FastAPI su Render apre **una** ssh verso il
-login node → esegue `cluster_helper.sh tick` (che chiama
-`chain_tick.sh --quiet`, one-shot e idempotente) → riceve uno snapshot
-`KEY=VALUE` machine-readable (coda separata da `\x1f`) → lo sincronizza in un
-DB SQLite locale. La **fonte di verità resta `.chain_state/` sul cluster**:
-il filesystem di Render è effimero, quindi il DB è solo cache/diario (il
-puntatore `errors_offset` evita di rileggere gli errori già visti).
+I preset delle campagne stanno in `cluster/presets.yaml` (l'app li legge da GitHub) e gli script
+`cluster/*.sh` vengono tenuti allineati dal sync degli script dell'app. Il tick è idempotente:
+l'app e l'hook bashrc possono convivere senza danni.
 
-**Quando usarlo:** primario se deployato (piloti la coda via API:
-aggiungi/rimuovi job, `POST /pause`/`/resume`, `GET /status`). Hook bashrc
-(`chain-hook-install`) diventa il driver primario e
-possono convivere senza danni.
-
-**Deploy:** tutto in `remote/` — README passo-passo (Web Service su Render,
-build `pip install -r remote/requirements.txt`, start
-`cd remote && uvicorn app:app --host 0.0.0.0 --port $PORT`), env vars,
-setup chiave dedicata e cronjob.org: **`remote/README.md`**.
-
-**Sicurezza:** chiave SSH **dedicata** senza passphrase generata solo per il
-driver (`ssh-keygen -t ed25519 -f ~/.ssh/t2g_driver -N ""` + la pubblica in
-`~/.ssh/authorized_keys`): se trapela da Render la revochi con una sola riga
-senza toccare il tuo accesso. Token API e chiave vivono solo nelle env vars
-di Render e **non vengono mai loggati**; tutte le route richiedono
-`X-Auth-Token` (confronto constant-time).
-
-**Nota hook:** `install-aliases` / `chain-hook-install` installa comunque
-l'hook bashrc come fallback; se vuoi l'unico driver = Render, rimuovilo con
-`chain-hook-uninstall` (il driver esterno continua a funzionare da solo).
+**Sicurezza:** chiave SSH **dedicata** senza passphrase (`ssh-keygen -t ed25519 -f ~/.ssh/t2g_driver -N ""`
++ la pubblica in `~/.ssh/authorized_keys`): se trapela la revochi con una sola riga senza toccare
+il tuo accesso.
 
 ---
 
@@ -425,10 +405,8 @@ indipendente dal login node), un cron **esterno** può chiamare il tick via ssh:
 
 ```bash
 # su una macchina esterna (cron ogni 5 min)
-*/5 * * * *  bash ~/neuro_symbolic_t2g/cluster/remote_tick.sh >> ~/t2g_tick.log 2>&1
+*/5 * * * *  ssh gcluster 'bash ~/neuro_symbolic_t2g/cluster/cluster_helper.sh tick' >> ~/t2g_tick.log 2>&1
 ```
-
-Vedi `cluster/remote_tick.sh` (template completo).
 
 ---
 
@@ -497,9 +475,8 @@ nell'ordine:
    bash cluster/migrate_dataset_layout.sh            # dry-run
    bash cluster/migrate_dataset_layout.sh --apply    # sposta output, config legacy e path in .chain_state
    ```
-4. ridistribuire il servizio su Render (la nuova `CONFIG_MAP` con i config
-   `<dataset>/...`); prima di questo passo il servizio accoda path che sul cluster
-   non esistono ancora;
+4. aggiornare l'app (legge i config da GitHub); prima di questo passo può accodare path che sul
+   cluster non esistono ancora;
 5. `chain-start`.
 
 PHOENIX-2014T, WOS-46985 e CoNLL-2003 (questi ultimi due sono i task non-gloss di

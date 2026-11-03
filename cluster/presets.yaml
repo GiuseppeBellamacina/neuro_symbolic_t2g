@@ -1,22 +1,20 @@
-# remote/presets.yaml — job presets ("tiers") for the TUI's Presets screen.
+# cluster/presets.yaml — job presets ("tiers") for the ClusterControl app.
 #
-# LOCAL FILE, read only by remote/tui.py (remote/presets.py). remote/app.py
-# never imports this and never sees a preset id — the TUI resolves whichever
-# preset(s) the user picks into a plain job list ({type, config, tag, mode})
-# and sends THAT to the existing POST /jobs/batch (append) or POST /queue
-# (replace) endpoints, the same contract any single ad-hoc job already uses.
-# So: edit this file freely, reorder/add/remove presets, no Render redeploy.
+# The app reads this file straight from GitHub, resolves whichever preset(s) the user
+# picks into a plain job list ({type, config, tag, mode}) and sends THAT to the cluster
+# (cluster_helper.sh enqueue_batch / rewrite_queue). Edit this file freely, reorder,
+# add or remove presets: no rebuild of the app is needed. It is NOT synced to the cluster.
 #
-# `config` values are the short names from remote/app.py:CONFIG_MAP (also
-# GET /configs). `tag` is set explicitly and equal to `config` on every job
-# (it is also the API default now, but explicit keeps the file readable):
+# `config` values are cell tags (src/utils/run_paths.py::cell_tag) of a config under
+# experiments/configs/. `tag` is set explicitly and equal to `config` on every job
+# (it is also the default, but explicit keeps the file readable):
 # names are cell tags, always prefixed with the dataset
 # (aslg-pc12-grpo-few-shot, phoenix-2014t-grpo-few-shot), so no two cells or
 # datasets share a tag.
 #
 # Order of presets here is also the order they're offered in the picker, but
 # what actually matters for a launch is the order the USER puts them in
-# (PresetsScreen lets you queue several presets together, reordered freely).
+# (the app lets you queue several presets together, reordered freely).
 #
 # Tiers below mirror the priority discussed for the post-wipe campaign:
 # Tier 0 is a cheap canary, Tier 1 is the core that can flip Finding 1,

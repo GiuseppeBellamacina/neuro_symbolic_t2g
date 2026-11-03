@@ -4,8 +4,8 @@
 #
 # Deployato sul login node di gcluster (NON c'e' python lì: solo shell) in
 #   ~/neuro_symbolic_t2g/cluster/cluster_helper.sh
-# e invocato dal driver esterno (remote/app.py su Render) con UNA SOLA
-# connessione ssh per tick. Sostituisce i ~8 comandi separati (squeue, cat,
+# e invocato dal driver esterno (app Android ClusterControl) con UNA SOLA
+# connessione ssh per operazione. Sostituisce i ~8 comandi separati (squeue, cat,
 # wc, test, ...) che il servizio dovrebbe altrimenti eseguire uno a uno.
 #
 # PROTOCOLLO DI OUTPUT (machine-readable, niente python → key=value per riga):

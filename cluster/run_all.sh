@@ -216,11 +216,9 @@ elif [ "$ABLATION" -eq 1 ] && [ "$DATASET" = "conll-2003" ]; then
         "conll-2003-ablations-objectives-sft-allowed-mass:experiments/configs/conll-2003/qwen25-05b/ablations/objectives/sft-allowed-mass.yaml:te"
     )
 elif [ "$ABLATION" -eq 1 ]; then
-    # Campagna completa: 3 baseline eval-only + 12 celle train+eval. Il TUI
-    # (remote/tui.py PresetsScreen) ha una sua copia equivalente, risolta
-    # localmente da remote/presets.yaml — non da questo array bash, e mai
-    # inviata al servizio Render come "campagna": solo la lista job già
-    # risolta. Le baseline zero-shot (Trie) cachano il --compare per le
+    # Campagna completa: 3 baseline eval-only + 12 celle train+eval. L'app
+    # ClusterControl ha una sua copia equivalente, risolta da
+    # cluster/presets.yaml — non da questo array bash. Le baseline zero-shot (Trie) cachano il --compare per le
     # celle successive; sft/zero-shot addestra l'adapter SFT riusato dalle
     # celle sft-grpo (fingerprint identica).
     # Formato: TAG:CONFIG[:MODE]

@@ -15,8 +15,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_lib.sh"
 # Elenca le celle sperimentali leggendole dal filesystem.
 #
 # Perche' derivarle invece di elencarle: la stessa lista era ricopiata a mano
-# in quattro punti del progetto (questo file, cluster/run_all.sh, remote/app.py
-# e remote/tui.py). Una lista statica non segnala mai di essere incompleta:
+# in piu' punti del progetto (questo file, cluster/run_all.sh e l'app). Una lista statica non segnala mai di essere incompleta:
 # aggiungendo una cella si ottiene un aiuto in linea che mente. Derivandola,
 # l'aiuto e' corretto per costruzione.
 #
