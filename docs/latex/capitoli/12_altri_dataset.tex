@@ -269,7 +269,8 @@ PHOENIX, $0{,}36$ di CoNLL e $0{,}12$ di WOS; gli SFT si fermano per early
 stopping. La valutazione genera cinque uscite campionate per prompt
 (temperatura $0{,}7$) su tutto il test di PHOENIX ($642$ frasi) e su $2.000$
 prompt del test di CoNLL e WOS. Un solo seme per cella, come per ASLG-PC12
-(sezione~\ref{sec:determinismo}).
+(sezione~\ref{sec:determinismo}), salvo le sei repliche della
+sezione~\ref{sec:semi-conll}.
 
 \section{Risultati}
 
@@ -313,6 +314,44 @@ La cella GRPO senza Trie zero-shot ha ROUGE-L $0{,}29$ con validity zero: il
 modello scrive parole tedesche minuscole separate da virgole
 (\texttt{regen, schnee, nacht, nach, nordosten, schauer}), che ROUGE-L,
 insensibile al maiuscolo, premia per accidente (sezione~\ref{sec:difetto-rouge}).
+
+\paragraph{Il Trie costruito su tutto il dataset.} Come su ASLG-PC12, una cella
+GRPO few-shot ha il vocabolario del Trie estratto anche dal test (una fuga di
+informazione deliberata, per misurare quanto costa il tetto del vocabolario di
+train). Su PHOENIX non costa nulla: ROUGE-L $0{,}3575$ contro $0{,}3601$ della
+cella normale, exact match identico ($0{,}0162$), validity $0{,}998$. Il
+vocabolario di train non è un limite su questo corpus.
+
+\paragraph{Un modello tre volte più grande.} Le celle principali sono state
+ripetute con Qwen2.5-1.5B-Instruct, cambiando solo il modello:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrrrr}
+\toprule
+ & \multicolumn{2}{c}{ROUGE-L} & \multicolumn{2}{c}{Exact match} \\
+Cella & 0,5B & 1,5B & 0,5B & 1,5B \\
+\midrule
+Base zero-shot         & $0{,}0961$ & $0{,}1199$ & $0{,}0000$ & $0{,}0000$ \\
+Base few-shot          & $0{,}3103$ & $0{,}3519$ & $0{,}0106$ & $0{,}0131$ \\
+SFT                    & $0{,}4854$ & $0{,}5015$ & $0{,}0184$ & $0{,}0171$ \\
+SFT$\to$GRPO zero-shot & $0{,}5274$ & $0{,}5421$ & $0{,}0283$ & $0{,}0318$ \\
+GRPO few-shot          & $0{,}3601$ & $0{,}4337$ & $0{,}0162$ & $0{,}0221$ \\
+\bottomrule
+\end{tabular}
+\caption{PHOENIX-2014T, Qwen2.5 da $0{,}5$B e da $1{,}5$B a parità di tutto il
+resto.}
+\label{tab:phoenix-15b}
+\end{table}
+
+Il modello più grande aiuta poco: $+1$--$2$ punti di ROUGE-L sulle celle con
+SFT, e l'exact match resta sotto il $3{,}2\%$ in ogni cella. Il guadagno
+maggiore è nel GRPO few-shot dal modello base ($+7$ punti di ROUGE-L, non-copy
+da $0{,}33$ a $0{,}39$). Su PHOENIX il limite non è la dimensione del modello,
+e il SFT$\to$GRPO resta la cella migliore a entrambe le taglie. La baseline
+zero-shot da $1{,}5$B ha validity più bassa ($0{,}80$ contro $0{,}96$): sotto
+Trie il modello più grande si ripete più spesso fino al limite di lunghezza.
 
 \subsection{CoNLL-2003}
 
@@ -358,33 +397,75 @@ sbagliati dà ancora fra $+0{,}14$ e $+0{,}43$ (contro $-1$ di \texttt{NONE});
 tutti \texttt{MISC} rende più di tutti \texttt{ORG}. In few-shot, dove gli
 esempi mostrano i tipi, l'exact match sale a $0{,}32$.
 
-\subsection{Quanto pesano i semi}
-\label{sec:semi-conll}
-
-Ogni cella del progetto ha un solo seme, e a seme fisso l'addestramento è
-deterministico (sezione~\ref{sec:determinismo}): la variabilità fra semi non è
-mai stata misurata. Su CoNLL due celle GRPO sono state replicate con un
-secondo seme di addestramento, a parità di split e di prompt valutati:
+\paragraph{Una reward che guarda il tipo, risultato negativo.} Se il segnale
+sui tipi è debole, la correzione naturale è una reward che li distingua. Due
+celle hanno sostituito ROUGE-L e BLEU (peso totale $0{,}40$) con l'F1 fra i
+token di uscita e di gold, uno per entità tipata: lo span giusto col tipo
+sbagliato vale zero.
 
 \begin{center}
 \small
 \begin{tabular}{lrrrr}
 \toprule
- & \multicolumn{2}{c}{Exact match} & \multicolumn{2}{c}{Validity} \\
-Cella & seme 42 & seme 1 & seme 42 & seme 1 \\
+ & \multicolumn{2}{c}{Exact match} & \multicolumn{2}{c}{Gloss-F1} \\
+GRPO dal modello base & ROUGE+BLEU & entity-F1 & ROUGE+BLEU & entity-F1 \\
 \midrule
-GRPO zero-shot             & $0{,}030$ & $0{,}038$ & $1{,}000$ & $1{,}000$ \\
-GRPO senza Trie, zero-shot & $0{,}147$ & $0{,}057$ & $0{,}458$ & $0{,}202$ \\
+zero-shot & $0{,}030$ & $0{,}042$ & $0{,}130$ & $0{,}102$ \\
+few-shot  & $0{,}325$ & $0{,}334$ & $0{,}378$ & $0{,}377$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Con il Trie la cella è stabile: le due repliche differiscono di meno di un
-punto di exact match. Senza Trie no: la validity passa da $0{,}46$ a $0{,}20$ e
-l'exact match da $0{,}15$ a $0{,}06$. Quando la struttura non è garantita dal
-decoder, che il GRPO la trovi o meno dipende dal caso dei primi rollout; il
-singolo valore di quella cella va letto come un ordine di grandezza, non come
-una misura.
+La reward nuova non cambia il risultato. In zero-shot la componente di
+entity-F1 parte da $-0{,}88$ e a fine addestramento è a $-0{,}84$, e il $42\%$
+dei gruppi ha varianza nulla: il modello base non azzecca quasi mai
+un'entità tipata, quindi quasi ogni candidato vale $-1$ e non c'è nulla da
+confrontare dentro il gruppo. Il modello emette anzi \texttt{MISC} ancora più
+spesso ($24.152$ volte contro $15.004$). In few-shot non cambia nulla. Il
+collo di bottiglia non è la reward ma l'\emph{esplorazione}: dal modello base il
+GRPO non campiona abbastanza tipi giusti da poterli rinforzare. È lo stesso
+risultato della sezione~\ref{sec:osservazioni-altri}, visto da un'altra parte.
+\todo{aggiungere GRPO zero-shot con Qwen2.5-1.5B su CoNLL (in corso): dice se
+un modello più capace scopre i tipi}
+
+\subsection{Quanto pesano i semi}
+\label{sec:semi-conll}
+
+Ogni cella del progetto ha un solo seme, e a seme fisso l'addestramento è
+deterministico (sezione~\ref{sec:determinismo}): la variabilità fra semi non è
+mai stata misurata. Sei celle sono state replicate con un secondo seme di
+addestramento (cambia solo l'RNG del GRPO; split, prompt valutati e, per
+SFT$\to$GRPO, la fase SFT restano quelli della cella originale):
+
+\begin{center}
+\small
+\begin{tabular}{llrrr}
+\toprule
+Dataset & Cella & seme 42 & seme 1 & SFT \\
+\midrule
+CoNLL-2003    & SFT$\to$GRPO zero-shot, exact match & $0{,}781$ & $0{,}787$ & $0{,}745$ \\
+WOS-46985     & SFT$\to$GRPO zero-shot, exact match & $0{,}787$ & $0{,}785$ & $0{,}762$ \\
+PHOENIX-2014T & SFT$\to$GRPO zero-shot, exact match & $0{,}028$ & $0{,}023$ & $0{,}018$ \\
+PHOENIX-2014T & SFT$\to$GRPO zero-shot, ROUGE-L     & $0{,}527$ & $0{,}522$ & $0{,}485$ \\
+CoNLL-2003    & GRPO zero-shot, exact match         & $0{,}030$ & $0{,}038$ & --- \\
+CoNLL-2003    & GRPO senza Trie, zero-shot, validity & $0{,}458$ & $0{,}202$ & --- \\
+PHOENIX-2014T & GRPO senza Trie, few-shot, validity & $0{,}992$ & $0{,}994$ & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Tre risultati. Primo, \textbf{il guadagno di SFT$\to$GRPO sull'SFT è stabile}
+su CoNLL e WOS: le due repliche differiscono di meno di un punto e restano
+entrambe sopra l'SFT di $2{,}3$--$4{,}3$ punti. Su PHOENIX l'exact match è
+troppo basso perché i soli punti decimali dicano qualcosa, ma ROUGE-L ($+3{,}7$
+e $+4{,}0$ punti) e gloss-F1 reggono. Secondo, \textbf{con il Trie le celle sono
+stabili}: anche il GRPO zero-shot dal modello base differisce di meno di un
+punto. Terzo, \textbf{senza Trie dipende}: con gli esempi nel prompt
+(PHOENIX few-shot) la validity è $0{,}99$ a entrambi i semi, mentre su CoNLL
+zero-shot passa da $0{,}46$ a $0{,}20$ e l'exact match da $0{,}15$ a $0{,}06.$
+Quando la struttura non è garantita dal decoder né dal prompt, che il GRPO la
+trovi o meno dipende dal caso dei primi rollout; quel singolo valore va letto
+come un ordine di grandezza, non come una misura.
 
 \subsection{WOS-46985}
 
@@ -432,7 +513,7 @@ delle celle GRPO dipende soprattutto dalla presenza di esempi nel prompt:
 GRPO senza Trie & few-shot & zero-shot \\
 \midrule
 ASLG-PC12     & $0{,}99$ & --- \\
-PHOENIX-2014T & $0{,}99$ & $0{,}00$ \\
+PHOENIX-2014T & $0{,}99$ ($0{,}99$ col seme 1) & $0{,}00$ \\
 CoNLL-2003    & $0{,}65$ & $0{,}20$--$0{,}46$ \\
 WOS-46985     & ---      & $0{,}0001$ \\
 \bottomrule

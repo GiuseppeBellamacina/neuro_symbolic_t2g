@@ -200,7 +200,11 @@ verificabili:
   \item un caso documentato di \textbf{reward hacking sotto vincolo}: su
         CoNLL-2003 il GRPO impara a ripetere ogni entità con tutti i tipi, e
         bloccato quello a scrivere entità annidate; la correzione va nella
-        grammatica, non nella reward.
+        grammatica, non nella reward;
+  \item un risultato negativo sull'\textbf{esplorazione}: su CoNLL una reward
+        che premia solo l'entità col tipo giusto non fa imparare i tipi al GRPO
+        dal modello base, che non campiona abbastanza tipi giusti da
+        rinforzarli.
 \end{itemize}
 
 \section{Come leggere questa relazione}

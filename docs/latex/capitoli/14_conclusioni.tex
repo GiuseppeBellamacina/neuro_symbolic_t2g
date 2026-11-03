@@ -87,7 +87,13 @@ Secondo: \textbf{con un vincolo attivo il GRPO sfrutta i varchi della
 grammatica}: su CoNLL ha imparato a ripetere ogni entità con tutti i tipi,
 dimezzando l'exact match mentre ROUGE-L saliva, e bloccato quello a scrivere
 entità annidate. La correzione è stata un vincolo più stretto, non una reward
-diversa; tolto l'hack, però, il GRPO dal modello base non impara i tipi.
+diversa; tolto l'hack, però, il GRPO dal modello base non impara i tipi. Né
+li impara con una reward che premia solo il tipo giusto (F1 sulle entità
+tipate): il collo di bottiglia è l'esplorazione, non il segnale, perché il
+modello base non campiona abbastanza tipi giusti da poterli rinforzare. Le
+repliche con un secondo seme confermano il guadagno di SFT$\to$GRPO sull'SFT
+(CoNLL e WOS) e la stabilità delle celle con Trie; su PHOENIX, un modello tre
+volte più grande (1,5B) non porta l'exact match sopra il $3{,}2\%$.
 
 \section{Lavoro futuro}
 
