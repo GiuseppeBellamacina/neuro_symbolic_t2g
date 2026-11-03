@@ -211,6 +211,8 @@ CONFIG_MAP: dict[str, str] = {
     "phoenix-2014t-qwen25-15b-sft-zero-shot": "experiments/configs/phoenix-2014t/qwen25-15b/sft/zero-shot.yaml",
     "phoenix-2014t-qwen25-15b-sft-grpo-zero-shot": "experiments/configs/phoenix-2014t/qwen25-15b/sft-grpo/zero-shot.yaml",
     "phoenix-2014t-qwen25-15b-grpo-few-shot": "experiments/configs/phoenix-2014t/qwen25-15b/grpo/few-shot.yaml",
+    "conll-2003-qwen25-15b-baseline-zero-shot": "experiments/configs/conll-2003/qwen25-15b/baseline/zero-shot.yaml",
+    "conll-2003-qwen25-15b-grpo-zero-shot": "experiments/configs/conll-2003/qwen25-15b/grpo/zero-shot.yaml",
 }
 
 CONFIG_PATHS: set[str] = set(CONFIG_MAP.values())

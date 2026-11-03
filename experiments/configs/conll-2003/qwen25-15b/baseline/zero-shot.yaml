@@ -1,0 +1,16 @@
+# ============================================================================
+# CoNLL-2003 con Qwen2.5-1.5B-Instruct: modello base, zero-shot (solo eval)
+#
+# Identica a qwen25-05b/baseline/zero-shot; cambia SOLO il modello. E' il punto
+# di partenza di grpo/zero-shot (1,5B): senza, il guadagno del GRPO non e'
+# misurabile. Pesi nella cache del cluster (nodi offline).
+# ============================================================================
+
+extends: ../../qwen25-05b/baseline/zero-shot.yaml
+
+model:
+  name: "Qwen/Qwen2.5-1.5B-Instruct"
+
+wandb:
+  run_name: "conll-2003-qwen25-15b-baseline-zero-shot"
+  tags: ["T2G", "CoNLL-2003", "qwen25-15b", "baseline", "zero-shot", "trie", "eval-only"]

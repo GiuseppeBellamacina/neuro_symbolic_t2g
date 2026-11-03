@@ -1,0 +1,23 @@
+# ============================================================================
+# CoNLL-2003 con Qwen2.5-1.5B-Instruct: GRPO dal modello base, zero-shot
+#
+# Identica a qwen25-05b/grpo/zero-shot; cambia SOLO il modello. Con 0,5B il
+# GRPO dal base trova gli span (richiamo 0,66) ma non i tipi (exact match
+# 0,03), e una reward che premia solo il tipo giusto (entity-F1) non cambia
+# nulla: il limite e' l'esplorazione, il modello non campiona abbastanza tipi
+# giusti da rinforzarli. Domanda: con un modello 3x piu' capace il GRPO dal
+# base li scopre?
+# ============================================================================
+
+extends: ../../qwen25-05b/grpo/zero-shot.yaml
+
+model:
+  name: "Qwen/Qwen2.5-1.5B-Instruct"
+
+training:
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-15b/grpo/zero-shot"
+  log_dir: "experiments/logs/conll-2003/qwen25-15b/grpo/zero-shot"
+
+wandb:
+  run_name: "conll-2003-qwen25-15b-grpo-zero-shot"
+  tags: ["T2G", "CoNLL-2003", "qwen25-15b", "grpo", "zero-shot", "trie"]

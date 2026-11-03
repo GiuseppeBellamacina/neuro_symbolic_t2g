@@ -143,6 +143,8 @@ CONFIG_NAMES: tuple[str, ...] = (
     "phoenix-2014t-qwen25-15b-sft-zero-shot",
     "phoenix-2014t-qwen25-15b-sft-grpo-zero-shot",
     "phoenix-2014t-qwen25-15b-grpo-few-shot",
+    "conll-2003-qwen25-15b-baseline-zero-shot",
+    "conll-2003-qwen25-15b-grpo-zero-shot",
 )
 CONFIG_NAME_SET: frozenset[str] = frozenset(CONFIG_NAMES)
 
