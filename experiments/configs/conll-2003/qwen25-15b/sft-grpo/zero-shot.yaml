@@ -1,0 +1,20 @@
+# ============================================================================
+# CoNLL-2003 con Qwen2.5-1.5B-Instruct: SFT seguito da GRPO, zero-shot
+#
+# Identica a qwen25-05b/sft-grpo/zero-shot; cambia SOLO il modello (e i percorsi di output).
+# Serve al confronto di scala 0,5B -> 1,5B a parita' di tutto il resto. Pesi
+# nella cache del cluster (nodi offline).
+# ============================================================================
+
+extends: ../../qwen25-05b/sft-grpo/zero-shot.yaml
+
+model:
+  name: "Qwen/Qwen2.5-1.5B-Instruct"
+
+training:
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-15b/sft-grpo/zero-shot"
+  log_dir: "experiments/logs/conll-2003/qwen25-15b/sft-grpo/zero-shot"
+
+wandb:
+  run_name: "conll-2003-qwen25-15b-sft-grpo-zero-shot"
+  tags: ["T2G", "CoNLL-2003", "qwen25-15b", "sft-grpo", "zero-shot", "trie"]

@@ -1,0 +1,20 @@
+# ============================================================================
+# WOS-46985 con Qwen2.5-1.5B-Instruct: SFT
+#
+# Identica a qwen25-05b/sft/zero-shot; cambia SOLO il modello (e i percorsi di output).
+# Serve al confronto di scala 0,5B -> 1,5B a parita' di tutto il resto. Pesi
+# nella cache del cluster (nodi offline).
+# ============================================================================
+
+extends: ../../qwen25-05b/sft/zero-shot.yaml
+
+model:
+  name: "Qwen/Qwen2.5-1.5B-Instruct"
+
+training:
+  output_dir: "experiments/checkpoints/wos-46985/qwen25-15b/sft/zero-shot"
+  log_dir: "experiments/logs/wos-46985/qwen25-15b/sft/zero-shot"
+
+wandb:
+  run_name: "wos-46985-qwen25-15b-sft-zero-shot"
+  tags: ["T2G", "WOS-46985", "qwen25-15b", "sft", "zero-shot", "trie"]

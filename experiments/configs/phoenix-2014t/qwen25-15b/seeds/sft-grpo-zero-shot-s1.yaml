@@ -1,0 +1,21 @@
+# ============================================================================
+# Replica a seme 1 di qwen25-15b/sft-grpo/zero-shot (PHOENIX-2014T, 1,5B).
+# Cambia solo training.seed; la fase SFT NON si rifa' (adapter_path punta
+# all'adapter SFT della run originale). Misura il rumore fra semi a 1,5B:
+# senza, il +1,4 punti di ROUGE-L del 1,5B sullo 0,5B non e' confrontabile col
+# rumore (0,5 punti fra i due semi dello 0,5B).
+# ============================================================================
+
+extends: ../sft-grpo/zero-shot.yaml
+
+sft_pretrain:
+  adapter_path: "experiments/checkpoints/phoenix-2014t/qwen25-15b/sft-grpo/zero-shot/run_20261021_140143/sft_pretrain/final"
+
+training:
+  seed: 1
+  output_dir: "experiments/checkpoints/phoenix-2014t/qwen25-15b/seeds/sft-grpo-zero-shot-s1"
+  log_dir: "experiments/logs/phoenix-2014t/qwen25-15b/seeds/sft-grpo-zero-shot-s1"
+
+wandb:
+  run_name: "phoenix-2014t-qwen25-15b-seeds-sft-grpo-zero-shot-s1"
+  tags: ["T2G", "PHOENIX-2014T", "qwen25-15b", "sft-grpo", "zero-shot", "seed-replica"]
