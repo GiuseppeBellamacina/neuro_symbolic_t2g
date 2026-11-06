@@ -90,7 +90,10 @@ entità annidate. La correzione è stata un vincolo più stretto, non una reward
 diversa; tolto l'hack, però, il GRPO dal modello base non impara i tipi. Né
 li impara con una reward che premia solo il tipo giusto (F1 sulle entità
 tipate): il collo di bottiglia è l'esplorazione, non il segnale, perché il
-modello base non campiona abbastanza tipi giusti da poterli rinforzare. Le
+modello base non campiona abbastanza tipi giusti da poterli rinforzare. Con un
+modello tre volte più grande (1,5B) li impara in parte (F1 sulle entità tipate
+da $0{,}01$ a $0{,}26$, contro $0{,}81$ dell'SFT): la dimensione allenta il
+problema dell'esplorazione senza eliminarlo. Le
 repliche con un secondo seme confermano il guadagno di SFT$\to$GRPO sull'SFT
 (CoNLL e WOS) e la stabilità delle celle con Trie; su PHOENIX, un modello tre
 volte più grande (1,5B) non porta l'exact match sopra il $3{,}2\%$.

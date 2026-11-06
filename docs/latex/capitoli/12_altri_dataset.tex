@@ -425,8 +425,40 @@ spesso ($24.152$ volte contro $15.004$). In few-shot non cambia nulla. Il
 collo di bottiglia non è la reward ma l'\emph{esplorazione}: dal modello base il
 GRPO non campiona abbastanza tipi giusti da poterli rinforzare. È lo stesso
 risultato della sezione~\ref{sec:osservazioni-altri}, visto da un'altra parte.
-\todo{aggiungere GRPO zero-shot con Qwen2.5-1.5B su CoNLL (in corso): dice se
-un modello più capace scopre i tipi}
+
+\paragraph{Un modello più capace scopre i tipi, in parte.} Se il limite è
+l'esplorazione, un modello più capace dovrebbe campionare più tipi giusti. Lo
+stesso GRPO zero-shot è stato ripetuto con Qwen2.5-1.5B (cambia solo il
+modello). Qui l'exact match inganna, perché conta anche le frasi senza entità
+(il $20\%$ del gold): il modello base da $1{,}5$B risponde \texttt{NONE} nel
+$96\%$ dei casi e per questo ha exact match $0{,}205$ senza trovare quasi
+nessuna entità. Conta l'F1 sulle entità tipate, \texttt{NONE} escluso:
+
+\begin{center}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Cella & NONE & Precisione & F1 entità tipate & Exact match \\
+\midrule
+0,5B base zero-shot  & $19\%$ & $0{,}05$ & $0{,}07$ & $0{,}045$ \\
+1,5B base zero-shot  & $96\%$ & $0{,}14$ & $0{,}01$ & $0{,}205$ \\
+0,5B GRPO zero-shot  & $12\%$ & $0{,}09$ & $0{,}13$ & $0{,}030$ \\
+1,5B GRPO zero-shot  & $66\%$ & $0{,}39$ & $0{,}26$ & $0{,}280$ \\
+0,5B SFT (riferimento) & $20\%$ & $0{,}81$ & $0{,}81$ & $0{,}745$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Con il modello più grande il GRPO dal base impara qualcosa di vero: l'F1 sulle
+entità tipate sale da $0{,}01$ a $0{,}26$ e la precisione sui tipi da $0{,}14$ a
+$0{,}39$ (con lo 0,5B era $0{,}09$), e la reward di training passa da $-0{,}21$ a
+$+0{,}04$ contro $-0{,}47 \to -0{,}37$ dello 0,5B. Il collasso su
+\texttt{MISC} sparisce ($697$ emissioni contro $15.004$, con $1.990$ nel gold).
+Ma è un apprendimento parziale: il modello resta molto prudente (\texttt{NONE}
+nel $66\%$ dei casi contro il $20\%$ del gold), produce quasi nessun
+\texttt{LOC} ($484$ contro $4.720$) e arriva a $0{,}26$ di F1 contro $0{,}81$
+dell'SFT. Quindi l'esplorazione è davvero un fattore che la dimensione del
+modello allenta, ma non basta a sostituire la supervisione.
 
 \subsection{Quanto pesano i semi}
 \label{sec:semi-conll}
