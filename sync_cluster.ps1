@@ -23,20 +23,13 @@ function Download-RemoteDir($remoteSubpath, $localDest) {
 }
 
 function Filter-EnvForUpload($envPath) {
-    # Security: strip local-only settings before uploading .env to the cluster
-    # (leftover TUI section and T2G_AUTH_TOKEN / T2G_SERVICE_URL lines of the
-    # old remote driver): they must never leave this machine.
-    if (-not (Test-Path $envPath)) { return $envPath }
+    # The cluster never needs the local VPN / ssh settings, and the VPN password must not be copied there.
+    # Returns the path of a filtered copy, or $null when nothing is left for the cluster (an empty file
+    # must not overwrite the .env that is already on the cluster).
+    if (-not (Test-Path $envPath)) { return $null }
+    $kept = Get-Content $envPath | Where-Object { $_ -notmatch '^\s*(VPN_|T2G_SSH_)\w*\s*=' }
+    if (-not ($kept | Where-Object { $_ -match '^\s*[A-Za-z_]\w*\s*=' })) { return $null }
     $tmp = Join-Path $env:TEMP "t2g_env_upload_$PID.env"
-    $inSection = $false
-    $kept = foreach ($line in Get-Content $envPath) {
-        if ($line -match '^\s*# >>> t2g-tui >>>') { $inSection = $true; continue }
-        if ($line -match '^\s*# <<< t2g-tui <<<') { $inSection = $false; continue }
-        if ($inSection) { continue }
-        if ($line -match '^\s*T2G_AUTH_TOKEN\s*=') { continue }
-        if ($line -match '^\s*T2G_SERVICE_URL\s*=') { continue }
-        $line
-    }
     Set-Content -Path $tmp -Value $kept
     return $tmp
 }
@@ -89,6 +82,10 @@ function Upload {
         # .env: strip the local-only settings before it leaves this machine.
         if ($item -eq ".env") {
             $localPath = Filter-EnvForUpload $localPath
+            if (-not $localPath) {
+                Write-Host "  [SKIP] .env (nothing for the cluster)" -ForegroundColor Yellow
+                continue
+            }
         }
 
         $remoteRel = $item
