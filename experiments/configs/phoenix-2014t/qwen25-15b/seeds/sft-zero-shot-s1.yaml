@@ -1,0 +1,21 @@
+# ============================================================================
+# Replica a seme 1 dell'SFT (PHOENIX-2014T, 1,5B). Cambiano training.seed (ordine dei
+# dati) e lora.random_state (inizializzazione LoRA); split e prompt valutati
+# restano quelli di dataset.seed. Misura la variabilita' dell'SFT fra semi, mai
+# misurata: serve a leggere le differenze fra celle SFT (es. WOS 0,5B contro
+# 1,5B, -2,8 punti di exact match) contro il rumore dell'addestramento.
+# ============================================================================
+
+extends: ../sft/zero-shot.yaml
+
+lora:
+  random_state: 1
+
+training:
+  seed: 1
+  output_dir: "experiments/checkpoints/phoenix-2014t/qwen25-15b/seeds/sft-zero-shot-s1"
+  log_dir: "experiments/logs/phoenix-2014t/qwen25-15b/seeds/sft-zero-shot-s1"
+
+wandb:
+  run_name: "phoenix-2014t-qwen25-15b-seeds-sft-zero-shot-s1"
+  tags: ["T2G", "PHOENIX-2014T", "qwen25-15b", "sft", "zero-shot", "seed-replica"]
