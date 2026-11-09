@@ -1,0 +1,86 @@
+{
+  "model": "run_20261106_113812",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 195,
+      "rouge_l": 1.0,
+      "gold": "WEST FREUNDLICH",
+      "prediction": "WEST FREUNDLICH",
+      "prompt": "im westen ist es freundlich"
+    },
+    {
+      "group": "best",
+      "index": 338,
+      "rouge_l": 1.0,
+      "gold": "SAMSTAG MEHR FREUNDLICH TROCKEN MEHR WARM",
+      "prediction": "SAMSTAG MEHR FREUNDLICH TROCKEN MEHR WARM",
+      "prompt": "am samstag überwiegend freundlich meist trocken und wärmer"
+    },
+    {
+      "group": "best",
+      "index": 620,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN MITTWOCH ACHTE SEPTEMBER",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN MITTWOCH ACHTE SEPTEMBER",
+      "prompt": "und nun die wettervorhersage für morgen mittwoch den achten september"
+    },
+    {
+      "group": "best",
+      "index": 822,
+      "rouge_l": 1.0,
+      "gold": "TEIL AUCH KLAR",
+      "prediction": "TEIL AUCH KLAR",
+      "prompt": "teilweise ist es auch klar"
+    },
+    {
+      "group": "best",
+      "index": 885,
+      "rouge_l": 1.0,
+      "gold": "SCHOEN ABEND TSCHUESS",
+      "prediction": "SCHOEN ABEND TSCHUESS",
+      "prompt": "ich wünsche noch einen schönen abend und tschüss"
+    },
+    {
+      "group": "worst",
+      "index": 515,
+      "rouge_l": 0.0,
+      "gold": "TRUEB DIESE BILD",
+      "prediction": "REGION MEISTENS BISSCHEN SCHON KLAR REGION",
+      "prompt": "es bleibt meist trüb wie auf diesem bild hier"
+    },
+    {
+      "group": "worst",
+      "index": 610,
+      "rouge_l": 0.0,
+      "gold": "IX NACHMITTAG KOMMEN REGEN VIERHUNDERT ACHTHUNDERT METER UEBER SCHNEE",
+      "prediction": "REGION SCHAUER AUCH GEWITTER",
+      "prompt": "sonst einzelne schauer an der nordsee auch gewitter"
+    },
+    {
+      "group": "worst",
+      "index": 626,
+      "rouge_l": 0.0,
+      "gold": "NORD FRISCH IX WEHEN IX WEHEN IM-VERLAUF SPAETER NORD STARK WEHEN",
+      "prediction": "REGION SCHWACH MAESSIG SUEDOST OST WIND KOMMEN SUEDWEST REGION STURM KOENNEN",
+      "prompt": "schwacher bis mäßiger im norden zum teil frischer südost bis ostwind der im südwesten später auf südwest dreht an den küsten bläst er stark mit stürmischen böen"
+    },
+    {
+      "group": "worst",
+      "index": 845,
+      "rouge_l": 0.0,
+      "gold": "FUER HEUTE WETTER BESSER RUHIG",
+      "prediction": "WOCHENENDE BISSCHEN MEHR BERUHIGEN",
+      "prompt": "am wochenende beruhigt sich dann das wetter langsam"
+    },
+    {
+      "group": "worst",
+      "index": 1022,
+      "rouge_l": 0.0,
+      "gold": "MEHR FREUNDLICH MEHR",
+      "prediction": "SCHOEN",
+      "prompt": "es wird deutlich freundlicher"
+    }
+  ]
+}

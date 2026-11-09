@@ -1,0 +1,86 @@
+{
+  "model": "run_20261106_113812",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 196,
+      "rouge_l": 1.0,
+      "gold": "WEST FREUNDLICH",
+      "prediction": "WEST FREUNDLICH",
+      "prompt": "im westen ist es freundlich"
+    },
+    {
+      "group": "best",
+      "index": 492,
+      "rouge_l": 1.0,
+      "gold": "NORDOST MEHR WOLKE REGEN",
+      "prediction": "NORDOST MEHR WOLKE REGEN",
+      "prompt": "richtung nordosten gibt es mehr wolken hier und da etwas regen"
+    },
+    {
+      "group": "best",
+      "index": 886,
+      "rouge_l": 1.0,
+      "gold": "SCHOEN ABEND TSCHUESS",
+      "prediction": "SCHOEN ABEND TSCHUESS",
+      "prompt": "ich wünsche noch einen schönen abend und tschüss"
+    },
+    {
+      "group": "best",
+      "index": 1630,
+      "rouge_l": 1.0,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT ABEND LIEB ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "best",
+      "index": 1096,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN DIENSTAG FUENF ZWANZIG MAI",
+      "prompt": "und nun die wettervorhersage für morgen dienstag den fünfundzwanzigsten mai"
+    },
+    {
+      "group": "worst",
+      "index": 437,
+      "rouge_l": 0.0,
+      "gold": "WIND REGION",
+      "prediction": "IX STARK WEHEN VOR POMMERN SUEDOST WEHEN",
+      "prompt": "dazu weht ein starker wind vor allen dingen wieder über vorpommern aus südost"
+    },
+    {
+      "group": "worst",
+      "index": 470,
+      "rouge_l": 0.0,
+      "gold": "MILD WEHEN ICH",
+      "prediction": "TROCKEN KALT LUFT KOMMEN DEUTSCHLAND",
+      "prompt": "sehr milde luft strömt zu uns"
+    },
+    {
+      "group": "worst",
+      "index": 515,
+      "rouge_l": 0.0,
+      "gold": "TRUEB DIESE BILD",
+      "prediction": "SAMSTAG MEHR NEBEL IX BLEIBEN KOENNEN TROCKEN",
+      "prompt": "es bleibt meist trüb wie auf diesem bild hier"
+    },
+    {
+      "group": "worst",
+      "index": 540,
+      "rouge_l": 0.0,
+      "gold": "IM-VERLAUF UMSTELLEN REDUZIEREN KUEHL BESONDERS SAMSTAG SONNTAG",
+      "prediction": "IN-KOMMEND REGION KOMMEN NAEHERN MAESSIG BISSCHEN MILD KOELN KOENNEN SONST KOENNEN SONST KOMMEN SONNE",
+      "prompt": "in den nächsten tagen wird das dann nicht mehr der fall sein dann wird es insgesamt ein bisschen kühler vor allen dingen zum wochenende hin"
+    },
+    {
+      "group": "worst",
+      "index": 586,
+      "rouge_l": 0.0,
+      "gold": "SUEDOST REGION VERSCHWINDEN LANGSAM IM-VERLAUF",
+      "prediction": "AB MITTAG NORDWEST MEHR WETTER RUHIG AUCH MOEGLICH",
+      "prompt": "und das wetter im südöstlichen mittelmeer das beruhigt sich nur langsam"
+    }
+  ]
+}

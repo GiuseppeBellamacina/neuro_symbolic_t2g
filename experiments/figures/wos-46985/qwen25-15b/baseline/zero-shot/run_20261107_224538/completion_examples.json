@@ -1,0 +1,86 @@
+{
+  "model": "baseline",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 15,
+      "rouge_l": 1.0,
+      "gold": "Psychology Media_violence",
+      "prediction": "Psychology Media_violence",
+      "prompt": "OBJECTIVE. Despite concerns about exposure to violent media, there are few data on youth exposure to violent movies. In this study we examined such exposure among young US adolescents. METHODS. We use..."
+    },
+    {
+      "group": "best",
+      "index": 44,
+      "rouge_l": 1.0,
+      "gold": "Medical HIV/AIDS",
+      "prediction": "Medical HIV/AIDS",
+      "prompt": "Objective: This study evaluates the potential of gingival crevicular fluid and serum cytokines as HIV stage biomarkers. Methods: Gingival crevicular fluid (GCF) and serum samples from 78 HIV-positive ..."
+    },
+    {
+      "group": "best",
+      "index": 60,
+      "rouge_l": 1.0,
+      "gold": "biochemistry Human_Metabolism",
+      "prediction": "biochemistry Human_Metabolism",
+      "prompt": "Several sources of information suggest that man evolved on a diet with a ratio of omega-6 to omega-3 fatty acids of approximately 1 whereas today this ratio is approximately 10:1 to 20-25:1, indicatin..."
+    },
+    {
+      "group": "best",
+      "index": 70,
+      "rouge_l": 1.0,
+      "gold": "biochemistry Cell_biology",
+      "prediction": "biochemistry Cell_biology",
+      "prompt": "DNA methylation and specifically the DNA methyltransferase enzyme DNMT3A are involved in the pathogenesis of a variety of hematological diseases and in regulating the function of immune cells. Althoug..."
+    },
+    {
+      "group": "best",
+      "index": 160,
+      "rouge_l": 1.0,
+      "gold": "CS network_security",
+      "prediction": "CS network_security",
+      "prompt": "Most IPv6 security issues are still the same as IPv4; IPv6 has its own unique design characteristics that have additional impact to system and network security, as well as the potential impact on poli..."
+    },
+    {
+      "group": "worst",
+      "index": 5,
+      "rouge_l": 0.0,
+      "gold": "Medical Menopause",
+      "prediction": "ECE System_identification",
+      "prompt": "An association between increased serum concentrations of perfluoroalkyl substances (PFAS) such as perfluorooctane sulfonate (PFOS) and perfluorooctanoate (PFOA) and early menopause has been reported (..."
+    },
+    {
+      "group": "worst",
+      "index": 10,
+      "rouge_l": 0.0,
+      "gold": "Medical Menopause",
+      "prediction": "ECE System_identification",
+      "prompt": "Reproduction is essential for the survival of the species and is influenced by external factors such as smoking and exposure to chemotherapy as well as chronic disorders such as obesity and autoimmuni..."
+    },
+    {
+      "group": "worst",
+      "index": 20,
+      "rouge_l": 0.0,
+      "gold": "Medical Skin_Care",
+      "prediction": "biochemistry Human_Metabolism",
+      "prompt": "Background: Preservatives are added to cosmetics and other consumer products to prevent microbial growth and product degradation. Many cosmetic preservatives are skin sensitizers and frequent causes o..."
+    },
+    {
+      "group": "worst",
+      "index": 25,
+      "rouge_l": 0.0,
+      "gold": "CS Image_processing",
+      "prediction": "Civil Geotextile",
+      "prompt": "Controlling the geometric parameters of the weld pool and the weld bead is the main method for getting better welding quality in industrial robotic welding. This paper presents the technology on a rea..."
+    },
+    {
+      "group": "worst",
+      "index": 30,
+      "rouge_l": 0.0,
+      "gold": "Psychology Attention",
+      "prediction": "ECE System_identification",
+      "prompt": "The Great East Japan Earthquake (GEJE) and subsequent tsunamis that occurred in 2011 caused extensive and severe structural damage and interrupted numerous research activities; however, the majority o..."
+    }
+  ]
+}

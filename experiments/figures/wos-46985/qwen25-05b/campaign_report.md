@@ -1,6 +1,6 @@
 # Campaign Report — wos-46985 / qwen25-05b
 
-Generated: 2026-11-03T15:28:39+00:00
+Generated: 2026-11-09T18:02:36+00:00
 
 > Complementare ad `ablation-summary`: qui i run sono appaiati
 > per fattore sperimentale. **Legge i JSON di eval: non
