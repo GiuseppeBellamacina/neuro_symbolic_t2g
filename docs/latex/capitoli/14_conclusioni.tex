@@ -96,7 +96,15 @@ da $0{,}01$ a $0{,}26$, contro $0{,}81$ dell'SFT): la dimensione allenta il
 problema dell'esplorazione senza eliminarlo. Le
 repliche con un secondo seme confermano il guadagno di SFT$\to$GRPO sull'SFT
 (CoNLL e WOS) e la stabilità delle celle con Trie; su PHOENIX, un modello tre
-volte più grande (1,5B) non porta l'exact match sopra il $3{,}2\%$.
+volte più grande (1,5B) non porta l'exact match sopra il $3{,}2\%$. Il
+confronto di scala sui tre dataset dà un risultato netto: il guadagno del GRPO
+sopra l'SFT è lo stesso a $0{,}5$B e a $1{,}5$B (CoNLL $+3{,}8$ punti di exact
+match, WOS $+2{,}5$ e $+2{,}7$, PHOENIX $+4{,}2$ e $+4{,}1$ di ROUGE-L), mentre la
+taglia sposta il punto di partenza, in meglio su CoNLL e PHOENIX e in peggio su
+WOS. Su PHOENIX le baseline a regole (solo maiuscolo $0{,}21$, lessico
+unigramma $0{,}44$ di ROUGE-L) stanno sotto i modelli addestrati ($0{,}49$--$0{,}54$):
+è il primo corpus del lavoro in cui il confronto con una regola non toglie
+significato ai numeri.
 
 \section{Lavoro futuro}
 

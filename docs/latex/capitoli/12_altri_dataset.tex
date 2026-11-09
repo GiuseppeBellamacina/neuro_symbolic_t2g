@@ -269,7 +269,7 @@ PHOENIX, $0{,}36$ di CoNLL e $0{,}12$ di WOS; gli SFT si fermano per early
 stopping. La valutazione genera cinque uscite campionate per prompt
 (temperatura $0{,}7$) su tutto il test di PHOENIX ($642$ frasi) e su $2.000$
 prompt del test di CoNLL e WOS. Un solo seme per cella, come per ASLG-PC12
-(sezione~\ref{sec:determinismo}), salvo le sei repliche della
+(sezione~\ref{sec:determinismo}), salvo le repliche della
 sezione~\ref{sec:semi-conll}.
 
 \section{Risultati}
@@ -314,6 +314,41 @@ La cella GRPO senza Trie zero-shot ha ROUGE-L $0{,}29$ con validity zero: il
 modello scrive parole tedesche minuscole separate da virgole
 (\texttt{regen, schnee, nacht, nach, nordosten, schauer}), che ROUGE-L,
 insensibile al maiuscolo, premia per accidente (sezione~\ref{sec:difetto-rouge}).
+
+\paragraph{Le baseline a regole.} Su ASLG-PC12 una regola da poche righe
+batteva ogni risultato col reinforcement learning (sezione~\ref{sec:baseline-regole}).
+Va rifatto il controllo su PHOENIX, ma la baseline di ASLG non si applica: usa
+solo coppie in cui testo e gloss hanno la stessa lunghezza, e qui l'ordine e la
+lunghezza cambiano. Servono due regole, stimate sul solo train, con la soglia
+scelta sulla validation e il test guardato una volta: il \emph{solo maiuscolo}
+e un \emph{lessico unigramma}, in cui ogni parola tedesca diventa il gloss che
+le è più associato (coefficiente di Dice sulla co-occorrenza nella stessa frase)
+e viene scartata se l'associazione è sotto $0{,}4$.
+
+\begin{center}
+\small
+\begin{tabular}{lrrr}
+\toprule
+Sistema & ROUGE-L & Exact match & Non-copy \\
+\midrule
+Solo maiuscolo               & $0{,}2126$ & $0{,}0000$ & $0{,}0000$ \\
+Lessico unigramma            & $0{,}4417$ & $0{,}0031$ & $0{,}2209$ \\
+0,5B, SFT                    & $0{,}4854$ & $0{,}0184$ & $0{,}3812$ \\
+0,5B, SFT$\to$GRPO zero-shot & $0{,}5274$ & $0{,}0283$ & $0{,}4599$ \\
+1,5B, SFT$\to$GRPO zero-shot & $0{,}5421$ & $0{,}0318$ & $0{,}4826$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il quadro è l'opposto di ASLG. Il solo maiuscolo non va da nessuna parte
+(ROUGE-L $0{,}21$, nessuna frase esatta) e anche la regola migliore resta sotto
+SFT e SFT$\to$GRPO: di $4$--$10$ punti di ROUGE-L e di $16$--$26$ di
+non-copy. I numeri di questo corpus si leggono senza il riferimento che su ASLG
+li rendeva ambigui. Resta però vero che il GRPO dal modello base non batte la
+regola (ROUGE-L $0{,}20$ in zero-shot, $0{,}36$ in few-shot, contro $0{,}44$): per
+battere un riferimento serve l'SFT, come su ASLG. L'exact match è sotto il
+$3{,}2\%$ per tutti, regola compresa, perché un gloss ha molte forme valide: qui
+conta poco, e contano ROUGE-L, non-copy e gloss-F1.
 
 \paragraph{Il Trie costruito su tutto il dataset.} Come su ASLG-PC12, una cella
 GRPO few-shot ha il vocabolario del Trie estratto anche dal test (una fuga di
@@ -465,7 +500,7 @@ modello allenta, ma non basta a sostituire la supervisione.
 
 Ogni cella del progetto ha un solo seme, e a seme fisso l'addestramento è
 deterministico (sezione~\ref{sec:determinismo}): la variabilità fra semi non è
-mai stata misurata. Sei celle sono state replicate con un secondo seme di
+mai stata misurata. Sette celle sono state replicate con un secondo seme di
 addestramento (cambia solo l'RNG del GRPO; split, prompt valutati e, per
 SFT$\to$GRPO, la fase SFT restano quelli della cella originale):
 
@@ -479,6 +514,8 @@ CoNLL-2003    & SFT$\to$GRPO zero-shot, exact match & $0{,}781$ & $0{,}787$ & $0
 WOS-46985     & SFT$\to$GRPO zero-shot, exact match & $0{,}787$ & $0{,}785$ & $0{,}762$ \\
 PHOENIX-2014T & SFT$\to$GRPO zero-shot, exact match & $0{,}028$ & $0{,}023$ & $0{,}018$ \\
 PHOENIX-2014T & SFT$\to$GRPO zero-shot, ROUGE-L     & $0{,}527$ & $0{,}522$ & $0{,}485$ \\
+PHOENIX-2014T (1,5B) & SFT$\to$GRPO zero-shot, ROUGE-L & $0{,}542$ & $0{,}540$ & $0{,}502$ \\
+PHOENIX-2014T (1,5B) & SFT$\to$GRPO zero-shot, exact match & $0{,}032$ & $0{,}033$ & $0{,}017$ \\
 CoNLL-2003    & GRPO zero-shot, exact match         & $0{,}030$ & $0{,}038$ & --- \\
 CoNLL-2003    & GRPO senza Trie, zero-shot, validity & $0{,}458$ & $0{,}202$ & --- \\
 PHOENIX-2014T & GRPO senza Trie, few-shot, validity & $0{,}992$ & $0{,}994$ & --- \\
@@ -530,6 +567,45 @@ Senza Trie il modello non produce mai una coppia valida: scrive
 \texttt{Medical Psychology, Medical Psychology}, con dominio e area presi
 dalla stessa lista e una virgola.
 
+\subsection{Il modello più grande, sui tre dataset}
+\label{sec:scala}
+
+Le celle principali sono state ripetute con Qwen2.5-1.5B su tutti e tre i
+dataset (cambia solo il modello). Le differenze sono calcolate con un
+bootstrap a coppie sugli stessi prompt, quindi misurano la variabilità del test
+e non quella dell'addestramento (sezione~\ref{sec:semi-conll}).
+
+\begin{center}
+\small
+\begin{tabular}{llrrr}
+\toprule
+Dataset (metrica) & Cella & 0,5B & 1,5B & Differenza [IC 95\%] \\
+\midrule
+CoNLL (exact match)    & SFT                    & $0{,}745$ & $0{,}778$ & $+3{,}6$ [$+2{,}1$, $+5{,}1$] \\
+CoNLL (exact match)    & SFT$\to$GRPO           & $0{,}781$ & $0{,}814$ & $+3{,}6$ [$+2{,}2$, $+5{,}0$] \\
+WOS (exact match)      & SFT                    & $0{,}762$ & $0{,}734$ & $-2{,}8$ [$-4{,}2$, $-1{,}5$] \\
+WOS (exact match)      & SFT$\to$GRPO           & $0{,}787$ & $0{,}761$ & $-2{,}6$ [$-3{,}9$, $-1{,}4$] \\
+PHOENIX (ROUGE-L)      & SFT                    & $0{,}485$ & $0{,}502$ & $+1{,}5$ [$+0{,}5$, $+2{,}4$] \\
+PHOENIX (ROUGE-L)      & SFT$\to$GRPO           & $0{,}527$ & $0{,}542$ & $+1{,}4$ [$+0{,}6$, $+2{,}2$] \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il modello più grande aiuta dove il compito lo richiede (CoNLL, PHOENIX) e
+\emph{peggiora} su WOS, di $2{,}6$--$2{,}8$ punti, in modo significativo. Non è
+un SFT interrotto male: entrambi si fermano per early stopping a circa $2{,}2$
+epoche e l'1,5B ha una loss di validazione più bassa ($0{,}124$ contro
+$0{,}131$). Migliora la loss e peggiora l'exact match sul test. Le cause non
+sono state isolate: si può pensare a un adattamento peggiore al rumore delle
+etichette (le $134$ classi sono ambigue), oppure alla semplice variabilità
+dell'SFT, mai misurata con più semi per questa cella.
+\todo{aggiungere le repliche a seme 1 dell'SFT (3 dataset, 2 taglie, in corso): dicono se $-2{,}8$ su WOS è un effetto della taglia o rumore dell'SFT}
+
+Su PHOENIX il rumore fra semi dell'1,5B è basso: le due repliche di
+SFT$\to$GRPO danno ROUGE-L $0{,}542$ e $0{,}540$ ed exact match $0{,}032$ e
+$0{,}033$, entrambe sopra entrambe le repliche dello 0,5B ($0{,}527$ e
+$0{,}522$). Il guadagno di scala su PHOENIX è quindi reale, anche se piccolo.
+
 \section{Che cosa dicono i tre dataset insieme}
 \label{sec:osservazioni-altri}
 
@@ -578,6 +654,30 @@ dei tipi ripetuti, il GRPO ha aperto quello delle entità annidate. Un vincolo
 rigido va quindi scritto pensando a che cosa \emph{non} deve permettere, non
 solo a che cosa deve garantire. E chiudere il varco non basta a far imparare il
 compito: tolto l'hack, il GRPO zero-shot resta a un exact match di $0{,}03$.
+
+\subsection{Taglia e GRPO si sommano}
+
+Il guadagno del GRPO sopra l'SFT non dipende dalla taglia del modello:
+
+\begin{center}
+\small
+\begin{tabular}{lrr}
+\toprule
+SFT$\to$GRPO meno SFT & 0,5B & 1,5B \\
+\midrule
+CoNLL (exact match)    & $+3{,}8$ & $+3{,}8$ \\
+WOS (exact match)      & $+2{,}5$ & $+2{,}7$ \\
+PHOENIX (ROUGE-L)      & $+4{,}2$ & $+4{,}1$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+I tre incrementi sono quasi identici a entrambe le taglie (tutti significativi),
+anche se il livello di partenza cambia di $3$ punti su CoNLL e di $-3$ su WOS.
+Taglia e GRPO si sommano senza interagire: il modello più grande sposta il punto
+di partenza, il GRPO aggiunge lo stesso incremento. La cella migliore del lavoro
+è SFT$\to$GRPO con $1{,}5$B su CoNLL ($0{,}814$ di exact match, F1 sulle entità
+tipate $0{,}88$).
 
 \subsection{SFT$\to$GRPO è la cella migliore ovunque, ma il guadagno è piccolo}
 
