@@ -1,0 +1,17 @@
+# ============================================================================
+# WOS 1,5B, SFT con learning rate 1e-5 (invece di 2e-5). Su WOS il 1,5B e'
+# PEGGIORE dello 0,5B di 2,0-2,8 punti di exact match, robustamente (due semi),
+# con gli iperparametri scelti per lo 0,5B. Un solo fattore: il learning rate.
+# Se l'exact match sale verso lo 0,5B, l'anomalia era di iperparametri.
+# ============================================================================
+
+extends: ../../sft/zero-shot.yaml
+
+training:
+  learning_rate: 1.0e-5
+  output_dir: "experiments/checkpoints/wos-46985/qwen25-15b/ablations/sft/lr-1e-5"
+  log_dir: "experiments/logs/wos-46985/qwen25-15b/ablations/sft/lr-1e-5"
+
+wandb:
+  run_name: "wos-46985-qwen25-15b-ablations-sft-lr-1e-5"
+  tags: ["T2G", "WOS-46985", "qwen25-15b", "sft", "zero-shot", "ablation", "lr"]

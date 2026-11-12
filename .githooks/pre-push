@@ -1,8 +1,16 @@
 #!/bin/sh
 # ============================================================================
-# pre-push hook — sincronizza src/, config/, e file chiave
-# sul cluster DMI solo se i commit in push contengono file modificati
-# in quelle cartelle.
+# pre-push hook — allinea il cluster DMI con il working tree: src/, cluster/,
+# experiments/configs/, pyproject.toml, main.py.
+#
+# Sincronizza SEMPRE (non solo cio' che cambia nel push) con un solo
+# trasferimento: se una copia fallisce (VPN giu', cluster irraggiungibile) il
+# push prosegue, e quello successivo la ripara da solo. Prima copiava solo le
+# cartelle toccate dal push e una copia fallita non veniva piu' ritentata:
+# cluster/presets.yaml era rimasto fuori per settimane.
+#
+# Il working tree (non il commit) e' la fonte, come con scp. Non cancella nulla
+# sul cluster (un file tolto dal repo resta li').
 #
 # Installazione (una tantum):
 #   git config core.hooksPath .githooks
@@ -10,71 +18,36 @@
 
 REPO_DIR="$(git rev-parse --show-toplevel)"
 CLUSTER="bllgpp02h24c351g@gcluster.dmi.unict.it"
-REMOTE_BASE="~/neuro_symbolic_t2g"
+REMOTE_BASE="neuro_symbolic_t2g"
+PATHS="src cluster experiments/configs pyproject.toml main.py"
 
-# Read the ref range being pushed (stdin: local_ref local_sha remote_ref remote_sha)
-while read local_ref local_sha remote_ref remote_sha; do
-    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
-        continue  # branch deletion
-    fi
-    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
-        # New branch — diff against merge base with main
-        RANGE="$(git merge-base HEAD main 2>/dev/null || echo HEAD~10)..${local_sha}"
-    else
-        RANGE="${remote_sha}..${local_sha}"
-    fi
+# Il hook legge lo stdin del push solo per svuotarlo: non serve sapere cosa parte.
+cat >/dev/null
 
-    # Get list of changed files in the push range
-    CHANGED=$(git diff --name-only "$RANGE" 2>/dev/null)
+cd "$REPO_DIR" || exit 0
 
-    SYNC_DIRS=""
-    SYNC_FILES=""
-echo "$CHANGED" | grep -q '^src/' && SYNC_DIRS="$SYNC_DIRS src/"
-echo "$CHANGED" | grep -q '^cluster/' && SYNC_DIRS="$SYNC_DIRS cluster/"
-echo "$CHANGED" | grep -q '^experiments/configs/' && SYNC_DIRS="$SYNC_DIRS experiments/configs/"
-    echo "$CHANGED" | grep -q '^pyproject\.toml$' && SYNC_FILES="$SYNC_FILES pyproject.toml"
-    echo "$CHANGED" | grep -q '^main\.py$' && SYNC_FILES="$SYNC_FILES main.py"
-
-    if [ -z "$SYNC_DIRS" ] && [ -z "$SYNC_FILES" ]; then
-        echo "[pre-push] No changes in tracked paths — skip sync"
-        exit 0
-    fi
-
-    echo "[pre-push] Syncing to cluster:${SYNC_DIRS}${SYNC_FILES}"
-
-    FAILED=0
-    for DIR in $SYNC_DIRS; do
-        LOCAL_DIR="$REPO_DIR/$DIR"
-        if [ ! -d "$LOCAL_DIR" ]; then
-            continue
-        fi
-        echo "[pre-push]   syncing $DIR ..."
-        ssh "$CLUSTER" "mkdir -p ${REMOTE_BASE}/${DIR}" 2>/dev/null
-        scp -rq "$LOCAL_DIR." "${CLUSTER}:${REMOTE_BASE}/${DIR}" 2>&1
-        if [ $? -ne 0 ]; then
-            echo "[pre-push] ❌ Failed to sync $DIR"
-            FAILED=1
-        fi
-    done
-
-    for FILE in $SYNC_FILES; do
-        LOCAL_FILE="$REPO_DIR/$FILE"
-        if [ ! -f "$LOCAL_FILE" ]; then
-            continue
-        fi
-        echo "[pre-push]   syncing $FILE ..."
-        scp -q "$LOCAL_FILE" "${CLUSTER}:${REMOTE_BASE}/${FILE}" 2>&1
-        if [ $? -ne 0 ]; then
-            echo "[pre-push] ❌ Failed to sync $FILE"
-            FAILED=1
-        fi
-    done
-
-    if [ $FAILED -ne 0 ]; then
-        echo "[pre-push] ⚠️  Some syncs failed — push continues anyway"
-    else
-        echo "[pre-push] ✅ Cluster sync done"
-    fi
+EXISTING=""
+for P in $PATHS; do
+    [ -e "$P" ] && EXISTING="$EXISTING $P"
 done
+
+if ! ssh -o BatchMode=yes -o ConnectTimeout=12 "$CLUSTER" true 2>/dev/null; then
+    echo "[pre-push] ⚠️  Cluster irraggiungibile (VPN?): NIENTE sincronizzato."
+    echo "[pre-push]    Verra' ripreso dal prossimo push, o a mano:"
+    echo "[pre-push]    git ls-files $PATHS | tar cf - -T - | ssh gcluster 'cd ~/$REMOTE_BASE && tar xf -'"
+    exit 0  # non bloccare mai il push su GitHub
+fi
+
+echo "[pre-push] Allineo il cluster:${EXISTING}"
+# Solo i file tracciati: niente __pycache__, .pyc o file locali non committati.
+git ls-files -- $EXISTING | tar cf - -T - 2>/dev/null \
+    | ssh -o BatchMode=yes "$CLUSTER" "mkdir -p ~/$REMOTE_BASE && cd ~/$REMOTE_BASE && tar xf -"
+STATUS=$?
+
+if [ $STATUS -ne 0 ]; then
+    echo "[pre-push] ❌ Sincronizzazione fallita (codice $STATUS): ritentera' il prossimo push."
+else
+    echo "[pre-push] ✅ Cluster sync done"
+fi
 
 exit 0  # non bloccare mai il push su GitHub

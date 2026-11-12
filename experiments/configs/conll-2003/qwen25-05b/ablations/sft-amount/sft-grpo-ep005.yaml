@@ -1,0 +1,22 @@
+# ============================================================================
+# CoNLL 0,5B, SFT breve (0.05 epoche) seguito dal GRPO zero-shot: quanta
+# supervisione serve prima che il GRPO aiuti? Punti della curva: 0 passi
+# (grpo/zero-shot, F1 0,13), 43 passi (questa cella), SFT completo
+# (sft-grpo/zero-shot, exact match 0,781). Cambia solo la durata dell'SFT.
+# ============================================================================
+
+extends: ../../sft-grpo/zero-shot.yaml
+
+sft_pretrain:
+  training:
+    num_train_epochs: 0.05
+    save_steps: 22
+    warmup_steps: 5
+
+training:
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-05b/ablations/sft-amount/sft-grpo-ep005"
+  log_dir: "experiments/logs/conll-2003/qwen25-05b/ablations/sft-amount/sft-grpo-ep005"
+
+wandb:
+  run_name: "conll-2003-qwen25-05b-ablations-sft-amount-sft-grpo-ep005"
+  tags: ["T2G", "CoNLL-2003", "qwen25-05b", "sft-grpo", "zero-shot", "sft-amount"]

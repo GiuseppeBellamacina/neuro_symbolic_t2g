@@ -1,0 +1,17 @@
+# ============================================================================
+# CoNLL 0,5B, SFT con SOLO 0.15 epoche (circa 129 passi di 860 per epoca): riferimento
+# per sft-grpo-ep015. Warmup e frequenza di valutazione ridotti in proporzione.
+# ============================================================================
+
+extends: ../../sft/zero-shot.yaml
+
+training:
+  num_train_epochs: 0.15
+  save_steps: 44
+  warmup_steps: 10
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-05b/ablations/sft-amount/sft-ep015"
+  log_dir: "experiments/logs/conll-2003/qwen25-05b/ablations/sft-amount/sft-ep015"
+
+wandb:
+  run_name: "conll-2003-qwen25-05b-ablations-sft-amount-sft-ep015"
+  tags: ["T2G", "CoNLL-2003", "qwen25-05b", "sft", "zero-shot", "sft-amount"]

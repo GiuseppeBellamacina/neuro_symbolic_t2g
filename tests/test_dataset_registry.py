@@ -291,8 +291,14 @@ def test_bash_tag_matches_python_cell_tag_for_every_config() -> None:
     script = f"source '{(ROOT / 'cluster' / '_lib.sh').as_posix()}'\n" + "".join(
         f"t2g_tag_from_config '{c}'\n" for c in configs
     )
+    # Lo script va da stdin: come argomento di `bash -c`, Windows lo tronca oltre
+    # ~8 000 caratteri (una riga per config) e bash muore con "unexpected EOF".
     out = subprocess.run(
-        [shutil.which("bash"), "-c", script], capture_output=True, text=True, check=True
+        [shutil.which("bash"), "-s"],
+        input=script,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.split()
     expected = [
         run_paths.cell_tag(run_paths.cell_from_config(ROOT / c)) for c in configs

@@ -1,0 +1,23 @@
+# ============================================================================
+# SFT valutato SENZA Trie (PHOENIX-2014T, 0,5B): SOLO eval, stesso checkpoint di
+# sft/zero-shot. Domanda: dopo l'SFT il Trie serve ancora, o il formato e' gia'
+# imparato? Confronto diretto: sft/zero-shot (con Trie). Il risultato sta in
+# <cella>/run_*/no-trie/ (evaluation.results_subdir) e non tocca quello con Trie.
+# ============================================================================
+
+extends: zero-shot.yaml
+
+training:
+  eval_only: true  # train.sh rifiuta il config (src/training/__main__.py)
+
+grammar:
+  enabled: false
+
+evaluation:
+  best_of_n: false
+  dual_prompting: false
+  results_subdir: "no-trie"
+
+wandb:
+  run_name: "phoenix-2014t-qwen25-05b-sft-zero-shot-no-trie"
+  tags: ["T2G", "PHOENIX-2014T", "qwen25-05b", "sft", "zero-shot", "no-grammar", "eval-only"]
