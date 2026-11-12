@@ -1,0 +1,86 @@
+{
+  "model": "run_20261109_203627",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 195,
+      "rouge_l": 1.0,
+      "gold": "WEST FREUNDLICH",
+      "prediction": "WEST FREUNDLICH",
+      "prompt": "im westen ist es freundlich"
+    },
+    {
+      "group": "best",
+      "index": 451,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER VORAUS INFORMIEREN MORGEN DIENSTAG EINS ZWANZIG JUNI",
+      "prediction": "JETZT WETTER VORAUS INFORMIEREN MORGEN DIENSTAG EINS ZWANZIG JUNI",
+      "prompt": "und nun die wettervorhersage für morgen dienstag den einundzwanzigsten juni"
+    },
+    {
+      "group": "best",
+      "index": 566,
+      "rouge_l": 1.0,
+      "gold": "SONST REGEN",
+      "prediction": "SONST REGEN",
+      "prompt": "sonst regnet es zeitweise"
+    },
+    {
+      "group": "best",
+      "index": 774,
+      "rouge_l": 1.0,
+      "gold": "SUED BISSCHEN SCHAUER MOEGLICH",
+      "prediction": "SUED BISSCHEN SCHAUER MOEGLICH",
+      "prompt": "ganz im süden sind einzelne schauer möglich"
+    },
+    {
+      "group": "best",
+      "index": 887,
+      "rouge_l": 1.0,
+      "gold": "SCHOEN ABEND TSCHUESS",
+      "prediction": "SCHOEN ABEND TSCHUESS",
+      "prompt": "ich wünsche noch einen schönen abend und tschüss"
+    },
+    {
+      "group": "worst",
+      "index": 36,
+      "rouge_l": 0.0,
+      "gold": "IM-VERLAUF BLEIBEN KALT ENORM SCHNEE KOENNEN",
+      "prediction": "DANN NAECHSTE TAG WINTER KOMMEN MAESSIG REGEN",
+      "prompt": "in den nächsten tagen geht es auf jeden fall winterlich weiter immer wieder mal mit etwas schnee"
+    },
+    {
+      "group": "worst",
+      "index": 55,
+      "rouge_l": 0.0,
+      "gold": "MORGEN LANG BLEIBEN",
+      "prediction": "HIER MONTAG ZUERST WEITER HABEN",
+      "prompt": "die halten sich morgen recht zäh"
+    },
+    {
+      "group": "worst",
+      "index": 439,
+      "rouge_l": 0.0,
+      "gold": "WIND REGION",
+      "prediction": "WEHEN STARK VOR POMMERN SUEDOST",
+      "prompt": "dazu weht ein starker wind vor allen dingen wieder über vorpommern aus südost"
+    },
+    {
+      "group": "worst",
+      "index": 515,
+      "rouge_l": 0.0,
+      "gold": "TRUEB DIESE BILD",
+      "prediction": "MEISTENS WIND TEILWEISE TRINKEN",
+      "prompt": "es bleibt meist trüb wie auf diesem bild hier"
+    },
+    {
+      "group": "worst",
+      "index": 542,
+      "rouge_l": 0.0,
+      "gold": "IM-VERLAUF UMSTELLEN REDUZIEREN KUEHL BESONDERS SAMSTAG SONNTAG",
+      "prediction": "IN-KOMMEND NAECHSTE TAGSUEBER WIEDER KALT VOR ANFANG DESHALB ZURUECK ZU ENDE",
+      "prompt": "in den nächsten tagen wird das dann nicht mehr der fall sein dann wird es insgesamt ein bisschen kühler vor allen dingen zum wochenende hin"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # Campaign Report — wos-46985 / qwen25-15b
 
-Generated: 2026-11-09T18:02:36+00:00
+Generated: 2026-11-12T13:18:05+00:00
 
 > Complementare ad `ablation-summary`: qui i run sono appaiati
 > per fattore sperimentale. **Legge i JSON di eval: non
@@ -25,11 +25,12 @@ Generated: 2026-11-09T18:02:36+00:00
 | `reward_stack` | NOT deducible from path / JSON stamp / payload fields (it lives in the resolved config, which eval JSONs do not embed) | always unknown, declared in every pairing caveat |
 | `rl_objective` | NOT deducible from path / JSON stamp / payload fields | always unknown, declared in every pairing caveat |
 
-## Selected runs (4 typologies, latest per typology)
+## Selected runs (5 typologies, latest per typology)
 
 | Run | method | variant | prompting | grammar | Date | Prompts | metrics_version |
 |---|---|---|---|---|---|---|---|
 | `wos-46985/qwen25-15b/baseline/zero-shot/run_20261107_224538/eval_zero_shot.json` | unknown | wos-46985-qwen25-15b-baseline-zero-shot | zero-shot | unknown | 2026-11-07 | 2000 | 2 |
+| `wos-46985/qwen25-15b/seeds/sft-zero-shot-s1/run_20261110_054153/eval_final.json` | unknown | wos-46985-qwen25-15b-seeds-sft-zero-shot-s1 | zero-shot | unknown | 2026-11-10 | 2000 | 2 |
 | `wos-46985/qwen25-15b/sft-grpo/zero-shot/run_20261108_184716/eval_final.json` | sft-grpo | zero-shot | zero-shot | unknown | 2026-11-08 | 2000 | 2 |
 | `wos-46985/qwen25-15b/sft/zero-shot/run_20261108_162337/eval_baseline.json` | baseline | wos-46985-qwen25-15b-sft-zero-shot | zero-shot | unknown | 2026-11-08 | 2000 | 2 |
 | `wos-46985/qwen25-15b/sft/zero-shot/run_20261108_162337/eval_final.json` | unknown | wos-46985-qwen25-15b-sft-zero-shot | zero-shot | unknown | 2026-11-08 | 2000 | 2 |
@@ -43,6 +44,7 @@ One row per cell (its path under `results/`), one column per prompting mode that
 | wos-46985/qwen25-15b/baseline/zero-shot | 0.2203 |
 | wos-46985/qwen25-15b/sft/zero-shot | 0.7911 |
 | wos-46985/qwen25-15b/sft-grpo/zero-shot | 0.8124 |
+| wos-46985/qwen25-15b/seeds/sft-zero-shot-s1 | 0.7931 |
 
 ## wos-46985 — all metrics
 
@@ -53,6 +55,7 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 | wos-46985/qwen25-15b/baseline/zero-shot | zero-shot | 0.2203 | 0.2203 | 0.0998 | 0.2608 | 0.3845 | 1.0000 | 0.1229 | 0.1523 | 25.0838 | 24.6317 | 0.2604 | 0.2604 |
 | wos-46985/qwen25-15b/sft/zero-shot | zero-shot | 0.7911 | 0.7911 | 0.7339 | 0.8081 | 0.8655 | 1.0000 | 0.7808 | 0.7527 | 79.2804 | 78.8320 | 0.8075 | 0.8075 |
 | wos-46985/qwen25-15b/sft-grpo/zero-shot | zero-shot | 0.8124 | 0.8124 | 0.7607 | 0.8260 | 0.8855 | 1.0000 | 0.7967 | 0.7781 | 81.3892 | 80.9882 | 0.8260 | 0.8260 |
+| wos-46985/qwen25-15b/seeds/sft-zero-shot-s1 | zero-shot | 0.7931 | 0.7931 | 0.7355 | 0.8096 | 0.8730 | 1.0000 | 0.7822 | 0.7546 | 79.3336 | 78.9728 | 0.8091 | 0.8091 |
 
 ## Paired comparisons — one table per factor
 

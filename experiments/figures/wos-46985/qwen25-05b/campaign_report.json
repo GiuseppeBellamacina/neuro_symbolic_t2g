@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-09T18:02:36+00:00",
+  "generated_at": "2026-11-12T13:18:05+00:00",
   "factor_deduction": [
     {
       "factor": "method",
@@ -450,6 +450,52 @@
         "chrf_sentence_mean": 32.25844486922787,
         "gloss_f1_micro": 0.3702,
         "gloss_f1_sentence_mean": 0.3702
+      }
+    },
+    {
+      "path": "wos-46985/qwen25-05b/seeds/sft-zero-shot-s1/run_20261110_025909/eval_final.json",
+      "cell": "wos-46985-qwen25-05b-seeds-sft-zero-shot-s1",
+      "cell_path": "wos-46985/qwen25-05b/seeds/sft-zero-shot-s1",
+      "run_id": "run_20261110_025909",
+      "kind": "final",
+      "factors": {
+        "variant": "wos-46985-qwen25-05b-seeds-sft-zero-shot-s1",
+        "method": "unknown",
+        "model_tag": "wos-46985/qwen25-05b",
+        "grammar": "unknown",
+        "prompting": "zero-shot",
+        "reward_stack": "unknown",
+        "rl_objective": "unknown",
+        "dataset": "wos-46985"
+      },
+      "factor_sources": {
+        "variant": "directory name (no method marker: full cell ",
+        "method": "directory name",
+        "model_tag": "first two path segments (results/<dataset>/<model>/...)",
+        "grammar": "not deducible from path",
+        "prompting": "JSON stamp (source: config)",
+        "reward_stack": "not deducible (config not embedded in eval JSON)",
+        "rl_objective": "not deducible (config not embedded in eval JSON)",
+        "dataset": "first path segment (results/<dataset>/...)"
+      },
+      "timestamp": "2026-11-10 02:59:09",
+      "timestamp_source": "run directory name",
+      "num_samples_evaluated": 2000,
+      "metrics_version": 2,
+      "prompt_context_fingerprint": "f757792e535165370514eae9688ea8735b878f4723c054478b53e7af0a1a0a6e",
+      "metrics": {
+        "rouge_l_mean": 0.8086142857142857,
+        "valid_rouge_l_mean": 0.8086142857142857,
+        "exact_match": 0.7553,
+        "non_copy_token_accuracy": 0.8240541217739915,
+        "pass_at_1": 0.877,
+        "validity_rate": 1.0,
+        "bleu_corpus": 0.7885384879856755,
+        "bleu_sentence_mean": 0.772651440194542,
+        "chrf_corpus": 80.7606332996342,
+        "chrf_sentence_mean": 80.65764566932108,
+        "gloss_f1_micro": 0.8242,
+        "gloss_f1_sentence_mean": 0.8242
       }
     },
     {

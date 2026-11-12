@@ -1,6 +1,6 @@
 # Campaign Report — conll-2003 / qwen25-05b
 
-Generated: 2026-11-09T18:02:34+00:00
+Generated: 2026-11-12T13:18:04+00:00
 
 > Complementare ad `ablation-summary`: qui i run sono appaiati
 > per fattore sperimentale. **Legge i JSON di eval: non
@@ -30,7 +30,7 @@ Generated: 2026-11-09T18:02:34+00:00
 | `reward_stack` | NOT deducible from path / JSON stamp / payload fields (it lives in the resolved config, which eval JSONs do not embed) | always unknown, declared in every pairing caveat |
 | `rl_objective` | NOT deducible from path / JSON stamp / payload fields | always unknown, declared in every pairing caveat |
 
-## Selected runs (31 typologies, latest per typology)
+## Selected runs (33 typologies, latest per typology)
 
 | Run | method | variant | prompting | grammar | Date | Prompts | metrics_version |
 |---|---|---|---|---|---|---|---|
@@ -57,6 +57,8 @@ Generated: 2026-11-09T18:02:34+00:00
 | `conll-2003/qwen25-05b/seeds/no-grammar-zero-shot-s1/run_20261019_233119/eval_final.json` | unknown | conll-2003-qwen25-05b-seeds-no-grammar-zero-shot-s1 | zero-shot | unknown | 2026-10-19 | 2000 | 2 |
 | `conll-2003/qwen25-05b/seeds/sft-grpo-zero-shot-s1/run_20261020_213557/eval_final.json` | sft-grpo | zero-shot-s1 | zero-shot | unknown | 2026-10-20 | 2000 | 2 |
 | `conll-2003/qwen25-05b/seeds/sft-grpo-zero-shot-s1/run_20261020_213557/eval_final__few-shot.json` | sft-grpo | zero-shot-s1 | few-shot | unknown | 2026-10-20 | 2000 | 2 |
+| `conll-2003/qwen25-05b/seeds/sft-zero-shot-s1/run_20261109_223700/eval_final.json` | unknown | conll-2003-qwen25-05b-seeds-sft-zero-shot-s1 | zero-shot | unknown | 2026-11-09 | 2000 | 2 |
+| `conll-2003/qwen25-05b/seeds/sft-zero-shot-s1/run_20261109_223700/eval_final__few-shot.json` | unknown | conll-2003-qwen25-05b-seeds-sft-zero-shot-s1 | few-shot | unknown | 2026-11-09 | 2000 | 2 |
 | `conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261019_002102/eval_final.json` | sft-grpo | few-shot | few-shot | unknown | 2026-10-19 | 2000 | 2 |
 | `conll-2003/qwen25-05b/sft-grpo/few-shot/run_20261019_002102/eval_final__zero-shot.json` | sft-grpo | few-shot | zero-shot | unknown | 2026-10-19 | 2000 | 2 |
 | `conll-2003/qwen25-05b/sft-grpo/zero-shot/run_20261019_022555/eval_final.json` | sft-grpo | zero-shot | zero-shot | unknown | 2026-10-19 | 2000 | 2 |
@@ -90,6 +92,7 @@ One row per cell (its path under `results/`), one column per prompting mode that
 | conll-2003/qwen25-05b/seeds/grpo-zero-shot-s1 | 0.3231 | 0.4153 |
 | conll-2003/qwen25-05b/seeds/no-grammar-zero-shot-s1 | 0.4571 | — |
 | conll-2003/qwen25-05b/seeds/sft-grpo-zero-shot-s1 | 0.9176 | 0.8356 |
+| conll-2003/qwen25-05b/seeds/sft-zero-shot-s1 | 0.9021 | 0.8122 |
 
 ## conll-2003 — all metrics
 
@@ -122,6 +125,8 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 | conll-2003/qwen25-05b/seeds/no-grammar-zero-shot-s1 | zero-shot | 0.4571 | 0.0922 | 0.0567 | 0.1088 | 0.7450 | 0.2016 | 0.0138 | 0.1043 | 27.7587 | 34.5595 | 0.0605 | 0.1192 |
 | conll-2003/qwen25-05b/seeds/sft-grpo-zero-shot-s1 | zero-shot | 0.9176 | 0.9176 | 0.7873 | 0.8599 | 0.9735 | 1.0000 | 0.8591 | 0.8845 | 88.3527 | 91.4008 | 0.8570 | 0.8758 |
 | conll-2003/qwen25-05b/seeds/sft-grpo-zero-shot-s1 | few-shot | 0.8356 | 0.8356 | 0.6352 | 0.7833 | 0.9375 | 1.0000 | 0.7192 | 0.7768 | 80.8448 | 84.2907 | 0.7506 | 0.7784 |
+| conll-2003/qwen25-05b/seeds/sft-zero-shot-s1 | zero-shot | 0.9021 | 0.9021 | 0.7472 | 0.8309 | 0.9710 | 1.0000 | 0.8432 | 0.8626 | 86.4902 | 89.6613 | 0.8283 | 0.8452 |
+| conll-2003/qwen25-05b/seeds/sft-zero-shot-s1 | few-shot | 0.8122 | 0.8122 | 0.5918 | 0.7415 | 0.9255 | 1.0000 | 0.7006 | 0.7462 | 78.1695 | 81.5882 | 0.7124 | 0.7421 |
 
 ## Paired comparisons — one table per factor
 
@@ -352,6 +357,25 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 | chrF2 (sent) | 88.3649 | 89.6895 | +1.3245 | scale 0-100: 0.02 noise threshold not applicable |
 | Gloss F1 (mic) | 0.8149 | 0.8365 | +0.0217 | above noise threshold |
 | Gloss F1 (sent) | 0.8272 | 0.8453 | +0.0180 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+- ⚠️ HIGHLIGHT: same model evaluated in both prompting modes — how much does it depend on the prompt as a crutch?
+- ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
+
+🔴 **prompt-dependence (dual eval, same checkpoint)** — `conll-2003/qwen25-05b/seeds/sft-zero-shot-s1/run_20261109_223700/eval_final__few-shot.json` (2026-11-09, few-shot, unknown) → `conll-2003/qwen25-05b/seeds/sft-zero-shot-s1/run_20261109_223700/eval_final.json` (2026-11-09, zero-shot, unknown)
+
+| Metric | A | B | Δ (B−A) | Interpretation |
+|---|---|---|---|---|
+| ROUGE-L | 0.8122 | 0.9021 | +0.0899 | above noise threshold |
+| Valid ROUGE-L | 0.8122 | 0.9021 | +0.0899 | above noise threshold |
+| Exact Match | 0.5918 | 0.7472 | +0.1554 | above noise threshold |
+| Non-copy Tok Acc | 0.7415 | 0.8309 | +0.0894 | above noise threshold |
+| Pass@1 | 0.9255 | 0.9710 | +0.0455 | above noise threshold |
+| Validity | 1.0000 | 1.0000 | +0.0000 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| BLEU (corpus) | 0.7006 | 0.8432 | +0.1425 | above noise threshold |
+| BLEU (sent) | 0.7462 | 0.8626 | +0.1164 | above noise threshold |
+| chrF2 (corpus) | 78.1695 | 86.4902 | +8.3207 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 81.5882 | 89.6613 | +8.0730 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.7124 | 0.8283 | +0.1158 | above noise threshold |
+| Gloss F1 (sent) | 0.7421 | 0.8452 | +0.1032 | above noise threshold |
 - ⚠️ HIGHLIGHT: same model evaluated in both prompting modes — how much does it depend on the prompt as a crutch?
 - ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
 

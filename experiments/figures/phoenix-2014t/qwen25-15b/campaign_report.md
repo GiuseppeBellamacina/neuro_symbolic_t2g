@@ -1,6 +1,6 @@
 # Campaign Report — phoenix-2014t / qwen25-15b
 
-Generated: 2026-11-09T18:02:36+00:00
+Generated: 2026-11-12T13:18:05+00:00
 
 > Complementare ad `ablation-summary`: qui i run sono appaiati
 > per fattore sperimentale. **Legge i JSON di eval: non
@@ -25,7 +25,7 @@ Generated: 2026-11-09T18:02:36+00:00
 | `reward_stack` | NOT deducible from path / JSON stamp / payload fields (it lives in the resolved config, which eval JSONs do not embed) | always unknown, declared in every pairing caveat |
 | `rl_objective` | NOT deducible from path / JSON stamp / payload fields | always unknown, declared in every pairing caveat |
 
-## Selected runs (18 typologies, latest per typology)
+## Selected runs (22 typologies, latest per typology)
 
 | Run | method | variant | prompting | grammar | Date | Prompts | metrics_version |
 |---|---|---|---|---|---|---|---|
@@ -39,6 +39,10 @@ Generated: 2026-11-09T18:02:36+00:00
 | `phoenix-2014t/qwen25-15b/seeds/sft-grpo-zero-shot-s1/run_20261106_113812/eval_baseline__few-shot.json` | baseline | zero-shot-s1 | few-shot | unknown | 2026-11-06 | 642 | 2 |
 | `phoenix-2014t/qwen25-15b/seeds/sft-grpo-zero-shot-s1/run_20261106_113812/eval_final.json` | sft-grpo | zero-shot-s1 | zero-shot | unknown | 2026-11-06 | 642 | 2 |
 | `phoenix-2014t/qwen25-15b/seeds/sft-grpo-zero-shot-s1/run_20261106_113812/eval_final__few-shot.json` | sft-grpo | zero-shot-s1 | few-shot | unknown | 2026-11-06 | 642 | 2 |
+| `phoenix-2014t/qwen25-15b/seeds/sft-zero-shot-s1/run_20261109_203627/eval_baseline.json` | baseline | phoenix-2014t-qwen25-15b-seeds-sft-zero-shot-s1 | zero-shot | unknown | 2026-11-09 | 642 | 2 |
+| `phoenix-2014t/qwen25-15b/seeds/sft-zero-shot-s1/run_20261109_203627/eval_baseline__few-shot.json` | baseline | phoenix-2014t-qwen25-15b-seeds-sft-zero-shot-s1 | few-shot | unknown | 2026-11-09 | 642 | 2 |
+| `phoenix-2014t/qwen25-15b/seeds/sft-zero-shot-s1/run_20261109_203627/eval_final.json` | unknown | phoenix-2014t-qwen25-15b-seeds-sft-zero-shot-s1 | zero-shot | unknown | 2026-11-09 | 642 | 2 |
+| `phoenix-2014t/qwen25-15b/seeds/sft-zero-shot-s1/run_20261109_203627/eval_final__few-shot.json` | unknown | phoenix-2014t-qwen25-15b-seeds-sft-zero-shot-s1 | few-shot | unknown | 2026-11-09 | 642 | 2 |
 | `phoenix-2014t/qwen25-15b/sft-grpo/zero-shot/run_20261021_140143/eval_baseline.json` | baseline | zero-shot | zero-shot | unknown | 2026-10-21 | 642 | 2 |
 | `phoenix-2014t/qwen25-15b/sft-grpo/zero-shot/run_20261021_140143/eval_baseline__few-shot.json` | baseline | zero-shot | few-shot | unknown | 2026-10-21 | 642 | 2 |
 | `phoenix-2014t/qwen25-15b/sft-grpo/zero-shot/run_20261021_140143/eval_final.json` | sft-grpo | zero-shot | zero-shot | unknown | 2026-10-21 | 642 | 2 |
@@ -60,6 +64,7 @@ One row per cell (its path under `results/`), one column per prompting mode that
 | phoenix-2014t/qwen25-15b/sft-grpo/zero-shot | 0.5421 | 0.4928 |
 | phoenix-2014t/qwen25-15b/grpo/few-shot | 0.1857 | 0.4337 |
 | phoenix-2014t/qwen25-15b/seeds/sft-grpo-zero-shot-s1 | 0.5398 | 0.4816 |
+| phoenix-2014t/qwen25-15b/seeds/sft-zero-shot-s1 | 0.5011 | 0.4621 |
 
 ## phoenix-2014t — all metrics
 
@@ -77,6 +82,8 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 | phoenix-2014t/qwen25-15b/grpo/few-shot | few-shot | 0.4337 | 0.4321 | 0.0221 | 0.3901 | 0.7212 | 0.9963 | 0.1059 | 0.1262 | 40.8182 | 41.4991 | 0.4582 | 0.4756 |
 | phoenix-2014t/qwen25-15b/seeds/sft-grpo-zero-shot-s1 | zero-shot | 0.5398 | 0.5398 | 0.0330 | 0.4853 | 0.8801 | 1.0000 | 0.1809 | 0.1706 | 49.1305 | 48.9521 | 0.5861 | 0.5818 |
 | phoenix-2014t/qwen25-15b/seeds/sft-grpo-zero-shot-s1 | few-shot | 0.4816 | 0.4816 | 0.0165 | 0.4408 | 0.8100 | 1.0000 | 0.1378 | 0.1369 | 44.5319 | 44.3717 | 0.5261 | 0.5246 |
+| phoenix-2014t/qwen25-15b/seeds/sft-zero-shot-s1 | zero-shot | 0.5011 | 0.5011 | 0.0209 | 0.4284 | 0.8380 | 1.0000 | 0.1390 | 0.1423 | 45.0249 | 45.2450 | 0.5423 | 0.5420 |
+| phoenix-2014t/qwen25-15b/seeds/sft-zero-shot-s1 | few-shot | 0.4621 | 0.4621 | 0.0178 | 0.3891 | 0.7570 | 1.0000 | 0.1258 | 0.1321 | 41.5918 | 41.6439 | 0.4975 | 0.4960 |
 
 ## Paired comparisons — one table per factor
 
@@ -155,6 +162,25 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 - ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
 
 ### Factor: `prompting`
+
+🔴 **prompt-dependence (dual eval, same checkpoint)** — `phoenix-2014t/qwen25-15b/seeds/sft-zero-shot-s1/run_20261109_203627/eval_baseline__few-shot.json` (2026-11-09, few-shot, unknown) → `phoenix-2014t/qwen25-15b/seeds/sft-zero-shot-s1/run_20261109_203627/eval_baseline.json` (2026-11-09, zero-shot, unknown)
+
+| Metric | A | B | Δ (B−A) | Interpretation |
+|---|---|---|---|---|
+| ROUGE-L | 0.3519 | 0.1199 | -0.2319 | above noise threshold |
+| Valid ROUGE-L | 0.3339 | 0.0956 | -0.2383 | above noise threshold |
+| Exact Match | 0.0131 | 0.0000 | -0.0131 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| Non-copy Tok Acc | 0.3461 | 0.1557 | -0.1904 | above noise threshold |
+| Pass@1 | 0.5545 | 0.1106 | -0.4439 | above noise threshold |
+| Validity | 0.9489 | 0.7969 | -0.1520 | above noise threshold |
+| BLEU (corpus) | 0.0463 | 0.0024 | -0.0438 | above noise threshold |
+| BLEU (sent) | 0.0939 | 0.0159 | -0.0779 | above noise threshold |
+| chrF2 (corpus) | 34.1582 | 17.5347 | -16.6234 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 36.8815 | 19.5092 | -17.3723 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.3037 | 0.0816 | -0.2222 | above noise threshold |
+| Gloss F1 (sent) | 0.3860 | 0.1266 | -0.2593 | above noise threshold |
+- ⚠️ HIGHLIGHT: same model evaluated in both prompting modes — how much does it depend on the prompt as a crutch?
+- ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
 
 🔴 **prompt-dependence (dual eval, same checkpoint)** — `phoenix-2014t/qwen25-15b/seeds/sft-grpo-zero-shot-s1/run_20261106_113812/eval_baseline__few-shot.json` (2026-11-06, few-shot, unknown) → `phoenix-2014t/qwen25-15b/seeds/sft-grpo-zero-shot-s1/run_20261106_113812/eval_baseline.json` (2026-11-06, zero-shot, unknown)
 
@@ -267,6 +293,25 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 | chrF2 (sent) | 44.8196 | 48.9480 | +4.1285 | scale 0-100: 0.02 noise threshold not applicable |
 | Gloss F1 (mic) | 0.5366 | 0.5883 | +0.0517 | above noise threshold |
 | Gloss F1 (sent) | 0.5338 | 0.5837 | +0.0499 | above noise threshold |
+- ⚠️ HIGHLIGHT: same model evaluated in both prompting modes — how much does it depend on the prompt as a crutch?
+- ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
+
+🔴 **prompt-dependence (dual eval, same checkpoint)** — `phoenix-2014t/qwen25-15b/seeds/sft-zero-shot-s1/run_20261109_203627/eval_final__few-shot.json` (2026-11-09, few-shot, unknown) → `phoenix-2014t/qwen25-15b/seeds/sft-zero-shot-s1/run_20261109_203627/eval_final.json` (2026-11-09, zero-shot, unknown)
+
+| Metric | A | B | Δ (B−A) | Interpretation |
+|---|---|---|---|---|
+| ROUGE-L | 0.4621 | 0.5011 | +0.0391 | above noise threshold |
+| Valid ROUGE-L | 0.4621 | 0.5011 | +0.0391 | above noise threshold |
+| Exact Match | 0.0178 | 0.0209 | +0.0031 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| Non-copy Tok Acc | 0.3891 | 0.4284 | +0.0393 | above noise threshold |
+| Pass@1 | 0.7570 | 0.8380 | +0.0810 | above noise threshold |
+| Validity | 1.0000 | 1.0000 | +0.0000 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| BLEU (corpus) | 0.1258 | 0.1390 | +0.0132 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| BLEU (sent) | 0.1321 | 0.1423 | +0.0103 | NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret |
+| chrF2 (corpus) | 41.5918 | 45.0249 | +3.4332 | scale 0-100: 0.02 noise threshold not applicable |
+| chrF2 (sent) | 41.6439 | 45.2450 | +3.6011 | scale 0-100: 0.02 noise threshold not applicable |
+| Gloss F1 (mic) | 0.4975 | 0.5423 | +0.0447 | above noise threshold |
+| Gloss F1 (sent) | 0.4960 | 0.5420 | +0.0460 | above noise threshold |
 - ⚠️ HIGHLIGHT: same model evaluated in both prompting modes — how much does it depend on the prompt as a crutch?
 - ⚠️ factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective
 
