@@ -500,7 +500,7 @@ modello allenta, ma non basta a sostituire la supervisione.
 
 Ogni cella del progetto ha un solo seme, e a seme fisso l'addestramento è
 deterministico (sezione~\ref{sec:determinismo}): la variabilità fra semi non è
-mai stata misurata. Sette celle sono state replicate con un secondo seme di
+mai stata misurata. Sette celle GRPO sono state replicate con un secondo seme di
 addestramento (cambia solo l'RNG del GRPO; split, prompt valutati e, per
 SFT$\to$GRPO, la fase SFT restano quelli della cella originale):
 
@@ -535,6 +535,33 @@ zero-shot passa da $0{,}46$ a $0{,}20$ e l'exact match da $0{,}15$ a $0{,}06.$
 Quando la struttura non è garantita dal decoder né dal prompt, che il GRPO la
 trovi o meno dipende dal caso dei primi rollout; quel singolo valore va letto
 come un ordine di grandezza, non come una misura.
+
+\paragraph{Il rumore dell'SFT.} Anche l'SFT è stato replicato con un secondo
+seme (cambiano seme di addestramento e inizializzazione LoRA), su tutti e tre i
+dataset e a entrambe le taglie. Le uscite delle repliche sono diverse da quelle
+originali, quindi il seme ha agito davvero.
+
+\begin{center}
+\small
+\begin{tabular}{llrrr}
+\toprule
+Dataset (metrica) & Taglia & seme 42 & seme 1 & Differenza \\
+\midrule
+CoNLL (exact match)  & 0,5B & $0{,}745$ & $0{,}747$ & $+0{,}2$ \\
+CoNLL (exact match)  & 1,5B & $0{,}778$ & $0{,}776$ & $-0{,}2$ \\
+WOS (exact match)    & 0,5B & $0{,}762$ & $0{,}755$ & $-0{,}7$ \\
+WOS (exact match)    & 1,5B & $0{,}734$ & $0{,}736$ & $+0{,}2$ \\
+PHOENIX (ROUGE-L)    & 0,5B & $0{,}485$ & $0{,}485$ & $-0{,}0$ \\
+PHOENIX (ROUGE-L)    & 1,5B & $0{,}502$ & $0{,}501$ & $-0{,}0$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La variabilità dell'SFT fra semi è piccola: meno di $0{,}7$ punti di exact match
+(e meno di $0{,}05$ punti di ROUGE-L su PHOENIX). È più piccola di tutte le
+differenze di scala e di tutti i guadagni del GRPO riportati in questo
+capitolo, che quindi non sono rumore dell'addestramento.
+
 
 \subsection{WOS-46985}
 
@@ -596,10 +623,15 @@ Il modello più grande aiuta dove il compito lo richiede (CoNLL, PHOENIX) e
 un SFT interrotto male: entrambi si fermano per early stopping a circa $2{,}2$
 epoche e l'1,5B ha una loss di validazione più bassa ($0{,}124$ contro
 $0{,}131$). Migliora la loss e peggiora l'exact match sul test. Le cause non
-sono state isolate: si può pensare a un adattamento peggiore al rumore delle
-etichette (le $134$ classi sono ambigue), oppure alla semplice variabilità
-dell'SFT, mai misurata con più semi per questa cella.
-\todo{aggiungere le repliche a seme 1 dell'SFT (3 dataset, 2 taglie, in corso): dicono se $-2{,}8$ su WOS è un effetto della taglia o rumore dell'SFT}
+sono state isolate, ma una è esclusa: il rumore dell'SFT. Con un secondo seme
+la differenza di scala su WOS è $-2{,}8$ punti con il primo seme e $-2{,}0$ con il
+secondo, mentre la variabilità fra semi è sotto $0{,}7$ punti
+(sezione~\ref{sec:semi-conll}); su CoNLL la scala vale $+3{,}3$ e $+2{,}9$, su
+PHOENIX $+1{,}6$ e $+1{,}6$. Su WOS il modello più grande è quindi peggiore in
+modo robusto, con gli iperparametri scelti per lo 0,5B. Resta aperto se dipenda
+da un adattamento peggiore al rumore delle etichette (le $134$ classi sono
+ambigue) o da iperparametri non ritarati per la taglia (learning rate, epoche):
+non l'ho verificato.
 
 Su PHOENIX il rumore fra semi dell'1,5B è basso: le due repliche di
 SFT$\to$GRPO danno ROUGE-L $0{,}542$ e $0{,}540$ ed exact match $0{,}032$ e

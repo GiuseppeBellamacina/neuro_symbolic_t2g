@@ -435,10 +435,10 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   </table>
   <div class="rows" style="margin-top:40px">
     <div class="row" data-step="4"><div class="lbl">Lettura</div><div class="txt">Il GRPO dà lo stesso incremento a qualunque taglia. La taglia sposta il punto di partenza: in meglio su CoNLL e PHOENIX, in <b>peggio su WOS</b></div></div>
-    <div class="row" data-step="5"><div class="lbl">Aperto</div><div class="txt">WOS: l'1,5B ha una loss di validazione più bassa ma un exact match più basso. Repliche dell'SFT con un altro seme in corso</div></div>
+    <div class="row" data-step="5"><div class="lbl">Non è rumore</div><div class="txt">WOS resta peggiore con un secondo seme (<b>−2,8 · −2,0</b>); il rumore dell'SFT è sotto 0,7 punti. Causa non isolata: etichette ambigue o iperparametri non ritarati</div></div>
   </div>
   <p class="foot">Punti di exact match o di ROUGE-L, differenze significative (bootstrap a coppie sui prompt, IC 95 %).</p>
-  <aside class="aside">Il confronto di scala sui tre dataset ha un risultato netto: l'incremento che il GRPO dà sopra l'SFT è lo stesso a mezzo miliardo e a un miliardo e mezzo di parametri, su tutti e tre i dataset. Taglia e GRPO si sommano senza interagire. La taglia, invece, aiuta dove il compito lo richiede, CoNLL e PHOENIX, e su WOS peggiora di circa due punti e mezzo, in modo significativo. Non è un SFT interrotto, perché la loss di validazione è più bassa. La spiegazione non l'ho isolata: o il modello grande si adatta peggio al rumore delle 134 classi, oppure l'SFT ha semplicemente molta variabilità, che non avevo mai misurato. Ho lanciato le repliche dell'SFT con un altro seme per distinguere.</aside>
+  <aside class="aside">Il confronto di scala sui tre dataset ha un risultato netto: l'incremento che il GRPO dà sopra l'SFT è lo stesso a mezzo miliardo e a un miliardo e mezzo di parametri, su tutti e tre i dataset. Taglia e GRPO si sommano senza interagire. La taglia, invece, aiuta dove il compito lo richiede, CoNLL e PHOENIX, e su WOS peggiora di circa due punti e mezzo, in modo significativo. Non è un SFT interrotto, perché la loss di validazione è più bassa, e non è rumore: ho replicato l'SFT con un altro seme su tutti i dataset e a entrambe le taglie, e la variabilità è sotto 0,7 punti. Su WOS la differenza di scala è meno 2,8 con un seme e meno 2,0 con l'altro, quindi è robusta. La causa non l'ho isolata: o il modello grande si adatta peggio al rumore delle 134 classi, o gli iperparametri scelti per lo 0,5B non sono giusti per la taglia. Non l'ho verificato.</aside>
 </section>
 
 <!-- 12 -->
@@ -448,9 +448,9 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   <div class="nlist">
     <div data-step="1"><span><b>Un crollo che non c'era.</b> SFT→GRPO su CoNLL sembrava crollare (exact match 0,09): la valutazione caricava il modello senza la fase SFT. Ora si ferma se la fase manca.</span></div>
     <div data-step="2"><span><b>Un exact match che inganna.</b> Dove molte risposte sono NONE conta l'F1 sulle entità tipate, non l'exact match.</span></div>
-    <div data-step="3"><span><b>Un seme non basta.</b> Sette celle replicate: con il Trie sono stabili, senza Trie no (validity 0,46 → 0,20).</span></div>
+    <div data-step="3"><span><b>Un seme non basta.</b> Tredici celle replicate: l'SFT varia meno di 0,7 punti, il GRPO con Trie è stabile, senza Trie no (validity 0,46 → 0,20).</span></div>
   </div>
-  <aside class="aside">Tre errori di metodo. Il primo è il più istruttivo: per un po' ho creduto di avere un effetto del vincolo sul GRPO, ed era un bug della pipeline, che riusava l'adapter dell'SFT senza copiarlo nella valutazione. L'ho trovato quando il crollo non si vedeva nella reward di training. Il secondo: l'exact match su CoNLL premia il silenzio. Il terzo: finché le celle hanno un seme solo, non so se una differenza è un effetto. Con due semi, il guadagno di SFT→GRPO si conferma stabile, e le celle senza Trie no.</aside>
+  <aside class="aside">Tre errori di metodo. Il primo è il più istruttivo: per un po' ho creduto di avere un effetto del vincolo sul GRPO, ed era un bug della pipeline, che riusava l'adapter dell'SFT senza copiarlo nella valutazione. L'ho trovato quando il crollo non si vedeva nella reward di training. Il secondo: l'exact match su CoNLL premia il silenzio. Il terzo: finché le celle hanno un seme solo, non so se una differenza è un effetto. Con due semi, il guadagno di SFT→GRPO si conferma stabile, l'SFT varia meno di 0,7 punti, e le celle senza Trie no.</aside>
 </section>
 
 <!-- 13 -->
@@ -472,13 +472,13 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   <div class="kicker">Limiti dichiarati</div>
   <h2>Cosa questi dati non dicono</h2>
   <div class="rows">
-    <div class="row" data-step="1"><div class="lbl">Semi</div><div class="txt">Due semi per sette celle, uno per le altre. La variabilità dell'SFT non è ancora misurata (repliche in corso).</div></div>
+    <div class="row" data-step="1"><div class="lbl">Semi</div><div class="txt">Due semi per tredici celle, uno per le altre. Il rumore dell'SFT è sotto 0,7 punti; quello del GRPO senza Trie è grande.</div></div>
     <div class="row" data-step="2"><div class="lbl">Modelli</div><div class="txt">Due taglie della stessa famiglia, Qwen2.5.</div></div>
     <div class="row" data-step="3"><div class="lbl">Metrica</div><div class="txt">Su PHOENIX l'exact match è sotto il 3,2 %: contano ROUGE-L e non-copy.</div></div>
   </div>
   <div class="spacer"></div>
   <p class="lead" data-step="4">Grazie.</p>
-  <aside class="aside">I limiti. Due semi su sette celle non sono una stima della variabilità, sono un controllo di coerenza. Due taglie della stessa famiglia non dicono molto sulla scala in generale. E su PHOENIX l'exact match è troppo basso per essere informativo. Resto per le domande.</aside>
+  <aside class="aside">I limiti. Due semi non sono una stima completa della variabilità, sono un controllo di coerenza. Due taglie della stessa famiglia non dicono molto sulla scala in generale. E su PHOENIX l'exact match è troppo basso per essere informativo. Resto per le domande.</aside>
 </section>
 
 <div id="progress"></div>
