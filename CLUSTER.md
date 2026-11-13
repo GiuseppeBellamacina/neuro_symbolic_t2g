@@ -329,6 +329,14 @@ VPN d'Ateneo solo durante l'azione, esegue **una** ssh e chiama
 `rewrite_queue`, `pause`, `resume`, `scancel`, `timeseries`, `results`). L'output è `KEY=VALUE`
 (coda separata da `\x1f`); la **fonte di verità resta `.chain_state/` sul cluster**.
 
+**Progresso e grafici**: il train scrive `logs/run_status-<JOBID>.json` (stato) e
+`logs/run_status-<JOBID>.json.series.json` (serie) con la libreria
+[`runstatus`](https://github.com/GiuseppeBellamacina/runstatus), tramite l'adapter
+`src/utils/run_status.py` (dipendenza in `pyproject.toml`, installata da `cluster/setup.sh`). `monitor`
+li espone come `RUN_STATUS=` (solo job attivo, file fresco < 10 min) e `timeseries` come `TS_SERIES=`:
+l'app non fa parsing del log. Il log resta solo per la scheda Log (`LOG_TAIL_B64`) e per i tool locali
+`chain_monitor.py`/`live_training_table.py`, che leggono ancora le righe `step=N loss=…`.
+
 I preset delle campagne stanno in `cluster/presets.yaml` (l'app li legge da GitHub) e gli script
 `cluster/*.sh` vengono tenuti allineati dal sync degli script dell'app. Il tick è idempotente:
 l'app e l'hook bashrc possono convivere senza danni.

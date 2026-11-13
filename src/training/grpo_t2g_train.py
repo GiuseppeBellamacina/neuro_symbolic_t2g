@@ -110,9 +110,9 @@ from src.utils.glossary import (
     format_glossary_block,
     should_include_glossary,
 )
-from src.utils.live_status import live_status_set
 from src.utils.phase_timing import log_step, phase
 from src.utils.prompting import build_t2g_prompt, prompt_profile_for_config
+from src.utils.run_status import run_status_set
 
 # ───────────────────────────────────────────────────────────────────────────
 
@@ -620,7 +620,7 @@ def main() -> None:
         print(f"\n{'=' * 60}")
         print("STEP 1.5: SFT Pre-training")
         # Live status: the SFT phase begins (adapter reuse skips this block).
-        live_status_set(phase="sft", note="SFT pre-training")
+        run_status_set(phase="sft", note="SFT pre-training")
 
         from src.training.sft_train import (
             clone_sft_adapter,
@@ -976,7 +976,7 @@ def main() -> None:
     # ── Step 7: Training ─────────────────────────────────────────────────
     log_step(7, "GRPO Training")
     # Live status: the GRPO phase begins (SFT phase, if any, is over).
-    live_status_set(
+    run_status_set(
         phase="grpo",
         total_steps=int(config["training"].get("max_steps", 1500)),
         note="GRPO training",

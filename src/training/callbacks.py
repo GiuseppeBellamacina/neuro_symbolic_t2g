@@ -15,7 +15,7 @@ from transformers import (
 )
 from transformers.trainer_callback import ProgressCallback
 
-from src.utils.live_status import live_status_add_samples, live_status_set
+from src.utils.run_status import run_status_log, run_status_samples, run_status_set
 from src.utils.text_utils import extract_user_text
 
 logger = logging.getLogger(__name__)
@@ -51,13 +51,6 @@ class HighPrecisionLogCallback(TrainerCallback):
     with enough precision to see the actual values.
     """
 
-    def __init__(self) -> None:
-        # Running average dei batch reward GRPO (chiave "reward"): con batch
-        # uguali la media delle medie-per-evento eguaglia la media complessiva.
-        # Su resume riparte da zero (aiuto di live monitoring, non metrica).
-        self._reward_sum: float = 0.0
-        self._reward_count: int = 0
-
     def on_log(
         self,
         args: TrainingArguments,
@@ -71,7 +64,7 @@ class HighPrecisionLogCallback(TrainerCallback):
         logs.pop("total_flos", None)
         # ┌─ CONTRATTO DI FORMATO — non modificare senza aggiornare i consumatori ─┐
         # Unica sorgente della serie temporale per-step: nessun altro artefatto
-        # la conserva (live_status.json ha solo l'ultimo snapshot; wandb offline).
+        # la conserva (run_status.json tiene solo uno snapshot e le serie decimate; wandb offline).
         # Formato: "  step=<int>  <k>=<v>  ..." — 2 spazi iniziali, 2 spazi di
         # separatore, float a 8 decimali. Consumatori, ognuno con la propria
         # regex: src/utils/chain_monitor.py (_KV_STEP), live_training_table.py,
@@ -83,32 +76,19 @@ class HighPrecisionLogCallback(TrainerCallback):
         for k, v in logs.items():
             parts.append(f"{k}={v:.8f}" if isinstance(v, float) else f"{k}={v}")
         print("  " + "  ".join(parts))
-        # Live status file (logs/live_status.json) for the external monitor —
-        # throttled internally; fail-safe. Passare SOLO i campi presenti in
-        # QUESTO evento di log: un log parziale (l'holdout eval emette
-        # {'eval_loss': …} senza loss/lr/epoch) non deve sovrascrivere le
-        # ultime metriche valide con None (live_status_set tratta None come
-        # reset esplicito).
-        fields: dict[str, Any] = {"step": state.global_step}
-        for log_key, status_key in (
-            ("loss", "loss"),
-            ("reward", "reward"),
-            ("learning_rate", "lr"),
-            ("eval_loss", "eval_loss"),
-        ):
-            value = logs.get(log_key)
-            if value is not None:
-                fields[status_key] = value
-        if logs.get("epoch") is not None:
-            fields["epoch"] = round(float(logs["epoch"]), 4)
-        # Running average of the GRPO batch rewards — the monitor shows it in
-        # the top bar ("avg reward") so the trend is visible at a glance.
-        reward = logs.get("reward")
-        if reward is not None:
-            self._reward_sum += float(reward)
-            self._reward_count += 1
-            fields["reward_avg"] = round(self._reward_sum / self._reward_count, 6)
-        live_status_set(**fields)
+        # Monitoring (runstatus -> ClusterControl): only the metrics present in
+        # THIS log event; partial logs (the holdout eval emits only eval_loss)
+        # leave the other latest values untouched. Running mean/best of the
+        # rewards are computed by runstatus.
+        run_status_log(
+            state.global_step,
+            epoch=(
+                round(float(logs["epoch"]), 4)
+                if logs.get("epoch") is not None
+                else None
+            ),
+            **{k: v for k, v in logs.items() if k != "epoch"},
+        )
 
     def on_prediction_step(
         self,
@@ -124,11 +104,11 @@ class HighPrecisionLogCallback(TrainerCallback):
         the monitor can show an ADDITIONAL 'routine eval in corso' line —
         the train step/loss/lr in the top bar stay exactly as they were
         (they are only updated by ``on_log``). Throttled internally by
-        live_status_set; fail-safe (never breaks training).
+        run_status_set; fail-safe (never breaks training).
         """
         try:
             if state.is_local_process_zero:
-                live_status_set(eval_active=True)
+                run_status_set(eval_active=True)
         except Exception:
             pass
 
@@ -152,10 +132,9 @@ class HighPrecisionLogCallback(TrainerCallback):
             eval_loss = metrics.get("eval_loss")
             if eval_loss is not None:
                 print(f"  step={state.global_step}  eval_loss={float(eval_loss):.8f}")
-            live_status_set(
-                eval_active=False,
-                **({"eval_loss": float(eval_loss)} if eval_loss is not None else {}),
-            )
+            run_status_set(eval_active=False)
+            if eval_loss is not None:
+                run_status_log(state.global_step, eval_loss=float(eval_loss))
         except Exception:
             pass
 
@@ -430,7 +409,7 @@ class CompletionSampleLogger:
     def format_samples(self) -> str:
         """Format buffered samples as a readable string for logging.
 
-        Also pushes the formatted samples to the live status file (one
+        Also pushes the formatted samples to the run status file (one
         string per sample, PROMPT/OUTPUT/GOLD compact) so the external
         monitor shows them without parsing the log.
         """
@@ -493,7 +472,7 @@ class CompletionSampleLogger:
             )
         lines.append(f"{'═' * 70}\n")
         if live_lines:
-            live_status_add_samples(live_lines, kind="grpo")
+            run_status_samples(live_lines, kind="grpo")
         return "\n".join(lines)
 
 
@@ -914,7 +893,7 @@ class SFTSampleCallback(TrainerCallback):
                 )
             print(f"{'═' * 70}\n")
             if live_lines:
-                live_status_add_samples(live_lines, kind="sft")
+                run_status_samples(live_lines, kind="sft")
         except Exception:
             logger.debug("Failed to generate SFT sample prediction", exc_info=True)
 

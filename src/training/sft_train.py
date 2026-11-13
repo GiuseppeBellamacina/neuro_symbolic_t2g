@@ -64,9 +64,9 @@ from src.training.auxiliary_sft_trainer import (
     resolve_auxiliary_config,
 )
 from src.utils.config import load_config
-from src.utils.live_status import live_status_reset, live_status_set
 from src.utils.phase_timing import phase
 from src.utils.prompting import SYSTEM_PROMPT, system_prompt_for_config
+from src.utils.run_status import run_status_set, run_status_stage_done
 
 load_dotenv()
 
@@ -1146,7 +1146,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     try:
         logger.info("Starting SFT training...")
         # Live status: SFT training loop starts (estimated total steps).
-        live_status_set(
+        run_status_set(
             phase="sft",
             total_steps=(
                 int(training_cfg["max_steps"])
@@ -1165,7 +1165,6 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
                 best_metric,
                 trainer.state.best_model_checkpoint,
             )
-            live_status_set(eval_loss_best=float(best_metric))
         else:
             logger.info("[sft] No eval metric tracked (evaluation disabled).")
 
@@ -1221,7 +1220,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     logger.info("  Logs:  %s", log_dir)
     # Live status: SFT done — back to idle (the GRPO phase, if any, will
     # set its own phase right after).
-    live_status_reset(note=f"SFT completato: {final_path_str}")
+    run_status_stage_done(f"SFT completato: {final_path_str}")
     logger.info("=" * 60)
 
     return final_path_str
