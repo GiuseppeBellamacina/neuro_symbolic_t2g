@@ -97,7 +97,7 @@ class RunStatus:
         stages: the planned stages of the run in order (["sft", "grpo", "eval"], or dicts with ``id``,
             ``label``, ``icon``); the app shows them as a stepper. Move between them with :meth:`stage`.
         badges: free chips for the app, strings or ``{"label", "icon"}`` dicts (e.g. "LoRA", "4-bit").
-    Icons are plain ids ("sft", "grpo", "llm", "gpu", ...) that the monitor maps to a picture; an emoji works too.
+    Icons are plain ids ("sft", "grpo", "llm", "gpu", ...) that the monitor maps to a picture (ClusterControl draws SVG line icons); an unknown id shows no icon.
     """
 
     def __init__(self, path: str | os.PathLike | None = None, *, kind: str = "train",
