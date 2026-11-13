@@ -189,3 +189,38 @@ def test_vendored_library_needs_no_installation():
     assert importlib.import_module("src._vendor.runstatus.hf") is not None
     version = (__import__("pathlib").Path(mod.__file__).parent / "VERSION").read_text()
     assert version.startswith("runstatus ")
+
+
+def test_run_is_described_from_the_config(status):
+    """What the app shows as kind / algorithm / model / chips / stepper comes from the job config."""
+    config = {
+        "model": {"name": "Qwen/Qwen2.5-0.5B-Instruct", "quantization": "4bit"},
+        "lora": {"r": 32},
+        "grammar": {"enabled": True},
+        "retrieval": {"enabled": False},
+        "dataset": {"name": "aslg-pc12"},
+        "sft_pretrain": {"enabled": True},
+    }
+    rs.run_status_describe(config, kind="train", method="grpo", stages=["sft", "grpo"])
+    run = status()["run"]
+    assert run["kind"] == "train" and run["method"] == "grpo"
+    assert run["model"] == {
+        "family": "llm",
+        "name": "Qwen2.5-0.5B-Instruct",
+        "params": "0.5B",
+    }
+    assert [b["label"] for b in run["badges"]] == [
+        "LoRA r=32",
+        "4bit",
+        "grammar",
+        "aslg-pc12",
+    ]
+    assert [(x["id"], x["label"], x["state"]) for x in run["stages"]] == [
+        ("sft", "SFT", "pending"),
+        ("grpo", "GRPO", "pending"),
+    ]
+    rs.run_status_set(phase="sft")
+    rs.run_status_set(phase="grpo")
+    run = status()["run"]
+    assert [x["state"] for x in run["stages"]] == ["done", "running"]
+    assert run["stage"] == run["phase"] == "grpo"

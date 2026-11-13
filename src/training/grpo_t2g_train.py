@@ -112,7 +112,7 @@ from src.utils.glossary import (
 )
 from src.utils.phase_timing import log_step, phase
 from src.utils.prompting import build_t2g_prompt, prompt_profile_for_config
-from src.utils.run_status import run_status_set
+from src.utils.run_status import run_status_describe, run_status_set
 
 # ───────────────────────────────────────────────────────────────────────────
 
@@ -495,6 +495,13 @@ def main() -> None:
     args = build_arg_parser().parse_args()
 
     config = load_config(args.config)
+    run_status_describe(
+        config,
+        kind="train",
+        method="grpo",
+        stages=(["sft"] if config.get("sft_pretrain", {}).get("enabled") else [])
+        + ["grpo"],
+    )
 
     # ── Resolve timestamped output/log directories and resume logic ──────
     from datetime import datetime

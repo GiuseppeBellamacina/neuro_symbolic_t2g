@@ -165,6 +165,7 @@ from src.utils.prompting import (
 )
 from src.utils.run_paths import eval_output_location
 from src.utils.run_status import (
+    run_status_describe,
     run_status_results,
     run_status_set,
     run_status_stage_done,
@@ -2902,6 +2903,7 @@ def main() -> None:
     dedupe_library_loggers()
 
     config = load_config(args.config)
+    run_status_describe(config, kind="eval", method=None, stages=["eval"])
 
     # ── Resolve eval knobs ONLY from the config ──────────────────────────
     # La sezione evaluation: è l'unica fonte dei knob (prima metà da CLI

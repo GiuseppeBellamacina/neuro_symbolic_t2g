@@ -55,6 +55,20 @@ _AUTO_BEST = (("*loss*", "min"), ("*error*", "min"), ("*perplexity*", "min"), ("
               ("*rouge*", "max"), ("*bleu*", "max"), ("*success*", "max"))
 
 
+def _stage(x: Any) -> dict[str, Any]:
+    d = {"id": x} if isinstance(x, str) else dict(x)
+    d.setdefault("label", d["id"])
+    d.setdefault("icon", d["id"])
+    d["state"] = "pending"
+    return d
+
+
+def _badge(x: Any) -> dict[str, Any]:
+    d = {"label": x} if isinstance(x, str) else dict(x)
+    d.setdefault("icon", None)
+    return d
+
+
 def _match(key: str, patterns: Iterable[str] | None) -> bool:
     return bool(patterns) and any(fnmatch(key, p) for p in patterns)  # type: ignore[union-attr]
 
@@ -77,6 +91,13 @@ class RunStatus:
         series: glob patterns of metrics kept as series (default: all).
         extra: free dict stored under "extra" (hyperparameters, git sha, anything).
         events_max: how many recent events to keep.
+        method: the algorithm in use, free text: "sft", "grpo", "ppo", "dpo", "supervised", "pretraining"...
+        model: what is being trained, free keys; the usual ones are ``family`` ("llm", "nn", "ml", "cnn",
+            "transformer", ...), ``name`` and ``params``.
+        stages: the planned stages of the run in order (["sft", "grpo", "eval"], or dicts with ``id``,
+            ``label``, ``icon``); the app shows them as a stepper. Move between them with :meth:`stage`.
+        badges: free chips for the app, strings or ``{"label", "icon"}`` dicts (e.g. "LoRA", "4-bit").
+    Icons are plain ids ("sft", "grpo", "llm", "gpu", ...) that the monitor maps to a picture; an emoji works too.
     """
 
     def __init__(self, path: str | os.PathLike | None = None, *, kind: str = "train",
@@ -86,7 +107,8 @@ class RunStatus:
                  rename: dict[str, str] | None = None, best: dict[str, str] | None = None,
                  average: list[str] | None = None, window: int = 50,
                  series: list[str] | None = None, extra: dict[str, Any] | None = None,
-                 events_max: int = 20):
+                 events_max: int = 20, method: str | None = None, model: dict[str, Any] | None = None,
+                 stages: list[Any] | None = None, badges: list[Any] | None = None):
         self.path = Path(path) if path else default_path()
         self.series_path = self.path.with_suffix(".series.json")
         self._series_at = 0.0
@@ -111,7 +133,9 @@ class RunStatus:
             "run": {"id": uuid.uuid4().hex[:8], "name": name, "kind": kind, "phase": None,
                     "state": "running", "started_at": self._iso(self._t0),
                     "host": socket.gethostname(), "pid": os.getpid(),
-                    "slurm_job_id": os.environ.get("SLURM_JOB_ID")},
+                    "slurm_job_id": os.environ.get("SLURM_JOB_ID"),
+                    "method": method, "model": dict(model or {}), "stage": None,
+                    "stages": [_stage(x) for x in stages or []], "badges": [_badge(x) for x in badges or []]},
             "progress": {"step": None, "total_steps": total_steps, "epoch": None, "pct": None,
                          "eta_s": None, "steps_per_s": None},
             "metrics": {"latest": {}, "best": {}, "mean": {}, "moving": {}, "stats": {}},
@@ -172,6 +196,72 @@ class RunStatus:
             self._write(force)
         except Exception as e:  # never break the training
             self._warn(e)
+
+    def describe(self, *, kind: str | None = None, method: str | None = None, model: dict[str, Any] | None = None,
+                 badges: list[Any] | None = None, stages: list[Any] | None = None) -> None:
+        """Set or change what the run is: kind, algorithm, model, chips and the planned stages (replaced when given)."""
+        try:
+            r = self.d["run"]
+            if kind is not None:
+                r["kind"] = kind
+            if method is not None:
+                r["method"] = method
+            if model is not None:
+                r["model"] = dict(model)
+            if badges is not None:
+                r["badges"] = [_badge(x) for x in badges]
+            if stages is not None:
+                r["stages"] = [_stage(x) for x in stages]
+            self._write(True)
+        except Exception as e:
+            self._warn(e)
+
+    def stage(self, id: str, *, label: str | None = None, icon: str | None = None, method: str | None = None,
+              total_steps: int | None = None, reset: bool = True) -> None:
+        """Enter a stage of the run (e.g. "sft", then "grpo", then "eval").
+
+        The previous stage is closed with the step it reached; a stage not in the plan is appended. The step
+        counter, the totals and the charts restart (``reset=False`` keeps them). ``phase`` follows the stage id.
+        """
+        try:
+            r = self.d["run"]
+            changed = r["stage"] != id
+            if changed:
+                self._close_stage("done")
+            ent = next((x for x in r["stages"] if x["id"] == id), None)
+            if ent is None:
+                ent = _stage(id)
+                r["stages"].append(ent)
+            if label:
+                ent["label"] = label
+            if icon:
+                ent["icon"] = icon
+            ent["state"] = "running"
+            if changed:
+                ent.pop("step", None)
+                ent.pop("total", None)
+                if reset:
+                    self._reset_series()
+                self.event(f"stage: {ent['label']}", write=False)
+            r["stage"] = r["phase"] = id
+            if method is not None:
+                r["method"] = method
+            if total_steps is not None:
+                self.d["progress"]["total_steps"] = int(total_steps) or None
+                self._pct()
+            self._write(True)
+        except Exception as e:
+            self._warn(e)
+
+    def _close_stage(self, state: str) -> None:
+        r, p = self.d["run"], self.d["progress"]
+        for x in r["stages"]:
+            if x["id"] == r["stage"] and x["state"] == "running":
+                x["state"] = state
+                if p["step"] is not None:
+                    x["step"] = p["step"]
+                if p["total_steps"]:
+                    x["total"] = p["total_steps"]
 
     def _reset_series(self) -> None:
         """New stage: the step counter restarts, so charts, progress and total all start over."""
@@ -284,6 +374,7 @@ class RunStatus:
             self.d["run"]["state"] = state
             self.d["run"]["ended_at"] = self._iso(time.time())
             self.d["eval"]["active"] = False
+            self._close_stage("done" if state == "finished" else "failed")
             if note is not None:
                 self.d["note"] = note
             if state == "finished" and self.d["progress"]["total_steps"]:

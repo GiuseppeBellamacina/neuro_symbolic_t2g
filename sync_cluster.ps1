@@ -16,6 +16,19 @@ $LOCAL   = $PSScriptRoot
 # Dirs to exclude from download (symlinks on cluster that scp copies as full duplicates)
 $TAR_EXCLUDES = @("--exclude=latest", "--exclude=latest-run")
 
+# The cluster cannot reach GitHub: the runstatus library travels inside src/_vendor. Refresh that copy from the
+# sibling runstatus checkout before anything is sent, so the cluster never gets a stale one.
+function Update-Vendor {
+    $vendor = Join-Path $LOCAL "vendor_runstatus.ps1"
+    $source = Join-Path $LOCAL "..\runstatus\src\runstatus\core.py"
+    if (-not (Test-Path $source)) {
+        Write-Host "runstatus checkout not found next to this repo: keeping the vendored copy as it is." -ForegroundColor Yellow
+        return
+    }
+    & $vendor
+    if (-not $?) { throw "vendor_runstatus.ps1 failed: nothing was sent to the cluster" }
+}
+
 function Download-RemoteDir($remoteSubpath, $localDest) {
     New-Item -ItemType Directory -Force -Path $localDest | Out-Null
     $excludeArgs = $TAR_EXCLUDES -join " "
@@ -36,6 +49,7 @@ function Filter-EnvForUpload($envPath) {
 
 function Upload {
     Write-Host "Uploading project to cluster..." -ForegroundColor Cyan
+    Update-Vendor
 
     # Clean __pycache__ before upload — ONLY in directories that get uploaded.
     # Do NOT recurse from $LOCAL root: that would traverse .venv/ (thousands
@@ -319,6 +333,7 @@ function Push {
         Write-Host "Usage: .\sync_cluster.ps1 -Action push -Path <file-or-folder>" -ForegroundColor Red
         return
     }
+    Update-Vendor
     $localPath = Join-Path $LOCAL $Path
     if (-not (Test-Path $localPath)) {
         Write-Host "Not found: $Path" -ForegroundColor Red

@@ -16,6 +16,7 @@ from __future__ import annotations
 import atexit
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -107,22 +108,73 @@ def run_status_set(
     eval_progress: str | None = None,
     eval_active: bool | None = None,
 ) -> None:
-    """Update phase/progress. A phase change restarts the charts (step counters restart)."""
+    """Update stage/progress. Entering a new phase closes the previous stage and restarts counters and charts."""
     try:
         s = get_status()
         if s is None:
             return
-        change = phase is not None and s.d["run"]["phase"] not in (None, phase)
+        if phase is not None:
+            s.stage(phase)
         s.set(
-            phase=phase,
             total_steps=total_steps,
             note=note,
             eval_progress=eval_progress,
             eval_active=eval_active,
-            reset_series=change,
         )
         if step is not None:
             s.log(step)
+    except Exception:
+        pass
+
+
+_STAGE_LABELS = {"sft": "SFT", "grpo": "GRPO", "eval": "Eval"}
+_PARAMS = re.compile(r"(\d+(?:\.\d+)?)\s*[Bb](?![a-z])")
+
+
+def run_status_describe(
+    config: dict[str, Any],
+    *,
+    kind: str,
+    method: str | None,
+    stages: list[str],
+) -> None:
+    """Tell the monitor what this run is: kind, algorithm, model, planned stages and a few chips.
+
+    Everything comes from the job config, so a new experiment is described without touching this code.
+    """
+    try:
+        s = get_status()
+        if s is None:
+            return
+        model_cfg = config.get("model") or {}
+        name = str(model_cfg.get("name") or "")
+        params = _PARAMS.search(name.split("/")[-1])
+        model = {"family": "llm", "name": name.split("/")[-1] or None}
+        if params:
+            model["params"] = params.group(1) + "B"
+        badges: list[dict[str, str]] = []
+        if config.get("lora"):
+            badges.append(
+                {"label": f"LoRA r={config['lora'].get('r', '?')}", "icon": "finetune"}
+            )
+        if model_cfg.get("quantization"):
+            badges.append({"label": str(model_cfg["quantization"]), "icon": "gpu"})
+        if (config.get("grammar") or {}).get("enabled"):
+            badges.append({"label": "grammar", "icon": "tree"})
+        if (config.get("retrieval") or {}).get("enabled"):
+            badges.append({"label": "retrieval", "icon": "data"})
+        dataset = (config.get("dataset") or {}).get("name")
+        if dataset:
+            badges.append({"label": str(dataset), "icon": "data"})
+        s.describe(
+            kind=kind,
+            method=method,
+            model=model,
+            badges=badges,
+            stages=[
+                {"id": x, "label": _STAGE_LABELS.get(x, x), "icon": x} for x in stages
+            ],
+        )
     except Exception:
         pass
 

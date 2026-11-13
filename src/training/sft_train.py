@@ -66,7 +66,11 @@ from src.training.auxiliary_sft_trainer import (
 from src.utils.config import load_config
 from src.utils.phase_timing import phase
 from src.utils.prompting import SYSTEM_PROMPT, system_prompt_for_config
-from src.utils.run_status import run_status_set, run_status_stage_done
+from src.utils.run_status import (
+    run_status_describe,
+    run_status_set,
+    run_status_stage_done,
+)
 
 load_dotenv()
 
@@ -1235,6 +1239,7 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(args.config)
+    run_status_describe(config, kind="train", method="sft", stages=["sft"])
 
     if args.prepare_data:
         # Handle prepare-data separately
