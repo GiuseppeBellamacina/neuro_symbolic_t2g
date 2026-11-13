@@ -976,11 +976,8 @@ def main() -> None:
     # ── Step 7: Training ─────────────────────────────────────────────────
     log_step(7, "GRPO Training")
     # Live status: the GRPO phase begins (SFT phase, if any, is over).
-    run_status_set(
-        phase="grpo",
-        total_steps=int(config["training"].get("max_steps", 1500)),
-        note="GRPO training",
-    )
+    # The total steps come from the Trainer (HighPrecisionLogCallback).
+    run_status_set(phase="grpo", note="GRPO training")
 
     # ── Workaround: transformers 5.3.0 + peft non espongono  ──────────
     # model.warnings_issued, ma trl 0.24.0 lo usa in GRPOTrainer.__init__.

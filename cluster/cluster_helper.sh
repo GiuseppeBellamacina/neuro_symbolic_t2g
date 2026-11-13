@@ -41,7 +41,7 @@
 #   tick                       esegue chain_tick.sh --quiet poi lo snapshot
 #   timeseries <tag>           serie per i grafici del job (attivo, altrimenti
 #                              ultimo) col tag dato: TS_* keys, TS_SERIES = JSON
-#                              del sidecar runstatus (logs/run_status-<id>.json.series.json)
+#                              del sidecar runstatus (run_status/<id>.series.json)
 #   results <config>           gli eval_*.json (preferito eval_final.json) di
 #                              ogni run_* della dir risultati del config, in
 #                              base64 (RUN_ID_n/RUN_B64_n); token VUOTO = elenco
@@ -130,7 +130,7 @@ dump_status() {
 # con x=train/eval → logs/slurm-{train,eval}-<JOBID>.log (stessa convenzione
 # di chain_monitor.py::_find_log_file). Base64 evita qualunque problema di
 # escaping multi-riga nel protocollo KEY=VALUE.
-# RUN_STATUS: contenuto grezzo di logs/run_status-<JOBID>.json (libreria
+# RUN_STATUS: contenuto grezzo di run_status/<JOBID>.json (libreria
 # runstatus, una riga JSON già pronta, senza serie) se il file del job attivo
 # esiste ed è FRESCO (modificato negli ultimi 10 minuti — oltre, il job che lo
 # scriveva è morto e lo status è stale).
@@ -154,7 +154,7 @@ dump_monitor() {
     fi
     printf 'LOG_PATH=%s\n' "${logpath:-}"
     printf 'LOG_TAIL_B64=%s\n' "$b64"
-    local rs="$PROJ_DIR/logs/run_status-${aid}.json"
+    local rs="$PROJ_DIR/run_status/${aid}.json"
     if [ -n "$aid" ] && [ -f "$rs" ] && [ -z "$(find "$rs" -mmin +10 2>/dev/null)" ]; then
         # Single-line JSON: echo strips the trailing newline, safe on the
         # KEY=VALUE protocol (no newlines inside).
@@ -322,7 +322,7 @@ timeseries() {
         logpath="$PROJ_DIR/logs/slurm-${jtype}-${aid}.log"
         # Serie per i grafici: sidecar scritto da runstatus accanto al file di
         # stato del job (JSON già pronto, nessun parsing del log).
-        sfile="$PROJ_DIR/logs/run_status-${aid}.json.series.json"
+        sfile="$PROJ_DIR/run_status/${aid}.series.json"
         if [ -f "$sfile" ]; then series=$(cat "$sfile"); fi
     fi
     printf 'TS_MATCH=%s\n' "$([ -n "$jtype" ] && echo 1 || echo 0)"

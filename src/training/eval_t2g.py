@@ -164,7 +164,11 @@ from src.utils.prompting import (
     prompt_profile_for_config,
 )
 from src.utils.run_paths import eval_output_location
-from src.utils.run_status import run_status_set, run_status_stage_done
+from src.utils.run_status import (
+    run_status_results,
+    run_status_set,
+    run_status_stage_done,
+)
 
 logger = logging.getLogger("t2g-eval")
 
@@ -1576,6 +1580,7 @@ def evaluate_checkpoint(
     # ── Primary metrics (honest, averaged over ALL completions) ─────────
     # Fase piu' lunga dell'eval: il messaggio esce PRIMA del lavoro e la
     # barra tqdm del bootstrap copre le ripetizioni.
+    run_status_set(note="calcolo metriche")
     with phase(
         "Computing per-completion metrics + bootstrap CIs",
         detail=(
@@ -1784,6 +1789,7 @@ def evaluate_checkpoint(
 
     # Live status: generation loop done (metrics computation follows, which
     # is fast) — clear the phase so the monitor doesn't show a stale eval.
+    run_status_results(results)
     run_status_stage_done("eval completato")
 
     return (

@@ -1145,16 +1145,10 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     final_path_str: str
     try:
         logger.info("Starting SFT training...")
-        # Live status: SFT training loop starts (estimated total steps).
-        run_status_set(
-            phase="sft",
-            total_steps=(
-                int(training_cfg["max_steps"])
-                if training_cfg.get("max_steps")
-                else None
-            ),
-            note="SFT training",
-        )
+        # Live status: SFT training loop starts. The total comes from the
+        # Trainer (HighPrecisionLogCallback.on_train_begin): SFT is governed by
+        # num_train_epochs and ignores training.max_steps, which belongs to GRPO.
+        run_status_set(phase="sft", note="SFT training")
         trainer.train(resume_from_checkpoint=resume_from)
 
         # ── Best metric (tracked by load_best_model_at_end) ─────────────

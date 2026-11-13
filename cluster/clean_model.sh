@@ -88,6 +88,8 @@ slurm_logs_for_tag() {
                 if ($1 ~ /^[0-9]+$/) {
                     if ($2 ~ /^train-/) print "logs/slurm-train-" $1 ".log"
                     else print "logs/slurm-eval-" $1 ".log"
+                    print "run_status/" $1 ".json"
+                    print "run_status/" $1 ".series.json"
                 }
             }' | sort -u
 }

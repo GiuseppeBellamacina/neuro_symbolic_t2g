@@ -55,8 +55,6 @@ dependencies = [
     "tqdm",
     "wandb",
     "python-dotenv",
-    # Monitoring file read by the ClusterControl app (src/utils/run_status.py).
-    "runstatus @ https://github.com/GiuseppeBellamacina/runstatus/archive/refs/tags/v0.2.0.zip",
 ]
 
 [project.optional-dependencies]
@@ -87,16 +85,20 @@ include = ["src*", "neuro_symbolic_t2g*"]
 [tool.setuptools.package-dir]
 "" = "."
 
+# src/_vendor/ holds a verbatim copy of external libraries (see vendor_runstatus.ps1): never reformat it.
 [tool.isort]
 profile = "black"
+extend_skip_glob = ["src/_vendor/*"]
 
 [tool.black]
 line-length = 88
 target-version = ["py311"]
+extend-exclude = "src/_vendor"
 
 [tool.ruff]
 line-length = 88
 target-version = "py311"
+extend-exclude = ["src/_vendor"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]

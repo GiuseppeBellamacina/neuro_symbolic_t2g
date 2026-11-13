@@ -51,6 +51,18 @@ class HighPrecisionLogCallback(TrainerCallback):
     with enough precision to see the actual values.
     """
 
+    def on_train_begin(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs: Any,
+    ) -> None:
+        """The Trainer knows the real number of steps (SFT: epochs x batches,
+        GRPO: max_steps): it is the only reliable total for the monitor."""
+        if state.is_local_process_zero:
+            run_status_set(total_steps=state.max_steps)
+
     def on_log(
         self,
         args: TrainingArguments,
@@ -63,14 +75,13 @@ class HighPrecisionLogCallback(TrainerCallback):
             return
         logs.pop("total_flos", None)
         # ┌─ CONTRATTO DI FORMATO — non modificare senza aggiornare i consumatori ─┐
-        # Unica sorgente della serie temporale per-step: nessun altro artefatto
-        # la conserva (run_status.json tiene solo uno snapshot e le serie decimate; wandb offline).
-        # Formato: "  step=<int>  <k>=<v>  ..." — 2 spazi iniziali, 2 spazi di
-        # separatore, float a 8 decimali. Consumatori, ognuno con la propria
-        # regex: src/utils/chain_monitor.py (_KV_STEP), live_training_table.py,
-        # cluster/cluster_helper.sh (timeseries) e l'app ClusterControl. Cambiare indentazione/separatore/precisione li rompe
-        # TUTTI in silenzio: una regex che non aggancia non errore, restituisce
-        # zero punti. Consolidare i parser resta un debito aperto.
+        # Riga per-step stampata nel log SLURM. Formato: "  step=<int>  <k>=<v>
+        # ..." — 2 spazi iniziali, 2 spazi di separatore, float a 8 decimali.
+        # Consumatori, ognuno con la propria regex: src/utils/chain_monitor.py
+        # (_KV_STEP) e live_training_table.py (alias sul cluster). Cambiare
+        # indentazione/separatore/precisione li rompe in silenzio: una regex che
+        # non aggancia non dà errore, restituisce zero punti. L'app ClusterControl
+        # NON legge questa riga: usa i file di src/utils/run_status.py.
         # └────────────────────────────────────────────────────────────────────────┘
         parts = [f"step={state.global_step}"]
         for k, v in logs.items():
@@ -82,6 +93,7 @@ class HighPrecisionLogCallback(TrainerCallback):
         # rewards are computed by runstatus.
         run_status_log(
             state.global_step,
+            total_steps=state.max_steps,
             epoch=(
                 round(float(logs["epoch"]), 4)
                 if logs.get("epoch") is not None
@@ -409,9 +421,9 @@ class CompletionSampleLogger:
     def format_samples(self) -> str:
         """Format buffered samples as a readable string for logging.
 
-        Also pushes the formatted samples to the run status file (one
-        string per sample, PROMPT/OUTPUT/GOLD compact) so the external
-        monitor shows them without parsing the log.
+        Also pushes the samples to the run status file (one dict per sample:
+        prompt, output, gold, match and the per-component rewards with their
+        total) so the external monitor shows them without parsing the log.
         """
         if not self._buffer:
             return ""
@@ -420,7 +432,7 @@ class CompletionSampleLogger:
             "  COMPLETION SAMPLES",
             f"{'═' * 70}",
         ]
-        live_lines: list[str] = []
+        live_lines: list[dict[str, Any]] = []
         for idx, sample in enumerate(self._buffer, 1):
             instr = sample["instruction"]
             comp = sample["completion"]
@@ -440,10 +452,8 @@ class CompletionSampleLogger:
                 match = output.strip().upper() == gold.strip().upper()
                 indicator = "✓" if match else "✗"
                 lines.append(f"  Sample {idx}  [{indicator}]")
-                live_head = f"[{indicator}]"
             else:
                 lines.append(f"  Sample {idx}")
-                live_head = ""
             lines.append(_SEPARATOR)
             lines.append(f"  PROMPT: {instr}")
             if think:
@@ -467,8 +477,18 @@ class CompletionSampleLogger:
             total = sum(self._weight_map.get(k, 0.0) * v for k, v in bd.items())
             lines.append(f"  TOTAL:   {total:+.4f}")
             live_lines.append(
-                f"{live_head} {instr[:100]}\n  → {output[:100]}"
-                + (f"\n  gold: {gold_txt[:100]}" if gold_txt else "")
+                {
+                    "prompt": instr[:200],
+                    "output": output[:200],
+                    "gold": gold_txt[:200] or None,
+                    "match": (
+                        (output.strip().upper() == gold.strip().upper())
+                        if gold
+                        else None
+                    ),
+                    "rewards": {k: round(float(v), 4) for k, v in active_bd.items()},
+                    "total": round(float(total), 4),
+                }
             )
         lines.append(f"{'═' * 70}\n")
         if live_lines:
@@ -583,6 +603,15 @@ class CompletionSampleCallback(TrainerCallback):
                         # esplicito venivano REIETI ("Tried to log to step
                         # N < current M" — 482 warnings in slurm-train-7073)
                         # e i dati dei panel persi. Auto-step li mantiene.
+                        # Same numbers for the external monitor (with the real step).
+                        run_status_log(
+                            step,
+                            **{
+                                "grammar/masked_mass_avg": mass,
+                                "grammar/masked_entropy_avg": ent,
+                                "grammar/masked_entropy_allowed_avg": ent_allowed,
+                            },
+                        )
                         wandb.log(
                             {
                                 "grammar/masked_mass_avg": mass,
@@ -661,6 +690,12 @@ class CompletionSampleCallback(TrainerCallback):
                         reward_avgs = {
                             c: reward_sums[c] / n_samples for c in active_components
                         }
+
+                        # Per-component rewards for the external monitor (real step).
+                        run_status_log(
+                            step,
+                            **{f"rewards/{c}": v for c, v in reward_avgs.items()},
+                        )
 
                         # Log individual scalars (no explicit step= — see
                         # grammar panel above for the auto-step rationale)
@@ -837,7 +872,7 @@ class SFTSampleCallback(TrainerCallback):
             print(f"  SFT SAMPLE PREDICTIONS (step {state.global_step})")
             print(f"{'═' * 70}")
 
-            live_lines: list[str] = []
+            live_lines: list[dict[str, Any]] = []
             for idx in indices:
                 sample = self._dataset[idx]
                 if not isinstance(sample, dict):
@@ -888,8 +923,12 @@ class SFTSampleCallback(TrainerCallback):
                     else "✗"
                 )
                 live_lines.append(
-                    f"{user_text[:100]}\n  [{match}] pred: {generated[:100]}"
-                    f"\n  gold: {gold_part[:100]}"
+                    {
+                        "prompt": user_text[:200],
+                        "output": generated[:200],
+                        "gold": gold_part[:200] or None,
+                        "match": match == "✓",
+                    }
                 )
             print(f"{'═' * 70}\n")
             if live_lines:

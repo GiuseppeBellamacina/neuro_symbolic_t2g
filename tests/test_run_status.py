@@ -36,7 +36,7 @@ def test_phase_change_restarts_the_charts(monkeypatch, tmp_path):
     rs.run_status_set(phase="grpo", total_steps=50)
     rs.run_status_log(5, loss=0.5)
     rs.get_status().finish()
-    series = _read(tmp_path, "rs.json.series.json")["series"]["loss"]
+    series = _read(tmp_path, "rs.series.json")["series"]["loss"]
     assert series == [[5, 0.5]]
 
 
@@ -60,7 +60,7 @@ def test_calls_are_noops_without_the_library(monkeypatch):
     real_import = builtins.__import__
 
     def no_runstatus(name, *a, **k):
-        if name.startswith("runstatus"):
+        if "runstatus" in name:
             raise ImportError(name)
         return real_import(name, *a, **k)
 

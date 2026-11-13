@@ -329,12 +329,14 @@ VPN d'Ateneo solo durante l'azione, esegue **una** ssh e chiama
 `rewrite_queue`, `pause`, `resume`, `scancel`, `timeseries`, `results`). L'output è `KEY=VALUE`
 (coda separata da `\x1f`); la **fonte di verità resta `.chain_state/` sul cluster**.
 
-**Progresso e grafici**: il train scrive `logs/run_status-<JOBID>.json` (stato) e
-`logs/run_status-<JOBID>.json.series.json` (serie) con la libreria
+**Progresso e grafici**: il train scrive `run_status/<JOBID>.json` (stato) e
+`run_status/<JOBID>.series.json` (serie) — una cartella a parte dai log SLURM, ripulita da
+`clean.sh`/`clean_model.sh` — con la libreria
 [`runstatus`](https://github.com/GiuseppeBellamacina/runstatus), tramite l'adapter
-`src/utils/run_status.py` (dipendenza in `pyproject.toml`, installata da `cluster/setup.sh`). `monitor`
+`src/utils/run_status.py`. La libreria è **inclusa nel repo** (`src/_vendor/runstatus`, aggiornata con
+`vendor_runstatus.ps1`): il cluster non raggiunge GitHub, quindi viaggia col sync, mai con pip. `monitor`
 li espone come `RUN_STATUS=` (solo job attivo, file fresco < 10 min) e `timeseries` come `TS_SERIES=`:
-l'app non fa parsing del log. Il log resta solo per la scheda Log (`LOG_TAIL_B64`) e per i tool locali
+l'app non fa parsing del log. Il totale degli step viene dal Trainer (`state.max_steps`), non dalla config. Il log resta solo per la scheda Log (`LOG_TAIL_B64`) e per i tool locali
 `chain_monitor.py`/`live_training_table.py`, che leggono ancora le righe `step=N loss=…`.
 
 I preset delle campagne stanno in `cluster/presets.yaml` (l'app li legge da GitHub) e gli script

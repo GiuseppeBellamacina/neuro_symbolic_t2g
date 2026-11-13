@@ -1,10 +1,14 @@
 """Monitoring status for the external monitor (ClusterControl), via the ``runstatus`` library.
 
-The training writes ``logs/run_status-<SLURM_JOB_ID>.json`` (+ a ``.series.json`` sidecar with the chart
+The training writes ``run_status/<SLURM_JOB_ID>.json`` (+ ``<SLURM_JOB_ID>.series.json`` with the chart
 series) as it goes; ``cluster/cluster_helper.sh`` hands them to the app, so nothing parses the log.
+The folder is separate from ``logs/`` (SLURM logs) on purpose.
+
+The library is vendored in ``src/_vendor/runstatus`` (see ``vendor_runstatus.ps1``): the cluster has no
+access to GitHub, so it travels with the code through the usual sync, never through pip.
 
 This module is a thin, process-wide adapter: one shared ``RunStatus`` per process, and every call is a
-no-op if ``runstatus`` is not installed or fails, because monitoring must NEVER break a training.
+no-op if the library fails to load or to write, because monitoring must NEVER break a training.
 """
 
 from __future__ import annotations
@@ -18,38 +22,56 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_LOGS_DIR = Path(__file__).resolve().parents[2] / "logs"
+_ROOT = Path(__file__).resolve().parents[2]
 _status: Any = None
 _tried = False
 
+# Metrics that get a chart series (the sidecar travels over a slow link: keep it to what is worth plotting).
+SERIES = [
+    "loss",
+    "eval_loss",
+    "lr",
+    "grad_norm",
+    "reward*",
+    "rewards/*",
+    "kl",
+    "entropy",
+    "completion*",
+    "grammar/*",
+    "*accuracy*",
+]
+
+
+def _status_path() -> Path:
+    """RUNSTATUS_PATH, else <RUNSTATUS_DIR or <repo>/run_status>/<jobid>.json (stable whatever the cwd is)."""
+    if os.environ.get("RUNSTATUS_PATH"):
+        return Path(os.environ["RUNSTATUS_PATH"])
+    folder = Path(os.environ.get("RUNSTATUS_DIR") or _ROOT / "run_status")
+    job = os.environ.get("SLURM_JOB_ID")
+    return folder / (f"{job}.json" if job else "run_status.json")
+
 
 def get_status() -> Any:
-    """The shared RunStatus, or None when runstatus is unavailable."""
+    """The shared RunStatus, or None when it cannot be created."""
     global _status, _tried
     if _tried:
         return _status
     _tried = True
     try:
-        from runstatus import RunStatus
-        from runstatus.core import default_path
+        from src._vendor.runstatus import RunStatus
 
         job = os.environ.get("SLURM_JOB_NAME") or None
-        # Repo-root based like the old live status file: stable whatever the cwd is.
-        path = (
-            default_path()
-            if os.environ.get("RUNSTATUS_PATH")
-            else _LOGS_DIR / default_path().name
-        )
         _status = RunStatus(
-            path,
+            _status_path(),
             kind="eval" if (job or "").startswith("eval-") else "train",
             name=job,
             rename={"learning_rate": "lr"},
             best={"eval_loss": "min"},
+            series=SERIES,
         )
         atexit.register(_close)
         _chain_excepthook()
-    except Exception as exc:  # ImportError or anything else
+    except Exception as exc:
         logger.warning("run status disabled: %s: %s", exc.__class__.__name__, exc)
     return _status
 
@@ -105,25 +127,54 @@ def run_status_set(
         pass
 
 
-def run_status_log(step: int, epoch: float | None = None, **metrics: Any) -> None:
+def run_status_log(
+    step: int,
+    epoch: float | None = None,
+    total_steps: int | None = None,
+    **metrics: Any,
+) -> None:
     """Record the metrics of one log event (numeric values only; None/NaN are ignored)."""
     try:
         s = get_status()
         if s is None:
             return
-        if epoch is not None:
-            s.set(epoch=epoch)
+        if epoch is not None or total_steps:
+            s.set(epoch=epoch, total_steps=total_steps or None)
         s.log(step, **metrics)
     except Exception:
         pass
 
 
-def run_status_samples(lines: list[str], kind: str) -> None:
-    """Latest completion samples, ready for display (last 6 are kept)."""
+def run_status_samples(samples: list[Any], kind: str) -> None:
+    """Latest completion samples for display (last 6 are kept).
+
+    Items may be plain strings or dicts such as
+    ``{"prompt", "output", "gold", "match", "rewards": {component: value}, "total"}``.
+    """
     try:
         s = get_status()
         if s is not None:
-            s.set(samples=lines, extra={"samples_kind": kind})
+            s.set(samples=samples, extra={"samples_kind": kind})
+    except Exception:
+        pass
+
+
+def run_status_results(results: dict[str, Any], prefix: str = "eval/") -> None:
+    """Publish the scalar metrics of a finished evaluation (one nesting level is flattened with ``/``)."""
+    try:
+        s = get_status()
+        if s is None:
+            return
+        flat: dict[str, float] = {}
+        for key, value in results.items():
+            if isinstance(value, dict):
+                for sub, v in value.items():
+                    if isinstance(v, (int, float)) and not isinstance(v, bool):
+                        flat[f"{prefix}{key}/{sub}"] = v
+            elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                flat[f"{prefix}{key}"] = value
+        s.log(None, **flat)
+        s.event("metriche di valutazione calcolate")
     except Exception:
         pass
 

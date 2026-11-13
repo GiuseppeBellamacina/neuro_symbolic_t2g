@@ -495,6 +495,7 @@ def test_live_table_skips_sample_blocks(monkeypatch, capsys):
 class _FakeState:
     def __init__(self, step: int = 5):
         self.global_step = step
+        self.max_steps = 100
         self.is_local_process_zero = True
 
 
