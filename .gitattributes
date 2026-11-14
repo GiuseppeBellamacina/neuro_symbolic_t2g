@@ -5,3 +5,6 @@
 *.sh text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+
+# Vendored by vendor_runstatus.ps1 (writes LF): keep LF so a re-vendor leaves no diff
+src/_vendor/** text eol=lf

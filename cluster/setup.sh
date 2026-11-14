@@ -45,7 +45,7 @@ echo "   Python: $($PY --version 2>&1)"
 # Per ognuno servono TRE repository: Qwen/<nome> (l'eval lo carica con
 # transformers), la copia Unsloth a precisione piena (usata quando la fase SFT
 # viene fusa in memoria) e quella Unsloth a 4 bit (train in QLoRA).
-T2G_MODELS="${T2G_MODELS:-Qwen/Qwen2.5-0.5B-Instruct Qwen/Qwen2.5-1.5B-Instruct}"
+T2G_MODELS="${T2G_MODELS:-Qwen/Qwen2.5-0.5B-Instruct Qwen/Qwen2.5-1.5B-Instruct Qwen/Qwen2.5-3B-Instruct}"
 
 download_models() {
     echo ""
