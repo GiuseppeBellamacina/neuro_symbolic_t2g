@@ -4,14 +4,15 @@
 #
 # CORE della catena: tick BREVI e statelèssi, invocabili da:
 #   - l'hook bashrc PROMPT_COMMAND      (chain-hook-install — PRIMARIO)
-#   - il server esterno / cron         (cluster/cluster_helper.sh tick)
+#   - l'app ClusterControl / cron      (cluster/cluster_helper.sh tick)
 #   - un comando manuale               (chain-start / run-all)
 #
 # Ogni tick:
 #   1. flock (non-blocking): max 1 tick alla volta (hook+manuale+server)
 #   2. .chain_stopped presente           → exit 0 (pausa)
 #   3. active SLURM job (squeue)        → exit 0 (il tick è innocuo)
-#   4. job_chain empty                  → exit 0 (catena completa)
+#   4. job_chain empty                  → exit 0 (catena completa; salvo un train appena morto
+#      per TIMEOUT/OOM/CUDA con riprese residue: viene ripreso anche da solo in coda)
 #   5. last submitted job finished?     → classify via sacct: retry
 #      (train TIMEOUT/OOM/CUDA, max 2, tracked in .chain_state/last_job)
 #      or log-and-skip (continue-on-failure, eval-after-failed-train dropped)
@@ -55,7 +56,7 @@ mkdir -p "$STATE_DIR" logs
 
 # ── ERR trap: errore interno → soft-fail ─────────────────────────────────────
 # Un blip Slurm/DNS NON deve mai allarmare il driver (ssh rc=3 → 502 →
-# notifica rossa in TUI): il tick è idempotente e il prossimo (≈5 min)
+# notifica rossa nell'app): il tick è idempotente e il prossimo (≈5 min)
 # riprova. L'errore resta visibile in chain.log con riga e comando.
 trap 'log_line "tick errore interno (riga $LINENO: $BASH_COMMAND) — rimandato al prossimo tick"; exit 4' ERR
 
@@ -105,10 +106,33 @@ if [ -n "$JOB_ACTIVE" ]; then
     exit 0
 fi
 
-# 3) Catena completa
+# 3) Coda vuota = catena completa, con UNA eccezione: l'ultimo job era un train
+#    morto per TIMEOUT (11:45 h), OOM o errore CUDA. Senza questo caso un train
+#    rimasto solo in coda (nessun eval dopo di lui) non verrebbe mai ripreso:
+#    chain_handle_failure accoda il --resume (o, a riprese esaurite, registra
+#    l'errore) e il passo 5 sottomette. Ogni job fallito si gestisce UNA volta
+#    (last_failure_handled): niente errori ripetuti a ogni tick. Un fallimento
+#    non ripristinabile o un job riuscito con coda vuota non si toccano.
+HANDLED_FILE="$STATE_DIR/last_failure_handled"
 if [ ! -s "$CHAIN_FILE" ]; then
-    [ "$QUIET" -eq 0 ] && echo "catena completa — nessun job in coda"
-    exit 0
+    chain_read_last_job
+    if [ "$LAST_JOB_TYPE" = "train" ] && [ -n "$LAST_JOB_ID" ] &&
+        [ "$(cat "$HANDLED_FILE" 2>/dev/null || true)" != "$LAST_JOB_ID" ]; then
+        query_sacct_with_retry "$LAST_JOB_ID" 4 3 || true
+        if ! last_job_still_active && ! job_succeeded; then
+            if [ "$_SACCT_STATE" = "TIMEOUT" ] || [ "$_SACCT_STATE" = "OUT_OF_MEMORY" ] ||
+                is_oom_failure "$LAST_JOB_ID" "$_SACCT_EXIT_CODE" "$_SACCT_STATE" ||
+                is_cuda_transient_failure "$LAST_JOB_ID" "$_SACCT_EXIT_CODE" "$_SACCT_STATE"; then
+                _failed_id="$LAST_JOB_ID"
+                chain_handle_failure || true
+                echo "$_failed_id" > "$HANDLED_FILE"
+            fi
+        fi
+    fi
+    if [ ! -s "$CHAIN_FILE" ]; then
+        [ "$QUIET" -eq 0 ] && echo "catena completa — nessun job in coda"
+        exit 0
+    fi
 fi
 
 # 4) L'ultimo job è terminato? → retry o log-and-skip (poi si sottomette)

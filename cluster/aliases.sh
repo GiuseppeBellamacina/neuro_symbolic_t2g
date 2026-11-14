@@ -360,7 +360,7 @@ _chain_resume_impl() {
     echo ""
 
     # 3) Kick: un tick immediato — la catena avanza poi con l'hook bashrc
-    #    (chain-hook-install) e/o il server esterno (POST /tick).
+    #    (chain-hook-install) e/o l'app ClusterControl (avvio automatico).
     bash cluster/chain_tick.sh --quiet
     local rc=$?
     [ "$rc" -ne 0 ] && echo "⚠️  tick rc=$rc - riproverà al prossimo tick."

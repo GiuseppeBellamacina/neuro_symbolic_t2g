@@ -251,7 +251,7 @@ CONFIG=experiments/configs/aslg-pc12/qwen25-05b/sft-grpo/few-shot.yaml EXTRA_ARG
                     | 7. --schedule[=N] → rischedula via at (dedup)|
                     +-------------+-----+------+-----+-------------+
                     |             |           |     |
-        bashrc-hook (PRIMARIO) → tick; manuale → tick; server esterno (POST /tick) → tick
+        bashrc-hook (PRIMARIO) → tick; manuale → tick; app ClusterControl → tick
         se un giorno presente)
 ```
 
@@ -280,11 +280,12 @@ scarta una. Può quindi essere chiamato da più sorgenti senza rischi.
 | `tick_stamp` | throttle del hook bashrc (min 1 tick/2s) |
 | *(rimosso)* | solo residue di installazioni vecchie |
 | `tick.lock` | flock del tick |
+| `last_failure_handled` | id dell'ultimo train fallito già gestito (niente errori ripetuti a coda vuota) |
 
 ### 6.3. Diagnostica (3 comandi sul login node)
 
 Su gcluster `at` NON è disponibile: la resilienza si ottiene con l'HOME hook
-bashrc (primario); il server esterno e i tick manuali completano la copertura.
+bashrc (primario); l'app ClusterControl e i tick manuali completano la copertura.
 
 ```bash
 # 1. Linger è attivo? (se no, i processi muoiono al logout)
@@ -302,7 +303,7 @@ command -v at          # vuoto = ok, non serve; installa comunque l'hook
 
 | Sintomo | Causa probabile | Soluzione |
 | ------- | --------------- | --------- |
-| Pipeline ferma, `job_chain` non vuota, nessun job attivo | nessun tick in arrivo | kick: `chain-start` o POST /tick |
+| Pipeline ferma, `job_chain` non vuota, nessun job attivo | nessun tick in arrivo | kick: `chain-start`, o un tick dall'app |
 | `run-all` rifiuta con "catena interrotta con N job rimanenti" | stato pendente rilevato (anti-rm-rf) | `chain-resume`, oppure `run-all --force` solo se vuoi davvero ricominciare |
 | La catena si ferma quando ti scolleghi | hook bashrc non installato (gcluster non ha `at`) | `chain-hook-install && source ~/.bashrc` (PRIMARIO) |
 | `atq` vuoto | normale su gcluster: `at` NON è disponibile | nessuna azione: usare hook/server |
@@ -315,7 +316,10 @@ command -v at          # vuoto = ok, non serve; installa comunque l'hook
 
 Se un job di training termina con `TIMEOUT` (time limit QoS), `OUT_OF_MEMORY`
 o errore CUDA transitorio, il tick **reinserisce in testa** la stessa entry
-con `--resume` e la ripresenta (max **2 tentativi**, contati in `last_job`).
+con `--resume` e la ripresenta (max **2 tentativi**, contati in `last_job`). Vale anche se
+il train era l'unico job in coda (nessun eval dopo di lui): ogni job fallito si gestisce una
+sola volta (`.chain_state/last_failure_handled`). L'app ClusterControl chiede il tick appena un
+job finisce e la coda non è vuota, con retry a attesa crescente se il job non parte.
 Se anche il retry fallisce, l'errore finisce in `chain_errors`, l'eventuale
 eval associato viene saltato (per non valutare un modello non addestrato) e la
 catena continua con l'entry successiva (continue-on-failure, pensato per
@@ -328,6 +332,16 @@ VPN d'Ateneo solo durante l'azione, esegue **una** ssh e chiama
 `cluster/cluster_helper.sh <sottocomando>` (`tick`, `status`, `monitor`, `enqueue_batch`,
 `rewrite_queue`, `pause`, `resume`, `scancel`, `timeseries`, `results`). L'output è `KEY=VALUE`
 (coda separata da `\x1f`); la **fonte di verità resta `.chain_state/` sul cluster**.
+
+**Progresso e grafici**: il train scrive `run_status/<JOBID>.json` (stato) e
+`run_status/<JOBID>.series.json` (serie) — una cartella a parte dai log SLURM, ripulita da
+`clean.sh`/`clean_model.sh` — con la libreria
+[`runstatus`](https://github.com/GiuseppeBellamacina/runstatus), tramite l'adapter
+`src/utils/run_status.py`. La libreria è **inclusa nel repo** (`src/_vendor/runstatus`, aggiornata con
+`vendor_runstatus.ps1`): il cluster non raggiunge GitHub, quindi viaggia col sync, mai con pip. `monitor`
+li espone come `RUN_STATUS=` (solo job attivo, file fresco < 10 min) e `timeseries` come `TS_SERIES=`:
+l'app non fa parsing del log. Il totale degli step viene dal Trainer (`state.max_steps`), non dalla config. Il log resta solo per la scheda Log (`LOG_TAIL_B64`) e per i tool locali
+`chain_monitor.py`/`live_training_table.py`, che leggono ancora le righe `step=N loss=…`.
 
 I preset delle campagne stanno in `cluster/presets.yaml` (l'app li legge da GitHub) e gli script
 `cluster/*.sh` vengono tenuti allineati dal sync degli script dell'app. Il tick è idempotente:

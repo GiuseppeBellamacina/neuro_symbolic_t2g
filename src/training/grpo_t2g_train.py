@@ -110,9 +110,9 @@ from src.utils.glossary import (
     format_glossary_block,
     should_include_glossary,
 )
-from src.utils.live_status import live_status_set
 from src.utils.phase_timing import log_step, phase
 from src.utils.prompting import build_t2g_prompt, prompt_profile_for_config
+from src.utils.run_status import run_status_describe, run_status_set
 
 # ───────────────────────────────────────────────────────────────────────────
 
@@ -495,6 +495,13 @@ def main() -> None:
     args = build_arg_parser().parse_args()
 
     config = load_config(args.config)
+    run_status_describe(
+        config,
+        kind="train",
+        method="grpo",
+        stages=(["sft"] if config.get("sft_pretrain", {}).get("enabled") else [])
+        + ["grpo"],
+    )
 
     # ── Resolve timestamped output/log directories and resume logic ──────
     from datetime import datetime
@@ -619,8 +626,8 @@ def main() -> None:
     if sft_pretrain_cfg.get("enabled", False):
         print(f"\n{'=' * 60}")
         print("STEP 1.5: SFT Pre-training")
-        # Live status: the SFT phase begins (adapter reuse skips this block).
-        live_status_set(phase="sft", note="SFT pre-training")
+        # Run status: the SFT phase begins (adapter reuse skips this block).
+        run_status_set(phase="sft", note="SFT pre-training")
 
         from src.training.sft_train import (
             clone_sft_adapter,
@@ -975,12 +982,9 @@ def main() -> None:
 
     # ── Step 7: Training ─────────────────────────────────────────────────
     log_step(7, "GRPO Training")
-    # Live status: the GRPO phase begins (SFT phase, if any, is over).
-    live_status_set(
-        phase="grpo",
-        total_steps=int(config["training"].get("max_steps", 1500)),
-        note="GRPO training",
-    )
+    # Run status: the GRPO phase begins (SFT phase, if any, is over).
+    # The total steps come from the Trainer (HighPrecisionLogCallback).
+    run_status_set(phase="grpo", note="GRPO training")
 
     # ── Workaround: transformers 5.3.0 + peft non espongono  ──────────
     # model.warnings_issued, ma trl 0.24.0 lo usa in GRPOTrainer.__init__.

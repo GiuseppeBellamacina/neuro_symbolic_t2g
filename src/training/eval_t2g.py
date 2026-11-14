@@ -139,7 +139,6 @@ from src.training.retrieval_setup import (
     retrieve_few_shot_batch,
 )
 from src.utils.config import load_config
-from src.utils.live_status import live_status_reset, live_status_set
 from src.utils.log_dedup import dedupe_library_loggers
 from src.utils.metrics import (
     METRICS_VERSION,
@@ -165,6 +164,12 @@ from src.utils.prompting import (
     prompt_profile_for_config,
 )
 from src.utils.run_paths import eval_output_location
+from src.utils.run_status import (
+    run_status_describe,
+    run_status_results,
+    run_status_set,
+    run_status_stage_done,
+)
 
 logger = logging.getLogger("t2g-eval")
 
@@ -896,7 +901,7 @@ def _collect_completions_with_resume(
             # Il monitor esterno non deve mostrare 0/N finché non arriva il
             # primo tick periodico: lo stato live parte dalla posizione
             # recuperata.
-            live_status_set(
+            run_status_set(
                 step=start_idx,
                 total_steps=n_total,
                 eval_progress=f"{start_idx}/{n_total}",
@@ -932,8 +937,8 @@ def _collect_completions_with_resume(
                 n_total,
                 (idx + 1) / max(n_total, 1) * 100,
             )
-            # Live status: eval progress (same cadence as the log line).
-            live_status_set(
+            # Run status: eval progress (same cadence as the log line).
+            run_status_set(
                 step=idx + 1,
                 total_steps=n_total,
                 eval_progress=f"{idx + 1}/{n_total}",
@@ -1454,8 +1459,8 @@ def evaluate_checkpoint(
     )
     test_ds = test_ds.select(sample_indices)
 
-    # Live status: the eval phase begins (progress updated in the loop).
-    live_status_set(
+    # Run status: the eval phase begins (progress updated in the loop).
+    run_status_set(
         phase="eval",
         step=0,
         total_steps=len(test_ds),
@@ -1576,6 +1581,7 @@ def evaluate_checkpoint(
     # ── Primary metrics (honest, averaged over ALL completions) ─────────
     # Fase piu' lunga dell'eval: il messaggio esce PRIMA del lavoro e la
     # barra tqdm del bootstrap copre le ripetizioni.
+    run_status_set(note="calcolo metriche")
     with phase(
         "Computing per-completion metrics + bootstrap CIs",
         detail=(
@@ -1782,9 +1788,10 @@ def evaluate_checkpoint(
             entry["error"] = err
         generations.append(entry)
 
-    # Live status: generation loop done (metrics computation follows, which
-    # is fast) — clear the phase so the monitor doesn't show a stale eval.
-    live_status_reset(note="eval completato")
+    # Run status: publish the final metrics for the monitor, then note the end
+    # (the run itself is closed at process exit).
+    run_status_results(results)
+    run_status_stage_done("eval completato")
 
     return (
         results,
@@ -2896,6 +2903,7 @@ def main() -> None:
     dedupe_library_loggers()
 
     config = load_config(args.config)
+    run_status_describe(config, kind="eval", method=None, stages=["eval"])
 
     # ── Resolve eval knobs ONLY from the config ──────────────────────────
     # La sezione evaluation: è l'unica fonte dei knob (prima metà da CLI

@@ -39,9 +39,9 @@
 #   pause                      crea .chain_state/chain_stopped (stop soft)
 #   resume                     rimuove .chain_state/chain_stopped
 #   tick                       esegue chain_tick.sh --quiet poi lo snapshot
-#   timeseries <tag>           serie delle righe KV `step=N loss=...` dell'INTERO
-#                              log del job (attivo, altrimenti ultimo) col tag
-#                              dato: TS_* keys, log in base64 (per i grafici)
+#   timeseries <tag>           serie per i grafici del job (attivo, altrimenti
+#                              ultimo) col tag dato: TS_* keys, TS_SERIES = JSON
+#                              del sidecar runstatus (run_status/<id>.series.json)
 #   results <config>           gli eval_*.json (preferito eval_final.json) di
 #                              ogni run_* della dir risultati del config, in
 #                              base64 (RUN_ID_n/RUN_B64_n); token VUOTO = elenco
@@ -130,9 +130,10 @@ dump_status() {
 # con x=train/eval → logs/slurm-{train,eval}-<JOBID>.log (stessa convenzione
 # di chain_monitor.py::_find_log_file). Base64 evita qualunque problema di
 # escaping multi-riga nel protocollo KEY=VALUE.
-# LIVE_STATUS: contenuto grezzo di logs/live_status.json (una riga JSON già
-# pronta) se il file esiste ed è FRESCO (modificato negli ultimi 10 minuti —
-# oltre, il job che lo scriveva è morto e lo status è stale).
+# RUN_STATUS: contenuto grezzo di run_status/<JOBID>.json (libreria
+# runstatus, una riga JSON già pronta, senza serie) se il file del job attivo
+# esiste ed è FRESCO (modificato negli ultimi 10 minuti — oltre, il job che lo
+# scriveva è morto e lo status è stale).
 dump_monitor() {
     local nlines="${1:-200}"
     dump_status
@@ -153,11 +154,11 @@ dump_monitor() {
     fi
     printf 'LOG_PATH=%s\n' "${logpath:-}"
     printf 'LOG_TAIL_B64=%s\n' "$b64"
-    local live="$PROJ_DIR/logs/live_status.json"
-    if [ -f "$live" ] && [ -z "$(find "$live" -mmin +10 2>/dev/null)" ]; then
+    local rs="$PROJ_DIR/run_status/${aid}.json"
+    if [ -n "$aid" ] && [ -f "$rs" ] && [ -z "$(find "$rs" -mmin +10 2>/dev/null)" ]; then
         # Single-line JSON: echo strips the trailing newline, safe on the
         # KEY=VALUE protocol (no newlines inside).
-        printf 'LIVE_STATUS=%s\n' "$(cat "$live")"
+        printf 'RUN_STATUS=%s\n' "$(cat "$rs")"
     fi
 }
 
@@ -270,7 +271,7 @@ tick() {
     exit "$rc"
 }
 
-# Kill del job attivo (per la TUI). Exit 1 + messaggio se nessun job attivo:
+# Kill del job attivo (per l'app). Exit 1 + messaggio se nessun job attivo:
 # in quel caso non viene stampato STATUS_OK e il driver risolve in 409.
 # Dopo lo scancel stampa lo snapshot monitor: il driver fa 1 sola ssh invece
 # di due (kill + monitor separati). Il job può risultare ancora RUNNING per
@@ -291,15 +292,13 @@ scancel_active() {
     dump_monitor
 }
 
-# ── Timeseries: righe KV `step=N ...` dell'intero log del job col tag dato ───
-# Il driver le trasforma in serie per i grafici (sparkline della TUI). Il
-# grep gira sul login node: trasportare SOLO le righe KV (grep) invece del
-# log intero mantiene il payload piccolo; base64 evita problemi di escaping
-# multi-riga nel protocollo KEY=VALUE. Il job viene risolto prima nello
+# ── Timeseries: serie runstatus del job col tag dato ─────────────────────────
+# Il file è JSON su una riga (nessun escaping da gestire nel protocollo
+# KEY=VALUE). Il job viene risolto prima nello
 # squeue (job attivo) e poi in last_job (ultimo sottomesso): i log SLURM sono
 # nominati per JOBID, quindi il mapping tag→jobid esiste solo lì.
 timeseries() {
-    local tag="$1" aid="" aname="" jtype="" logpath="" total="" b64=""
+    local tag="$1" aid="" aname="" jtype="" logpath="" series="" sfile=""
     local lj_id lj_type lj_cfg lj_tag rest
     # `|| true`: blip di squeue → job "non attivo", non crash dell'helper.
     aid=$(active_job_id) || true
@@ -321,25 +320,16 @@ timeseries() {
     fi
     if [ -n "$jtype" ]; then
         logpath="$PROJ_DIR/logs/slurm-${jtype}-${aid}.log"
-        if [ -f "$logpath" ]; then
-            # Stesso pattern di _KV_STEP in chain_monitor (righe KV con step+loss):
-            # una sola fonte di verità per cosa è una "riga metrica". Il `|| true`
-            # protegge da set -o pipefail quando grep non trova nulla (log eval).
-            b64=$(grep -E '^[[:space:]]+step=[0-9]+[[:space:]]+loss=' "$logpath" 2>/dev/null | base64 -w 0) || true
-            # total_steps: ultimo marker di stage ([stage N] steps=M, scritto
-            # dal curriculum) oppure max_steps= (fallback SFT/base).
-            total=$(grep -oE '\[stage [0-9]+\] steps=[0-9]+' "$logpath" 2>/dev/null | tail -1 | grep -oE '[0-9]+$') || true
-            if [ -z "$total" ]; then
-                total=$(grep -oE 'max_steps=[0-9]+' "$logpath" 2>/dev/null | tail -1 | grep -oE '[0-9]+$') || true
-            fi
-        fi
+        # Serie per i grafici: sidecar scritto da runstatus accanto al file di
+        # stato del job (JSON già pronto, nessun parsing del log).
+        sfile="$PROJ_DIR/run_status/${aid}.series.json"
+        if [ -f "$sfile" ]; then series=$(cat "$sfile"); fi
     fi
     printf 'TS_MATCH=%s\n' "$([ -n "$jtype" ] && echo 1 || echo 0)"
     printf 'TS_JOB_ID=%s\n' "$aid"
     printf 'TS_JOB_TYPE=%s\n' "$jtype"
     printf 'TS_LOG_PATH=%s\n' "$logpath"
-    printf 'TS_TOTAL_STEPS=%s\n' "$total"
-    printf 'TS_LOG_B64=%s\n' "$b64"
+    printf 'TS_SERIES=%s\n' "$series"
 }
 
 # ── Results: eval_*.json della dir risultati del config, in base64 ───────────
@@ -438,7 +428,7 @@ EOF
         dir="$PROJ_DIR/experiments/results/$token"
     else
         local c key
-        # Chiave di config (CONFIG_MAP dell'app, fallback della TUI): vedi
+        # Chiave di config (CONFIG_MAP dell'app, fallback dell'app): vedi
         # _cell_key (aslg-pc12/qwen25-05b/baseline/zero-shot <->
         # baseline-zero-shot). Match esatto, prima di qualunque sottostringa:
         # "grpo-few-shot" è contenuto anche in sft-grpo/few-shot e in

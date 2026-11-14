@@ -495,17 +495,30 @@ def test_live_table_skips_sample_blocks(monkeypatch, capsys):
 class _FakeState:
     def __init__(self, step: int = 5):
         self.global_step = step
+        self.max_steps = 100
         self.is_local_process_zero = True
 
 
-def test_high_precision_callback_reward_running_avg(monkeypatch, capsys):
-    """on_log accumulates the running mean of logged GRPO rewards; partial
-    logs (routine eval, no reward) never reset or overwrite it."""
+def _use_tmp_status(monkeypatch, tmp_path):
+    """Point the shared RunStatus of src.utils.run_status at a temp file."""
+    from src.utils import run_status as rs
+
+    monkeypatch.setenv("RUNSTATUS_PATH", str(tmp_path / "rs.json"))
+    monkeypatch.delenv("SLURM_JOB_NAME", raising=False)
+    monkeypatch.setattr(rs.atexit, "register", lambda *a, **k: None)
+    monkeypatch.setattr(rs, "_chain_excepthook", lambda: None)
+    rs._reset_for_tests()
+    return rs
+
+
+def test_high_precision_callback_reward_running_avg(monkeypatch, tmp_path, capsys):
+    """on_log feeds runstatus: the reward mean is computed by the library and
+    partial logs (routine eval, no reward) never reset the other metrics."""
+    import json
+
     from src.training import callbacks as cb
 
-    captured: list[dict] = []
-    monkeypatch.setattr(cb, "live_status_set", lambda **kw: captured.append(kw))
-
+    rs = _use_tmp_status(monkeypatch, tmp_path)
     c = cb.HighPrecisionLogCallback()
     c.on_log(
         None,
@@ -519,30 +532,26 @@ def test_high_precision_callback_reward_running_avg(monkeypatch, capsys):
         None,
         logs={"loss": 0.9, "reward": 0.7, "learning_rate": 1e-6},
     )
-    # Routine-eval log: NO reward/loss/lr — must not touch reward_avg/loss/lr
+    # Routine-eval log: NO reward/loss/lr
     c.on_log(None, _FakeState(10), None, logs={"eval_loss": 0.3})
+    rs.get_status().finish()
 
-    with_reward = [k for k in captured if "reward_avg" in k]
-    assert with_reward[-1]["reward_avg"] == 0.6, "mean(0.5, 0.7) = 0.6"
-    last = captured[-1]
-    assert "reward_avg" not in last, "partial log must not touch reward_avg"
-    assert "loss" not in last and "lr" not in last, "partial log must not reset loss/lr"
-    assert last["eval_loss"] == 0.3 and last["step"] == 10
-
-    # Third reward event continues the SAME running average
-    c.on_log(None, _FakeState(15), None, logs={"loss": 0.8, "reward": 0.9})
-    with_reward = [k for k in captured if "reward_avg" in k]
-    assert with_reward[-1]["reward_avg"] == 0.7, "mean(0.5, 0.7, 0.9) = 0.7"
+    d = json.loads((tmp_path / "rs.json").read_text())
+    m = d["metrics"]
+    assert m["mean"]["reward"] == 0.6, "mean(0.5, 0.7) = 0.6"
+    assert (
+        m["latest"]["loss"] == 0.9 and m["latest"]["lr"] == 1e-6
+    ), "partial log must not reset loss/lr"
+    assert m["latest"]["eval_loss"] == 0.3 and d["progress"]["step"] == 10
 
 
-def test_high_precision_callback_sft_logs_have_no_reward_avg(monkeypatch, capsys):
-    """SFT logs (no 'reward' key) never produce reward_avg — the avg stays
-    absent so the TUI shows nothing extra during SFT."""
+def test_high_precision_callback_sft_logs_have_no_reward(monkeypatch, tmp_path, capsys):
+    """SFT logs (no 'reward' key) never produce reward statistics."""
+    import json
+
     from src.training import callbacks as cb
 
-    captured: list[dict] = []
-    monkeypatch.setattr(cb, "live_status_set", lambda **kw: captured.append(kw))
-
+    rs = _use_tmp_status(monkeypatch, tmp_path)
     c = cb.HighPrecisionLogCallback()
     for step, loss in ((10, 3.4), (20, 3.0)):
         c.on_log(
@@ -551,10 +560,11 @@ def test_high_precision_callback_sft_logs_have_no_reward_avg(monkeypatch, capsys
             None,
             logs={"loss": loss, "learning_rate": 2e-5, "epoch": 0.01},
         )
+    rs.get_status().finish()
 
-    assert all("reward_avg" not in k for k in captured)
-    assert all("reward" not in k for k in captured)
-    assert captured[-1]["loss"] == 3.0
+    d = json.loads((tmp_path / "rs.json").read_text())
+    assert "reward" not in d["metrics"]["latest"] and d["metrics"]["mean"] == {}
+    assert d["metrics"]["latest"]["loss"] == 3.0 and d["progress"]["epoch"] == 0.01
 
 
 def test_run_survives_undecodable_command_output(monkeypatch):

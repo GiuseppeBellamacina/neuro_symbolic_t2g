@@ -66,6 +66,10 @@ echo "[3/9] logs/ (SLURM) + experiments/logs/ (training+eval)"
 if [ -d "logs" ]; then
     $CMD logs/*
 fi
+# File di monitoring (libreria runstatus), in una cartella a parte dai log SLURM
+if [ -d "run_status" ]; then
+    $CMD run_status/*
+fi
 if [ -d "experiments/logs" ]; then
     $CMD experiments/logs/*
 fi

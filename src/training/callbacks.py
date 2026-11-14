@@ -15,7 +15,7 @@ from transformers import (
 )
 from transformers.trainer_callback import ProgressCallback
 
-from src.utils.live_status import live_status_add_samples, live_status_set
+from src.utils.run_status import run_status_log, run_status_samples, run_status_set
 from src.utils.text_utils import extract_user_text
 
 logger = logging.getLogger(__name__)
@@ -51,12 +51,17 @@ class HighPrecisionLogCallback(TrainerCallback):
     with enough precision to see the actual values.
     """
 
-    def __init__(self) -> None:
-        # Running average dei batch reward GRPO (chiave "reward"): con batch
-        # uguali la media delle medie-per-evento eguaglia la media complessiva.
-        # Su resume riparte da zero (aiuto di live monitoring, non metrica).
-        self._reward_sum: float = 0.0
-        self._reward_count: int = 0
+    def on_train_begin(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs: Any,
+    ) -> None:
+        """The Trainer knows the real number of steps (SFT: epochs x batches,
+        GRPO: max_steps): it is the only reliable total for the monitor."""
+        if state.is_local_process_zero:
+            run_status_set(total_steps=state.max_steps)
 
     def on_log(
         self,
@@ -70,45 +75,32 @@ class HighPrecisionLogCallback(TrainerCallback):
             return
         logs.pop("total_flos", None)
         # ┌─ CONTRATTO DI FORMATO — non modificare senza aggiornare i consumatori ─┐
-        # Unica sorgente della serie temporale per-step: nessun altro artefatto
-        # la conserva (live_status.json ha solo l'ultimo snapshot; wandb offline).
-        # Formato: "  step=<int>  <k>=<v>  ..." — 2 spazi iniziali, 2 spazi di
-        # separatore, float a 8 decimali. Consumatori, ognuno con la propria
-        # regex: src/utils/chain_monitor.py (_KV_STEP), live_training_table.py,
-        # cluster/cluster_helper.sh (timeseries) e l'app ClusterControl. Cambiare indentazione/separatore/precisione li rompe
-        # TUTTI in silenzio: una regex che non aggancia non errore, restituisce
-        # zero punti. Consolidare i parser resta un debito aperto.
+        # Riga per-step stampata nel log SLURM. Formato: "  step=<int>  <k>=<v>
+        # ..." — 2 spazi iniziali, 2 spazi di separatore, float a 8 decimali.
+        # Consumatori, ognuno con la propria regex: src/utils/chain_monitor.py
+        # (_KV_STEP) e live_training_table.py (alias sul cluster). Cambiare
+        # indentazione/separatore/precisione li rompe in silenzio: una regex che
+        # non aggancia non dà errore, restituisce zero punti. L'app ClusterControl
+        # NON legge questa riga: usa i file di src/utils/run_status.py.
         # └────────────────────────────────────────────────────────────────────────┘
         parts = [f"step={state.global_step}"]
         for k, v in logs.items():
             parts.append(f"{k}={v:.8f}" if isinstance(v, float) else f"{k}={v}")
         print("  " + "  ".join(parts))
-        # Live status file (logs/live_status.json) for the external monitor —
-        # throttled internally; fail-safe. Passare SOLO i campi presenti in
-        # QUESTO evento di log: un log parziale (l'holdout eval emette
-        # {'eval_loss': …} senza loss/lr/epoch) non deve sovrascrivere le
-        # ultime metriche valide con None (live_status_set tratta None come
-        # reset esplicito).
-        fields: dict[str, Any] = {"step": state.global_step}
-        for log_key, status_key in (
-            ("loss", "loss"),
-            ("reward", "reward"),
-            ("learning_rate", "lr"),
-            ("eval_loss", "eval_loss"),
-        ):
-            value = logs.get(log_key)
-            if value is not None:
-                fields[status_key] = value
-        if logs.get("epoch") is not None:
-            fields["epoch"] = round(float(logs["epoch"]), 4)
-        # Running average of the GRPO batch rewards — the monitor shows it in
-        # the top bar ("avg reward") so the trend is visible at a glance.
-        reward = logs.get("reward")
-        if reward is not None:
-            self._reward_sum += float(reward)
-            self._reward_count += 1
-            fields["reward_avg"] = round(self._reward_sum / self._reward_count, 6)
-        live_status_set(**fields)
+        # Monitoring (runstatus -> ClusterControl): only the metrics present in
+        # THIS log event; partial logs (the holdout eval emits only eval_loss)
+        # leave the other latest values untouched. Running mean/best of the
+        # rewards are computed by runstatus.
+        run_status_log(
+            state.global_step,
+            total_steps=state.max_steps,
+            epoch=(
+                round(float(logs["epoch"]), 4)
+                if logs.get("epoch") is not None
+                else None
+            ),
+            **{k: v for k, v in logs.items() if k != "epoch"},
+        )
 
     def on_prediction_step(
         self,
@@ -124,11 +116,11 @@ class HighPrecisionLogCallback(TrainerCallback):
         the monitor can show an ADDITIONAL 'routine eval in corso' line —
         the train step/loss/lr in the top bar stay exactly as they were
         (they are only updated by ``on_log``). Throttled internally by
-        live_status_set; fail-safe (never breaks training).
+        run_status_set; fail-safe (never breaks training).
         """
         try:
             if state.is_local_process_zero:
-                live_status_set(eval_active=True)
+                run_status_set(eval_active=True)
         except Exception:
             pass
 
@@ -152,10 +144,9 @@ class HighPrecisionLogCallback(TrainerCallback):
             eval_loss = metrics.get("eval_loss")
             if eval_loss is not None:
                 print(f"  step={state.global_step}  eval_loss={float(eval_loss):.8f}")
-            live_status_set(
-                eval_active=False,
-                **({"eval_loss": float(eval_loss)} if eval_loss is not None else {}),
-            )
+            run_status_set(eval_active=False)
+            if eval_loss is not None:
+                run_status_log(state.global_step, eval_loss=float(eval_loss))
         except Exception:
             pass
 
@@ -430,9 +421,9 @@ class CompletionSampleLogger:
     def format_samples(self) -> str:
         """Format buffered samples as a readable string for logging.
 
-        Also pushes the formatted samples to the live status file (one
-        string per sample, PROMPT/OUTPUT/GOLD compact) so the external
-        monitor shows them without parsing the log.
+        Also pushes the samples to the run status file (one dict per sample:
+        prompt, output, gold, match and the per-component rewards with their
+        total) so the external monitor shows them without parsing the log.
         """
         if not self._buffer:
             return ""
@@ -441,7 +432,7 @@ class CompletionSampleLogger:
             "  COMPLETION SAMPLES",
             f"{'═' * 70}",
         ]
-        live_lines: list[str] = []
+        live_lines: list[dict[str, Any]] = []
         for idx, sample in enumerate(self._buffer, 1):
             instr = sample["instruction"]
             comp = sample["completion"]
@@ -461,10 +452,8 @@ class CompletionSampleLogger:
                 match = output.strip().upper() == gold.strip().upper()
                 indicator = "✓" if match else "✗"
                 lines.append(f"  Sample {idx}  [{indicator}]")
-                live_head = f"[{indicator}]"
             else:
                 lines.append(f"  Sample {idx}")
-                live_head = ""
             lines.append(_SEPARATOR)
             lines.append(f"  PROMPT: {instr}")
             if think:
@@ -488,12 +477,22 @@ class CompletionSampleLogger:
             total = sum(self._weight_map.get(k, 0.0) * v for k, v in bd.items())
             lines.append(f"  TOTAL:   {total:+.4f}")
             live_lines.append(
-                f"{live_head} {instr[:100]}\n  → {output[:100]}"
-                + (f"\n  gold: {gold_txt[:100]}" if gold_txt else "")
+                {
+                    "prompt": instr[:200],
+                    "output": output[:200],
+                    "gold": gold_txt[:200] or None,
+                    "match": (
+                        (output.strip().upper() == gold.strip().upper())
+                        if gold
+                        else None
+                    ),
+                    "rewards": {k: round(float(v), 4) for k, v in active_bd.items()},
+                    "total": round(float(total), 4),
+                }
             )
         lines.append(f"{'═' * 70}\n")
         if live_lines:
-            live_status_add_samples(live_lines, kind="grpo")
+            run_status_samples(live_lines, kind="grpo")
         return "\n".join(lines)
 
 
@@ -604,6 +603,15 @@ class CompletionSampleCallback(TrainerCallback):
                         # esplicito venivano REIETI ("Tried to log to step
                         # N < current M" — 482 warnings in slurm-train-7073)
                         # e i dati dei panel persi. Auto-step li mantiene.
+                        # Same numbers for the external monitor (with the real step).
+                        run_status_log(
+                            step,
+                            **{
+                                "grammar/masked_mass_avg": mass,
+                                "grammar/masked_entropy_avg": ent,
+                                "grammar/masked_entropy_allowed_avg": ent_allowed,
+                            },
+                        )
                         wandb.log(
                             {
                                 "grammar/masked_mass_avg": mass,
@@ -682,6 +690,12 @@ class CompletionSampleCallback(TrainerCallback):
                         reward_avgs = {
                             c: reward_sums[c] / n_samples for c in active_components
                         }
+
+                        # Per-component rewards for the external monitor (real step).
+                        run_status_log(
+                            step,
+                            **{f"rewards/{c}": v for c, v in reward_avgs.items()},
+                        )
 
                         # Log individual scalars (no explicit step= — see
                         # grammar panel above for the auto-step rationale)
@@ -858,7 +872,7 @@ class SFTSampleCallback(TrainerCallback):
             print(f"  SFT SAMPLE PREDICTIONS (step {state.global_step})")
             print(f"{'═' * 70}")
 
-            live_lines: list[str] = []
+            live_lines: list[dict[str, Any]] = []
             for idx in indices:
                 sample = self._dataset[idx]
                 if not isinstance(sample, dict):
@@ -909,12 +923,16 @@ class SFTSampleCallback(TrainerCallback):
                     else "✗"
                 )
                 live_lines.append(
-                    f"{user_text[:100]}\n  [{match}] pred: {generated[:100]}"
-                    f"\n  gold: {gold_part[:100]}"
+                    {
+                        "prompt": user_text[:200],
+                        "output": generated[:200],
+                        "gold": gold_part[:200] or None,
+                        "match": match == "✓",
+                    }
                 )
             print(f"{'═' * 70}\n")
             if live_lines:
-                live_status_add_samples(live_lines, kind="sft")
+                run_status_samples(live_lines, kind="sft")
         except Exception:
             logger.debug("Failed to generate SFT sample prediction", exc_info=True)
 
