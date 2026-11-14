@@ -1,0 +1,20 @@
+# ============================================================================
+# CoNLL 0,5B, GRPO dal base zero-shot con reward entity-F1 E rollout caldi
+# (T=1,3). Da soli: entity-F1 non cambia nulla (F1 sulle entita' tipate 0,10),
+# i rollout caldi danno un segnale modesto (0,13 -> 0,17). Insieme: con piu'
+# esplorazione la reward che premia solo il tipo giusto ha qualcosa da premiare?
+# Un solo fattore rispetto a entity-f1-zero-shot: grpo.temperature.
+# ============================================================================
+
+extends: entity-f1-zero-shot.yaml
+
+grpo:
+  temperature: 1.3
+
+training:
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-05b/ablations/rewards/entity-f1-hot-zero-shot"
+  log_dir: "experiments/logs/conll-2003/qwen25-05b/ablations/rewards/entity-f1-hot-zero-shot"
+
+wandb:
+  run_name: "conll-2003-qwen25-05b-ablations-rewards-entity-f1-hot-zero-shot"
+  tags: ["T2G", "CoNLL-2003", "qwen25-05b", "ablation", "rewards", "entity-f1", "hot-rollout", "zero-shot"]

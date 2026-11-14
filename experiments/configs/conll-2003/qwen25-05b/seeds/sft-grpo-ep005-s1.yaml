@@ -1,0 +1,20 @@
+# ============================================================================
+# Replica a seme 1 di ablations/sft-amount/sft-grpo-ep005 (CoNLL 0,5B). Cambia
+# solo training.seed (RNG del GRPO); la fase SFT da 0,05 epoche e' quella della
+# run originale (adapter_path). Il +30 punti del GRPO dopo poca SFT e' il dato
+# piu' forte della curva: va confermato a un altro seme.
+# ============================================================================
+
+extends: ../ablations/sft-amount/sft-grpo-ep005.yaml
+
+sft_pretrain:
+  adapter_path: "experiments/checkpoints/conll-2003/qwen25-05b/ablations/sft-amount/sft-grpo-ep005/run_20261113_084157/sft_pretrain/final"
+
+training:
+  seed: 1
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-05b/seeds/sft-grpo-ep005-s1"
+  log_dir: "experiments/logs/conll-2003/qwen25-05b/seeds/sft-grpo-ep005-s1"
+
+wandb:
+  run_name: "conll-2003-qwen25-05b-seeds-sft-grpo-ep005-s1"
+  tags: ["T2G", "CoNLL-2003", "qwen25-05b", "sft-grpo", "zero-shot", "sft-amount", "seed-replica"]

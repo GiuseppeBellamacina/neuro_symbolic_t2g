@@ -1,0 +1,17 @@
+# ============================================================================
+# WOS 1,5B, SFT con learning rate 4e-5 (invece di 2e-5). Con 1e-5 l'SFT resta
+# sottoaddestrato (eval loss 0,197 contro 0,124; exact match 0,523 contro
+# 0,734): la direzione giusta, se c'e', e' verso l'alto. Se anche 4e-5 non
+# raggiunge lo 0,5B (0,762), l'anomalia WOS non e' il learning rate.
+# ============================================================================
+
+extends: ../../sft/zero-shot.yaml
+
+training:
+  learning_rate: 4.0e-5
+  output_dir: "experiments/checkpoints/wos-46985/qwen25-15b/ablations/sft/lr-4e-5"
+  log_dir: "experiments/logs/wos-46985/qwen25-15b/ablations/sft/lr-4e-5"
+
+wandb:
+  run_name: "wos-46985-qwen25-15b-ablations-sft-lr-4e-5"
+  tags: ["T2G", "WOS-46985", "qwen25-15b", "sft", "zero-shot", "ablation", "lr"]

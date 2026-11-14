@@ -1,0 +1,22 @@
+# ============================================================================
+# CoNLL-2003 con Qwen2.5-3B-Instruct: SFT
+#
+# Identica a qwen25-05b/sft/zero-shot; cambia SOLO il modello (e i percorsi). Terza
+# taglia della scala 0,5B / 1,5B / 3B: l'incremento del GRPO sopra l'SFT resta
+# lo stesso? Il GRPO dal base esplora sempre meglio (F1 sulle entita' tipate
+# 0,13 a 0,5B, 0,26 a 1,5B)? Pesi nella cache del cluster (nodi offline).
+# Risorse: mezza A40 (24 GB); l'SFT fa da prova della VRAM.
+# ============================================================================
+
+extends: ../../qwen25-05b/sft/zero-shot.yaml
+
+model:
+  name: "Qwen/Qwen2.5-3B-Instruct"
+
+training:
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-3b/sft/zero-shot"
+  log_dir: "experiments/logs/conll-2003/qwen25-3b/sft/zero-shot"
+
+wandb:
+  run_name: "conll-2003-qwen25-3b-sft-zero-shot"
+  tags: ["T2G", "CoNLL-2003", "qwen25-3b", "sft", "zero-shot", "trie"]

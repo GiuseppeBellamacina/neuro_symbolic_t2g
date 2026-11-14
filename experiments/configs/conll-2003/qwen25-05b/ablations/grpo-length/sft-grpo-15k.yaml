@@ -1,0 +1,17 @@
+# ============================================================================
+# CoNLL 0,5B, SFT completo -> GRPO per 15 000 passi (invece di 5 000). Un solo
+# fattore: training.max_steps. Con 5 000 passi il GRPO vede il 36 % del train e
+# aggiunge +3,8 punti di exact match all'SFT (0,745 -> 0,781): e' un tetto del
+# metodo o della durata? La fase SFT e' quella gia' addestrata (riuso).
+# ============================================================================
+
+extends: ../../sft-grpo/zero-shot.yaml
+
+training:
+  max_steps: 15000
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-05b/ablations/grpo-length/sft-grpo-15k"
+  log_dir: "experiments/logs/conll-2003/qwen25-05b/ablations/grpo-length/sft-grpo-15k"
+
+wandb:
+  run_name: "conll-2003-qwen25-05b-ablations-grpo-length-sft-grpo-15k"
+  tags: ["T2G", "CoNLL-2003", "qwen25-05b", "sft-grpo", "zero-shot", "grpo-length"]

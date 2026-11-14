@@ -1,0 +1,20 @@
+# ============================================================================
+# CoNLL 0,5B, SFT da 0,05 epoche (~43 passi) -> GRPO per 15 000 passi. Con 5 000
+# passi il GRPO porta l'exact match da 0,143 a 0,441 (+30 punti): con piu' tempo
+# raggiunge l'SFT completo (0,745) senza altra supervisione? Un solo fattore
+# rispetto a sft-amount/sft-grpo-ep005: training.max_steps. Stesso adapter SFT.
+# ============================================================================
+
+extends: ../sft-amount/sft-grpo-ep005.yaml
+
+sft_pretrain:
+  adapter_path: "experiments/checkpoints/conll-2003/qwen25-05b/ablations/sft-amount/sft-grpo-ep005/run_20261113_084157/sft_pretrain/final"
+
+training:
+  max_steps: 15000
+  output_dir: "experiments/checkpoints/conll-2003/qwen25-05b/ablations/grpo-length/sft-grpo-ep005-15k"
+  log_dir: "experiments/logs/conll-2003/qwen25-05b/ablations/grpo-length/sft-grpo-ep005-15k"
+
+wandb:
+  run_name: "conll-2003-qwen25-05b-ablations-grpo-length-sft-grpo-ep005-15k"
+  tags: ["T2G", "CoNLL-2003", "qwen25-05b", "sft-grpo", "zero-shot", "grpo-length", "sft-amount"]
