@@ -1,0 +1,159 @@
+{
+  "rouge_l_mean": 0.3627873243333102,
+  "rouge_l_std": 0.4359168866143211,
+  "rouge_l_median": 0.0,
+  "valid_rouge_l_mean": 0.36275104560087684,
+  "valid_rouge_l_mean_v3": 0.36274529534780287,
+  "bleu_sentence_mean": 0.32134143831342227,
+  "bleu_corpus": 0.22984909773832388,
+  "chrf_sentence_mean": 36.95772093084719,
+  "chrf_corpus": 30.972976647924717,
+  "gloss_f1_sentence_mean": 0.30749949157205253,
+  "gloss_f1_micro": 0.29282308350654124,
+  "exact_match": 0.241,
+  "non_copy_token_accuracy": 0.26323042998897467,
+  "non_copy_token_hits": 4775,
+  "non_copy_token_total": 18140,
+  "bigram_log_prob_mean": -16.03259253101349,
+  "bigram_log_prob_std": 13.647946471169499,
+  "validity_rate": 0.9999,
+  "valid_count": 9999,
+  "invalid_count": 1,
+  "pass_at_1": 0.43,
+  "reward_breakdown": {
+    "translation_quality_reward": -0.2744253513333823,
+    "bleu_reward": -0.3573171233731536,
+    "gloss_order_reward": -0.40999975373076386,
+    "gloss_format_reward": 0.9999,
+    "gloss_repetition_reward": 0.05
+  },
+  "detailed_metrics": {
+    "overall_pass_rate": 0.4268,
+    "overall_rouge_l": 0.36274529534780287,
+    "total_samples": 10000,
+    "valid_samples": 4268,
+    "rouge_l_percentiles": {
+      "25%": 0.0,
+      "50%": 0.0,
+      "75%": 0.8571428571428571,
+      "90%": 1.0
+    },
+    "error_distribution": {
+      "low_rouge_l": 5731,
+      "grammar_violation": 1
+    }
+  },
+  "error_distribution": {
+    "grammar_violation": 1
+  },
+  "total_completions": 10000,
+  "evaluation_report": {
+    "total_samples": 10000,
+    "rouge_l": {
+      "mean": 0.3627873243333102,
+      "ci_95": [
+        0.3545285234071967,
+        0.37168020763048265
+      ],
+      "percentiles": {
+        "25%": 0.0,
+        "50%": 0.0,
+        "75%": 0.8571428571428571,
+        "90%": 1.0
+      }
+    },
+    "bleu": {
+      "corpus": 0.22984909773832388,
+      "sentence_mean": 0.32134143831342227,
+      "ci_95": [
+        0.3131162233988161,
+        0.32999764554467204
+      ]
+    },
+    "chrf": {
+      "corpus": 30.972976647924717,
+      "sentence_mean": 36.95772093084719,
+      "ci_95": [
+        36.18607400202289,
+        37.81080502241563
+      ]
+    },
+    "gloss_f1": {
+      "micro": 0.29282308350654124,
+      "sentence_mean": 0.30749949157205253,
+      "ci_95": [
+        0.2992617612210979,
+        0.31588454610618233
+      ]
+    },
+    "pass_at_1": {
+      "mean": 0.4269,
+      "ci_95": [
+        0.4174,
+        0.4368
+      ]
+    },
+    "gloss_validity_rate": 0.9999,
+    "error_distribution": {
+      "grammar_violation": 1
+    }
+  },
+  "pass_at_k": {
+    "pass@1": 0.43,
+    "pass@2": 0.5295,
+    "pass@3": 0.5835,
+    "pass@4": 0.617,
+    "pass@5": 0.6315
+  },
+  "num_samples_evaluated": 2000,
+  "test_set_size": 3453,
+  "num_completions_per_prompt": 5,
+  "best_of_n": false,
+  "prompting": {
+    "mode": "few-shot",
+    "source": "config-dual"
+  },
+  "metrics_version": 2,
+  "prompt_context_fingerprint": "44125bcc2f02578d2b53a8dedd15efefc559d19cc2c3135a74a4d317402dc7c8",
+  "decoding": {
+    "do_sample": true,
+    "temperature": 0.7,
+    "num_samples": 5
+  },
+  "resumed_from": {
+    "resumed": false,
+    "resume_count": 0,
+    "recovered_prompts": 0
+  },
+  "difficulty_breakdown": {
+    "simple": {
+      "n_prompts": 1960,
+      "rouge_l_mean": 0.36606300100064826,
+      "bleu_sentence_mean": 0.324907686828903,
+      "chrf_sentence_mean": 37.329698904342145,
+      "validity_rate": 1.0,
+      "pass_at_1": 0.4316326530612245
+    },
+    "medium": {
+      "n_prompts": 38,
+      "rouge_l_mean": 0.1921323979948564,
+      "bleu_sentence_mean": 0.1310595182760721,
+      "chrf_sentence_mean": 17.124047045820642,
+      "validity_rate": 1.0,
+      "pass_at_1": 0.3157894736842105
+    },
+    "hard": {
+      "n_prompts": 2,
+      "rouge_l_mean": 0.395067790772496,
+      "bleu_sentence_mean": 0.4417743738519957,
+      "chrf_sentence_mean": 49.25911072129551,
+      "validity_rate": 0.9,
+      "pass_at_1": 1.0
+    }
+  },
+  "provenance": {
+    "config": "experiments/configs/conll-2003/qwen25-05b/ablations/sft-amount/sft-ep015.yaml",
+    "checkpoint": "experiments/checkpoints/conll-2003/qwen25-05b/ablations/sft-amount/sft-ep015/run_20261113_113133/final",
+    "results_dir": "experiments/results/conll-2003/qwen25-05b/ablations/sft-amount/sft-ep015/run_20261113_113133"
+  }
+}

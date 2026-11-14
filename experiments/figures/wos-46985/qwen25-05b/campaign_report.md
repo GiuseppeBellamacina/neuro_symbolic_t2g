@@ -1,6 +1,6 @@
 # Campaign Report — wos-46985 / qwen25-05b
 
-Generated: 2026-11-12T13:18:05+00:00
+Generated: 2026-11-14T09:24:32+00:00
 
 > Complementare ad `ablation-summary`: qui i run sono appaiati
 > per fattore sperimentale. **Legge i JSON di eval: non
@@ -27,7 +27,7 @@ Generated: 2026-11-12T13:18:05+00:00
 | `reward_stack` | NOT deducible from path / JSON stamp / payload fields (it lives in the resolved config, which eval JSONs do not embed) | always unknown, declared in every pairing caveat |
 | `rl_objective` | NOT deducible from path / JSON stamp / payload fields | always unknown, declared in every pairing caveat |
 
-## Selected runs (11 typologies, latest per typology)
+## Selected runs (12 typologies, latest per typology)
 
 | Run | method | variant | prompting | grammar | Date | Prompts | metrics_version |
 |---|---|---|---|---|---|---|---|
@@ -42,6 +42,7 @@ Generated: 2026-11-12T13:18:05+00:00
 | `wos-46985/qwen25-05b/sft-grpo/zero-shot/run_20261010_000134/eval_final.json` | sft-grpo | zero-shot | zero-shot | unknown | 2026-10-10 | 2000 | 2 |
 | `wos-46985/qwen25-05b/sft/zero-shot/run_20261009_203139/eval_baseline.json` | baseline | wos-46985-qwen25-05b-sft-zero-shot | zero-shot | unknown | 2026-10-09 | 2000 | 2 |
 | `wos-46985/qwen25-05b/sft/zero-shot/run_20261009_203139/eval_final.json` | unknown | wos-46985-qwen25-05b-sft-zero-shot | zero-shot | unknown | 2026-10-09 | 2000 | 2 |
+| `wos-46985/qwen25-05b/sft/zero-shot/run_20261009_203139/no-trie/eval_final.json` | unknown | wos-46985-qwen25-05b-sft-zero-shot-no-trie | zero-shot | unknown | 2026-10-09 | 2000 | 2 |
 
 ## Ablation matrix overview — ROUGE-L
 
@@ -52,6 +53,7 @@ One row per cell (its path under `results/`), one column per prompting mode that
 | wos-46985/qwen25-05b/baseline/zero-shot | 0.2394 |
 | wos-46985/qwen25-05b/baseline/zero-shot-no-grammar | 0.1142 |
 | wos-46985/qwen25-05b/sft/zero-shot | 0.8125 |
+| wos-46985/qwen25-05b/sft/zero-shot/no-trie | 0.8123 |
 | wos-46985/qwen25-05b/sft-grpo/zero-shot | 0.8340 |
 | wos-46985/qwen25-05b/grpo/zero-shot | 0.3194 |
 | wos-46985/qwen25-05b/ablations/decoding/no-grammar | 0.2045 |
@@ -68,6 +70,7 @@ Same rows as the matrix above, restricted to this dataset, one column per metric
 | wos-46985/qwen25-05b/baseline/zero-shot | zero-shot | 0.2394 | 0.2394 | 0.1039 | 0.2879 | 0.4435 | 1.0000 | 0.1241 | 0.1627 | 25.8721 | 25.6578 | 0.2876 | 0.2876 |
 | wos-46985/qwen25-05b/baseline/zero-shot-no-grammar | zero-shot | 0.1142 | 0.0000 | 0.0000 | 0.0175 | 0.2035 | 0.0000 | 0.0003 | 0.0132 | 15.4631 | 15.6771 | 0.0146 | 0.0173 |
 | wos-46985/qwen25-05b/sft/zero-shot | zero-shot | 0.8125 | 0.8125 | 0.7622 | 0.8268 | 0.8740 | 1.0000 | 0.7960 | 0.7787 | 81.0950 | 81.0292 | 0.8269 | 0.8269 |
+| wos-46985/qwen25-05b/sft/zero-shot/no-trie | zero-shot | 0.8123 | 0.7697 | 0.7302 | 0.8122 | 0.8830 | 0.9476 | 0.7763 | 0.7553 | 79.9871 | 80.0174 | 0.8060 | 0.8115 |
 | wos-46985/qwen25-05b/sft-grpo/zero-shot | zero-shot | 0.8340 | 0.8340 | 0.7869 | 0.8472 | 0.8935 | 1.0000 | 0.8146 | 0.8020 | 83.1798 | 83.1297 | 0.8475 | 0.8475 |
 | wos-46985/qwen25-05b/grpo/zero-shot | zero-shot | 0.3194 | 0.3194 | 0.1688 | 0.3700 | 0.5435 | 1.0000 | 0.2014 | 0.2282 | 32.1067 | 32.2584 | 0.3702 | 0.3702 |
 | wos-46985/qwen25-05b/ablations/decoding/no-grammar | zero-shot | 0.2045 | 0.0000 | 0.0000 | 0.2157 | 0.3030 | 0.0001 | 0.0001 | 0.0363 | 21.1028 | 21.4371 | 0.1467 | 0.1615 |

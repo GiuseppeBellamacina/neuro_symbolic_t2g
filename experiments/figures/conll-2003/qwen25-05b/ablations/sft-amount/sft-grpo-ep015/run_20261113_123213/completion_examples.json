@@ -1,0 +1,86 @@
+{
+  "model": "run_20261113_123213",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 0,
+      "rouge_l": 1.0,
+      "gold": "PER:Nadim_Ladki",
+      "prediction": "PER:Nadim_Ladki",
+      "prompt": "Nadim Ladki"
+    },
+    {
+      "group": "best",
+      "index": 5,
+      "rouge_l": 1.0,
+      "gold": "LOC:AL-AIN LOC:United_Arab_Emirates",
+      "prediction": "LOC:AL-AIN LOC:United_Arab_Emirates",
+      "prompt": "AL-AIN , United Arab Emirates 1996-12-06"
+    },
+    {
+      "group": "best",
+      "index": 10,
+      "rouge_l": 1.0,
+      "gold": "LOC:Japan LOC:Syria MISC:Asian_Cup",
+      "prediction": "LOC:Japan LOC:Syria MISC:Asian_Cup",
+      "prompt": "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday ."
+    },
+    {
+      "group": "best",
+      "index": 21,
+      "rouge_l": 1.0,
+      "gold": "PER:Oleg_Shatskiku",
+      "prediction": "PER:Oleg_Shatskiku",
+      "prompt": "Oleg Shatskiku made sure of the win in injury time , hitting an unstoppable left foot shot from just outside the area ."
+    },
+    {
+      "group": "best",
+      "index": 35,
+      "rouge_l": 1.0,
+      "gold": "LOC:Syria",
+      "prediction": "LOC:Syria",
+      "prompt": "It was the second costly blunder by Syria in four minutes ."
+    },
+    {
+      "group": "worst",
+      "index": 36,
+      "rouge_l": 0.0,
+      "gold": "LOC:Syria",
+      "prediction": "NONE",
+      "prompt": "It was the second costly blunder by Syria in four minutes ."
+    },
+    {
+      "group": "worst",
+      "index": 56,
+      "rouge_l": 0.0,
+      "gold": "PER:Bitar",
+      "prediction": "NONE",
+      "prompt": "Bitar pulled off fine saves whenever they did ."
+    },
+    {
+      "group": "worst",
+      "index": 75,
+      "rouge_l": 0.0,
+      "gold": "PER:Coste",
+      "prediction": "NONE",
+      "prompt": "Coste said he had approached the player two months ago about a comeback ."
+    },
+    {
+      "group": "worst",
+      "index": 95,
+      "rouge_l": 0.0,
+      "gold": "MISC:Syrian",
+      "prediction": "NONE",
+      "prompt": "It was the second Syrian defensive blunder in four minutes ."
+    },
+    {
+      "group": "worst",
+      "index": 120,
+      "rouge_l": 0.0,
+      "gold": "MISC:World_Cup",
+      "prediction": "NONE",
+      "prompt": "Results of the World Cup"
+    }
+  ]
+}

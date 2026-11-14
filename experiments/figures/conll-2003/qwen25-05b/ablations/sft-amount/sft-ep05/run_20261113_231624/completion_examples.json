@@ -1,0 +1,86 @@
+{
+  "model": "run_20261113_231624",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 0,
+      "rouge_l": 1.0,
+      "gold": "PER:Nadim_Ladki",
+      "prediction": "PER:Nadim_Ladki",
+      "prompt": "Nadim Ladki"
+    },
+    {
+      "group": "best",
+      "index": 5,
+      "rouge_l": 1.0,
+      "gold": "LOC:AL-AIN LOC:United_Arab_Emirates",
+      "prediction": "LOC:AL-AIN LOC:United_Arab_Emirates",
+      "prompt": "AL-AIN , United Arab Emirates 1996-12-06"
+    },
+    {
+      "group": "best",
+      "index": 10,
+      "rouge_l": 1.0,
+      "gold": "LOC:Japan LOC:Syria MISC:Asian_Cup",
+      "prediction": "LOC:Japan LOC:Syria MISC:Asian_Cup",
+      "prompt": "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday ."
+    },
+    {
+      "group": "best",
+      "index": 20,
+      "rouge_l": 1.0,
+      "gold": "PER:Oleg_Shatskiku",
+      "prediction": "PER:Oleg_Shatskiku",
+      "prompt": "Oleg Shatskiku made sure of the win in injury time , hitting an unstoppable left foot shot from just outside the area ."
+    },
+    {
+      "group": "best",
+      "index": 31,
+      "rouge_l": 1.0,
+      "gold": "PER:Takuya_Takagi PER:Hiroshige_Yanagimoto PER:Salem_Bitar MISC:Syrian",
+      "prediction": "PER:Takuya_Takagi PER:Hiroshige_Yanagimoto PER:Salem_Bitar MISC:Syrian",
+      "prompt": "Takuya Takagi scored the winner in the 88th minute , rising to head a Hiroshige Yanagimoto cross towards the Syrian goal which goalkeeper Salem Bitar appeared to have covered but then allowed to slip ..."
+    },
+    {
+      "group": "worst",
+      "index": 37,
+      "rouge_l": 0.0,
+      "gold": "LOC:Syria",
+      "prediction": "NONE",
+      "prompt": "It was the second costly blunder by Syria in four minutes ."
+    },
+    {
+      "group": "worst",
+      "index": 95,
+      "rouge_l": 0.0,
+      "gold": "MISC:Syrian",
+      "prediction": "NONE",
+      "prompt": "It was the second Syrian defensive blunder in four minutes ."
+    },
+    {
+      "group": "worst",
+      "index": 120,
+      "rouge_l": 0.0,
+      "gold": "MISC:World_Cup",
+      "prediction": "NONE",
+      "prompt": "Results of the World Cup"
+    },
+    {
+      "group": "worst",
+      "index": 361,
+      "rouge_l": 0.0,
+      "gold": "MISC:ENGLISH_F.A._CUP",
+      "prediction": "NONE",
+      "prompt": "SOCCER - ENGLISH F.A. CUP SECOND ROUND RESULT ."
+    },
+    {
+      "group": "worst",
+      "index": 370,
+      "rouge_l": 0.0,
+      "gold": "MISC:English_F.A._Challenge",
+      "prediction": "NONE",
+      "prompt": "Result of an English F.A. Challenge"
+    }
+  ]
+}

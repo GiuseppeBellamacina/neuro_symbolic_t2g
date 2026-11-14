@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-12T13:18:05+00:00",
+  "generated_at": "2026-11-14T09:24:32+00:00",
   "factor_deduction": [
     {
       "factor": "method",
@@ -131,6 +131,52 @@
       }
     },
     {
+      "path": "wos-46985/qwen25-15b/ablations/sft/lr-1e-5/run_20261112_154844/eval_final.json",
+      "cell": "wos-46985-qwen25-15b-ablations-sft-lr-1e-5",
+      "cell_path": "wos-46985/qwen25-15b/ablations/sft/lr-1e-5",
+      "run_id": "run_20261112_154844",
+      "kind": "final",
+      "factors": {
+        "variant": "wos-46985-qwen25-15b-ablations-sft-lr-1e-5",
+        "method": "unknown",
+        "model_tag": "wos-46985/qwen25-15b",
+        "grammar": "unknown",
+        "prompting": "zero-shot",
+        "reward_stack": "unknown",
+        "rl_objective": "unknown",
+        "dataset": "wos-46985"
+      },
+      "factor_sources": {
+        "variant": "directory name (no method marker: full cell ",
+        "method": "directory name",
+        "model_tag": "first two path segments (results/<dataset>/<model>/...)",
+        "grammar": "not deducible from path",
+        "prompting": "JSON stamp (source: config)",
+        "reward_stack": "not deducible (config not embedded in eval JSON)",
+        "rl_objective": "not deducible (config not embedded in eval JSON)",
+        "dataset": "first path segment (results/<dataset>/...)"
+      },
+      "timestamp": "2026-11-12 15:48:44",
+      "timestamp_source": "run directory name",
+      "num_samples_evaluated": 2000,
+      "metrics_version": 2,
+      "prompt_context_fingerprint": "29277f0f1782a039aae15f0a1226caa0050ac782ec9f2b4cf53bc0e0bec121fb",
+      "metrics": {
+        "rouge_l_mean": 0.6176933333333334,
+        "valid_rouge_l_mean": 0.6176933333333334,
+        "exact_match": 0.5229,
+        "non_copy_token_accuracy": 0.6426459533951391,
+        "pass_at_1": 0.7425,
+        "validity_rate": 1.0,
+        "bleu_corpus": 0.5776861733616839,
+        "bleu_sentence_mean": 0.5565434078313265,
+        "chrf_corpus": 61.84932127432634,
+        "chrf_sentence_mean": 61.54451918537197,
+        "gloss_f1_micro": 0.6424,
+        "gloss_f1_sentence_mean": 0.6424
+      }
+    },
+    {
       "path": "wos-46985/qwen25-15b/baseline/zero-shot/run_20261107_224538/eval_zero_shot.json",
       "cell": "wos-46985-qwen25-15b-baseline-zero-shot",
       "cell_path": "wos-46985/qwen25-15b/baseline/zero-shot",
@@ -174,6 +220,52 @@
         "chrf_sentence_mean": 24.631723842347967,
         "gloss_f1_micro": 0.2604,
         "gloss_f1_sentence_mean": 0.2604
+      }
+    },
+    {
+      "path": "wos-46985/qwen25-15b/grpo/zero-shot/run_20261113_041626/eval_final.json",
+      "cell": "wos-46985-qwen25-15b-grpo-zero-shot",
+      "cell_path": "wos-46985/qwen25-15b/grpo/zero-shot",
+      "run_id": "run_20261113_041626",
+      "kind": "final",
+      "factors": {
+        "variant": "wos-46985-qwen25-15b-grpo-zero-shot",
+        "method": "unknown",
+        "model_tag": "wos-46985/qwen25-15b",
+        "grammar": "unknown",
+        "prompting": "zero-shot",
+        "reward_stack": "unknown",
+        "rl_objective": "unknown",
+        "dataset": "wos-46985"
+      },
+      "factor_sources": {
+        "variant": "directory name (no method marker: full cell ",
+        "method": "directory name",
+        "model_tag": "first two path segments (results/<dataset>/<model>/...)",
+        "grammar": "not deducible from path",
+        "prompting": "JSON stamp (source: config)",
+        "reward_stack": "not deducible (config not embedded in eval JSON)",
+        "rl_objective": "not deducible (config not embedded in eval JSON)",
+        "dataset": "first path segment (results/<dataset>/...)"
+      },
+      "timestamp": "2026-11-13 04:16:26",
+      "timestamp_source": "run directory name",
+      "num_samples_evaluated": 2000,
+      "metrics_version": 2,
+      "prompt_context_fingerprint": "29277f0f1782a039aae15f0a1226caa0050ac782ec9f2b4cf53bc0e0bec121fb",
+      "metrics": {
+        "rouge_l_mean": 0.28728000000000004,
+        "valid_rouge_l_mean": 0.28728000000000004,
+        "exact_match": 0.1265,
+        "non_copy_token_accuracy": 0.3334001503382611,
+        "pass_at_1": 0.511,
+        "validity_rate": 1.0,
+        "bleu_corpus": 0.1646934502813024,
+        "bleu_sentence_mean": 0.19048562917967546,
+        "chrf_corpus": 28.6707015240791,
+        "chrf_sentence_mean": 28.808718953670912,
+        "gloss_f1_micro": 0.33405,
+        "gloss_f1_sentence_mean": 0.33405
       }
     },
     {

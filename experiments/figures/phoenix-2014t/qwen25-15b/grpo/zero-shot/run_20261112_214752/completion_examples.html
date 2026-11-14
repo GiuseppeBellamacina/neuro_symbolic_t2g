@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completion Examples — run_20261112_214752</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+  h1 { color: #333; font-size: 1.4em; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  th { background: #f0f0f0; padding: 10px 12px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.9em; }
+  tr.best { background: #f9fdf9; }
+  tr.worst { background: #fef9f9; }
+  tr:hover { background: #eef6ff; }
+  .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; max-width: 400px; }
+  .prompt { max-width: 300px; color: #555; font-style: italic; }
+  .diff-del { color: #C44E52; text-decoration: line-through; }
+  .diff-add { color: #1a7a1a; font-weight: bold; }
+  .summary { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Completion Examples — run_20261112_214752</h1>
+<p class="summary">10 examples (5 best, 5 worst) sorted by ROUGE-L</p>
+<table>
+<thead>
+<tr>
+  <th>Prompt</th>
+  <th>ROUGE-L</th>
+  <th>Group</th>
+  <th>Gold</th>
+  <th>Prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="best">
+    <td class="prompt">liebe zuschauer guten abend</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">LIEB ZUSCHAUER GUT ABEND</td>
+    <td class="mono">LIEB ZUSCHAUER GUT ABEND</td>
+</tr><tr class="best">
+    <td class="prompt">im süden schwacher wind</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">1.0000</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">SUED WIND SCHWACH</td>
+    <td class="mono">SUED WIND SCHWACH</td>
+</tr><tr class="best">
+    <td class="prompt">und nun die wettervorhersage für morgen dienstag den vierzehnten september</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">0.9091</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">WETTER MORGEN SIE DIENSTAG VIERZEHN SEPTEMBER</td>
+    <td class="mono">WETTER MORGEN <span class="diff-del">SIE</span> <span class="diff-add">DIENSTAG</span> <span class="diff-del">DIENSTAG</span> <span class="diff-add">VIERZEHN</span> <span class="diff-del">VIERZEHN</span> <span class="diff-add">SEPTEMBER</span> <span class="diff-del">SEPTEMBER</span></td>
+</tr><tr class="best">
+    <td class="prompt">am sonntag im norden noch wolkig und vor allem in küstennähe einzelne schauer</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">0.8889</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">SONNTAG NORD WOLKE IX SCHAUER</td>
+    <td class="mono">SONNTAG NORD WOLKE <span class="diff-del">IX</span> <span class="diff-add">SCHAUER</span> <span class="diff-del">SCHAUER</span></td>
+</tr><tr class="best">
+    <td class="prompt">am samstag meist freundlich und überwiegend trocken</td>
+    <td style="color:#1a7a1a;font-weight:bold;text-align:center">0.8889</td>
+    <td><span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:4px;font-weight:bold">BEST</span></td>
+    <td class="mono">SAMSTAG MEISTENS FREUNDLICH REGION TROCKEN</td>
+    <td class="mono">SAMSTAG MEISTENS FREUNDLICH <span class="diff-del">REGION</span> <span class="diff-add">TROCKEN</span> <span class="diff-del">TROCKEN</span></td>
+</tr><tr class="worst">
+    <td class="prompt">vom nordmeer zieht ein kräftiges tief heran und bringt uns ab den morgenstunden heftige schneefälle zum teil auch gefrierenden regen</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">KRAEFTIG AB MORGEN FRUEH MEISTENS SCHNEE SCHNEIEN KALT REGEN</td>
+    <td class="mono"><span class="diff-del">KRAEFTIG</span> <span class="diff-add">NORD</span> <span class="diff-del">AB</span> <span class="diff-add">MEER</span> <span class="diff-del">MORGEN</span> <span class="diff-add">ZIEHEN</span> <span class="diff-del">FRUEH</span> <span class="diff-add">KRATZEN</span> <span class="diff-del">MEISTENS</span> <span class="diff-add">TROCKEN</span> <span class="diff-del">SCHNEE</span> <span class="diff-add">HEUTE</span> <span class="diff-del">SCHNEIEN</span> <span class="diff-add">MACHEN</span> <span class="diff-del">KALT</span> <span class="diff-add">FALLEN</span> <span class="diff-del">REGEN</span> <span class="diff-add">NEU</span> <span class="diff-add">FRISCH</span> <span class="diff-add">GLUECK</span> <span class="diff-add">STARK</span> <span class="diff-add">GEWITTER</span></td>
+</tr><tr class="worst">
+    <td class="prompt">in den nächsten tagen geht es auf jeden fall winterlich weiter immer wieder mal mit etwas schnee</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">IM-VERLAUF BLEIBEN KALT ENORM SCHNEE KOENNEN</td>
+    <td class="mono"><span class="diff-del">IM-VERLAUF</span> <span class="diff-add">NACH</span> <span class="diff-del">BLEIBEN</span> <span class="diff-add">DENKEN</span> <span class="diff-del">KALT</span> <span class="diff-add">WINTER</span> <span class="diff-del">ENORM</span> <span class="diff-add">WIESE</span> <span class="diff-del">SCHNEE</span> <span class="diff-add">WIEDER</span> <span class="diff-del">KOENNEN</span> <span class="diff-add">MACHEN</span></td>
+</tr><tr class="worst">
+    <td class="prompt">und zum wochenende wird es dann sogar wieder ein bisschen kälter</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">WOCHENENDE IX MEHR KALT</td>
+    <td class="mono"><span class="diff-del">WOCHENENDE</span> <span class="diff-add">WOCHE</span> <span class="diff-del">IX</span> <span class="diff-add">ENDLICH</span> <span class="diff-del">MEHR</span> <span class="diff-add">KLEIN</span> <span class="diff-del">KALT</span> <span class="diff-add">KOELN</span></td>
+</tr><tr class="worst">
+    <td class="prompt">die halten sich morgen recht zäh</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">MORGEN LANG BLEIBEN</td>
+    <td class="mono"><span class="diff-del">MORGEN</span> <span class="diff-add">HALTEN</span> <span class="diff-del">LANG</span> <span class="diff-add">MACHEN</span> <span class="diff-del">BLEIBEN</span> <span class="diff-add">ZEIT</span> <span class="diff-add">ZU</span> <span class="diff-add">HABEN</span></td>
+</tr><tr class="worst">
+    <td class="prompt">vom mittelmeer fließt feuchte luft heran in der sich zum teil kräftige gewitter entwickeln können</td>
+    <td style="color:#C44E52;font-weight:bold;text-align:center">0.0000</td>
+    <td><span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:4px;font-weight:bold">WORST</span></td>
+    <td class="mono">REGION FEUCHT REGION IX GEWITTER REGION</td>
+    <td class="mono"><span class="diff-del">REGION</span> <span class="diff-add">MITEILEN</span> <span class="diff-del">FEUCHT</span> <span class="diff-add">MEER</span> <span class="diff-del">REGION</span> <span class="diff-add">FLUT</span> <span class="diff-del">IX</span> <span class="diff-add">TROCKEN</span> <span class="diff-del">GEWITTER</span> <span class="diff-add">GLEICH</span> <span class="diff-del">REGION</span> <span class="diff-add">WETTER</span></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

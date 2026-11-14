@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-12T13:18:04+00:00",
+  "generated_at": "2026-11-14T09:24:31+00:00",
   "factor_deduction": [
     {
       "factor": "method",
@@ -726,6 +726,52 @@
         "chrf_sentence_mean": 17.624112088395137,
         "gloss_f1_micro": 0.08557770096344781,
         "gloss_f1_sentence_mean": 0.09988927341939481
+      }
+    },
+    {
+      "path": "phoenix-2014t/qwen25-05b/sft/zero-shot/run_20261003_232114/no-trie/eval_baseline.json",
+      "cell": "phoenix-2014t-qwen25-05b-sft-zero-shot-no-trie",
+      "cell_path": "phoenix-2014t/qwen25-05b/sft/zero-shot/no-trie",
+      "run_id": "run_20261003_232114",
+      "kind": "baseline",
+      "factors": {
+        "variant": "phoenix-2014t-qwen25-05b-sft-zero-shot-no-trie",
+        "method": "baseline",
+        "model_tag": "phoenix-2014t/qwen25-05b",
+        "grammar": "unknown",
+        "prompting": "zero-shot",
+        "reward_stack": "unknown",
+        "rl_objective": "unknown",
+        "dataset": "phoenix-2014t"
+      },
+      "factor_sources": {
+        "variant": "directory name (no method marker: full cell ",
+        "method": "eval file kind (no-checkpoint baseline)",
+        "model_tag": "first two path segments (results/<dataset>/<model>/...)",
+        "grammar": "not deducible from path",
+        "prompting": "JSON stamp (source: config)",
+        "reward_stack": "not deducible (config not embedded in eval JSON)",
+        "rl_objective": "not deducible (config not embedded in eval JSON)",
+        "dataset": "first path segment (results/<dataset>/...)"
+      },
+      "timestamp": "2026-10-03 23:21:14",
+      "timestamp_source": "run directory name",
+      "num_samples_evaluated": 642,
+      "metrics_version": 2,
+      "prompt_context_fingerprint": "40d7eacc022442ec95336ce60b74da92f3b9206d663d8ce1718ba39daf609a34",
+      "metrics": {
+        "rouge_l_mean": 0.15283007392440479,
+        "valid_rouge_l_mean": 0.0,
+        "exact_match": 0.0,
+        "non_copy_token_accuracy": 0.0,
+        "pass_at_1": 0.1573208722741433,
+        "validity_rate": 0.0,
+        "bleu_corpus": 0.0,
+        "bleu_sentence_mean": 0.0,
+        "chrf_corpus": 0.19941983007889108,
+        "chrf_sentence_mean": 0.1978756709840356,
+        "gloss_f1_micro": 0.10091156782939219,
+        "gloss_f1_sentence_mean": 0.10935538919580014
       }
     },
     {
@@ -1922,6 +1968,52 @@
         "chrf_sentence_mean": 42.59373908472794,
         "gloss_f1_micro": 0.5174818425307048,
         "gloss_f1_sentence_mean": 0.5194502911328808
+      }
+    },
+    {
+      "path": "phoenix-2014t/qwen25-05b/sft/zero-shot/run_20261003_232114/no-trie/eval_final.json",
+      "cell": "phoenix-2014t-qwen25-05b-sft-zero-shot-no-trie",
+      "cell_path": "phoenix-2014t/qwen25-05b/sft/zero-shot/no-trie",
+      "run_id": "run_20261003_232114",
+      "kind": "final",
+      "factors": {
+        "variant": "phoenix-2014t-qwen25-05b-sft-zero-shot-no-trie",
+        "method": "unknown",
+        "model_tag": "phoenix-2014t/qwen25-05b",
+        "grammar": "unknown",
+        "prompting": "zero-shot",
+        "reward_stack": "unknown",
+        "rl_objective": "unknown",
+        "dataset": "phoenix-2014t"
+      },
+      "factor_sources": {
+        "variant": "directory name (no method marker: full cell ",
+        "method": "directory name",
+        "model_tag": "first two path segments (results/<dataset>/<model>/...)",
+        "grammar": "not deducible from path",
+        "prompting": "JSON stamp (source: config)",
+        "reward_stack": "not deducible (config not embedded in eval JSON)",
+        "rl_objective": "not deducible (config not embedded in eval JSON)",
+        "dataset": "first path segment (results/<dataset>/...)"
+      },
+      "timestamp": "2026-10-03 23:21:14",
+      "timestamp_source": "run directory name",
+      "num_samples_evaluated": 642,
+      "metrics_version": 2,
+      "prompt_context_fingerprint": "40d7eacc022442ec95336ce60b74da92f3b9206d663d8ce1718ba39daf609a34",
+      "metrics": {
+        "rouge_l_mean": 0.48144260407376305,
+        "valid_rouge_l_mean": 0.4778430332021835,
+        "exact_match": 0.01806853582554517,
+        "non_copy_token_accuracy": 0.36961672473867596,
+        "pass_at_1": 0.8037383177570093,
+        "validity_rate": 0.9925233644859813,
+        "bleu_corpus": 0.13319753632756068,
+        "bleu_sentence_mean": 0.14112578549298543,
+        "chrf_corpus": 42.51527501495506,
+        "chrf_sentence_mean": 42.49251838917031,
+        "gloss_f1_micro": 0.5138118860033071,
+        "gloss_f1_sentence_mean": 0.5164054594151273
       }
     }
   ],
@@ -3536,6 +3628,114 @@
           "a": 0.10935538919580014,
           "b": 0.3267328877972245,
           "delta": 0.217377,
+          "interpretation": "above noise threshold"
+        }
+      },
+      "caveats": [
+        "cross-run comparison: checkpoint identity NOT guaranteed",
+        "factors not deducible on at least one side, equality NOT verified: reward_stack, rl_objective"
+      ]
+    },
+    {
+      "factor": "prompting",
+      "kind": "prompting (cross-run)",
+      "a": {
+        "path": "phoenix-2014t/qwen25-05b/ablations/decoding/no-grammar/run_20261008_163600/eval_baseline.json",
+        "timestamp": "2026-10-08 16:36:00",
+        "factors": {
+          "model_tag": "phoenix-2014t/qwen25-05b",
+          "method": "baseline",
+          "variant": "phoenix-2014t-qwen25-05b-ablations-decoding-no-grammar",
+          "prompting": "few-shot",
+          "grammar": "unknown"
+        },
+        "num_samples_evaluated": 642,
+        "metrics_version": 2
+      },
+      "b": {
+        "path": "phoenix-2014t/qwen25-05b/sft/zero-shot/run_20261003_232114/no-trie/eval_baseline.json",
+        "timestamp": "2026-10-03 23:21:14",
+        "factors": {
+          "model_tag": "phoenix-2014t/qwen25-05b",
+          "method": "baseline",
+          "variant": "phoenix-2014t-qwen25-05b-sft-zero-shot-no-trie",
+          "prompting": "zero-shot",
+          "grammar": "unknown"
+        },
+        "num_samples_evaluated": 642,
+        "metrics_version": 2
+      },
+      "deltas": {
+        "rouge_l_mean": {
+          "a": 0.2995553317780662,
+          "b": 0.15283007392440479,
+          "delta": -0.146725,
+          "interpretation": "above noise threshold"
+        },
+        "valid_rouge_l_mean": {
+          "a": 0.25224238685237166,
+          "b": 0.0,
+          "delta": -0.252242,
+          "interpretation": "above noise threshold"
+        },
+        "exact_match": {
+          "a": 0.009968847352024923,
+          "b": 0.0,
+          "delta": -0.009969,
+          "interpretation": "NOT GENERALIZABLE (|delta| < 0.02): reproducible (training is bit-deterministic at fixed seed) but single-seed, so it may invert under another seed — do NOT interpret"
+        },
+        "non_copy_token_accuracy": {
+          "a": 0.2660627177700348,
+          "b": 0.0,
+          "delta": -0.266063,
+          "interpretation": "above noise threshold"
+        },
+        "pass_at_1": {
+          "a": 0.4470404984423676,
+          "b": 0.1573208722741433,
+          "delta": -0.28972,
+          "interpretation": "above noise threshold"
+        },
+        "validity_rate": {
+          "a": 0.8420560747663551,
+          "b": 0.0,
+          "delta": -0.842056,
+          "interpretation": "above noise threshold"
+        },
+        "bleu_corpus": {
+          "a": 0.05908207377390571,
+          "b": 0.0,
+          "delta": -0.059082,
+          "interpretation": "above noise threshold"
+        },
+        "bleu_sentence_mean": {
+          "a": 0.08169956683901036,
+          "b": 0.0,
+          "delta": -0.0817,
+          "interpretation": "above noise threshold"
+        },
+        "chrf_corpus": {
+          "a": 31.759172641212462,
+          "b": 0.19941983007889108,
+          "delta": -31.559753,
+          "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
+        },
+        "chrf_sentence_mean": {
+          "a": 32.116529005271786,
+          "b": 0.1978756709840356,
+          "delta": -31.918653,
+          "interpretation": "scale 0-100: 0.02 noise threshold not applicable"
+        },
+        "gloss_f1_micro": {
+          "a": 0.3103691210691489,
+          "b": 0.10091156782939219,
+          "delta": -0.209458,
+          "interpretation": "above noise threshold"
+        },
+        "gloss_f1_sentence_mean": {
+          "a": 0.3267328877972245,
+          "b": 0.10935538919580014,
+          "delta": -0.217377,
           "interpretation": "above noise threshold"
         }
       },

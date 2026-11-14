@@ -1,0 +1,86 @@
+{
+  "model": "run_20261113_041626",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 15,
+      "rouge_l": 1.0,
+      "gold": "Psychology Media_violence",
+      "prediction": "Psychology Media_violence",
+      "prompt": "OBJECTIVE. Despite concerns about exposure to violent media, there are few data on youth exposure to violent movies. In this study we examined such exposure among young US adolescents. METHODS. We use..."
+    },
+    {
+      "group": "best",
+      "index": 35,
+      "rouge_l": 1.0,
+      "gold": "Medical HIV/AIDS",
+      "prediction": "Medical HIV/AIDS",
+      "prompt": "Purpose of reviewIn 2015, the WHO urged countries to provide ART to all people living with HIV, irrespective of their CD4(+) cell count, this new recommendation supports the Joint United Nations Progr..."
+    },
+    {
+      "group": "best",
+      "index": 40,
+      "rouge_l": 1.0,
+      "gold": "Medical HIV/AIDS",
+      "prediction": "Medical HIV/AIDS",
+      "prompt": "Objective: This study evaluates the potential of gingival crevicular fluid and serum cytokines as HIV stage biomarkers. Methods: Gingival crevicular fluid (GCF) and serum samples from 78 HIV-positive ..."
+    },
+    {
+      "group": "best",
+      "index": 60,
+      "rouge_l": 1.0,
+      "gold": "biochemistry Human_Metabolism",
+      "prediction": "biochemistry Human_Metabolism",
+      "prompt": "Several sources of information suggest that man evolved on a diet with a ratio of omega-6 to omega-3 fatty acids of approximately 1 whereas today this ratio is approximately 10:1 to 20-25:1, indicatin..."
+    },
+    {
+      "group": "best",
+      "index": 65,
+      "rouge_l": 1.0,
+      "gold": "ECE Electric_motor",
+      "prediction": "ECE Electric_motor",
+      "prompt": "A gearless one-motor concept for contra-rotating fans is presented in this article. The rotors are mounted to an electric motor using only one shaft. The coupling between both rotors is realised by ut..."
+    },
+    {
+      "group": "worst",
+      "index": 5,
+      "rouge_l": 0.0,
+      "gold": "Medical Menopause",
+      "prediction": "biochemistry Molecular_biology",
+      "prompt": "An association between increased serum concentrations of perfluoroalkyl substances (PFAS) such as perfluorooctane sulfonate (PFOS) and perfluorooctanoate (PFOA) and early menopause has been reported (..."
+    },
+    {
+      "group": "worst",
+      "index": 26,
+      "rouge_l": 0.0,
+      "gold": "CS Image_processing",
+      "prediction": "ECE Electrical_circuits",
+      "prompt": "Controlling the geometric parameters of the weld pool and the weld bead is the main method for getting better welding quality in industrial robotic welding. This paper presents the technology on a rea..."
+    },
+    {
+      "group": "worst",
+      "index": 30,
+      "rouge_l": 0.0,
+      "gold": "Psychology Attention",
+      "prediction": "ECE System_identification",
+      "prompt": "The Great East Japan Earthquake (GEJE) and subsequent tsunamis that occurred in 2011 caused extensive and severe structural damage and interrupted numerous research activities; however, the majority o..."
+    },
+    {
+      "group": "worst",
+      "index": 45,
+      "rouge_l": 0.0,
+      "gold": "ECE Electrical_generator",
+      "prediction": "Medical Irritable_Bowel_Syndrome",
+      "prompt": "Charge sharing is the fractional collection of the charge cloud generated in a detector by two or more adjacent pixels. It may lead to excessive or inefficient registration of hits comparing to the nu..."
+    },
+    {
+      "group": "worst",
+      "index": 50,
+      "rouge_l": 0.0,
+      "gold": "CS Operating_systems",
+      "prediction": "ECE Electrical_circuits",
+      "prompt": "The purpose of digital forensic applications is to determine the flow of events as they unfold, before, during or after the alleged incident occurred. The need to identify the cause of an incident, th..."
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "model": "run_20261112_214752",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 1040,
+      "rouge_l": 1.0,
+      "gold": "LIEB ZUSCHAUER GUT ABEND",
+      "prediction": "LIEB ZUSCHAUER GUT ABEND",
+      "prompt": "liebe zuschauer guten abend"
+    },
+    {
+      "group": "best",
+      "index": 3086,
+      "rouge_l": 1.0,
+      "gold": "SUED WIND SCHWACH",
+      "prediction": "SUED WIND SCHWACH",
+      "prompt": "im süden schwacher wind"
+    },
+    {
+      "group": "best",
+      "index": 1622,
+      "rouge_l": 0.9091,
+      "gold": "WETTER MORGEN SIE DIENSTAG VIERZEHN SEPTEMBER",
+      "prediction": "WETTER MORGEN DIENSTAG VIERZEHN SEPTEMBER",
+      "prompt": "und nun die wettervorhersage für morgen dienstag den vierzehnten september"
+    },
+    {
+      "group": "best",
+      "index": 2131,
+      "rouge_l": 0.8889,
+      "gold": "SONNTAG NORD WOLKE IX SCHAUER",
+      "prediction": "SONNTAG NORD WOLKE SCHAUER",
+      "prompt": "am sonntag im norden noch wolkig und vor allem in küstennähe einzelne schauer"
+    },
+    {
+      "group": "best",
+      "index": 2712,
+      "rouge_l": 0.8889,
+      "gold": "SAMSTAG MEISTENS FREUNDLICH REGION TROCKEN",
+      "prediction": "SAMSTAG MEISTENS FREUNDLICH TROCKEN",
+      "prompt": "am samstag meist freundlich und überwiegend trocken"
+    },
+    {
+      "group": "worst",
+      "index": 12,
+      "rouge_l": 0.0,
+      "gold": "KRAEFTIG AB MORGEN FRUEH MEISTENS SCHNEE SCHNEIEN KALT REGEN",
+      "prediction": "NORD MEER ZIEHEN KRATZEN TROCKEN HEUTE MACHEN FALLEN NEU FRISCH GLUECK STARK GEWITTER",
+      "prompt": "vom nordmeer zieht ein kräftiges tief heran und bringt uns ab den morgenstunden heftige schneefälle zum teil auch gefrierenden regen"
+    },
+    {
+      "group": "worst",
+      "index": 38,
+      "rouge_l": 0.0,
+      "gold": "IM-VERLAUF BLEIBEN KALT ENORM SCHNEE KOENNEN",
+      "prediction": "NACH DENKEN WINTER WIESE WIEDER MACHEN",
+      "prompt": "in den nächsten tagen geht es auf jeden fall winterlich weiter immer wieder mal mit etwas schnee"
+    },
+    {
+      "group": "worst",
+      "index": 42,
+      "rouge_l": 0.0,
+      "gold": "WOCHENENDE IX MEHR KALT",
+      "prediction": "WOCHE ENDLICH KLEIN KOELN",
+      "prompt": "und zum wochenende wird es dann sogar wieder ein bisschen kälter"
+    },
+    {
+      "group": "worst",
+      "index": 55,
+      "rouge_l": 0.0,
+      "gold": "MORGEN LANG BLEIBEN",
+      "prediction": "HALTEN MACHEN ZEIT ZU HABEN",
+      "prompt": "die halten sich morgen recht zäh"
+    },
+    {
+      "group": "worst",
+      "index": 67,
+      "rouge_l": 0.0,
+      "gold": "REGION FEUCHT REGION IX GEWITTER REGION",
+      "prediction": "MITEILEN MEER FLUT TROCKEN GLEICH WETTER",
+      "prompt": "vom mittelmeer fließt feuchte luft heran in der sich zum teil kräftige gewitter entwickeln können"
+    }
+  ]
+}

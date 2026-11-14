@@ -1,0 +1,86 @@
+{
+  "model": "run_20261112_214752",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 885,
+      "rouge_l": 1.0,
+      "gold": "SCHOEN ABEND TSCHUESS",
+      "prediction": "SCHOEN ABEND TSCHUESS",
+      "prompt": "ich wünsche noch einen schönen abend und tschüss"
+    },
+    {
+      "group": "best",
+      "index": 1630,
+      "rouge_l": 1.0,
+      "gold": "GUT ABEND LIEB ZUSCHAUER",
+      "prediction": "GUT ABEND LIEB ZUSCHAUER",
+      "prompt": "guten abend liebe zuschauer"
+    },
+    {
+      "group": "best",
+      "index": 1040,
+      "rouge_l": 1.0,
+      "gold": "LIEB ZUSCHAUER GUT ABEND",
+      "prediction": "LIEB ZUSCHAUER GUT ABEND",
+      "prompt": "liebe zuschauer guten abend"
+    },
+    {
+      "group": "best",
+      "index": 1185,
+      "rouge_l": 1.0,
+      "gold": "NORD REGEN",
+      "prediction": "NORD REGEN",
+      "prompt": "am tag vor allem im norden regen"
+    },
+    {
+      "group": "best",
+      "index": 1200,
+      "rouge_l": 1.0,
+      "gold": "JETZT WETTER WIE-AUSSEHEN MORGEN SAMSTAG ZWEITE APRIL",
+      "prediction": "JETZT WETTER WIE-AUSSEHEN MORGEN SAMSTAG ZWEITE APRIL",
+      "prompt": "und nun die wettervorhersage für morgen samstag den zweiten april"
+    },
+    {
+      "group": "worst",
+      "index": 16,
+      "rouge_l": 0.0,
+      "gold": "WOCHENENDE SONNE SAMSTAG SCHOEN TEMPERATUR BIS SIEBZEHN GRAD REGION",
+      "prediction": "DAS-WAR-ES SONNENUNTERGANG NEU ZIEHEN TROPFEN ZWEI-TAG SOLL MIT HIER WEST ENDE STADT GLAUBEN",
+      "prompt": "sonnig geht es auch ins wochenende samstag ein herrlicher tag mit temperaturen bis siebzehn grad hier im westen"
+    },
+    {
+      "group": "worst",
+      "index": 35,
+      "rouge_l": 0.0,
+      "gold": "IM-VERLAUF BLEIBEN KALT ENORM SCHNEE KOENNEN",
+      "prediction": "IN-KOMMEND WINTER WEITER UND MAERZ BEKANNTGEBEN",
+      "prompt": "in den nächsten tagen geht es auf jeden fall winterlich weiter immer wieder mal mit etwas schnee"
+    },
+    {
+      "group": "worst",
+      "index": 59,
+      "rouge_l": 0.0,
+      "gold": "MORGEN LANG BLEIBEN",
+      "prediction": "DAS-IST-ES MACHEN DENKEN ZU ERZ STEIN",
+      "prompt": "die halten sich morgen recht zäh"
+    },
+    {
+      "group": "worst",
+      "index": 165,
+      "rouge_l": 0.0,
+      "gold": "SUEDWEST NULL OST MINUS SIEBEN MOEGLICH",
+      "prediction": "SUCHEN WERT EIN HOFFEN MACHEN GRAD OESTERREICH PLUS SECHZIG",
+      "prompt": "im südwesten morgen werte um den gefrierpunkt im osten bis minus sieben grad"
+    },
+    {
+      "group": "worst",
+      "index": 237,
+      "rouge_l": 0.0,
+      "gold": "BESONDERS KALT SUED SUEDOST",
+      "prediction": "IM-VERLAUF EINIGE C ENDE BEWEGEN SELTEN NACHT ZUERST SIEBEN BEREICH MITTE LUECKE",
+      "prompt": "und die kälteste ecke wird der gesamte südosten bleiben"
+    }
+  ]
+}

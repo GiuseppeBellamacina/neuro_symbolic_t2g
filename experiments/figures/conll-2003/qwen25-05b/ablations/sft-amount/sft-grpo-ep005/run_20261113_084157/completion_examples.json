@@ -1,0 +1,86 @@
+{
+  "model": "run_20261113_084157",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 0,
+      "rouge_l": 1.0,
+      "gold": "PER:Nadim_Ladki",
+      "prediction": "PER:Nadim_Ladki",
+      "prompt": "Nadim Ladki"
+    },
+    {
+      "group": "best",
+      "index": 5,
+      "rouge_l": 1.0,
+      "gold": "LOC:AL-AIN LOC:United_Arab_Emirates",
+      "prediction": "LOC:AL-AIN LOC:United_Arab_Emirates",
+      "prompt": "AL-AIN , United Arab Emirates 1996-12-06"
+    },
+    {
+      "group": "best",
+      "index": 20,
+      "rouge_l": 1.0,
+      "gold": "PER:Oleg_Shatskiku",
+      "prediction": "PER:Oleg_Shatskiku",
+      "prompt": "Oleg Shatskiku made sure of the win in injury time , hitting an unstoppable left foot shot from just outside the area ."
+    },
+    {
+      "group": "best",
+      "index": 46,
+      "rouge_l": 1.0,
+      "gold": "PER:Nader_Jokhadar LOC:Syria",
+      "prediction": "PER:Nader_Jokhadar LOC:Syria",
+      "prompt": "Nader Jokhadar had given Syria the lead with a well-struck header in the seventh minute ."
+    },
+    {
+      "group": "best",
+      "index": 57,
+      "rouge_l": 1.0,
+      "gold": "PER:Bitar",
+      "prediction": "PER:Bitar",
+      "prompt": "Bitar pulled off fine saves whenever they did ."
+    },
+    {
+      "group": "worst",
+      "index": 35,
+      "rouge_l": 0.0,
+      "gold": "LOC:Syria",
+      "prediction": "NONE",
+      "prompt": "It was the second costly blunder by Syria in four minutes ."
+    },
+    {
+      "group": "worst",
+      "index": 55,
+      "rouge_l": 0.0,
+      "gold": "PER:Bitar",
+      "prediction": "NONE",
+      "prompt": "Bitar pulled off fine saves whenever they did ."
+    },
+    {
+      "group": "worst",
+      "index": 95,
+      "rouge_l": 0.0,
+      "gold": "MISC:Syrian",
+      "prediction": "NONE",
+      "prompt": "It was the second Syrian defensive blunder in four minutes ."
+    },
+    {
+      "group": "worst",
+      "index": 120,
+      "rouge_l": 0.0,
+      "gold": "MISC:World_Cup",
+      "prediction": "NONE",
+      "prompt": "Results of the World Cup"
+    },
+    {
+      "group": "worst",
+      "index": 275,
+      "rouge_l": 0.0,
+      "gold": "NONE",
+      "prediction": "PER:Total LOC:for MISC:wickets LOC:47 MISC:overs LOC:9",
+      "prompt": "Total ( for 9 wickets in 47 overs ) 277"
+    }
+  ]
+}

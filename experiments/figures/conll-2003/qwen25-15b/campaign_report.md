@@ -1,6 +1,6 @@
 # Campaign Report — conll-2003 / qwen25-15b
 
-Generated: 2026-11-12T13:18:04+00:00
+Generated: 2026-11-14T09:24:31+00:00
 
 > Complementare ad `ablation-summary`: qui i run sono appaiati
 > per fattore sperimentale. **Legge i JSON di eval: non

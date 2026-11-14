@@ -1,0 +1,86 @@
+{
+  "model": "run_20261112_154844",
+  "n_examples": 10,
+  "examples": [
+    {
+      "group": "best",
+      "index": 5,
+      "rouge_l": 1.0,
+      "gold": "Medical Menopause",
+      "prediction": "Medical Menopause",
+      "prompt": "An association between increased serum concentrations of perfluoroalkyl substances (PFAS) such as perfluorooctane sulfonate (PFOS) and perfluorooctanoate (PFOA) and early menopause has been reported (..."
+    },
+    {
+      "group": "best",
+      "index": 10,
+      "rouge_l": 1.0,
+      "gold": "Medical Menopause",
+      "prediction": "Medical Menopause",
+      "prompt": "Reproduction is essential for the survival of the species and is influenced by external factors such as smoking and exposure to chemotherapy as well as chronic disorders such as obesity and autoimmuni..."
+    },
+    {
+      "group": "best",
+      "index": 15,
+      "rouge_l": 1.0,
+      "gold": "Psychology Media_violence",
+      "prediction": "Psychology Media_violence",
+      "prompt": "OBJECTIVE. Despite concerns about exposure to violent media, there are few data on youth exposure to violent movies. In this study we examined such exposure among young US adolescents. METHODS. We use..."
+    },
+    {
+      "group": "best",
+      "index": 20,
+      "rouge_l": 1.0,
+      "gold": "Medical Skin_Care",
+      "prediction": "Medical Skin_Care",
+      "prompt": "Background: Preservatives are added to cosmetics and other consumer products to prevent microbial growth and product degradation. Many cosmetic preservatives are skin sensitizers and frequent causes o..."
+    },
+    {
+      "group": "best",
+      "index": 29,
+      "rouge_l": 1.0,
+      "gold": "CS Image_processing",
+      "prediction": "CS Image_processing",
+      "prompt": "Controlling the geometric parameters of the weld pool and the weld bead is the main method for getting better welding quality in industrial robotic welding. This paper presents the technology on a rea..."
+    },
+    {
+      "group": "worst",
+      "index": 6,
+      "rouge_l": 0.0,
+      "gold": "Medical Menopause",
+      "prediction": "biochemistry Immunology",
+      "prompt": "An association between increased serum concentrations of perfluoroalkyl substances (PFAS) such as perfluorooctane sulfonate (PFOS) and perfluorooctanoate (PFOA) and early menopause has been reported (..."
+    },
+    {
+      "group": "worst",
+      "index": 12,
+      "rouge_l": 0.0,
+      "gold": "Medical Menopause",
+      "prediction": "biochemistry Genetics",
+      "prompt": "Reproduction is essential for the survival of the species and is influenced by external factors such as smoking and exposure to chemotherapy as well as chronic disorders such as obesity and autoimmuni..."
+    },
+    {
+      "group": "worst",
+      "index": 30,
+      "rouge_l": 0.0,
+      "gold": "Psychology Attention",
+      "prediction": "Medical Mental_Health",
+      "prompt": "The Great East Japan Earthquake (GEJE) and subsequent tsunamis that occurred in 2011 caused extensive and severe structural damage and interrupted numerous research activities; however, the majority o..."
+    },
+    {
+      "group": "worst",
+      "index": 45,
+      "rouge_l": 0.0,
+      "gold": "ECE Electrical_generator",
+      "prediction": "CS Algorithm_design",
+      "prompt": "Charge sharing is the fractional collection of the charge cloud generated in a detector by two or more adjacent pixels. It may lead to excessive or inefficient registration of hits comparing to the nu..."
+    },
+    {
+      "group": "worst",
+      "index": 60,
+      "rouge_l": 0.0,
+      "gold": "biochemistry Human_Metabolism",
+      "prediction": "Medical Rheumatoid_Arthritis",
+      "prompt": "Several sources of information suggest that man evolved on a diet with a ratio of omega-6 to omega-3 fatty acids of approximately 1 whereas today this ratio is approximately 10:1 to 20-25:1, indicatin..."
+    }
+  ]
+}

@@ -1,0 +1,154 @@
+{
+  "rouge_l_mean": 0.3448158997688838,
+  "rouge_l_std": 0.37627841985290045,
+  "rouge_l_median": 0.23303167420814477,
+  "valid_rouge_l_mean": 0.3448158997688838,
+  "valid_rouge_l_mean_v3": 0.3448158997688838,
+  "bleu_sentence_mean": 0.24743711086912526,
+  "bleu_corpus": 0.27703609666881784,
+  "chrf_sentence_mean": 35.61417655194425,
+  "chrf_corpus": 33.82970225870759,
+  "gloss_f1_sentence_mean": 0.2189402713424873,
+  "gloss_f1_micro": 0.19908680406649681,
+  "exact_match": 0.1433,
+  "non_copy_token_accuracy": 0.2171444321940463,
+  "non_copy_token_hits": 3939,
+  "non_copy_token_total": 18140,
+  "bigram_log_prob_mean": -24.543977746963503,
+  "bigram_log_prob_std": 19.43158662260425,
+  "validity_rate": 1.0,
+  "valid_count": 10000,
+  "invalid_count": 0,
+  "pass_at_1": 0.4485,
+  "reward_breakdown": {
+    "translation_quality_reward": -0.3103682004622324,
+    "bleu_reward": -0.5051257782617512,
+    "gloss_order_reward": -0.5960130466634785,
+    "gloss_format_reward": 1.0,
+    "gloss_repetition_reward": 0.1375
+  },
+  "detailed_metrics": {
+    "overall_pass_rate": 0.4556,
+    "overall_rouge_l": 0.3448158997688838,
+    "total_samples": 10000,
+    "valid_samples": 4556,
+    "rouge_l_percentiles": {
+      "25%": 0.0,
+      "50%": 0.23303167420814477,
+      "75%": 0.6666666666666666,
+      "90%": 1.0
+    },
+    "error_distribution": {
+      "low_rouge_l": 5444
+    }
+  },
+  "error_distribution": {},
+  "total_completions": 10000,
+  "evaluation_report": {
+    "total_samples": 10000,
+    "rouge_l": {
+      "mean": 0.3448158997688838,
+      "ci_95": [
+        0.3375443152450505,
+        0.35213642093227066
+      ],
+      "percentiles": {
+        "25%": 0.0,
+        "50%": 0.23303167420814477,
+        "75%": 0.6666666666666666,
+        "90%": 1.0
+      }
+    },
+    "bleu": {
+      "corpus": 0.27703609666881784,
+      "sentence_mean": 0.24743711086912526,
+      "ci_95": [
+        0.24043928064612125,
+        0.2544470707733689
+      ]
+    },
+    "chrf": {
+      "corpus": 33.82970225870759,
+      "sentence_mean": 35.61417655194425,
+      "ci_95": [
+        34.930212452534356,
+        36.29787097759022
+      ]
+    },
+    "gloss_f1": {
+      "micro": 0.19908680406649681,
+      "sentence_mean": 0.2189402713424873,
+      "ci_95": [
+        0.21175637622901466,
+        0.22607354150837328
+      ]
+    },
+    "pass_at_1": {
+      "mean": 0.4556,
+      "ci_95": [
+        0.4461,
+        0.4652075
+      ]
+    },
+    "gloss_validity_rate": 1.0,
+    "error_distribution": {}
+  },
+  "pass_at_k": {
+    "pass@1": 0.4485,
+    "pass@2": 0.63,
+    "pass@3": 0.727,
+    "pass@4": 0.78,
+    "pass@5": 0.814
+  },
+  "num_samples_evaluated": 2000,
+  "test_set_size": 3453,
+  "num_completions_per_prompt": 5,
+  "best_of_n": false,
+  "prompting": {
+    "mode": "zero-shot",
+    "source": "config"
+  },
+  "metrics_version": 2,
+  "prompt_context_fingerprint": "624010924b817420d107e089821d82b05aa6c669c3cc3f5e8b74ca981160404f",
+  "decoding": {
+    "do_sample": true,
+    "temperature": 0.7,
+    "num_samples": 5
+  },
+  "resumed_from": {
+    "resumed": false,
+    "resume_count": 0,
+    "recovered_prompts": 0
+  },
+  "difficulty_breakdown": {
+    "simple": {
+      "n_prompts": 1960,
+      "rouge_l_mean": 0.3447986668491497,
+      "bleu_sentence_mean": 0.24797588008408927,
+      "chrf_sentence_mean": 35.724117936349565,
+      "validity_rate": 1.0,
+      "pass_at_1": 0.44846938775510203
+    },
+    "medium": {
+      "n_prompts": 38,
+      "rouge_l_mean": 0.34013748508478137,
+      "bleu_sentence_mean": 0.21852695759717572,
+      "chrf_sentence_mean": 29.91345616213795,
+      "validity_rate": 1.0,
+      "pass_at_1": 0.4473684210526316
+    },
+    "hard": {
+      "n_prompts": 2,
+      "rouge_l_mean": 0.4505940401062352,
+      "bleu_sentence_mean": 0.26873619237146845,
+      "chrf_sentence_mean": 36.18530724105845,
+      "validity_rate": 1.0,
+      "pass_at_1": 0.5
+    }
+  },
+  "provenance": {
+    "config": "experiments/configs/conll-2003/qwen25-05b/ablations/sft-amount/sft-ep005.yaml",
+    "checkpoint": "experiments/checkpoints/conll-2003/qwen25-05b/ablations/sft-amount/sft-ep005/run_20261113_073503/final",
+    "results_dir": "experiments/results/conll-2003/qwen25-05b/ablations/sft-amount/sft-ep005/run_20261113_073503"
+  }
+}
