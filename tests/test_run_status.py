@@ -71,3 +71,37 @@ def test_calls_are_noops_without_the_library(monkeypatch):
     rs.run_status_samples(["x"], kind="sft")
     assert rs.get_status() is None
     rs._reset_for_tests()
+
+
+def test_describe_on_a_real_config_and_full_flow(monkeypatch, tmp_path):
+    """Prova a secco dell'intero giro con un config vero: describe, fasi, log,
+    campioni, risultati. Il chip del dataset viene da dataset.dataset_name."""
+    from src.utils.config import resolve_config
+
+    _fresh(monkeypatch, tmp_path, "train-conll-2003-sft-grpo-zero-shot")
+    cfg = resolve_config(
+        "experiments/configs/conll-2003/qwen25-05b/sft-grpo/zero-shot.yaml"
+    )
+    rs.run_status_describe(cfg, kind="train", method="grpo", stages=["sft", "grpo"])
+    rs.run_status_set(phase="sft", note="SFT")
+    rs.run_status_log(10, epoch=0.1, total_steps=100, loss=1.5, learning_rate=2e-5)
+    rs.run_status_set(phase="grpo")
+    rs.run_status_log(5, total_steps=50, reward=-0.2, **{"rewards/x": 0.5})
+    rs.run_status_samples(
+        [{"prompt": "p", "output": "o", "gold": "g", "match": False}], kind="grpo"
+    )
+    rs.run_status_results({"exact_match": 0.5, "nested": {"a": 1.0}, "skip": "text"})
+    rs.get_status().finish()
+    d = _read(tmp_path)
+    assert d["run"]["state"] == "finished" and d["run"]["method"] == "grpo"
+    assert d["run"]["model"] == {
+        "family": "llm",
+        "name": "Qwen2.5-0.5B-Instruct",
+        "params": "0.5B",
+    }
+    assert "conll-2003" in [b["label"] for b in d["run"]["badges"]]
+    assert [s["state"] for s in d["run"]["stages"]] == ["done", "done"]
+    assert d["metrics"]["latest"]["eval/exact_match"] == 0.5
+    assert d["metrics"]["latest"]["eval/nested/a"] == 1.0
+    assert d["samples"][0]["output"] == "o"
+    assert _read(tmp_path, "rs.series.json")["series"]["reward"] == [[5, -0.2]]

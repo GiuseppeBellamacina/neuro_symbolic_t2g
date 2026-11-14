@@ -163,7 +163,7 @@ def run_status_describe(
             badges.append({"label": "grammar", "icon": "tree"})
         if (config.get("retrieval") or {}).get("enabled"):
             badges.append({"label": "retrieval", "icon": "data"})
-        dataset = (config.get("dataset") or {}).get("name")
+        dataset = (config.get("dataset") or {}).get("dataset_name")
         if dataset:
             badges.append({"label": str(dataset), "icon": "data"})
         s.describe(

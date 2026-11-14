@@ -198,7 +198,7 @@ def test_run_is_described_from_the_config(status):
         "lora": {"r": 32},
         "grammar": {"enabled": True},
         "retrieval": {"enabled": False},
-        "dataset": {"name": "aslg-pc12"},
+        "dataset": {"dataset_name": "aslg-pc12"},
         "sft_pretrain": {"enabled": True},
     }
     rs.run_status_describe(config, kind="train", method="grpo", stages=["sft", "grpo"])
