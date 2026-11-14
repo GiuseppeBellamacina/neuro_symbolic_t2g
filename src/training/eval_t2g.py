@@ -937,7 +937,7 @@ def _collect_completions_with_resume(
                 n_total,
                 (idx + 1) / max(n_total, 1) * 100,
             )
-            # Live status: eval progress (same cadence as the log line).
+            # Run status: eval progress (same cadence as the log line).
             run_status_set(
                 step=idx + 1,
                 total_steps=n_total,
@@ -1459,7 +1459,7 @@ def evaluate_checkpoint(
     )
     test_ds = test_ds.select(sample_indices)
 
-    # Live status: the eval phase begins (progress updated in the loop).
+    # Run status: the eval phase begins (progress updated in the loop).
     run_status_set(
         phase="eval",
         step=0,
@@ -1788,8 +1788,8 @@ def evaluate_checkpoint(
             entry["error"] = err
         generations.append(entry)
 
-    # Live status: generation loop done (metrics computation follows, which
-    # is fast) — clear the phase so the monitor doesn't show a stale eval.
+    # Run status: publish the final metrics for the monitor, then note the end
+    # (the run itself is closed at process exit).
     run_status_results(results)
     run_status_stage_done("eval completato")
 

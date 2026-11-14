@@ -4,7 +4,7 @@
 #
 # CORE della catena: tick BREVI e statelèssi, invocabili da:
 #   - l'hook bashrc PROMPT_COMMAND      (chain-hook-install — PRIMARIO)
-#   - il server esterno / cron         (cluster/cluster_helper.sh tick)
+#   - l'app ClusterControl / cron      (cluster/cluster_helper.sh tick)
 #   - un comando manuale               (chain-start / run-all)
 #
 # Ogni tick:
@@ -56,7 +56,7 @@ mkdir -p "$STATE_DIR" logs
 
 # ── ERR trap: errore interno → soft-fail ─────────────────────────────────────
 # Un blip Slurm/DNS NON deve mai allarmare il driver (ssh rc=3 → 502 →
-# notifica rossa in TUI): il tick è idempotente e il prossimo (≈5 min)
+# notifica rossa nell'app): il tick è idempotente e il prossimo (≈5 min)
 # riprova. L'errore resta visibile in chain.log con riga e comando.
 trap 'log_line "tick errore interno (riga $LINENO: $BASH_COMMAND) — rimandato al prossimo tick"; exit 4' ERR
 

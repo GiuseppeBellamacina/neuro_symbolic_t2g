@@ -1149,7 +1149,7 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     final_path_str: str
     try:
         logger.info("Starting SFT training...")
-        # Live status: SFT training loop starts. The total comes from the
+        # Run status: SFT training loop starts. The total comes from the
         # Trainer (HighPrecisionLogCallback.on_train_begin): SFT is governed by
         # num_train_epochs and ignores training.max_steps, which belongs to GRPO.
         run_status_set(phase="sft", note="SFT training")
@@ -1216,8 +1216,8 @@ def run_sft(config: dict[str, Any], resume: bool = False) -> str:
     logger.info("SFT T2G training complete!")
     logger.info("  Model: %s", final_path_str)
     logger.info("  Logs:  %s", log_dir)
-    # Live status: SFT done — back to idle (the GRPO phase, if any, will
-    # set its own phase right after).
+    # Run status: note only. The run is closed at process exit, and the GRPO
+    # stage, if any, enters itself right after.
     run_status_stage_done(f"SFT completato: {final_path_str}")
     logger.info("=" * 60)
 

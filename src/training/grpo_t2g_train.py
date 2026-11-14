@@ -626,7 +626,7 @@ def main() -> None:
     if sft_pretrain_cfg.get("enabled", False):
         print(f"\n{'=' * 60}")
         print("STEP 1.5: SFT Pre-training")
-        # Live status: the SFT phase begins (adapter reuse skips this block).
+        # Run status: the SFT phase begins (adapter reuse skips this block).
         run_status_set(phase="sft", note="SFT pre-training")
 
         from src.training.sft_train import (
@@ -982,7 +982,7 @@ def main() -> None:
 
     # ── Step 7: Training ─────────────────────────────────────────────────
     log_step(7, "GRPO Training")
-    # Live status: the GRPO phase begins (SFT phase, if any, is over).
+    # Run status: the GRPO phase begins (SFT phase, if any, is over).
     # The total steps come from the Trainer (HighPrecisionLogCallback).
     run_status_set(phase="grpo", note="GRPO training")
 

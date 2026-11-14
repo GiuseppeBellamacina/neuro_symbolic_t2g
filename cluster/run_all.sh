@@ -6,7 +6,7 @@
 # catena viene avanzata da chain_tick.sh (one-shot idempotente), guidata da:
 #   bashrc-hook (PRIMARIO) → chain_tick.sh --quiet via PROMPT_COMMAND
 #                            (chain-hook-install) — su gcluster `at` NON c'è
-#   server esterno         → POST /tick → cluster_helper.sh tick
+#   app ClusterControl     → cluster_helper.sh tick (avvio automatico dei job)
 #   manuale                → chain-start / run-all (tick immediato)
 #
 # MAI rm -rf automatico dello stato con job pendenti: se una catena risulta
@@ -282,7 +282,7 @@ mkdir -p "$STATE_DIR" logs
 # Kick della pipeline: UN tick immediato. Il tick è one-shot e idempotente
 # (flock interno): se la coda è vuota o il job è già attivo, non fa nulla.
 # La resilienza a lungo termine è l'hook bashrc (chain-hook-install) e il
-# server esterno (POST /tick): nessun daemon da tenere in vita.
+# app ClusterControl (tick): nessun daemon da tenere in vita.
 _launch_pipeline() {
     mkdir -p logs
 

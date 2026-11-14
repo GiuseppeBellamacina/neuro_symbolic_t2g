@@ -271,7 +271,7 @@ tick() {
     exit "$rc"
 }
 
-# Kill del job attivo (per la TUI). Exit 1 + messaggio se nessun job attivo:
+# Kill del job attivo (per l'app). Exit 1 + messaggio se nessun job attivo:
 # in quel caso non viene stampato STATUS_OK e il driver risolve in 409.
 # Dopo lo scancel stampa lo snapshot monitor: il driver fa 1 sola ssh invece
 # di due (kill + monitor separati). Il job può risultare ancora RUNNING per
@@ -428,7 +428,7 @@ EOF
         dir="$PROJ_DIR/experiments/results/$token"
     else
         local c key
-        # Chiave di config (CONFIG_MAP dell'app, fallback della TUI): vedi
+        # Chiave di config (CONFIG_MAP dell'app, fallback dell'app): vedi
         # _cell_key (aslg-pc12/qwen25-05b/baseline/zero-shot <->
         # baseline-zero-shot). Match esatto, prima di qualunque sottostringa:
         # "grpo-few-shot" è contenuto anche in sft-grpo/few-shot e in
