@@ -13,6 +13,8 @@ extends: ../sft-grpo/zero-shot.yaml
 
 sft_pretrain:
   adapter_path: "experiments/checkpoints/wos-46985/qwen25-05b/sft-grpo/zero-shot/run_20261010_000134/sft_pretrain/final"
+  training:
+    seed: 42   # se l\'adapter manca e va riaddestrato: stesso SFT dell\'originale, non seme di replica
 
 training:
   seed: 1

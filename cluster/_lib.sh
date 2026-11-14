@@ -357,6 +357,82 @@ chain_handle_failure() {
     return 0
 }
 
+# ── Checkpoint mancante: prima si addestra ───────────────────────────────────
+# Un eval di una cella addestrata senza il suo checkpoint non puo' partire
+# (eval.sh si ferma con exit 1: valutare il base model darebbe numeri senza
+# senso). Capita per le celle di SOLO eval che riusano il checkpoint di una cella
+# madre (greedy, SFT senza Trie, ...) dopo che i checkpoint sono stati cancellati.
+# Qui la catena, invece di far fallire l'eval, accoda DAVANTI il train della
+# cella madre: il checkpoint si crea, poi l'eval parte. Solo shell: il login node
+# non ha python, quindi i config si leggono riga per riga (extends, output_dir,
+# eval_only sono chiavi semplici e non compaiono nei commenti).
+
+# _cfg_extends <config> - path assoluto del config padre, vuoto se non estende.
+_cfg_extends() {
+    local cfg="$1" parent
+    parent=$(sed -n -E "s/^extends:[[:space:]]*[\"']?([^\"'#[:space:]]+).*/\1/p" "$cfg" | head -1)
+    [ -n "$parent" ] || return 0
+    (cd "$(dirname "$cfg")" && cd "$(dirname "$parent")" 2>/dev/null \
+        && printf '%s/%s\n' "$PWD" "$(basename "$parent")")
+}
+
+# _cfg_first_walk <config> <sed-expr> - primo valore trovato risalendo gli extends.
+_cfg_first_walk() {
+    local f="$1" expr="$2" v
+    while [ -n "$f" ] && [ -f "$f" ]; do
+        v=$(sed -n -E "$expr" "$f" | head -1)
+        if [ -n "$v" ]; then printf '%s\n' "$v"; return 0; fi
+        f=$(_cfg_extends "$f")
+    done
+    return 1
+}
+
+# _cfg_train_ancestor <config> - il primo config della catena degli extends che
+# NON e' eval_only: quello che si addestra davvero (puo' essere il config stesso).
+_cfg_train_ancestor() {
+    local f="$1"
+    while [ -n "$f" ] && [ -f "$f" ]; do
+        grep -qE '^[[:space:]]+eval_only:[[:space:]]*true' "$f" || { printf '%s\n' "$f"; return 0; }
+        f=$(_cfg_extends "$f")
+    done
+    return 1
+}
+
+# _ckpt_exists <output_dir> - 0 se c'e' un checkpoint (anche parziale, come
+# eval.sh: il parziale lo marca eval.sh stesso).
+_ckpt_exists() {
+    local d="$1" c
+    case "$d" in /*) ;; *) d="$PROJ_DIR/$d" ;; esac
+    for c in "$d"/run_*/final "$d"/final "$d"/run_*/checkpoint-* "$d"/checkpoint-*; do
+        [ -e "$c" ] && return 0
+    done
+    return 1
+}
+
+# chain_prereq_train <config> - se l'eval di <config> richiede un checkpoint che
+# non esiste, stampa "<config da addestrare>|<tag>" (altrimenti niente, rc 0).
+# Anti-ciclo: un solo tentativo per cella (marker in .chain_state, valido ~15 h,
+# piu' di un train); se dopo il train il checkpoint manca ancora, l'eval parte e
+# si ferma da solo con il messaggio di eval.sh.
+chain_prereq_train() {
+    local cfg="$1" out anc tag marker
+    case "$cfg" in /*) ;; *) cfg="$PROJ_DIR/$cfg" ;; esac
+    out=$(_cfg_first_walk "$cfg" "s/^[[:space:]]+output_dir:[[:space:]]*[\"']?([^\"'#]+)[\"']?.*/\1/p") || return 0
+    [ -n "$out" ] || return 0   # niente output_dir: eval del base model, voluto
+    anc=$(_cfg_train_ancestor "$cfg") || return 0
+    tag=$(t2g_tag_from_config "$anc")
+    marker="$STATE_DIR/prereq_${tag}"
+    if _ckpt_exists "$out"; then
+        rm -f "$marker"
+        return 0
+    fi
+    if [ -n "$(find "$marker" -mmin -900 2>/dev/null)" ]; then
+        return 0
+    fi
+    mkdir -p "$STATE_DIR" && : > "$marker"
+    printf '%s|%s\n' "${anc#"$PROJ_DIR"/}" "$tag"
+}
+
 # Pop the head of job_chain, validate it, submit it via sbatch and record it
 # in .chain_state/last_job. Sets the LAST_JOB_* globals.
 # Returns 0 on submission; 1 on any failure (the entry is reinserted at the
@@ -370,6 +446,17 @@ chain_submit_next() {
     cfg=$(echo "$next" | cut -d: -f2)
     tag=$(echo "$next" | cut -d: -f3)
     extra=$(echo "$next" | cut -d: -f4-)
+
+    if [ "$type" = "eval" ] && [ -n "$cfg" ]; then
+        local prereq
+        prereq=$(chain_prereq_train "$cfg") || prereq=""
+        if [ -n "$prereq" ]; then
+            log_line "⚙️  eval $tag: checkpoint mancante → prima addestro ${prereq%%|*} (tag ${prereq##*|})"
+            rebuild_chain "train:${prereq%%|*}:${prereq##*|}"
+            chain_submit_next
+            return $?
+        fi
+    fi
     pop_chain_head >/dev/null
 
     if [ -z "$cfg" ]; then

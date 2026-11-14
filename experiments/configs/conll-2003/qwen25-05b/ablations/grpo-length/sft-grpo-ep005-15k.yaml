@@ -9,6 +9,8 @@ extends: ../sft-amount/sft-grpo-ep005.yaml
 
 sft_pretrain:
   adapter_path: "experiments/checkpoints/conll-2003/qwen25-05b/ablations/sft-amount/sft-grpo-ep005/run_20261113_084157/sft_pretrain/final"
+  training:
+    seed: 42   # se l\'adapter manca e va riaddestrato: stesso SFT dell\'originale, non seme di replica
 
 training:
   max_steps: 15000

@@ -680,9 +680,9 @@ def main() -> None:
             else:
                 print(
                     "  ⚠️  Explicit adapter_path missing or incomplete: "
-                    f"{explicit_adapter} — ignoring it"
+                    f"{explicit_adapter} — searching by fingerprint, else training the SFT"
                 )
-        elif reuse_adapter and not args.force_sft:
+        if reused_adapter is None and reuse_adapter and not args.force_sft:
             fingerprint = compute_sft_fingerprint(sft_config)
             # Search order: (1) sibling runs of the SAME tag (this cell's own
             # training.output_dir, e.g. experiments/checkpoints/aslg-pc12/qwen25-05b/

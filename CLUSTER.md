@@ -729,3 +729,11 @@ monitor                  # monitor live
 # se la catena si ferma: chain-resume
 .\sync_cluster.ps1 -Action download                     # scarica i risultati
 ```
+
+## Checkpoint mancante: prima si addestra
+
+Se l'eval di una cella di solo eval (`eval_only: true`, che riusa il checkpoint della cella madre) parte senza
+checkpoint, `chain_submit_next` (`cluster/_lib.sh::chain_prereq_train`) accoda davanti il train della cella madre
+(un solo tentativo per cella, marker `.chain_state/prereq_<tag>`, ~15 h). Nel trainer, un `sft_pretrain.adapter_path`
+mancante ricade sulla ricerca per fingerprint e poi sull'addestramento della fase SFT (le repliche fissano
+`sft_pretrain.training.seed: 42`, cosi' un SFT riaddestrato e' quello della run originale).
