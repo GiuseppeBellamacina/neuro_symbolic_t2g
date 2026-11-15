@@ -1,0 +1,154 @@
+{
+  "rouge_l_mean": 0.9278678673303069,
+  "rouge_l_std": 0.1901859367033933,
+  "rouge_l_median": 1.0,
+  "valid_rouge_l_mean": 0.9278678673303069,
+  "valid_rouge_l_mean_v3": 0.9278678673303069,
+  "bleu_sentence_mean": 0.9002905189510202,
+  "bleu_corpus": 0.8974793269156487,
+  "chrf_sentence_mean": 92.46546561515545,
+  "chrf_corpus": 90.84691107950535,
+  "gloss_f1_sentence_mean": 0.8897414054853529,
+  "gloss_f1_micro": 0.8884711086535804,
+  "exact_match": 0.8134,
+  "non_copy_token_accuracy": 0.8849503858875414,
+  "non_copy_token_hits": 16053,
+  "non_copy_token_total": 18140,
+  "bigram_log_prob_mean": -20.14800380897522,
+  "bigram_log_prob_std": 15.281831655045346,
+  "validity_rate": 1.0,
+  "valid_count": 10000,
+  "invalid_count": 0,
+  "pass_at_1": 0.978,
+  "reward_breakdown": {
+    "translation_quality_reward": 0.855735734660615,
+    "bleu_reward": 0.8005810379020342,
+    "gloss_order_reward": 0.7426544740042562,
+    "gloss_format_reward": 1.0,
+    "gloss_repetition_reward": 0.0968
+  },
+  "detailed_metrics": {
+    "overall_pass_rate": 0.9778,
+    "overall_rouge_l": 0.9278678673303069,
+    "total_samples": 10000,
+    "valid_samples": 9778,
+    "rouge_l_percentiles": {
+      "25%": 1.0,
+      "50%": 1.0,
+      "75%": 1.0,
+      "90%": 1.0
+    },
+    "error_distribution": {
+      "low_rouge_l": 222
+    }
+  },
+  "error_distribution": {},
+  "total_completions": 10000,
+  "evaluation_report": {
+    "total_samples": 10000,
+    "rouge_l": {
+      "mean": 0.9278678673303069,
+      "ci_95": [
+        0.9239515775580107,
+        0.9316109050723649
+      ],
+      "percentiles": {
+        "25%": 1.0,
+        "50%": 1.0,
+        "75%": 1.0,
+        "90%": 1.0
+      }
+    },
+    "bleu": {
+      "corpus": 0.8974793269156487,
+      "sentence_mean": 0.9002905189510202,
+      "ci_95": [
+        0.8952732399049511,
+        0.9050076539805187
+      ]
+    },
+    "chrf": {
+      "corpus": 90.84691107950535,
+      "sentence_mean": 92.46546561515545,
+      "ci_95": [
+        92.08519626784017,
+        92.83891505260868
+      ]
+    },
+    "gloss_f1": {
+      "micro": 0.8884711086535804,
+      "sentence_mean": 0.8897414054853529,
+      "ci_95": [
+        0.8841554536039009,
+        0.8949883804462594
+      ]
+    },
+    "pass_at_1": {
+      "mean": 0.9778,
+      "ci_95": [
+        0.9749,
+        0.9808025
+      ]
+    },
+    "gloss_validity_rate": 1.0,
+    "error_distribution": {}
+  },
+  "pass_at_k": {
+    "pass@1": 0.978,
+    "pass@2": 0.9815,
+    "pass@3": 0.982,
+    "pass@4": 0.9835,
+    "pass@5": 0.984
+  },
+  "num_samples_evaluated": 2000,
+  "test_set_size": 3453,
+  "num_completions_per_prompt": 5,
+  "best_of_n": false,
+  "prompting": {
+    "mode": "zero-shot",
+    "source": "config"
+  },
+  "metrics_version": 2,
+  "prompt_context_fingerprint": "95c5d22003e90005ea9a46ec94f1bf22affa77fbc373feade0e88b36336041bf",
+  "decoding": {
+    "do_sample": true,
+    "temperature": 0.7,
+    "num_samples": 5
+  },
+  "resumed_from": {
+    "resumed": false,
+    "resume_count": 0,
+    "recovered_prompts": 0
+  },
+  "difficulty_breakdown": {
+    "simple": {
+      "n_prompts": 1960,
+      "rouge_l_mean": 0.9284081432528576,
+      "bleu_sentence_mean": 0.9006869203888799,
+      "chrf_sentence_mean": 92.5143218790429,
+      "validity_rate": 1.0,
+      "pass_at_1": 0.9775510204081632
+    },
+    "medium": {
+      "n_prompts": 38,
+      "rouge_l_mean": 0.9013159137778889,
+      "bleu_sentence_mean": 0.8843855627240499,
+      "chrf_sentence_mean": 90.3617010900909,
+      "validity_rate": 1.0,
+      "pass_at_1": 1.0
+    },
+    "hard": {
+      "n_prompts": 2,
+      "rouge_l_mean": 0.9028845807265519,
+      "bleu_sentence_mean": 0.8140112781610105,
+      "chrf_sentence_mean": 84.55785298169242,
+      "validity_rate": 1.0,
+      "pass_at_1": 1.0
+    }
+  },
+  "provenance": {
+    "config": "experiments/configs/conll-2003/qwen25-3b/sft/zero-shot.yaml",
+    "checkpoint": "experiments/checkpoints/conll-2003/qwen25-3b/sft/zero-shot/run_20261114_183457/final",
+    "results_dir": "experiments/results/conll-2003/qwen25-3b/sft/zero-shot/run_20261114_183457"
+  }
+}
