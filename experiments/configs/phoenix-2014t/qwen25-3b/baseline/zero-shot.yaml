@@ -1,0 +1,16 @@
+# ============================================================================
+# PHOENIX-2014T con Qwen2.5-3B-Instruct: modello base, zero-shot (solo eval)
+#
+# Identica a qwen25-05b/baseline/zero-shot; cambia SOLO il modello (e i percorsi). Terza
+# taglia della scala 0,5B / 1,5B / 3B (gia' fatta su CoNLL-2003). Pesi nella
+# cache del cluster (nodi offline). Risorse: mezza A40 (24 GB).
+# ============================================================================
+
+extends: ../../qwen25-05b/baseline/zero-shot.yaml
+
+model:
+  name: "Qwen/Qwen2.5-3B-Instruct"
+
+wandb:
+  run_name: "phoenix-2014t-qwen25-3b-baseline-zero-shot"
+  tags: ["T2G", "PHOENIX-2014T", "qwen25-3b", "baseline", "zero-shot", "trie", "eval-only", "DGS"]

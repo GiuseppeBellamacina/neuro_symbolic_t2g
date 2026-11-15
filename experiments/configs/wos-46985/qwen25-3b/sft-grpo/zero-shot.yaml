@@ -1,0 +1,20 @@
+# ============================================================================
+# WOS-46985 con Qwen2.5-3B-Instruct: SFT seguito da GRPO, zero-shot
+#
+# Identica a qwen25-05b/sft-grpo/zero-shot; cambia SOLO il modello (e i percorsi). Terza
+# taglia della scala 0,5B / 1,5B / 3B (gia' fatta su CoNLL-2003). Pesi nella
+# cache del cluster (nodi offline). Risorse: mezza A40 (24 GB).
+# ============================================================================
+
+extends: ../../qwen25-05b/sft-grpo/zero-shot.yaml
+
+model:
+  name: "Qwen/Qwen2.5-3B-Instruct"
+
+training:
+  output_dir: "experiments/checkpoints/wos-46985/qwen25-3b/sft-grpo/zero-shot"
+  log_dir: "experiments/logs/wos-46985/qwen25-3b/sft-grpo/zero-shot"
+
+wandb:
+  run_name: "wos-46985-qwen25-3b-sft-grpo-zero-shot"
+  tags: ["T2G", "WOS-46985", "qwen25-3b", "sft-grpo", "zero-shot", "trie"]

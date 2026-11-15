@@ -1,43 +1,57 @@
 # Prossimi esperimenti
 
-Stato al 2026-11-12. Vincolo di risorse: **mezza A40, 24 GB di VRAM** (shard da
-circa 22 GB), un solo job alla volta. Quello che segue è da riprendere **dopo**
-la coda attuale (sezione 1), non prima.
+Stato al 2026-11-15. Vincolo di risorse: **mezza A40, 24 GB di VRAM**, un solo
+job alla volta. Config in `experiments/configs/`.
 
-## 1. In coda sul cluster (25 job, circa 24 ore)
+## 1. Risultati dell'ultimo giro (CoNLL-2003 salvo dove indicato)
 
-Cosa decide ciascuno. Config in `experiments/configs/`.
+Exact match; tra parentesi F1 sulle entità tipate. Run in
+`experiments/results/<dataset>/<modello>/<cella>/run_*`.
+
+| Esperimento | Risultato | Lettura |
+|---|---|---|
+| GRPO lungo, SFT completo (0,5B) | 5 000 passi 0,781 → 15 000 passi 0,791 (0,85) | Più passi dopo SFT completo danno ~+1 punto: il tetto è del metodo, non della durata. |
+| GRPO lungo, SFT da 0,05 epoche (0,5B) | 5 000 passi 0,441 → 15 000 passi 0,528 (0,58) | Con poca SFT più tempo aiuta (+9) ma resta lontano dall'SFT completo (0,745). Il GRPO non sostituisce la supervisione. |
+| Replica a seme 1, `sft-grpo-ep005` | 0,445 contro 0,441 (seme 42) | Il +30 punti del GRPO dopo poca SFT è riproducibile (SFT riaddestrato a seme 42, poi GRPO a seme 1). |
+| Entity-F1 + rollout caldi, GRPO dal base | 0,053 (0,12) | Peggio dei soli rollout caldi (0,123, 0,17): la reward sul tipo non aiuta, nemmeno con più esplorazione. Voce chiusa. |
+| Qwen2.5-3B, SFT / SFT→GRPO / GRPO dal base | 0,813 / 0,844 / 0,298 | L'incremento del GRPO sull'SFT è ~+3 punti a ogni taglia (0,5B +3,6, 1,5B +3,6, 3B +3,1). L'SFT cresce con la taglia (0,745, 0,778, 0,813). Il GRPO dal base sale con la taglia (0,03, 0,28, 0,30) ma resta lontanissimo dall'SFT. |
+| WOS 1,5B, SFT con lr 4e-5 | 0,796 (lr 2e-5: 0,734; 1e-5: 0,523) | L'anomalia del 1,5B era di iperparametri: con lr 4e-5 supera lo 0,5B (0,762). L'ottimo può essere ancora più in alto. |
+
+Giro precedente (curva SFT prima del GRPO, SFT senza Trie, rollout caldi, GRPO dal
+base a 1,5B): vedi la relazione, capitolo 12.
+
+## 2. In coda / da leggere
+
+Lanciati il 2026-11-15, nell'ordine:
 
 | Esperimento | Config | Come leggerlo |
 |---|---|---|
-| SFT valutato senza Trie (0,5B, 3 dataset) | `<ds>/qwen25-05b/sft/zero-shot-no-trie` | Se validity ed exact match restano uguali, dopo l'SFT il Trie è ridondante. Risultato in `run_*/no-trie/`. |
-| WOS 1,5B, SFT con lr 1e-5 | `wos-46985/qwen25-15b/ablations/sft/lr-1e-5` | Se l'exact match sale verso 0,762 (lo 0,5B), l'anomalia WOS era di iperparametri: provare anche 5e-6. Se resta ~0,735, è la taglia. |
-| CoNLL 0,5B, rollout più caldi (T=1,3) | `conll-2003/qwen25-05b/ablations/decoding/hot-rollout-zero-shot` | Confronto con GRPO zero-shot: exact match 0,030, F1 sulle entità tipate 0,13. Se sale, il limite è davvero l'esplorazione. |
-| GRPO dal base a 1,5B su PHOENIX e WOS | `<ds>/qwen25-15b/grpo/zero-shot` | Su CoNLL il 1,5B esplora meglio dello 0,5B (F1 0,13 → 0,26): si vede se vale anche altrove. |
-| **Quanta SFT prima del GRPO** (CoNLL) | `conll-2003/qwen25-05b/ablations/sft-amount/{sft,sft-grpo}-{ep005,ep015,ep05}` | Curva exact match contro passi di SFT: 0 passi (GRPO dal base), circa 43, 129, 430, 2 580 (SFT completo, 0,781). L'incremento del GRPO sopra l'SFT a ogni punto dice da quanta supervisione il GRPO decolla. |
+| WOS 1,5B, SFT con lr 8e-5 | `wos-46985/qwen25-15b/ablations/sft/lr-8e-5` | Chiude la curva del learning rate (1e-5, 2e-5, 4e-5): se 8e-5 non migliora, il massimo è intorno a 4e-5. |
+| Qwen2.5-3B su WOS | `wos-46985/qwen25-3b/{baseline,sft,sft-grpo,grpo}/zero-shot` | Terza taglia sul dataset con l'anomalia. Usa lr 2e-5 come le altre taglie (a parità di tutto): un SFT sottoaddestrato a 3B sarebbe lo stesso effetto visto a 1,5B con lr basso. |
+| Qwen2.5-3B su PHOENIX-2014T | `phoenix-2014t/qwen25-3b/{baseline,sft,sft-grpo,grpo}/zero-shot` | Terza taglia sul dataset con ROUGE-L come metrica: il GRPO dal base cresce con la taglia anche qui (0,5B 0,203, 1,5B 0,310)? |
 
-## 2. Da decidere dopo la coda
+Durate stimate dai tempi del 1,5B (3B ≈ 1,3–1,5×): in totale circa 28 ore, tutti
+i train sotto le 11 h 45 del limite.
 
-Ordine di preferenza.
+## 2bis. Ancora aperto
 
-1. **GRPO più lungo su SFT→GRPO** (CoNLL 0,5B). Oggi il GRPO fa 5 000 passi
-   e vede solo il 12–36 % del train: il +2–4 punti sull'SFT potrebbe essere un
-   tetto di durata. Config: `training.max_steps: 15000` su `sft-grpo/zero-shot`.
-   Costo circa 9 ore, una sola cella.
-2. **Qwen2.5-3B.** Entra nei 24 GB (QLoRA 4 bit). Dice se l'incremento del GRPO
-   resta invariante a una terza taglia e se l'esplorazione migliora in modo
-   monotono (F1 sulle entità tipate del GRPO dal base: 0,13 a 0,5B, 0,26 a
-   1,5B). Celle: CoNLL SFT, SFT→GRPO, GRPO dal base, più baseline; circa 10 ore.
-   Prima di lanciare le lunghe, far girare il solo SFT e controllare la VRAM.
-   Pesi: scaricare in locale e caricare nella cache del cluster, come per l'1,5B
-   (il cluster non raggiunge Internet; tre repository: `Qwen/...`,
-   `unsloth/...`, `unsloth/...-unsloth-bnb-4bit`, verificare lo SHA-256).
-3. **Altre famiglie di modelli** (oggi un limite dichiarato: solo Qwen2.5).
-   Vedi sezione 3.
-4. **Reward senza ROUGE, con il tipo scomposto.** Solo se il test sui rollout
-   caldi dà un segnale.
+1. **Altre famiglie di modelli**: non lanciate, perché richiedono lavoro sul
+   codice prima (sezione 3).
+2. **Reward senza ROUGE, con il tipo scomposto**: il risultato di entity-F1 con
+   rollout caldi è negativo, quindi la voce perde priorità.
+3. **WOS lr 5e-6**: escluso, 1e-5 è peggiorato.
 
 **Escluso:** `num_generations: 16`. Non entra nella VRAM disponibile.
+
+## Nota operativa: checkpoint mancanti
+
+Una cella che dipende da un checkpoint (eval di sola valutazione, `adapter_path`
+esplicito) non fallisce se manca: la catena accoda prima il train della cella
+madre e il trainer riaddestra la fase SFT (CLUSTER.md). Tutte le celle con
+`adapter_path` fissano `sft_pretrain.training.seed: 42`. La cache HF del cluster
+deve contenere anche il repository in minuscolo (`unsloth/qwen2.5-3b-instruct`,
+creato da `setup.sh --models-only`) per caricare un modello non quantizzato con
+adapter.
 
 ## 3. Altre famiglie: cosa va modificato
 

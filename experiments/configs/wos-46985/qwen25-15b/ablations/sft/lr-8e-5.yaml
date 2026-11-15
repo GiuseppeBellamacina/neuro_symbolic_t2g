@@ -1,0 +1,16 @@
+# ============================================================================
+# WOS 1,5B, SFT con learning rate 8e-5 (invece di 2e-5). Curva del learning rate:
+# 1e-5 -> 0,523, 2e-5 -> 0,734, 4e-5 -> 0,796 (supera lo 0,5B, 0,762). Il massimo
+# e' a 4e-5 o piu' in la'? Un solo fattore: training.learning_rate.
+# ============================================================================
+
+extends: ../../sft/zero-shot.yaml
+
+training:
+  learning_rate: 8.0e-5
+  output_dir: "experiments/checkpoints/wos-46985/qwen25-15b/ablations/sft/lr-8e-5"
+  log_dir: "experiments/logs/wos-46985/qwen25-15b/ablations/sft/lr-8e-5"
+
+wandb:
+  run_name: "wos-46985-qwen25-15b-ablations-sft-lr-8e-5"
+  tags: ["T2G", "WOS-46985", "qwen25-15b", "sft", "zero-shot", "ablation", "lr"]
