@@ -1,0 +1,18 @@
+# ============================================================================
+# WOS 3B, SFT con learning rate 4e-5 (invece di 2e-5). Sul 1,5B la curva del
+# learning rate satura a 4e-5 (0,734 -> 0,796 -> 0,794 a 8e-5): a 2e-5 l'SFT era
+# sottoaddestrato. Serve a separare l'effetto della taglia da quello del lr nel
+# confronto di scala su WOS: a 2e-5 lo 0,5B e il 3B sono piatti (0,762, 0,764).
+# Un solo fattore: training.learning_rate.
+# ============================================================================
+
+extends: ../../sft/zero-shot.yaml
+
+training:
+  learning_rate: 4.0e-5
+  output_dir: "experiments/checkpoints/wos-46985/qwen25-3b/ablations/sft/lr-4e-5"
+  log_dir: "experiments/logs/wos-46985/qwen25-3b/ablations/sft/lr-4e-5"
+
+wandb:
+  run_name: "wos-46985-qwen25-3b-ablations-sft-lr-4e-5"
+  tags: ["T2G", "WOS-46985", "qwen25-3b", "sft", "zero-shot", "ablation", "lr"]
