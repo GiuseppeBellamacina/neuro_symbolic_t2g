@@ -628,10 +628,9 @@ la differenza di scala su WOS è $-2{,}8$ punti con il primo seme e $-2{,}0$ con
 secondo, mentre la variabilità fra semi è sotto $0{,}7$ punti
 (sezione~\ref{sec:semi-conll}); su CoNLL la scala vale $+3{,}3$ e $+2{,}9$, su
 PHOENIX $+1{,}6$ e $+1{,}6$. Su WOS il modello più grande è quindi peggiore in
-modo robusto, con gli iperparametri scelti per lo 0,5B. Resta aperto se dipenda
-da un adattamento peggiore al rumore delle etichette (le $134$ classi sono
-ambigue) o da iperparametri non ritarati per la taglia (learning rate, epoche):
-non l'ho verificato.
+modo robusto, con gli iperparametri scelti per lo 0,5B. Il confronto sul
+learning rate (sezione~ef{sec:wos-lr}) mostra che la causa era proprio lì: a
+$2\cdot 10^{-5}$ l'1,5B è sottoaddestrato.
 
 Su PHOENIX il rumore fra semi dell'1,5B è basso: le due repliche di
 SFT$\to$GRPO danno ROUGE-L $0{,}542$ e $0{,}540$ ed exact match $0{,}032$ e
@@ -741,3 +740,163 @@ WOS SFT$\to$GRPO zero-shot    & $0{,}56$ & $0{,}68$  & $58\%$ & $77\%$ \\
 addestramento GRPO.}
 \label{tab:dinamica-altri}
 \end{table}
+
+\subsection{La scala a tre taglie}
+\label{sec:tre-taglie}
+
+Le celle principali sono state ripetute anche con Qwen2.5-3B-Instruct (QLoRA a
+4 bit, mezza A40), cambiando solo il modello. Il GRPO dal modello base e l'SFT
+hanno le stesse configurazioni delle altre taglie.
+
+\begin{center}
+\small
+\begin{tabular}{llrrrr}
+\toprule
+Dataset (metrica) & Cella & 0,5B & 1,5B & 3B & GRPO sopra SFT (3B) \\
+\midrule
+CoNLL (exact match) & SFT           & $0{,}745$ & $0{,}778$ & $0{,}813$ & \\
+CoNLL (exact match) & SFT$\to$GRPO  & $0{,}781$ & $0{,}814$ & $0{,}844$ & $+3{,}1$ \\
+CoNLL (exact match) & GRPO dal base & $0{,}030$ & $0{,}280$ & $0{,}298$ & \\
+WOS (exact match)   & SFT           & $0{,}762$ & $0{,}734$ & $0{,}764$ & \\
+WOS (exact match)   & SFT$\to$GRPO  & $0{,}787$ & $0{,}761$ & $0{,}794$ & $+3{,}0$ \\
+WOS (exact match)   & GRPO dal base & $0{,}169$ & $0{,}127$ & $0{,}123$ & \\
+PHOENIX (ROUGE-L)   & SFT           & $0{,}485$ & $0{,}502$ & $0{,}542$ & \\
+PHOENIX (ROUGE-L)   & SFT$\to$GRPO  & $0{,}527$ & $0{,}542$ & $0{,}571$ & $+2{,}9$ \\
+PHOENIX (ROUGE-L)   & GRPO dal base & $0{,}203$ & $0{,}310$ & $0{,}293$ & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Tre osservazioni. Primo, SFT$\to$GRPO è la cella migliore a ogni taglia e su ogni
+dataset, con un incremento sull'SFT di circa tre punti che non dipende dalla
+taglia (a 3B: $+3{,}1$, $+3{,}0$, $+2{,}9$). Secondo, l'SFT migliora con la
+taglia su CoNLL e PHOENIX, ma su WOS è piatto o peggiore: lo spiega la
+sezione~\ref{sec:wos-lr}. Terzo, il GRPO dal modello base non segue la taglia in
+modo uniforme: sale su CoNLL ($0{,}03 \to 0{,}28 \to 0{,}30$) e su PHOENIX
+($0{,}203 \to 0{,}310 \to 0{,}293$), dove si ferma fra 1,5B e 3B, e
+\emph{scende} su WOS ($0{,}169 \to 0{,}127 \to 0{,}123$). Su nessun dataset
+raggiunge l'SFT. L'ipotesi che un modello più grande esplori abbastanza bene da
+fare a meno della supervisione regge solo in parte: il GRPO dal base migliora
+con la taglia, ma di molto meno del divario che lo separa dall'SFT.
+
+\subsection{WOS: l'anomalia del modello più grande era il learning rate}
+\label{sec:wos-lr}
+
+Sull'1,5B su WOS l'SFT è stato ripetuto con learning rate diversi, a parità di
+tutto il resto:
+
+\begin{center}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Learning rate (1,5B, WOS) & $10^{-5}$ & $2\cdot 10^{-5}$ & $4\cdot 10^{-5}$ & $8\cdot 10^{-5}$ \\
+\midrule
+Exact match & $0{,}523$ & $0{,}734$ & $0{,}796$ & $0{,}794$ \\
+F1 & $0{,}642$ & $0{,}808$ & $0{,}853$ & $0{,}855$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La curva sale e poi satura intorno a $4\cdot 10^{-5}$. A $4\cdot 10^{-5}$ l'1,5B
+(exact match $0{,}796$) supera lo 0,5B a $2\cdot 10^{-5}$ ($0{,}762$): il
+«modello più grande peggiore» della sezione precedente era un SFT
+sottoaddestrato, non una proprietà della taglia. Va letto con una cautela: lo
+0,5B e il 3B nella tabella della sezione~\ref{sec:tre-taglie} sono ancora a
+$2\cdot 10^{-5}$, quindi su WOS il confronto fra taglie non è a learning rate
+ottimale per nessuna. Il controllo a $4\cdot 10^{-5}$ anche per lo 0,5B e il 3B
+è la prova che separa l'effetto della taglia da quello del learning rate.
+
+\subsection{Quanta SFT serve prima del GRPO}
+\label{sec:curva-sft}
+
+Su CoNLL ho variato la quantità di SFT che precede il GRPO, tenendo il GRPO
+identico ($5.000$ passi, zero-shot, Trie per frase): $0$ passi (GRPO dal modello
+base), circa $43$, $129$ e $430$ passi, e l'SFT completo ($2.580$ passi, tre
+epoche con early stopping).
+
+\begin{center}
+\small
+\begin{tabular}{lrrr}
+\toprule
+Passi di SFT & exact match dopo l'SFT & dopo il GRPO & Incremento \\
+\midrule
+$0$ (GRPO dal base)             & $0{,}045$ & $0{,}030$ & $-1{,}5$ \\
+$\approx 43$ ($0{,}05$ epoche)  & $0{,}143$ & $0{,}441$ & $+29{,}8$ \\
+$\approx 129$ ($0{,}15$ epoche) & $0{,}324$ & $0{,}553$ & $+22{,}9$ \\
+$\approx 430$ ($0{,}5$ epoche)  & $0{,}544$ & $0{,}650$ & $+10{,}6$ \\
+$2.580$ (completo)              & $0{,}745$ & $0{,}781$ & $+3{,}6$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+È il risultato più netto del lavoro. L'incremento del GRPO è tanto più grande
+quanto meno SFT lo precede: dopo appena $43$ passi di SFT il GRPO porta
+l'exact match da $0{,}14$ a $0{,}44$ ($+30$ punti), con la sola reward
+deterministica e nessuna etichetta in più; con l'SFT completo aggiunge
+$3{,}6$ punti. Insieme al GRPO dal base, che non esce da $0{,}03$, la lettura è
+che \emph{il GRPO non scopre il formato ma lo affina}: gli basta una
+supervisione minima per portare la policy dove le sue ricompense hanno
+gradiente, e da lì recupera molto. L'ordinamento resta però netto: nessuna
+cella con poca SFT raggiunge l'SFT completo. L'incremento di $+30$ punti è stato
+ripetuto con un secondo seme del GRPO (stesso SFT): exact match $0{,}445$
+contro $0{,}441$, quindi non è rumore.
+
+\subsection{Più passi di GRPO non spostano il tetto}
+\label{sec:grpo-lungo}
+
+Se il GRPO a $5.000$ passi vede solo parte del train, un addestramento più
+lungo potrebbe dare di più. Ho triplicato i passi ($15.000$):
+
+\begin{center}
+\small
+\begin{tabular}{lrr}
+\toprule
+Exact match (F1 entità tipate) & $5.000$ passi & $15.000$ passi \\
+\midrule
+SFT completo $\to$ GRPO        & $0{,}781$ ($0{,}845$) & $0{,}791$ ($0{,}851$) \\
+SFT $0{,}05$ epoche $\to$ GRPO & $0{,}441$ ($0{,}504$) & $0{,}528$ ($0{,}584$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Dopo l'SFT completo triplicare i passi dà un punto ($+1{,}0$): il tetto è del
+metodo, non della durata. Dopo poca SFT il tempo aiuta di più ($+8{,}8$), ma la
+cella resta a $0{,}53$, ben sotto l'SFT completo ($0{,}745$). Il GRPO non
+sostituisce la supervisione nemmeno con tre volte più calcolo.
+
+\subsection{Rollout più caldi, e una reward sul tipo}
+\label{sec:rollout-caldi}
+
+Il GRPO dal modello base su CoNLL resta a $0{,}03$ perché i candidati di un
+gruppo sono quasi tutti sbagliati nello stesso modo: poca varianza, poco
+segnale. Alzare la temperatura dei rollout a $1{,}3$ (invece di $0{,}7$) porta
+l'exact match a $0{,}123$ e l'F1 sulle entità tipate da $0{,}128$ a $0{,}166$:
+con più esplorazione c'è più segnale, ma la cella resta molto sotto l'SFT.
+Aggiungere a questo una reward sull'F1 delle entità tipate (che premia solo il
+tipo giusto) \emph{peggiora}: $0{,}053$ ($0{,}115$). Il limite è
+l'esplorazione, non la forma della reward: nemmeno con candidati più diversi la
+reward sul tipo trova qualcosa da premiare.
+
+\subsection{Dopo l'SFT il Trie vale meno in accuratezza, non in validità}
+\label{sec:sft-senza-trie}
+
+L'SFT è stato valutato anche senza il vincolo in decodifica (stesso adapter):
+
+\begin{center}
+\small
+\begin{tabular}{lrrr}
+\toprule
+SFT & Con Trie & Senza Trie & Validity senza Trie \\
+\midrule
+CoNLL (exact match) & $0{,}745$ & $0{,}727$ & $0{,}94$ \\
+WOS (exact match)   & $0{,}762$ & $0{,}730$ & $0{,}95$ \\
+PHOENIX (ROUGE-L)   & $0{,}485$ & $0{,}481$ & $0{,}99$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Una volta addestrato, il modello ha imparato il formato e il Trie aggiunge da
+$0{,}4$ a $3$ punti di accuratezza; ma senza di esso circa il $5$--$6\%$ delle
+uscite su CoNLL e WOS non è ammesso, e il Trie le riporta al $100\%$. Il Trie
+resta la garanzia di validità, e dopo l'SFT non è più una condizione perché il
+modello impari il formato.

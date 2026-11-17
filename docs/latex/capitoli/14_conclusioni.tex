@@ -99,12 +99,22 @@ repliche con un secondo seme confermano il guadagno di SFT$\to$GRPO sull'SFT
 volte più grande (1,5B) non porta l'exact match sopra il $3{,}2\%$. Il
 confronto di scala sui tre dataset dà un risultato netto: il guadagno del GRPO
 sopra l'SFT è lo stesso a $0{,}5$B e a $1{,}5$B (CoNLL $+3{,}8$ punti di exact
-match, WOS $+2{,}5$ e $+2{,}7$, PHOENIX $+4{,}2$ e $+4{,}1$ di ROUGE-L), mentre la
-taglia sposta il punto di partenza, in meglio su CoNLL e PHOENIX e in peggio su
-WOS. Su PHOENIX le baseline a regole (solo maiuscolo $0{,}21$, lessico
+match, WOS $+2{,}5$ e $+2{,}7$, PHOENIX $+4{,}2$ e $+4{,}1$ di ROUGE-L) e anche
+a $3$B ($+3{,}1$, $+3{,}0$, $+2{,}9$), mentre la taglia sposta il punto di
+partenza, in meglio su CoNLL e PHOENIX. Su WOS l'1,5B risultava peggiore dello
+0,5B, ma era un SFT sottoaddestrato: a $4\cdot 10^{-5}$ di learning rate
+l'exact match sale da $0{,}734$ a $0{,}796$ e lo supera. Su PHOENIX le baseline a regole (solo maiuscolo $0{,}21$, lessico
 unigramma $0{,}44$ di ROUGE-L) stanno sotto i modelli addestrati ($0{,}49$--$0{,}54$):
 è il primo corpus del lavoro in cui il confronto con una regola non toglie
 significato ai numeri.
+
+Il risultato più netto del secondo giro è la curva «quanta SFT prima del GRPO»
+(CoNLL, sezione~ef{sec:curva-sft}): l'incremento del GRPO sull'SFT passa da
+$+30$ punti dopo $43$ passi di SFT a $+3{,}6$ dopo l'SFT completo, e nessuna cella
+con poca SFT raggiunge quella completa. Triplicare i passi di GRPO dà un punto
+dopo l'SFT completo, e nemmeno rollout più caldi o una reward sul tipo spostano
+il GRPO dal modello base. Il GRPO affina una policy che sa già il formato; non
+rimpiazza la supervisione.
 
 \section{Lavoro futuro}
 

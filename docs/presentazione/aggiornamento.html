@@ -426,19 +426,57 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
 <!-- 11 -->
 <section class="slide" data-title="Taglia e GRPO si sommano">
   <div class="kicker">Risultato 7</div>
-  <h2>Il GRPO aggiunge lo stesso a entrambe le taglie</h2>
+  <h2>Il GRPO aggiunge lo stesso a ogni taglia</h2>
   <table class="tbl" style="width:1250px">
-    <tr><th>Dataset (metrica)</th><th>GRPO sopra l'SFT, 0,5B</th><th>GRPO sopra l'SFT, 1,5B</th><th>Taglia: 1,5B − 0,5B</th></tr>
-    <tr data-step="1"><td>CoNLL (exact match)</td><td>+3,8</td><td>+3,8</td><td>+3,6</td></tr>
-    <tr data-step="2"><td>WOS (exact match)</td><td>+2,5</td><td>+2,7</td><td>−2,6</td></tr>
-    <tr data-step="3"><td>PHOENIX (ROUGE-L)</td><td>+4,2</td><td>+4,1</td><td>+1,4</td></tr>
+    <tr><th>Dataset (metrica)</th><th>GRPO sopra l'SFT, 0,5B</th><th>1,5B</th><th>3B</th><th>SFT: 3B − 0,5B</th></tr>
+    <tr data-step="1"><td>CoNLL (exact match)</td><td>+3,8</td><td>+3,8</td><td>+3,1</td><td>+6,9</td></tr>
+    <tr data-step="2"><td>WOS (exact match)</td><td>+2,5</td><td>+2,7</td><td>+3,0</td><td>+0,2</td></tr>
+    <tr data-step="3"><td>PHOENIX (ROUGE-L)</td><td>+4,2</td><td>+4,1</td><td>+2,9</td><td>+5,7</td></tr>
   </table>
   <div class="rows" style="margin-top:40px">
-    <div class="row" data-step="4"><div class="lbl">Lettura</div><div class="txt">Il GRPO dà lo stesso incremento a qualunque taglia. La taglia sposta il punto di partenza: in meglio su CoNLL e PHOENIX, in <b>peggio su WOS</b></div></div>
-    <div class="row" data-step="5"><div class="lbl">Non è rumore</div><div class="txt">WOS resta peggiore con un secondo seme (<b>−2,8 · −2,0</b>); il rumore dell'SFT è sotto 0,7 punti. Causa non isolata: etichette ambigue o iperparametri non ritarati</div></div>
+    <div class="row" data-step="4"><div class="lbl">Lettura</div><div class="txt">Il GRPO dà lo stesso incremento, circa tre punti, a ogni taglia. La taglia sposta il punto di partenza: in meglio su CoNLL e PHOENIX</div></div>
+    <div class="row" data-step="5"><div class="lbl">WOS</div><div class="txt">L'1,5B era peggiore dello 0,5B, ma era un <b>SFT sottoaddestrato</b>: con lr 4e-5 passa da 0,734 a <b>0,796</b> (1e-5: 0,523 · 8e-5: 0,794)</div></div>
   </div>
-  <p class="foot">Punti di exact match o di ROUGE-L, differenze significative (bootstrap a coppie sui prompt, IC 95 %).</p>
-  <aside class="aside">Il confronto di scala sui tre dataset ha un risultato netto: l'incremento che il GRPO dà sopra l'SFT è lo stesso a mezzo miliardo e a un miliardo e mezzo di parametri, su tutti e tre i dataset. Taglia e GRPO si sommano senza interagire. La taglia, invece, aiuta dove il compito lo richiede, CoNLL e PHOENIX, e su WOS peggiora di circa due punti e mezzo, in modo significativo. Non è un SFT interrotto, perché la loss di validazione è più bassa, e non è rumore: ho replicato l'SFT con un altro seme su tutti i dataset e a entrambe le taglie, e la variabilità è sotto 0,7 punti. Su WOS la differenza di scala è meno 2,8 con un seme e meno 2,0 con l'altro, quindi è robusta. La causa non l'ho isolata: o il modello grande si adatta peggio al rumore delle 134 classi, o gli iperparametri scelti per lo 0,5B non sono giusti per la taglia. Non l'ho verificato.</aside>
+  <p class="foot">Punti di exact match o di ROUGE-L. 0,5B e 1,5B: media dei due semi; 3B: un seme. Su WOS lo 0,5B e il 3B sono ancora a lr 2e-5.</p>
+  <aside class="aside">Aggiornamento: ho aggiunto il 3B su tutti e tre i dataset, e l'incremento del GRPO resta circa tre punti. Su WOS l'anomalia dell'1,5B si è spiegata: era il learning rate. Ho ripetuto l'SFT a 1e-5, 4e-5 e 8e-5: la curva sale e satura intorno a 4e-5, e a quel valore l'1,5B supera lo 0,5B. Resta da controllare lo 0,5B e il 3B a 4e-5. Il testo che segue è la versione precedente. Il confronto di scala sui tre dataset ha un risultato netto: l'incremento che il GRPO dà sopra l'SFT è lo stesso a mezzo miliardo e a un miliardo e mezzo di parametri, su tutti e tre i dataset. Taglia e GRPO si sommano senza interagire. La taglia, invece, aiuta dove il compito lo richiede, CoNLL e PHOENIX, e su WOS peggiora di circa due punti e mezzo, in modo significativo. Non è un SFT interrotto, perché la loss di validazione è più bassa, e non è rumore: ho replicato l'SFT con un altro seme su tutti i dataset e a entrambe le taglie, e la variabilità è sotto 0,7 punti. Su WOS la differenza di scala è meno 2,8 con un seme e meno 2,0 con l'altro, quindi è robusta. La causa non l'ho isolata: o il modello grande si adatta peggio al rumore delle 134 classi, o gli iperparametri scelti per lo 0,5B non sono giusti per la taglia. Non l'ho verificato.</aside>
+</section>
+
+
+<!-- 11b -->
+<section class="slide" data-title="Quanta SFT prima del GRPO">
+  <div class="kicker">Risultato 8</div>
+  <h2>Il GRPO aggiunge tanto quanto manca la supervisione</h2>
+  <table class="tbl" style="width:1250px">
+    <tr><th>Passi di SFT (CoNLL, 0,5B)</th><th>Exact match dopo l'SFT</th><th>Dopo il GRPO</th><th>Incremento</th></tr>
+    <tr data-step="1"><td>0 (GRPO dal base)</td><td>0,045</td><td>0,030</td><td>−1,5</td></tr>
+    <tr data-step="2"><td>≈ 43 (0,05 epoche)</td><td>0,143</td><td>0,441</td><td><b>+29,8</b></td></tr>
+    <tr data-step="3"><td>≈ 129 (0,15 epoche)</td><td>0,324</td><td>0,553</td><td>+22,9</td></tr>
+    <tr data-step="4"><td>≈ 430 (0,5 epoche)</td><td>0,544</td><td>0,650</td><td>+10,6</td></tr>
+    <tr data-step="5"><td>2 580 (completo)</td><td>0,745</td><td>0,781</td><td>+3,6</td></tr>
+  </table>
+  <div class="rows" style="margin-top:40px">
+    <div class="row" data-step="6"><div class="lbl">Lettura</div><div class="txt">Con 43 passi di SFT il GRPO porta l'exact match da 0,14 a 0,44 senza etichette in più. Il GRPO <b>affina</b> una policy che sa già il formato; non rimpiazza la supervisione</div></div>
+    <div class="row" data-step="7"><div class="lbl">Replica</div><div class="txt">Con un altro seme del GRPO: 0,445 contro 0,441</div></div>
+  </div>
+  <p class="foot">Zero-shot, Trie per frase, 5 000 passi di GRPO. 2 000 prompt.</p>
+  <aside class="aside">Il risultato più netto del secondo giro. Ho variato quanta SFT precede il GRPO, tenendo il GRPO identico. Con pochissima SFT il GRPO fa un salto enorme, trenta punti di exact match; con l'SFT completo aggiunge solo tre punti e mezzo. L'incremento è tanto più grande quanto meno supervisione c'è. Ma nessuna cella con poca SFT raggiunge l'SFT completo. E il GRPO dal modello base, a zero passi di SFT, non esce da 0,03. Quindi il GRPO non scopre il formato, lo affina.</aside>
+</section>
+
+<!-- 11c -->
+<section class="slide" data-title="Più passi di GRPO">
+  <div class="kicker">Risultato 9</div>
+  <h2>Triplicare i passi di GRPO non sposta il tetto</h2>
+  <table class="tbl" style="width:1250px">
+    <tr><th>CoNLL, 0,5B</th><th>5 000 passi</th><th>15 000 passi</th><th>Differenza</th></tr>
+    <tr data-step="1"><td>SFT completo → GRPO</td><td>0,781</td><td>0,791</td><td>+1,0</td></tr>
+    <tr data-step="2"><td>SFT 0,05 epoche → GRPO</td><td>0,441</td><td>0,528</td><td>+8,8</td></tr>
+    <tr data-step="3"><td>Riferimento: SFT completo</td><td colspan="3">0,745</td></tr>
+  </table>
+  <div class="rows" style="margin-top:40px">
+    <div class="row" data-step="4"><div class="lbl">Lettura</div><div class="txt">Dopo l'SFT completo il tetto è del <b>metodo</b>, non della durata. Dopo poca SFT il tempo aiuta, ma la cella resta sotto l'SFT completo</div></div>
+    <div class="row" data-step="5"><div class="lbl">Dal base</div><div class="txt">Rollout caldi (T = 1,3): 0,03 → 0,12. Con in più una reward sul tipo: 0,05, peggio</div></div>
+  </div>
+  <aside class="aside">Se il GRPO vede solo una parte del train, forse basta dargli più tempo. Ho triplicato i passi. Dopo l'SFT completo guadagna un punto; dopo poca SFT guadagna nove punti ma resta a 0,53. Neanche rollout più caldi, o una reward sul tipo, spostano il GRPO dal modello base: aiuta un po' la temperatura, la reward sul tipo no. Il limite è l'esplorazione.</aside>
 </section>
 
 <!-- 12 -->
@@ -456,15 +494,16 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
 <!-- 13 -->
 <section class="slide" data-title="Cosa sappiamo ora">
   <div class="kicker">Le scoperte</div>
-  <h2>Cosa sappiamo, in cinque punti</h2>
+  <h2>Cosa sappiamo, in sei punti</h2>
   <div class="nlist" style="gap:22px">
     <div data-step="1"><span>Il GRPO <b>rinforza, non scopre</b>: il formato senza Trie solo con esempi, i tipi solo con un modello capace.</span></div>
     <div data-step="2"><span>Con un vincolo attivo il GRPO <b>cerca il varco</b>: due volte di fila su CoNLL.</span></div>
     <div data-step="3"><span>Su un corpus con margine, i numeri si leggono: <b>regole &lt; SFT &lt; SFT→GRPO</b>.</span></div>
-    <div data-step="4"><span><b>Taglia e GRPO si sommano</b>: lo stesso incremento a 0,5B e a 1,5B.</span></div>
+    <div data-step="4"><span><b>Taglia e GRPO si sommano</b>: lo stesso incremento a 0,5B, 1,5B e 3B.</span></div>
     <div data-step="5"><span>SFT→GRPO è la cella migliore, ma di <b>due-quattro punti</b>, stabile a un secondo seme.</span></div>
+    <div data-step="6"><span>Il GRPO <b>affina, non sostituisce l'SFT</b>: +30 punti dopo 43 passi di SFT, +3,6 dopo l'SFT completo.</span></div>
   </div>
-  <aside class="aside">La sintesi. Uno: il GRPO rinforza una struttura che il modello già produce, non la scopre. Due: quando il vincolo lascia un varco, il GRPO lo trova. Tre: su PHOENIX, a differenza di ASLG, i numeri si leggono, perché le regole stanno sotto i modelli addestrati. Quattro: la taglia sposta il punto di partenza e il GRPO aggiunge lo stesso. Cinque: il guadagno di SFT seguito da GRPO è piccolo ma stabile.</aside>
+  <aside class="aside">La sintesi. Uno: il GRPO rinforza una struttura che il modello già produce, non la scopre. Due: quando il vincolo lascia un varco, il GRPO lo trova. Tre: su PHOENIX, a differenza di ASLG, i numeri si leggono, perché le regole stanno sotto i modelli addestrati. Quattro: la taglia sposta il punto di partenza e il GRPO aggiunge lo stesso. Cinque: il guadagno di SFT seguito da GRPO è piccolo ma stabile. Sei: l'incremento del GRPO è tanto più grande quanto meno SFT lo precede, ma non raggiunge mai la supervisione completa.</aside>
 </section>
 
 <!-- 14 -->
@@ -473,12 +512,12 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   <h2>Cosa questi dati non dicono</h2>
   <div class="rows">
     <div class="row" data-step="1"><div class="lbl">Semi</div><div class="txt">Due semi per tredici celle, uno per le altre. Il rumore dell'SFT è sotto 0,7 punti; quello del GRPO senza Trie è grande.</div></div>
-    <div class="row" data-step="2"><div class="lbl">Modelli</div><div class="txt">Due taglie della stessa famiglia, Qwen2.5.</div></div>
+    <div class="row" data-step="2"><div class="lbl">Modelli</div><div class="txt">Tre taglie della stessa famiglia, Qwen2.5. Su WOS il confronto fra taglie è a lr 2e-5 per 0,5B e 3B.</div></div>
     <div class="row" data-step="3"><div class="lbl">Metrica</div><div class="txt">Su PHOENIX l'exact match è sotto il 3,2 %: contano ROUGE-L e non-copy.</div></div>
   </div>
   <div class="spacer"></div>
   <p class="lead" data-step="4">Grazie.</p>
-  <aside class="aside">I limiti. Due semi non sono una stima completa della variabilità, sono un controllo di coerenza. Due taglie della stessa famiglia non dicono molto sulla scala in generale. E su PHOENIX l'exact match è troppo basso per essere informativo. Resto per le domande.</aside>
+  <aside class="aside">I limiti. Due semi non sono una stima completa della variabilità, sono un controllo di coerenza. Tre taglie della stessa famiglia non dicono molto sulla scala in generale. E su PHOENIX l'exact match è troppo basso per essere informativo. Resto per le domande.</aside>
 </section>
 
 <div id="progress"></div>
