@@ -1,6 +1,6 @@
 # Prossimi esperimenti
 
-Stato al 2026-11-15. Vincolo di risorse: **mezza A40, 24 GB di VRAM**, un solo
+Stato al 2026-11-17. Vincolo di risorse: **mezza A40, 24 GB di VRAM**, un solo
 job alla volta. Config in `experiments/configs/`.
 
 ## 1. Risultati dell'ultimo giro (CoNLL-2003 salvo dove indicato)
@@ -20,18 +20,34 @@ Exact match; tra parentesi F1 sulle entità tipate. Run in
 Giro precedente (curva SFT prima del GRPO, SFT senza Trie, rollout caldi, GRPO dal
 base a 1,5B): vedi la relazione, capitolo 12.
 
-## 2. In coda / da leggere
+## 2. Qwen2.5-3B su WOS e PHOENIX, WOS lr 8e-5 (finiti il 2026-11-17)
 
-Lanciati il 2026-11-15, nell'ordine:
+Tutti i 16 job completati, nessun errore. Exact match su WOS, ROUGE-L su PHOENIX.
 
-| Esperimento | Config | Come leggerlo |
-|---|---|---|
-| WOS 1,5B, SFT con lr 8e-5 | `wos-46985/qwen25-15b/ablations/sft/lr-8e-5` | Chiude la curva del learning rate (1e-5, 2e-5, 4e-5): se 8e-5 non migliora, il massimo è intorno a 4e-5. |
-| Qwen2.5-3B su WOS | `wos-46985/qwen25-3b/{baseline,sft,sft-grpo,grpo}/zero-shot` | Terza taglia sul dataset con l'anomalia. Usa lr 2e-5 come le altre taglie (a parità di tutto): un SFT sottoaddestrato a 3B sarebbe lo stesso effetto visto a 1,5B con lr basso. |
-| Qwen2.5-3B su PHOENIX-2014T | `phoenix-2014t/qwen25-3b/{baseline,sft,sft-grpo,grpo}/zero-shot` | Terza taglia sul dataset con ROUGE-L come metrica: il GRPO dal base cresce con la taglia anche qui (0,5B 0,203, 1,5B 0,310)? |
+| Taglia | WOS SFT | WOS SFT→GRPO | WOS GRPO dal base | PHOENIX SFT | PHOENIX SFT→GRPO | PHOENIX GRPO dal base |
+|---|---|---|---|---|---|---|
+| 0,5B | 0,762 | 0,787 (+2,5) | 0,169 | 0,485 | 0,527 (+4,2) | 0,203 |
+| 1,5B | 0,734 | 0,761 (+2,7) | 0,127 | 0,502 | 0,542 (+4,1) | 0,310 |
+| 3B | 0,764 | 0,794 (+3,0) | 0,123 | 0,542 | 0,571 (+2,9) | 0,293 |
 
-Durate stimate dai tempi del 1,5B (3B ≈ 1,3–1,5×): in totale circa 28 ore, tutti
-i train sotto le 11 h 45 del limite.
+- **SFT→GRPO è la cella migliore a ogni taglia, su tutti e tre i compiti**, con un
+  incremento sull'SFT di +2,5/+4 punti che non dipende dalla taglia. Il GRPO dal
+  base resta lontanissimo dall'SFT ovunque.
+- **GRPO dal base e taglia:** su PHOENIX sale (0,203 → 0,310) e poi si ferma
+  (0,293 a 3B); su WOS **scende** con la taglia (0,169 → 0,127 → 0,123). L'ipotesi
+  «un modello più grande esplora meglio» regge su CoNLL e in parte su PHOENIX,
+  non su WOS.
+- **WOS, curva del learning rate (1,5B):** 1e-5 0,523 · 2e-5 0,734 · 4e-5 0,796 ·
+  8e-5 0,794. Satura intorno a 4e-5. L'«anomalia» del 1,5B era un SFT
+  sottoaddestrato a 2e-5. **Attenzione:** lo 0,5B e il 3B sono ancora a 2e-5, e il
+  3B (0,764) è piatto rispetto allo 0,5B (0,762): probabilmente lo stesso effetto.
+  Il confronto di scala su WOS a lr 2e-5 non è un confronto di taglia.
+
+## 2a. Prossimo test consigliato (non lanciato)
+
+WOS SFT a lr 4e-5 anche per 0,5B e 3B (`ablations/sft/lr-4e-5`, circa 4 ore in
+tutto). Dice se su WOS la taglia conta davvero una volta tolto l'effetto del
+learning rate. Chiude l'ultima cella aperta del confronto di scala.
 
 ## 2bis. Ancora aperto
 
