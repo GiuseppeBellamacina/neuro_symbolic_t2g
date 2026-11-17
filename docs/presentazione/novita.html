@@ -293,7 +293,7 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
     <div class="row" data-step="2"><div class="lbl">Conseguenza</div><div class="txt">“Il GRPO aiuta?” non aveva margine in cui rispondere: il corpus è sintetico e saturo</div></div>
     <div class="row" data-step="3"><div class="lbl">Mossa</div><div class="txt">Stessa pipeline, stesso modello, su compiti dove una regola non basta</div></div>
   </div>
-  <p class="foot">La domanda di fondo non cambia: struttura garantita da un vincolo, contenuto appreso dal modello.</p>
+  <p class="foot">ASLG-PC12 (87 710 coppie, test 10 %), regola con ROUGE-L 0,9685. La domanda di fondo non cambia: struttura garantita da un vincolo, contenuto appreso dal modello.</p>
   <aside class="aside">Il risultato della volta scorsa era negativo con meccanismo: ASLG è quasi una trasformazione deterministica dell'inglese, quindi nessun metodo di apprendimento aveva spazio. Per rispondere alla domanda serviva un compito in cui il margine esiste e in cui la forma dell'uscita cambia. Ne ho scelti tre.</aside>
 </section>
 
@@ -310,6 +310,22 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
     <div data-step="5"><span><b>Metodo</b>: semi replicati, un bug della valutazione, un'anomalia che era il learning rate.</span></div>
   </div>
   <aside class="aside">La mappa del discorso. Prima ASLG-PC12 era l'unico corpus, e il risultato era negativo con un meccanismo chiaro. Da allora ho cambiato il banco di prova in tre modi: i compiti, le taglie del modello e le variabili sperimentali dell'addestramento. Ogni blocco corrisponde a una sezione di slide.</aside>
+</section>
+
+<!-- 2c -->
+<section class="slide" data-title="Come leggere i numeri">
+  <div class="kicker">Il protocollo, valido salvo indicazione contraria</div>
+  <h2>Come leggere i numeri di queste slide</h2>
+  <div class="rows" style="gap:20px">
+    <div class="row" data-step="1"><div class="lbl">Modello</div><div class="txt" style="font-size:29px">Qwen2.5-0,5B-Instruct (poi 1,5B e 3B), QLoRA a 4 bit, LoRA r = 32</div></div>
+    <div class="row" data-step="2"><div class="lbl">SFT</div><div class="txt" style="font-size:29px">lr 2e-5, fino a 3 epoche, early stopping su un 2 % del train</div></div>
+    <div class="row" data-step="3"><div class="lbl">GRPO</div><div class="txt" style="font-size:29px">5 000 passi, 8 candidati per prompt, lr 3e-6, β = 0,04, T = 0,7; reward deterministiche (niente modello di reward)</div></div>
+    <div class="row" data-step="4"><div class="lbl">Supporti</div><div class="txt" style="font-size:29px">Trie attivo in addestramento e in valutazione; prompt zero-shot (nessun esempio), salvo «few-shot» = 3 esempi recuperati</div></div>
+    <div class="row" data-step="5"><div class="lbl">Valutazione</div><div class="txt" style="font-size:29px">Test del dataset, 5 uscite campionate (T = 0,7) per prompt. CoNLL e WOS su 2 000 prompt (test di 3 453 e 4 699), PHOENIX su tutti i 642</div></div>
+    <div class="row" data-step="6"><div class="lbl">Metriche</div><div class="txt" style="font-size:29px"><b>Exact match</b>: uscita identica al riferimento · <b>ROUGE-L</b> (PHOENIX) · <b>F1</b> sulle entità o sulle etichette · <b>validity</b>: uscita ammessa dalla grammatica</div></div>
+  </div>
+  <p class="foot">Un addestramento (seme 42) per cella, salvo dove è scritto «secondo seme». Cambiano solo i fattori dichiarati in ogni slide.</p>
+  <aside class="aside">Prima dei risultati, la griglia di lettura. Ogni numero viene dallo stesso protocollo: stesso modello di base, stessa ricetta di SFT e di GRPO, stesso modo di valutare. Quando una slide cambia qualcosa, lo dichiara nel titolo o nel piè di pagina: la taglia del modello, la quantità di SFT, i passi di GRPO, la temperatura dei rollout, la presenza del Trie. Exact match vuol dire che l'uscita coincide con il riferimento; è la metrica più severa. Su PHOENIX, dove l'exact match è sotto il 3 per cento, conta ROUGE-L.</aside>
 </section>
 
 <!-- 3 -->
@@ -360,31 +376,32 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
 
 <!-- 5 -->
 <section class="slide" data-title="SFT poi GRPO">
-  <div class="kicker">Risultato 1</div>
+  <div class="kicker">Risultato 1 · Qwen2.5-0,5B-Instruct · test</div>
   <h2>SFT seguito da GRPO è la cella migliore ovunque, ma il guadagno è piccolo</h2>
-  <div class="legend"><span><i style="background:var(--neutral)"></i>SFT</span><span><i style="background:var(--accent)"></i>SFT → GRPO</span></div>
+  <div class="legend"><span><i style="background:var(--neutral)"></i>SFT</span><span><i style="background:var(--accent)"></i>SFT → GRPO (5 000 passi)</span></div>
   <div class="gbars" id="g-sft"></div>
   <p class="body" style="margin-top:30px" data-step="4">Regge a un secondo seme: <b>CoNLL 0,787 · WOS 0,785 · PHOENIX 0,522</b> (contro 0,781 · 0,787 · 0,527).</p>
+  <p class="foot">Qwen2.5-0,5B-Instruct, zero-shot, Trie attivo. Exact match (CoNLL, WOS) o ROUGE-L (PHOENIX), media su 5 uscite a T=0,7. Addestramento con seme 42; il secondo seme è il seme 1. SFT→GRPO = SFT, poi 5 000 passi di GRPO.</p>
   <aside class="aside">Su tutti e tre i dataset l'SFT fa quasi tutto, e il GRPO dopo l'SFT aggiunge due-quattro punti. Come su ASLG, il segnale si esaurisce presto: a fine addestramento l'83 % dei gruppi su CoNLL e il 77 % su WOS ha reward tutte uguali, quindi non produce gradiente. La novità è il secondo seme: due repliche con semi diversi danno lo stesso guadagno, quindi non è rumore.</aside>
 </section>
 
 <!-- 6 -->
 <section class="slide" data-title="PHOENIX: la regola non vince">
-  <div class="kicker">Risultato 2</div>
+  <div class="kicker">Risultato 2 · PHOENIX-2014T · ROUGE-L sul test</div>
   <h2>Su PHOENIX, finalmente, una regola non basta</h2>
   <div class="bars" id="b-rules"></div>
   <p class="body" style="margin-top:26px" data-step="7">Su ASLG la regola batteva ogni cella con GRPO e pareggiava l'SFT. Qui sta sotto i modelli addestrati di 4–10 punti.</p>
-  <p class="foot">Regole stimate sul solo train, soglia scelta sulla validation. Exact match: sotto il 3,2 % per tutti.</p>
+  <p class="foot">PHOENIX-2014T, test ufficiale (642 frasi), ROUGE-L. Modelli Qwen2.5-Instruct con Trie (0,5B; 1,5B dove indicato); few-shot = 3 esempi nel prompt. Regole stimate sul train, soglia sulla validation. Exact match sotto il 3,2 % per tutti.</p>
   <aside class="aside">Ho rifatto il controllo che sulla vecchia ricerca aveva cambiato tutto. Due regole: il solo maiuscolo e un lessico che associa a ogni parola tedesca il gloss più associato nelle frasi di training. Il maiuscolo prende 0,21, il lessico 0,44. I modelli addestrati stanno fra 0,49 e 0,54, quindi qui i numeri si leggono. Resta però vero, come su ASLG, che il GRPO dal modello base senza SFT sta sotto la regola: per superare un riferimento serve l'SFT. L'exact match è sotto il 3 % per tutti, regola compresa, perché un gloss ha molte forme valide: qui contano ROUGE-L e non-copy.</aside>
 </section>
 
 <!-- 7 -->
 <section class="slide" data-title="Il formato senza Trie">
-  <div class="kicker">Risultato 3</div>
+  <div class="kicker">Risultato 3 · validity · Qwen2.5-0,5B-Instruct · GRPO dal modello base</div>
   <h2>Senza Trie e senza esempi, il GRPO non trova il formato</h2>
   <div class="bars" id="b-valid"></div>
   <p class="body" style="margin-top:24px" data-step="7">Il GRPO <b>rinforza</b> una struttura che il modello già produce qualche volta. Non la scopre.</p>
-  <p class="foot">Validity: quota di uscite ammesse dalla grammatica del compito. Senza Trie, GRPO dal modello base.</p>
+  <p class="foot">Qwen2.5-0,5B-Instruct, GRPO dal modello base, 5 000 passi, SENZA Trie in decodifica. Validity = quota di uscite ammesse dalla grammatica del compito. CoNLL zero-shot: due semi (1 e 42). Test come da protocollo.</p>
   <aside class="aside">Il risultato che risponde più direttamente alla domanda di fondo. Senza il Trie, la validity del GRPO dipende dagli esempi nel prompt: con gli esempi su PHOENIX è 0,99, anche con il secondo seme; senza esempi è zero. Il meccanismo si vede nei log: su PHOENIX zero-shot la reward di formato resta a meno uno per tutti i cinquemila passi, nessun candidato è valido e quindi nessun gruppo contiene un confronto da cui imparare. Su CoNLL zero-shot la validity arriva a metà ma è instabile: 0,46 con un seme, 0,20 con l'altro.</aside>
 </section>
 
@@ -406,8 +423,9 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   </div>
   <div class="rows" style="margin-top:26px">
     <div class="row" data-step="3"><div class="lbl">La correzione</div><div class="txt">Nella grammatica, non nella reward: una parola della frase si usa quante volte compare</div></div>
-    <div class="row" data-step="4"><div class="lbl">L'effetto</div><div class="txt">ROUGE-L sale <b>0,27 → 0,35</b>, l'exact match si <b>dimezza</b> (0,045 → 0,023), la validity resta 0,998</div></div>
+    <div class="row" data-step="4"><div class="lbl">L'effetto</div><div class="txt">Dal modello base al GRPO: ROUGE-L sale <b>0,27 → 0,35</b>, l'exact match si <b>dimezza</b> (0,045 → 0,023), la validity resta 0,998</div></div>
   </div>
+  <p class="foot">CoNLL, Qwen2.5-0,5B-Instruct, GRPO dal modello base, zero-shot, reward ROUGE-L + BLEU. Confronto fra modello base (ROUGE-L 0,27 · exact match 0,045) e GRPO con il varco aperto (0,35 · 0,023). 2 000 prompt di test.</p>
   <aside class="aside">Con il vincolo attivo il GRPO ha scoperto che se non sa il tipo di un'entità può scriverla con tutti e tre i tipi e ottenere comunque credito parziale da ROUGE e BLEU. Nel 53 % delle uscite. La validity non se ne accorge, perché l'uscita era ammessa dalla grammatica. Chiuso il varco dei tipi ripetuti, ne ha trovato un secondo: pezzi annidati. La correzione definitiva sta nella grammatica: ogni parola della frase si può usare quante volte compare, e su tutte le ventimila frasi di CoNLL il gold resta ammesso. La lezione: un vincolo va scritto pensando a cosa non deve permettere.</aside>
 </section>
 
@@ -422,29 +440,30 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
     <tr data-step="2"><td>few-shot</td><td>0,325</td><td>0,334</td></tr>
   </table>
   <div class="rows" style="margin-top:40px">
-    <div class="row" data-step="3"><div class="lbl">Perché</div><div class="txt">La componente parte da −0,88 e finisce a −0,84: il modello non azzecca quasi mai un'entità tipata, il <b>42 %</b> dei gruppi non ha nulla da confrontare</div></div>
+    <div class="row" data-step="3"><div class="lbl">Perché</div><div class="txt">La componente di reward «F1 sulle entità tipate» parte da −0,88 e finisce a −0,84: il modello non azzecca quasi mai un'entità tipata, il <b>42 %</b> dei gruppi non ha nulla da confrontare</div></div>
     <div class="row" data-step="4"><div class="lbl">Lettura</div><div class="txt">Il limite è l'<b>esplorazione</b>, non la reward</div></div>
   </div>
+  <p class="foot">CoNLL, Qwen2.5-0,5B-Instruct, GRPO dal modello base, 5 000 passi, Trie per frase. Exact match su 2 000 prompt di test. Zero-shot, oppure few-shot con 3 esempi nel prompt. Seme 42.</p>
   <aside class="aside">Ho provato la correzione naturale: se il segnale sui tipi è debole, una reward che premia solo l'entità col tipo giusto. Non cambia niente. Il motivo è che dal modello base quasi nessun candidato azzecca un'entità tipata: quasi tutti valgono meno uno, e dentro un gruppo non c'è nulla da confrontare. In realtà il GRPO non è bloccato dal segnale ma dal fatto che il modello non campiona i tipi giusti abbastanza spesso da rinforzarli. È lo stesso risultato del formato senza Trie, visto da un'altra parte.</aside>
 </section>
 
 <!-- 10 -->
 <section class="slide" data-title="Un modello più grande esplora">
-  <div class="kicker">Risultato 6</div>
+  <div class="kicker">Risultato 6 · CoNLL · F1 sulle entità tipate · GRPO dal modello base</div>
   <h2>Un modello tre volte più grande esplora meglio, ma non basta</h2>
   <div class="bars" id="b-ent"></div>
   <p class="body" style="margin-top:24px" data-step="6">Il 1,5B base risponde <span class="mono">NONE</span> nel <b>96 %</b> dei casi: il suo exact match (0,205) inganna.</p>
-  <p class="foot">F1 sulle entità tipate, NONE escluso, GRPO dal modello base, zero-shot. CoNLL-2003, 2 000 prompt.</p>
+  <p class="foot">CoNLL, GRPO dal modello base, zero-shot, 5 000 passi. F1 sulle entità tipate (tipo e testo), NONE escluso, su 2 000 prompt. Qwen2.5-0,5B-Instruct e Qwen2.5-1,5B-Instruct, entrambi con Trie per frase.</p>
   <aside class="aside">Se il limite è l'esplorazione, un modello più capace dovrebbe campionare più tipi giusti. L'ho verificato con Qwen2.5 da un miliardo e mezzo di parametri. Con l'F1 sulle entità tipate si vede un apprendimento vero: da 0,01 a 0,26, e la precisione sui tipi quadruplica rispetto allo 0,5B. Ma resta lontano dall'SFT, 0,81, e il modello è molto prudente: risponde NONE nel 66 % dei casi contro il 20 % del gold. Attenzione all'exact match: il modello base grande ha 0,205 solo perché risponde NONE quasi sempre, e il 20 % delle frasi non ha entità.</aside>
 </section>
 
 <!-- 11 -->
 <section class="slide" data-title="Taglia e GRPO si sommano">
-  <div class="kicker">Risultato 7</div>
+  <div class="kicker">Risultato 7 · Qwen2.5-Instruct 0,5B / 1,5B / 3B · test</div>
   <h2>Il GRPO aggiunge lo stesso a ogni taglia</h2>
   <table class="tbl" style="width:1250px">
     <tr><th>Dataset (metrica)</th><th>GRPO sopra l'SFT, 0,5B</th><th>1,5B</th><th>3B</th><th>SFT: 3B − 0,5B</th></tr>
-    <tr data-step="1"><td>CoNLL (exact match)</td><td>+3,8</td><td>+3,8</td><td>+3,1</td><td>+6,9</td></tr>
+    <tr data-step="1"><td>CoNLL (exact match)</td><td>+3,6</td><td>+3,6</td><td>+3,1</td><td>+6,9</td></tr>
     <tr data-step="2"><td>WOS (exact match)</td><td>+2,5</td><td>+2,7</td><td>+3,0</td><td>+0,2</td></tr>
     <tr data-step="3"><td>PHOENIX (ROUGE-L)</td><td>+4,2</td><td>+4,1</td><td>+2,9</td><td>+5,7</td></tr>
   </table>
@@ -452,18 +471,18 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
     <div class="row" data-step="4"><div class="lbl">Lettura</div><div class="txt">Il GRPO dà lo stesso incremento, circa tre punti, a ogni taglia. La taglia sposta il punto di partenza: in meglio su CoNLL e PHOENIX</div></div>
     <div class="row" data-step="5"><div class="lbl">WOS</div><div class="txt">L'1,5B era peggiore dello 0,5B, ma era un <b>SFT sottoaddestrato</b>: con lr 4e-5 passa da 0,734 a <b>0,796</b> (1e-5: 0,523 · 8e-5: 0,794)</div></div>
   </div>
-  <p class="foot">Punti di exact match o di ROUGE-L. 0,5B e 1,5B: media dei due semi; 3B: un seme. Su WOS lo 0,5B e il 3B sono ancora a lr 2e-5.</p>
+  <p class="foot">Differenza fra SFT→GRPO e solo SFT, a parità di modello. Qwen2.5-Instruct 0,5B / 1,5B / 3B, zero-shot, Trie, seme 42, un addestramento per cella. Exact match (CoNLL, WOS) o ROUGE-L (PHOENIX). Su WOS lr 2e-5 per tutte le taglie.</p>
   <aside class="aside">Aggiornamento: ho aggiunto il 3B su tutti e tre i dataset, e l'incremento del GRPO resta circa tre punti. Su WOS l'anomalia dell'1,5B si è spiegata: era il learning rate. Ho ripetuto l'SFT a 1e-5, 4e-5 e 8e-5: la curva sale e satura intorno a 4e-5, e a quel valore l'1,5B supera lo 0,5B. Resta da controllare lo 0,5B e il 3B a 4e-5. Il testo che segue è la versione precedente. Il confronto di scala sui tre dataset ha un risultato netto: l'incremento che il GRPO dà sopra l'SFT è lo stesso a mezzo miliardo e a un miliardo e mezzo di parametri, su tutti e tre i dataset. Taglia e GRPO si sommano senza interagire. La taglia, invece, aiuta dove il compito lo richiede, CoNLL e PHOENIX, e su WOS peggiora di circa due punti e mezzo, in modo significativo. Non è un SFT interrotto, perché la loss di validazione è più bassa, e non è rumore: ho replicato l'SFT con un altro seme su tutti i dataset e a entrambe le taglie, e la variabilità è sotto 0,7 punti. Su WOS la differenza di scala è meno 2,8 con un seme e meno 2,0 con l'altro, quindi è robusta. La causa non l'ho isolata: o il modello grande si adatta peggio al rumore delle 134 classi, o gli iperparametri scelti per lo 0,5B non sono giusti per la taglia. Non l'ho verificato.</aside>
 </section>
 
 
 <!-- 11b -->
 <section class="slide" data-title="Quanta SFT prima del GRPO">
-  <div class="kicker">Risultato 8</div>
+  <div class="kicker">Risultato 8 · CoNLL · Qwen2.5-0,5B-Instruct · exact match</div>
   <h2>Il GRPO aggiunge tanto quanto manca la supervisione</h2>
   <table class="tbl" style="width:1250px">
-    <tr><th>Passi di SFT (CoNLL, 0,5B)</th><th>Exact match dopo l'SFT</th><th>Dopo il GRPO</th><th>Incremento</th></tr>
-    <tr data-step="1"><td>0 (GRPO dal base)</td><td>0,045</td><td>0,030</td><td>−1,5</td></tr>
+    <tr><th>Passi di SFT (CoNLL, 0,5B)</th><th>Exact match prima del GRPO</th><th>Dopo il GRPO</th><th>Incremento</th></tr>
+    <tr data-step="1"><td>0 (modello base, senza SFT)</td><td>0,045</td><td>0,030</td><td>−1,5</td></tr>
     <tr data-step="2"><td>≈ 43 (0,05 epoche)</td><td>0,143</td><td>0,441</td><td><b>+29,8</b></td></tr>
     <tr data-step="3"><td>≈ 129 (0,15 epoche)</td><td>0,324</td><td>0,553</td><td>+22,9</td></tr>
     <tr data-step="4"><td>≈ 430 (0,5 epoche)</td><td>0,544</td><td>0,650</td><td>+10,6</td></tr>
@@ -473,13 +492,13 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
     <div class="row" data-step="6"><div class="lbl">Lettura</div><div class="txt">Con 43 passi di SFT il GRPO porta l'exact match da 0,14 a 0,44 senza etichette in più. Il GRPO <b>affina</b> una policy che sa già il formato; non rimpiazza la supervisione</div></div>
     <div class="row" data-step="7"><div class="lbl">Replica</div><div class="txt">Con un altro seme del GRPO: 0,445 contro 0,441</div></div>
   </div>
-  <p class="foot">Zero-shot, Trie per frase, 5 000 passi di GRPO. 2 000 prompt.</p>
+  <p class="foot">CoNLL, Qwen2.5-0,5B-Instruct, zero-shot, Trie per frase, seme 42. SFT di N passi di ottimizzazione (lr 2e-5), poi sempre 5 000 passi di GRPO (8 candidati per prompt, T=0,7). Exact match su 2 000 prompt di test.</p>
   <aside class="aside">Il risultato più netto del secondo giro. Ho variato quanta SFT precede il GRPO, tenendo il GRPO identico. Con pochissima SFT il GRPO fa un salto enorme, trenta punti di exact match; con l'SFT completo aggiunge solo tre punti e mezzo. L'incremento è tanto più grande quanto meno supervisione c'è. Ma nessuna cella con poca SFT raggiunge l'SFT completo. E il GRPO dal modello base, a zero passi di SFT, non esce da 0,03. Quindi il GRPO non scopre il formato, lo affina.</aside>
 </section>
 
 <!-- 11c -->
 <section class="slide" data-title="Più passi di GRPO">
-  <div class="kicker">Risultato 9</div>
+  <div class="kicker">Risultato 9 · CoNLL · Qwen2.5-0,5B-Instruct · exact match</div>
   <h2>Triplicare i passi di GRPO non sposta il tetto</h2>
   <table class="tbl" style="width:1250px">
     <tr><th>CoNLL, 0,5B</th><th>5 000 passi</th><th>15 000 passi</th><th>Differenza</th></tr>
@@ -489,15 +508,16 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   </table>
   <div class="rows" style="margin-top:40px">
     <div class="row" data-step="4"><div class="lbl">Lettura</div><div class="txt">Dopo l'SFT completo il tetto è del <b>metodo</b>, non della durata. Dopo poca SFT il tempo aiuta, ma la cella resta sotto l'SFT completo</div></div>
-    <div class="row" data-step="5"><div class="lbl">Dal base</div><div class="txt">Rollout caldi (T = 1,3): 0,03 → 0,12. Con in più una reward sul tipo: 0,05, peggio</div></div>
+    <div class="row" data-step="5"><div class="lbl">Dal base</div><div class="txt">GRPO dal modello base con rollout caldi (T = 1,3): 0,03 → 0,12. Con in più una reward sull'F1 dei tipi: 0,05, peggio</div></div>
   </div>
+  <p class="foot">CoNLL, Qwen2.5-0,5B-Instruct, zero-shot, Trie per frase, exact match su 2 000 prompt. Passi = passi di ottimizzazione del GRPO. Rollout caldi: GRPO dal modello base, 5 000 passi, T=1,3 invece di 0,7.</p>
   <aside class="aside">Se il GRPO vede solo una parte del train, forse basta dargli più tempo. Ho triplicato i passi. Dopo l'SFT completo guadagna un punto; dopo poca SFT guadagna nove punti ma resta a 0,53. Neanche rollout più caldi, o una reward sul tipo, spostano il GRPO dal modello base: aiuta un po' la temperatura, la reward sul tipo no. Il limite è l'esplorazione.</aside>
 </section>
 
 
 <!-- 11d -->
 <section class="slide" data-title="WOS: era il learning rate">
-  <div class="kicker">Risultato 10</div>
+  <div class="kicker">Risultato 10 · WOS-46985 · Qwen2.5-1,5B-Instruct · solo SFT</div>
   <h2>L'anomalia di WOS era un SFT sottoaddestrato</h2>
   <table class="tbl" style="width:1250px">
     <tr><th>WOS, 1,5B, SFT</th><th>lr 1e-5</th><th>lr 2e-5</th><th>lr 4e-5</th><th>lr 8e-5</th></tr>
@@ -509,12 +529,13 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
     <div class="row" data-step="4"><div class="lbl">Lettura</div><div class="txt">La curva sale e <b>satura</b> intorno a 4e-5. A quel valore l'1,5B supera lo 0,5B: il «modello più grande peggiore» era il learning rate, non la taglia</div></div>
     <div class="row" data-step="5"><div class="lbl">Da verificare</div><div class="txt">Lo 0,5B e il 3B su WOS sono ancora a lr 2e-5: il controllo a 4e-5 per entrambi è in corso</div></div>
   </div>
+  <p class="foot">WOS-46985, Qwen2.5-1,5B-Instruct, solo SFT zero-shot con Trie, early stopping; exact match e F1 su 2 000 prompt (test di 4 699). Riferimento: Qwen2.5-0,5B-Instruct, stessa ricetta, lr 2e-5.</p>
   <aside class="aside">Su WOS il modello da un miliardo e mezzo risultava peggiore dello 0,5B, in modo robusto con due semi. Avevo escluso il rumore; restava il sospetto degli iperparametri. Ho ripetuto l'SFT a tre learning rate: 1e-5 peggiora molto, 4e-5 sale a 0,796 e 8e-5 non migliora. Quindi a 2e-5 il modello grande era sottoaddestrato. Attenzione: lo 0,5B e il 3B sono ancora a 2e-5, quindi il confronto di taglia su WOS non è a learning rate ottimale per nessuno; sto eseguendo il controllo a 4e-5.</aside>
 </section>
 
 <!-- 11e -->
 <section class="slide" data-title="SFT senza Trie">
-  <div class="kicker">Risultato 11</div>
+  <div class="kicker">Risultato 11 · Qwen2.5-0,5B-Instruct · solo SFT, con e senza Trie</div>
   <h2>Dopo l'SFT il Trie vale poco in accuratezza, molto in validità</h2>
   <table class="tbl" style="width:1250px">
     <tr><th>SFT, 0,5B</th><th>Con Trie</th><th>Senza Trie</th><th>Validity senza Trie</th></tr>
@@ -525,6 +546,7 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   <div class="rows" style="margin-top:40px">
     <div class="row" data-step="4"><div class="lbl">Lettura</div><div class="txt">L'SFT ha già imparato il formato: il Trie toglie <b>0,4–3 punti</b>, ma garantisce l'uscita ammessa (il 5–6 % delle uscite su CoNLL e WOS non lo è, senza)</div></div>
   </div>
+  <p class="foot">Qwen2.5-0,5B-Instruct, solo SFT zero-shot; stesso adapter valutato con e senza Trie in decodifica, 2 000 prompt (PHOENIX: 642). Validity = uscite ammesse dalla grammatica del compito.</p>
   <aside class="aside">Dopo l'SFT, tolgo il Trie in decodifica con lo stesso adapter. L'accuratezza cala poco: fra 0,4 e 3 punti. Ma senza il vincolo, circa il 5-6 per cento delle uscite su CoNLL e WOS non è ammesso. Il Trie non è più una condizione perché il modello impari il formato, resta la garanzia che l'uscita sia valida.</aside>
 </section>
 
@@ -547,7 +569,7 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   <div class="nlist" style="gap:22px">
     <div data-step="1"><span>Il GRPO <b>rinforza, non scopre</b>: il formato senza Trie solo con esempi, i tipi solo con un modello capace.</span></div>
     <div data-step="2"><span>Con un vincolo attivo il GRPO <b>cerca il varco</b>: due volte di fila su CoNLL.</span></div>
-    <div data-step="3"><span>Su un corpus con margine, i numeri si leggono: <b>regole &lt; SFT &lt; SFT→GRPO</b>.</span></div>
+    <div data-step="3"><span>Su PHOENIX, un corpus con margine, i numeri si leggono: <b>regole &lt; SFT &lt; SFT→GRPO</b>.</span></div>
     <div data-step="4"><span><b>Taglia e GRPO si sommano</b>: lo stesso incremento a 0,5B, 1,5B e 3B.</span></div>
     <div data-step="5"><span>SFT→GRPO è la cella migliore, ma di <b>due-quattro punti</b>, stabile a un secondo seme.</span></div>
     <div data-step="6"><span>Il GRPO <b>affina, non sostituisce l'SFT</b>: +30 punti dopo 43 passi di SFT, +3,6 dopo l'SFT completo.</span></div>
@@ -594,32 +616,32 @@ const D = {
     { g: "Regole, nessun apprendimento" },
     { name: "Solo maiuscolo", v: 0.2126 },
     { name: "Lessico unigramma", v: 0.4417 },
-    { g: "Modello 0,5B" },
+    { g: "Qwen2.5-0,5B-Instruct" },
     { name: "GRPO dal modello base", sub: "few-shot", v: 0.3601 },
     { name: "SFT", v: 0.4854, emph: true },
     { name: "SFT → GRPO", sub: "zero-shot", v: 0.5274, emph: true },
-    { g: "Modello 1,5B" },
+    { g: "Qwen2.5-1,5B-Instruct" },
     { name: "SFT → GRPO", sub: "zero-shot", v: 0.5421, emph: true },
   ],
   valid: [
-    { g: "Zero-shot, senza Trie" },
+    { g: "Zero-shot, senza Trie (validity)" },
     { name: "PHOENIX", v: 0.0 },
     { name: "WOS", v: 0.0001 },
     { name: "CoNLL, seme 1", v: 0.2016 },
     { name: "CoNLL, seme 42", v: 0.4578 },
-    { g: "Few-shot, senza Trie" },
+    { g: "Few-shot (3 esempi), senza Trie (validity)" },
     { name: "CoNLL", v: 0.6501 },
     { name: "PHOENIX", v: 0.9916, emph: true },
   ],
   ent: [
-    { g: "Modello 0,5B" },
+    { g: "Qwen2.5-0,5B-Instruct" },
     { name: "Base", sub: "risponde NONE nel 19 %", v: 0.07 },
     { name: "GRPO", sub: "risponde NONE nel 12 %", v: 0.13 },
-    { g: "Modello 1,5B" },
+    { g: "Qwen2.5-1,5B-Instruct" },
     { name: "Base", sub: "risponde NONE nel 96 %", v: 0.01 },
     { name: "GRPO", sub: "risponde NONE nel 66 %", v: 0.26, emph: true },
-    { g: "Riferimento" },
-    { name: "SFT, 0,5B", v: 0.81 },
+    { g: "Riferimento (F1 entità tipate)" },
+    { name: "Solo SFT, 0,5B", v: 0.81 },
   ],
 };
 

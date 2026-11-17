@@ -629,7 +629,8 @@ secondo, mentre la variabilità fra semi è sotto $0{,}7$ punti
 (sezione~\ref{sec:semi-conll}); su CoNLL la scala vale $+3{,}3$ e $+2{,}9$, su
 PHOENIX $+1{,}6$ e $+1{,}6$. Su WOS il modello più grande è quindi peggiore in
 modo robusto, con gli iperparametri scelti per lo 0,5B. Il confronto sul
-learning rate (sezione~ef{sec:wos-lr}) mostra che la causa era proprio lì: a
+learning rate (sezione~
+ef{sec:wos-lr}) mostra che la causa era proprio lì: a
 $2\cdot 10^{-5}$ l'1,5B è sottoaddestrato.
 
 Su PHOENIX il rumore fra semi dell'1,5B è basso: le due repliche di
@@ -688,7 +689,7 @@ compito: tolto l'hack, il GRPO zero-shot resta a un exact match di $0{,}03$.
 
 \subsection{Taglia e GRPO si sommano}
 
-Il guadagno del GRPO sopra l'SFT non dipende dalla taglia del modello:
+Il guadagno del GRPO sopra l'SFT non dipende dalla taglia del modello (differenze fra le celle principali, seme 42):
 
 \begin{center}
 \small
@@ -696,7 +697,7 @@ Il guadagno del GRPO sopra l'SFT non dipende dalla taglia del modello:
 \toprule
 SFT$\to$GRPO meno SFT & 0,5B & 1,5B \\
 \midrule
-CoNLL (exact match)    & $+3{,}8$ & $+3{,}8$ \\
+CoNLL (exact match)    & $+3{,}6$ & $+3{,}6$ \\
 WOS (exact match)      & $+2{,}5$ & $+2{,}7$ \\
 PHOENIX (ROUGE-L)      & $+4{,}2$ & $+4{,}1$ \\
 \bottomrule
