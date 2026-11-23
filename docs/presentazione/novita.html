@@ -469,9 +469,9 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   </table>
   <div class="rows" style="margin-top:40px">
     <div class="row" data-step="4"><div class="lbl">Lettura</div><div class="txt">Il GRPO dà lo stesso incremento, circa tre punti, a ogni taglia. La taglia sposta il punto di partenza: in meglio su CoNLL e PHOENIX</div></div>
-    <div class="row" data-step="5"><div class="lbl">WOS</div><div class="txt">L'1,5B era peggiore dello 0,5B, ma era un <b>SFT sottoaddestrato</b>: con lr 4e-5 passa da 0,734 a <b>0,796</b> (1e-5: 0,523 · 8e-5: 0,794)</div></div>
+    <div class="row" data-step="5"><div class="lbl">WOS</div><div class="txt">L'1,5B era peggiore dello 0,5B perché il suo <b>SFT era sottoaddestrato</b> a lr 2e-5. Con lr 4e-5: 0,5B 0,777 · 1,5B 0,796 · 3B 0,795</div></div>
   </div>
-  <p class="foot">Differenza fra SFT→GRPO e solo SFT, a parità di modello. Qwen2.5-Instruct 0,5B / 1,5B / 3B, zero-shot, Trie, seme 42, un addestramento per cella. Exact match (CoNLL, WOS) o ROUGE-L (PHOENIX). Su WOS lr 2e-5 per tutte le taglie.</p>
+  <p class="foot">Differenza fra SFT→GRPO e solo SFT, a parità di modello. Qwen2.5-Instruct 0,5B / 1,5B / 3B, zero-shot, Trie, seme 42, un addestramento per cella. Exact match (CoNLL, WOS) o ROUGE-L (PHOENIX). Su WOS le celle SFT→GRPO partono da un SFT a lr 2e-5.</p>
   <aside class="aside">Aggiornamento: ho aggiunto il 3B su tutti e tre i dataset, e l'incremento del GRPO resta circa tre punti. Su WOS l'anomalia dell'1,5B si è spiegata: era il learning rate. Ho ripetuto l'SFT a 1e-5, 4e-5 e 8e-5: la curva sale e satura intorno a 4e-5, e a quel valore l'1,5B supera lo 0,5B. Resta da controllare lo 0,5B e il 3B a 4e-5. Il testo che segue è la versione precedente. Il confronto di scala sui tre dataset ha un risultato netto: l'incremento che il GRPO dà sopra l'SFT è lo stesso a mezzo miliardo e a un miliardo e mezzo di parametri, su tutti e tre i dataset. Taglia e GRPO si sommano senza interagire. La taglia, invece, aiuta dove il compito lo richiede, CoNLL e PHOENIX, e su WOS peggiora di circa due punti e mezzo, in modo significativo. Non è un SFT interrotto, perché la loss di validazione è più bassa, e non è rumore: ho replicato l'SFT con un altro seme su tutti i dataset e a entrambe le taglie, e la variabilità è sotto 0,7 punti. Su WOS la differenza di scala è meno 2,8 con un seme e meno 2,0 con l'altro, quindi è robusta. La causa non l'ho isolata: o il modello grande si adatta peggio al rumore delle 134 classi, o gli iperparametri scelti per lo 0,5B non sono giusti per la taglia. Non l'ho verificato.</aside>
 </section>
 
@@ -517,20 +517,21 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
 
 <!-- 11d -->
 <section class="slide" data-title="WOS: era il learning rate">
-  <div class="kicker">Risultato 10 · WOS-46985 · Qwen2.5-1,5B-Instruct · solo SFT</div>
+  <div class="kicker">Risultato 10 · WOS-46985 · Qwen2.5-Instruct · solo SFT · exact match</div>
   <h2>L'anomalia di WOS era un SFT sottoaddestrato</h2>
   <table class="tbl" style="width:1250px">
-    <tr><th>WOS, 1,5B, SFT</th><th>lr 1e-5</th><th>lr 2e-5</th><th>lr 4e-5</th><th>lr 8e-5</th></tr>
-    <tr data-step="1"><td>Exact match</td><td>0,523</td><td>0,734</td><td><b>0,796</b></td><td>0,794</td></tr>
-    <tr data-step="2"><td>F1</td><td>0,642</td><td>0,808</td><td>0,853</td><td>0,855</td></tr>
-    <tr class="ref" data-step="3"><td>Riferimento: 0,5B a lr 2e-5</td><td colspan="4">0,762</td></tr>
+    <tr><th>WOS, solo SFT, Qwen2.5-Instruct</th><th>lr 1e-5</th><th>lr 2e-5</th><th>lr 4e-5</th><th>lr 8e-5</th></tr>
+    <tr data-step="1"><td>1,5B · exact match</td><td>0,523</td><td>0,734</td><td><b>0,796</b></td><td>0,794</td></tr>
+    <tr data-step="2"><td>1,5B · F1</td><td>0,642</td><td>0,808</td><td>0,853</td><td>0,855</td></tr>
+    <tr data-step="3"><td>0,5B · exact match</td><td>—</td><td>0,762</td><td>0,777</td><td>—</td></tr>
+    <tr data-step="3"><td>3B · exact match</td><td>—</td><td>0,764</td><td>0,795</td><td>—</td></tr>
   </table>
   <div class="rows" style="margin-top:40px">
-    <div class="row" data-step="4"><div class="lbl">Lettura</div><div class="txt">La curva sale e <b>satura</b> intorno a 4e-5. A quel valore l'1,5B supera lo 0,5B: il «modello più grande peggiore» era il learning rate, non la taglia</div></div>
-    <div class="row" data-step="5"><div class="lbl">Da verificare</div><div class="txt">Lo 0,5B e il 3B su WOS sono ancora a lr 2e-5: il controllo a 4e-5 per entrambi è in corso</div></div>
+    <div class="row" data-step="4"><div class="lbl">Lettura</div><div class="txt">Il «modello più grande peggiore» era il learning rate. A 4e-5: 0,5B <b>0,777</b> · 1,5B <b>0,796</b> · 3B <b>0,795</b></div></div>
+    <div class="row" data-step="5"><div class="lbl">Taglia</div><div class="txt">A lr ottimale la taglia aiuta <b>poco e satura</b>: +1,9 da 0,5B a 1,5B, nessuna differenza fra 1,5B e 3B</div></div>
   </div>
-  <p class="foot">WOS-46985, Qwen2.5-1,5B-Instruct, solo SFT zero-shot con Trie, early stopping; exact match e F1 su 2 000 prompt (test di 4 699). Riferimento: Qwen2.5-0,5B-Instruct, stessa ricetta, lr 2e-5.</p>
-  <aside class="aside">Su WOS il modello da un miliardo e mezzo risultava peggiore dello 0,5B, in modo robusto con due semi. Avevo escluso il rumore; restava il sospetto degli iperparametri. Ho ripetuto l'SFT a tre learning rate: 1e-5 peggiora molto, 4e-5 sale a 0,796 e 8e-5 non migliora. Quindi a 2e-5 il modello grande era sottoaddestrato. Attenzione: lo 0,5B e il 3B sono ancora a 2e-5, quindi il confronto di taglia su WOS non è a learning rate ottimale per nessuno; sto eseguendo il controllo a 4e-5.</aside>
+  <p class="foot">WOS-46985, solo SFT zero-shot con Trie, early stopping, seme 42; exact match (e F1 per l'1,5B) su 2 000 prompt (test di 4 699). Cambia solo il learning rate; 0,5B e 3B misurati solo a 2e-5 e 4e-5.</p>
+  <aside class="aside">Su WOS il modello da un miliardo e mezzo risultava peggiore dello 0,5B, in modo robusto con due semi. Avevo escluso il rumore; restava il sospetto degli iperparametri. Ho ripetuto l'SFT a tre learning rate sull'1,5B: 1e-5 peggiora molto, 4e-5 sale a 0,796 e 8e-5 non migliora. Poi ho ripetuto a 4e-5 anche lo 0,5B e il 3B: lo 0,5B passa da 0,762 a 0,777, il 3B da 0,764 a 0,795. Quindi la differenza di taglia su WOS era in gran parte learning rate: a lr ottimale il modello grande guadagna poco e satura. Cautela: le celle SFT seguito da GRPO su WOS delle slide precedenti partono da un SFT a 2e-5.</aside>
 </section>
 
 <!-- 11e -->
@@ -584,7 +585,7 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   <h2>Cosa questi dati non dicono</h2>
   <div class="rows">
     <div class="row" data-step="1"><div class="lbl">Semi</div><div class="txt">Due semi per tredici celle, uno per le altre. Il rumore dell'SFT è sotto 0,7 punti; quello del GRPO senza Trie è grande.</div></div>
-    <div class="row" data-step="2"><div class="lbl">Modelli</div><div class="txt">Tre taglie della stessa famiglia, Qwen2.5. Su WOS il confronto fra taglie è a lr 2e-5 per 0,5B e 3B.</div></div>
+    <div class="row" data-step="2"><div class="lbl">Modelli</div><div class="txt">Tre taglie della stessa famiglia, Qwen2.5. Su WOS le celle SFT→GRPO partono da un SFT a lr 2e-5; a lr 4e-5 il solo SFT satura da 1,5B in su.</div></div>
     <div class="row" data-step="3"><div class="lbl">Metrica</div><div class="txt">Su PHOENIX l'exact match è sotto il 3,2 %: contano ROUGE-L e non-copy.</div></div>
   </div>
   <div class="spacer"></div>

@@ -1,6 +1,6 @@
 # Prossimi esperimenti
 
-Stato al 2026-11-17. Vincolo di risorse: **mezza A40, 24 GB di VRAM**, un solo
+Stato al 2026-11-23. Vincolo di risorse: **mezza A40, 24 GB di VRAM**, un solo
 job alla volta. Config in `experiments/configs/`.
 
 ## 1. Risultati dell'ultimo giro (CoNLL-2003 salvo dove indicato)
@@ -39,15 +39,17 @@ Tutti i 16 job completati, nessun errore. Exact match su WOS, ROUGE-L su PHOENIX
   non su WOS.
 - **WOS, curva del learning rate (1,5B):** 1e-5 0,523 · 2e-5 0,734 · 4e-5 0,796 ·
   8e-5 0,794. Satura intorno a 4e-5. L'«anomalia» del 1,5B era un SFT
-  sottoaddestrato a 2e-5. **Attenzione:** lo 0,5B e il 3B sono ancora a 2e-5, e il
-  3B (0,764) è piatto rispetto allo 0,5B (0,762): probabilmente lo stesso effetto.
-  Il confronto di scala su WOS a lr 2e-5 non è un confronto di taglia.
+  sottoaddestrato a 2e-5.
+- **WOS, solo SFT a parità di learning rate** (finito il 2026-11-23):
 
-## 2a. Prossimo test consigliato (non lanciato)
+  | | 0,5B | 1,5B | 3B |
+  |---|---|---|---|
+  | lr 2e-5 | 0,762 | 0,734 | 0,764 |
+  | lr 4e-5 | 0,777 | 0,796 | 0,795 |
 
-WOS SFT a lr 4e-5 anche per 0,5B e 3B (`ablations/sft/lr-4e-5`, circa 4 ore in
-tutto). Dice se su WOS la taglia conta davvero una volta tolto l'effetto del
-learning rate. Chiude l'ultima cella aperta del confronto di scala.
+  A lr ottimale la taglia aiuta poco e satura (+1,9 da 0,5B a 1,5B, 0 da 1,5B a
+  3B). Il learning rate conta più della taglia. Cautela: le celle SFT→GRPO e
+  GRPO dal base su WOS partono da un SFT a 2e-5.
 
 ## 2bis. Ancora aperto
 

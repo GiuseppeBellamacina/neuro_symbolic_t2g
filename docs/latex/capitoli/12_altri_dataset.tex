@@ -771,8 +771,8 @@ PHOENIX (ROUGE-L)   & GRPO dal base & $0{,}203$ & $0{,}310$ & $0{,}293$ & \\
 Tre osservazioni. Primo, SFT$\to$GRPO è la cella migliore a ogni taglia e su ogni
 dataset, con un incremento sull'SFT di circa tre punti che non dipende dalla
 taglia (a 3B: $+3{,}1$, $+3{,}0$, $+2{,}9$). Secondo, l'SFT migliora con la
-taglia su CoNLL e PHOENIX, ma su WOS è piatto o peggiore: lo spiega la
-sezione~\ref{sec:wos-lr}. Terzo, il GRPO dal modello base non segue la taglia in
+taglia su CoNLL e PHOENIX; su WOS è piatto o peggiore a learning rate $2\cdot
+10^{-5}$, e a $4\cdot 10^{-5}$ guadagna poco (sezione~\ref{sec:wos-lr}). Terzo, il GRPO dal modello base non segue la taglia in
 modo uniforme: sale su CoNLL ($0{,}03 \to 0{,}28 \to 0{,}30$) e su PHOENIX
 ($0{,}203 \to 0{,}310 \to 0{,}293$), dove si ferma fra 1,5B e 3B, e
 \emph{scende} su WOS ($0{,}169 \to 0{,}127 \to 0{,}123$). Su nessun dataset
@@ -798,14 +798,31 @@ F1 & $0{,}642$ & $0{,}808$ & $0{,}853$ & $0{,}855$ \\
 \end{tabular}
 \end{center}
 
-La curva sale e poi satura intorno a $4\cdot 10^{-5}$. A $4\cdot 10^{-5}$ l'1,5B
-(exact match $0{,}796$) supera lo 0,5B a $2\cdot 10^{-5}$ ($0{,}762$): il
-«modello più grande peggiore» della sezione precedente era un SFT
-sottoaddestrato, non una proprietà della taglia. Va letto con una cautela: lo
-0,5B e il 3B nella tabella della sezione~\ref{sec:tre-taglie} sono ancora a
-$2\cdot 10^{-5}$, quindi su WOS il confronto fra taglie non è a learning rate
-ottimale per nessuna. Il controllo a $4\cdot 10^{-5}$ anche per lo 0,5B e il 3B
-è la prova che separa l'effetto della taglia da quello del learning rate.
+La curva sale e poi satura intorno a $4\cdot 10^{-5}$: il «modello più grande
+peggiore» della sezione precedente era un SFT sottoaddestrato a $2\cdot
+10^{-5}$, non una proprietà della taglia. Il controllo a parità di learning rate
+sulle tre taglie (solo SFT, zero-shot, Trie, exact match su $2.000$ prompt)
+lo conferma:
+
+\begin{center}
+\small
+\begin{tabular}{lrrr}
+\toprule
+WOS, solo SFT & 0,5B & 1,5B & 3B \\
+\midrule
+lr $2\cdot 10^{-5}$ (usato nelle altre celle) & $0{,}762$ & $0{,}734$ & $0{,}764$ \\
+lr $4\cdot 10^{-5}$                           & $0{,}777$ & $0{,}796$ & $0{,}795$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A learning rate ottimale la taglia aiuta poco e satura: $+1{,}9$ punti da 0,5B
+a 1,5B, nessuna differenza da 1,5B a 3B ($-0{,}1$). Il learning rate conta molto
+più della taglia: l'1,5B guadagna $6{,}2$ punti, il 3B $3{,}1$ e lo 0,5B
+$1{,}4$. La cautela resta una sola: le celle SFT$\to$GRPO e GRPO dal modello base
+su WOS delle tabelle precedenti partono da un SFT a $2\cdot 10^{-5}$, quindi per
+1,5B e 3B il punto di partenza è sottoaddestrato; l'incremento del GRPO
+($+2{,}7$, $+3{,}0$) è misurato su quell'SFT.
 
 \subsection{Quanta SFT serve prima del GRPO}
 \label{sec:curva-sft}
