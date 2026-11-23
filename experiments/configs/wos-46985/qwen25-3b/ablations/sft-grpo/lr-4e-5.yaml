@@ -1,0 +1,24 @@
+# ============================================================================
+# WOS 3B, SFT con learning rate 4e-5, poi GRPO. Come sft-grpo/zero-shot, ma la
+# fase SFT usa lr 4e-5 invece di 2e-5: a 2e-5 l'SFT di WOS a 3B e' sottoaddestrato
+# (0,734 a 1,5B; a 4e-5 0,796) e l'incremento del GRPO e' misurato su quel punto
+# di partenza. Un solo fattore: sft_pretrain.training.learning_rate. La fase SFT e'
+# quella gia' addestrata (ablations/sft/lr-4e-5); se il checkpoint manca, il
+# trainer la riaddestra a 4e-5 (seme 42).
+# ============================================================================
+
+extends: ../../sft-grpo/zero-shot.yaml
+
+sft_pretrain:
+  adapter_path: "experiments/checkpoints/wos-46985/qwen25-3b/ablations/sft/lr-4e-5/run_20261122_135909/final"
+  training:
+    seed: 42
+    learning_rate: 4.0e-5
+
+training:
+  output_dir: "experiments/checkpoints/wos-46985/qwen25-3b/ablations/sft-grpo/lr-4e-5"
+  log_dir: "experiments/logs/wos-46985/qwen25-3b/ablations/sft-grpo/lr-4e-5"
+
+wandb:
+  run_name: "wos-46985-qwen25-3b-ablations-sft-grpo-lr-4e-5"
+  tags: ["T2G", "WOS-46985", "qwen25-3b", "sft-grpo", "zero-shot", "ablation", "lr", "trie"]
