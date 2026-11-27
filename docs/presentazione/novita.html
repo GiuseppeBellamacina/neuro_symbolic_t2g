@@ -469,9 +469,9 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   </table>
   <div class="rows" style="margin-top:40px">
     <div class="row" data-step="4"><div class="lbl">Lettura</div><div class="txt">Il GRPO dà lo stesso incremento, circa tre punti, a ogni taglia. La taglia sposta il punto di partenza: in meglio su CoNLL e PHOENIX</div></div>
-    <div class="row" data-step="5"><div class="lbl">WOS</div><div class="txt">L'1,5B era peggiore dello 0,5B perché il suo <b>SFT era sottoaddestrato</b> a lr 2e-5. Con lr 4e-5: 0,5B 0,777 · 1,5B 0,796 · 3B 0,795</div></div>
+    <div class="row" data-step="5"><div class="lbl">WOS</div><div class="txt">L'1,5B era peggiore dello 0,5B perché il suo <b>SFT era sottoaddestrato</b> a lr 2e-5. Con SFT a 4e-5 il GRPO aggiunge meno: <b>+1,6</b> (1,5B) e <b>+2,2</b> (3B)</div></div>
   </div>
-  <p class="foot">Differenza fra SFT→GRPO e solo SFT, a parità di modello. Qwen2.5-Instruct 0,5B / 1,5B / 3B, zero-shot, Trie, seme 42, un addestramento per cella. Exact match (CoNLL, WOS) o ROUGE-L (PHOENIX). Su WOS le celle SFT→GRPO partono da un SFT a lr 2e-5.</p>
+  <p class="foot">Differenza fra SFT→GRPO e solo SFT, a parità di modello. Qwen2.5-Instruct 0,5B / 1,5B / 3B, zero-shot, Trie, seme 42, un addestramento per cella. Exact match (CoNLL, WOS) o ROUGE-L (PHOENIX). Su WOS: SFT a lr 2e-5; con lr 4e-5 gli incrementi sono +1,6 (1,5B) e +2,2 (3B).</p>
   <aside class="aside">Aggiornamento: ho aggiunto il 3B su tutti e tre i dataset, e l'incremento del GRPO resta circa tre punti. Su WOS l'anomalia dell'1,5B si è spiegata: era il learning rate. Ho ripetuto l'SFT a 1e-5, 4e-5 e 8e-5: la curva sale e satura intorno a 4e-5, e a quel valore l'1,5B supera lo 0,5B. Resta da controllare lo 0,5B e il 3B a 4e-5. Il testo che segue è la versione precedente. Il confronto di scala sui tre dataset ha un risultato netto: l'incremento che il GRPO dà sopra l'SFT è lo stesso a mezzo miliardo e a un miliardo e mezzo di parametri, su tutti e tre i dataset. Taglia e GRPO si sommano senza interagire. La taglia, invece, aiuta dove il compito lo richiede, CoNLL e PHOENIX, e su WOS peggiora di circa due punti e mezzo, in modo significativo. Non è un SFT interrotto, perché la loss di validazione è più bassa, e non è rumore: ho replicato l'SFT con un altro seme su tutti i dataset e a entrambe le taglie, e la variabilità è sotto 0,7 punti. Su WOS la differenza di scala è meno 2,8 con un seme e meno 2,0 con l'altro, quindi è robusta. La causa non l'ho isolata: o il modello grande si adatta peggio al rumore delle 134 classi, o gli iperparametri scelti per lo 0,5B non sono giusti per la taglia. Non l'ho verificato.</aside>
 </section>
 
@@ -522,7 +522,6 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   <table class="tbl" style="width:1250px">
     <tr><th>WOS, solo SFT, Qwen2.5-Instruct</th><th>lr 1e-5</th><th>lr 2e-5</th><th>lr 4e-5</th><th>lr 8e-5</th></tr>
     <tr data-step="1"><td>1,5B · exact match</td><td>0,523</td><td>0,734</td><td><b>0,796</b></td><td>0,794</td></tr>
-    <tr data-step="2"><td>1,5B · F1</td><td>0,642</td><td>0,808</td><td>0,853</td><td>0,855</td></tr>
     <tr data-step="3"><td>0,5B · exact match</td><td>—</td><td>0,762</td><td>0,777</td><td>—</td></tr>
     <tr data-step="3"><td>3B · exact match</td><td>—</td><td>0,764</td><td>0,795</td><td>—</td></tr>
   </table>
@@ -530,8 +529,25 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
     <div class="row" data-step="4"><div class="lbl">Lettura</div><div class="txt">Il «modello più grande peggiore» era il learning rate. A 4e-5: 0,5B <b>0,777</b> · 1,5B <b>0,796</b> · 3B <b>0,795</b></div></div>
     <div class="row" data-step="5"><div class="lbl">Taglia</div><div class="txt">A lr ottimale la taglia aiuta <b>poco e satura</b>: +1,9 da 0,5B a 1,5B, nessuna differenza fra 1,5B e 3B</div></div>
   </div>
-  <p class="foot">WOS-46985, solo SFT zero-shot con Trie, early stopping, seme 42; exact match (e F1 per l'1,5B) su 2 000 prompt (test di 4 699). Cambia solo il learning rate; 0,5B e 3B misurati solo a 2e-5 e 4e-5.</p>
-  <aside class="aside">Su WOS il modello da un miliardo e mezzo risultava peggiore dello 0,5B, in modo robusto con due semi. Avevo escluso il rumore; restava il sospetto degli iperparametri. Ho ripetuto l'SFT a tre learning rate sull'1,5B: 1e-5 peggiora molto, 4e-5 sale a 0,796 e 8e-5 non migliora. Poi ho ripetuto a 4e-5 anche lo 0,5B e il 3B: lo 0,5B passa da 0,762 a 0,777, il 3B da 0,764 a 0,795. Quindi la differenza di taglia su WOS era in gran parte learning rate: a lr ottimale il modello grande guadagna poco e satura. Cautela: le celle SFT seguito da GRPO su WOS delle slide precedenti partono da un SFT a 2e-5.</aside>
+  <p class="foot">WOS-46985, solo SFT zero-shot con Trie, early stopping, seme 42; exact match su 2 000 prompt (test di 4 699). Cambia solo il learning rate; 0,5B e 3B misurati solo a 2e-5 e 4e-5.</p>
+  <aside class="aside">Su WOS il modello da un miliardo e mezzo risultava peggiore dello 0,5B, in modo robusto con due semi. Avevo escluso il rumore; restava il sospetto degli iperparametri. Ho ripetuto l'SFT a tre learning rate sull'1,5B: 1e-5 peggiora molto, 4e-5 sale a 0,796 e 8e-5 non migliora. Poi ho ripetuto a 4e-5 anche lo 0,5B e il 3B: lo 0,5B passa da 0,762 a 0,777, il 3B da 0,764 a 0,795. Quindi la differenza di taglia su WOS era in gran parte learning rate. Poi ho rifatto SFT seguito da GRPO partendo dall'SFT a 4e-5: il GRPO aggiunge 1,6 punti all'1,5B e 2,2 al 3B, invece di 2,7 e 3,0. Una parte dell'incremento che vedevo a 2e-5 era recupero di un SFT sottoaddestrato. Le celle migliori su WOS sono 0,812 (1,5B) e 0,817 (3B).</aside>
+</section>
+
+<!-- 11f -->
+<section class="slide" data-title="GRPO su SFT ben addestrato">
+  <div class="kicker">Risultato 10b · WOS-46985 · Qwen2.5-Instruct · exact match</div>
+  <h2>Con un SFT ben addestrato il GRPO aggiunge meno</h2>
+  <table class="tbl" style="width:1250px">
+    <tr><th>WOS</th><th>SFT</th><th>SFT → GRPO</th><th>Incremento</th><th>Prima (SFT a lr 2e-5)</th></tr>
+    <tr data-step="1"><td>1,5B · SFT a lr 4e-5</td><td>0,796</td><td>0,812</td><td><b>+1,6</b></td><td>+2,7</td></tr>
+    <tr data-step="2"><td>3B · SFT a lr 4e-5</td><td>0,795</td><td>0,817</td><td><b>+2,2</b></td><td>+3,0</td></tr>
+  </table>
+  <div class="rows" style="margin-top:40px">
+    <div class="row" data-step="3"><div class="lbl">Lettura</div><div class="txt">Una parte dell'incremento visto a lr 2e-5 era <b>recupero di un SFT sottoaddestrato</b>. Il GRPO aggiunge ancora, ma meno</div></div>
+    <div class="row" data-step="4"><div class="lbl">Cella migliore</div><div class="txt">WOS: <b>0,817</b> (3B) e <b>0,812</b> (1,5B), contro 0,787 dello 0,5B a lr 2e-5</div></div>
+  </div>
+  <p class="foot">WOS-46985, zero-shot, Trie, seme 42, un addestramento per cella. SFT già addestrato e riusato; poi 5 000 passi di GRPO (8 candidati, T=0,7). Exact match su 2 000 prompt (test di 4 699). Lo 0,5B non è stato rifatto a 4e-5.</p>
+  <aside class="aside">Ultimo controllo su WOS: ho rifatto SFT seguito da GRPO partendo dall'SFT a 4e-5. Il GRPO aggiunge 1,6 punti all'1,5B e 2,2 al 3B, invece di 2,7 e 3,0. Quindi parte dell'incremento che vedevo con l'SFT a 2e-5 era il recupero di un SFT sottoaddestrato. Le celle migliori su WOS salgono a 0,812 e 0,817. Lo 0,5B con SFT a 4e-5 non l'ho seguito con il GRPO.</aside>
 </section>
 
 <!-- 11e -->
@@ -550,6 +566,8 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   <p class="foot">Qwen2.5-0,5B-Instruct, solo SFT zero-shot; stesso adapter valutato con e senza Trie in decodifica, 2 000 prompt (PHOENIX: 642). Validity = uscite ammesse dalla grammatica del compito.</p>
   <aside class="aside">Dopo l'SFT, tolgo il Trie in decodifica con lo stesso adapter. L'accuratezza cala poco: fra 0,4 e 3 punti. Ma senza il vincolo, circa il 5-6 per cento delle uscite su CoNLL e WOS non è ammesso. Il Trie non è più una condizione perché il modello impari il formato, resta la garanzia che l'uscita sia valida.</aside>
 </section>
+
+
 
 <!-- 12 -->
 <section class="slide" data-title="Tre trappole">
@@ -571,7 +589,7 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
     <div data-step="1"><span>Il GRPO <b>rinforza, non scopre</b>: il formato senza Trie solo con esempi, i tipi solo con un modello capace.</span></div>
     <div data-step="2"><span>Con un vincolo attivo il GRPO <b>cerca il varco</b>: due volte di fila su CoNLL.</span></div>
     <div data-step="3"><span>Su PHOENIX, un corpus con margine, i numeri si leggono: <b>regole &lt; SFT &lt; SFT→GRPO</b>.</span></div>
-    <div data-step="4"><span><b>Taglia e GRPO si sommano</b>: lo stesso incremento a 0,5B, 1,5B e 3B.</span></div>
+    <div data-step="4"><span><b>Taglia e GRPO si sommano</b>: circa tre punti a 0,5B, 1,5B e 3B (su WOS meno, 1,6–2,2, con un SFT ben addestrato).</span></div>
     <div data-step="5"><span>SFT→GRPO è la cella migliore, ma di <b>due-quattro punti</b>, stabile a un secondo seme.</span></div>
     <div data-step="6"><span>Il GRPO <b>affina, non sostituisce l'SFT</b>: +30 punti dopo 43 passi di SFT, +3,6 dopo l'SFT completo.</span></div>
     <div data-step="7"><span>Dopo l'SFT il <b>Trie garantisce la validità</b> più che l'accuratezza (−0,4/−3 punti senza).</span></div>
@@ -585,7 +603,7 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
   <h2>Cosa questi dati non dicono</h2>
   <div class="rows">
     <div class="row" data-step="1"><div class="lbl">Semi</div><div class="txt">Due semi per tredici celle, uno per le altre. Il rumore dell'SFT è sotto 0,7 punti; quello del GRPO senza Trie è grande.</div></div>
-    <div class="row" data-step="2"><div class="lbl">Modelli</div><div class="txt">Tre taglie della stessa famiglia, Qwen2.5. Su WOS le celle SFT→GRPO partono da un SFT a lr 2e-5; a lr 4e-5 il solo SFT satura da 1,5B in su.</div></div>
+    <div class="row" data-step="2"><div class="lbl">Modelli</div><div class="txt">Tre taglie della stessa famiglia, Qwen2.5. Su WOS, a lr 4e-5, l'SFT satura da 1,5B in su e il GRPO aggiunge 1,6–2,2 punti.</div></div>
     <div class="row" data-step="3"><div class="lbl">Metrica</div><div class="txt">Su PHOENIX l'exact match è sotto il 3,2 %: contano ROUGE-L e non-copy.</div></div>
   </div>
   <div class="spacer"></div>

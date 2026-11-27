@@ -819,10 +819,32 @@ lr $4\cdot 10^{-5}$                           & $0{,}777$ & $0{,}796$ & $0{,}795
 A learning rate ottimale la taglia aiuta poco e satura: $+1{,}9$ punti da 0,5B
 a 1,5B, nessuna differenza da 1,5B a 3B ($-0{,}1$). Il learning rate conta molto
 più della taglia: l'1,5B guadagna $6{,}2$ punti, il 3B $3{,}1$ e lo 0,5B
-$1{,}4$. La cautela resta una sola: le celle SFT$\to$GRPO e GRPO dal modello base
-su WOS delle tabelle precedenti partono da un SFT a $2\cdot 10^{-5}$, quindi per
-1,5B e 3B il punto di partenza è sottoaddestrato; l'incremento del GRPO
-($+2{,}7$, $+3{,}0$) è misurato su quell'SFT.
+$1{,}4$. Resta da vedere che cosa fa il GRPO partendo da un SFT a learning rate
+adeguato. Ho ripetuto SFT$\to$GRPO su WOS con la fase SFT a $4\cdot 10^{-5}$ (1,5B
+e 3B, stesso GRPO, SFT già addestrato):
+
+\begin{center}
+\small
+\begin{tabular}{llrrr}
+\toprule
+WOS, exact match & & SFT & SFT$\to$GRPO & Incremento \\
+\midrule
+1,5B & SFT a $2\cdot 10^{-5}$ & $0{,}734$ & $0{,}761$ & $+2{,}7$ \\
+1,5B & SFT a $4\cdot 10^{-5}$ & $0{,}796$ & $0{,}812$ & $+1{,}6$ \\
+3B   & SFT a $2\cdot 10^{-5}$ & $0{,}764$ & $0{,}794$ & $+3{,}0$ \\
+3B   & SFT a $4\cdot 10^{-5}$ & $0{,}795$ & $0{,}817$ & $+2{,}2$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Il GRPO aggiunge ancora, ma meno: $+1{,}6$ e $+2{,}2$ invece di $+2{,}7$ e
+$+3{,}0$. Una parte dell'incremento che il GRPO sembrava dare a $2\cdot
+10^{-5}$ era recupero di un SFT sottoaddestrato. Le celle migliori su WOS
+diventano $0{,}812$ (1,5B) e $0{,}817$ (3B), contro $0{,}787$ dello 0,5B a
+$2\cdot 10^{-5}$ (lo 0,5B con SFT a $4\cdot 10^{-5}$ non è stato seguito dal
+GRPO). Su WOS, quindi, \emph{l'incremento del GRPO non è indipendente dalla
+taglia né dal punto di partenza}: è la parte della tabella delle tre taglie da
+leggere con questa correzione.
 
 \subsection{Quanta SFT serve prima del GRPO}
 \label{sec:curva-sft}

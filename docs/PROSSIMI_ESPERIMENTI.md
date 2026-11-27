@@ -1,6 +1,6 @@
 # Prossimi esperimenti
 
-Stato al 2026-11-23. Vincolo di risorse: **mezza A40, 24 GB di VRAM**, un solo
+Stato al 2026-11-27. Vincolo di risorse: **mezza A40, 24 GB di VRAM**, un solo
 job alla volta. Config in `experiments/configs/`.
 
 ## 1. Risultati dell'ultimo giro (CoNLL-2003 salvo dove indicato)
@@ -50,6 +50,17 @@ Tutti i 16 job completati, nessun errore. Exact match su WOS, ROUGE-L su PHOENIX
   A lr ottimale la taglia aiuta poco e satura (+1,9 da 0,5B a 1,5B, 0 da 1,5B a
   3B). Il learning rate conta più della taglia. Cautela: le celle SFT→GRPO e
   GRPO dal base su WOS partono da un SFT a 2e-5.
+
+- **WOS, SFT→GRPO con SFT a lr 4e-5** (finito il 2026-11-27):
+
+  | | SFT | SFT→GRPO | Incremento | (a lr 2e-5) |
+  |---|---|---|---|---|
+  | 1,5B | 0,796 | 0,812 | +1,6 | +2,7 |
+  | 3B | 0,795 | 0,817 | +2,2 | +3,0 |
+
+  Il GRPO aggiunge meno quando l'SFT è ben addestrato: parte dell'incremento a
+  2e-5 era recupero di un SFT sottoaddestrato. Le celle migliori su WOS sono
+  0,812 (1,5B) e 0,817 (3B).
 
 ## 2bis. Ancora aperto
 

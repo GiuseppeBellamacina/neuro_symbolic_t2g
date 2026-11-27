@@ -105,7 +105,9 @@ partenza, in meglio su CoNLL e PHOENIX. Su WOS l'1,5B risultava peggiore dello
 0,5B, ma era un SFT sottoaddestrato: a $4\cdot 10^{-5}$ di learning rate
 l'exact match sale da $0{,}734$ a $0{,}796$ e lo supera, e il 3B arriva allo
 stesso valore ($0{,}795$): a learning rate ottimale la taglia su WOS aiuta poco
-e satura. Su PHOENIX le baseline a regole (solo maiuscolo $0{,}21$, lessico
+e satura. Con l'SFT a quel learning rate il GRPO aggiunge meno ($+1{,}6$ a 1,5B,
+$+2{,}2$ a 3B): parte dell'incremento visto a $2\cdot 10^{-5}$ era recupero di un SFT
+sottoaddestrato. Su PHOENIX le baseline a regole (solo maiuscolo $0{,}21$, lessico
 unigramma $0{,}44$ di ROUGE-L) stanno sotto i modelli addestrati ($0{,}49$--$0{,}54$):
 è il primo corpus del lavoro in cui il confronto con una regola non toglie
 significato ai numeri.

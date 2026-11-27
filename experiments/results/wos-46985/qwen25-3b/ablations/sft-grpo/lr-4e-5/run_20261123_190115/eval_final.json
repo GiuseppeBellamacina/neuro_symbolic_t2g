@@ -1,0 +1,237 @@
+{
+  "rouge_l_mean": 0.8566150000000001,
+  "rouge_l_std": 0.3158653193028087,
+  "rouge_l_median": 1.0,
+  "valid_rouge_l_mean": 0.8566150000000001,
+  "valid_rouge_l_mean_v3": 0.8566150000000001,
+  "bleu_sentence_mean": 0.8300064030213085,
+  "bleu_corpus": 0.8490438406427877,
+  "chrf_sentence_mean": 85.45491264588543,
+  "chrf_corpus": 85.68985276457289,
+  "gloss_f1_sentence_mean": 0.8665,
+  "gloss_f1_micro": 0.8665000000000002,
+  "exact_match": 0.8169,
+  "non_copy_token_accuracy": 0.8661989476321724,
+  "non_copy_token_hits": 17285,
+  "non_copy_token_total": 19955,
+  "bigram_log_prob_mean": -5.194734573364258,
+  "bigram_log_prob_std": 0.43474486470222473,
+  "validity_rate": 1.0,
+  "valid_count": 10000,
+  "invalid_count": 0,
+  "pass_at_1": 0.909,
+  "reward_breakdown": {
+    "translation_quality_reward": 0.7132300000000052,
+    "bleu_reward": 0.6600128060426164,
+    "gloss_order_reward": 0.733,
+    "gloss_format_reward": 1.0,
+    "gloss_repetition_reward": 0.0
+  },
+  "detailed_metrics": {
+    "overall_pass_rate": 0.9107,
+    "overall_rouge_l": 0.8566150000000001,
+    "total_samples": 10000,
+    "valid_samples": 9107,
+    "rouge_l_percentiles": {
+      "25%": 1.0,
+      "50%": 1.0,
+      "75%": 1.0,
+      "90%": 1.0
+    },
+    "error_distribution": {
+      "low_rouge_l": 893
+    }
+  },
+  "error_distribution": {},
+  "total_completions": 10000,
+  "evaluation_report": {
+    "total_samples": 10000,
+    "rouge_l": {
+      "mean": 0.8566150000000001,
+      "ci_95": [
+        0.8502901785714285,
+        0.8627603095238096
+      ],
+      "percentiles": {
+        "25%": 1.0,
+        "50%": 1.0,
+        "75%": 1.0,
+        "90%": 1.0
+      }
+    },
+    "bleu": {
+      "corpus": 0.8490438406427877,
+      "sentence_mean": 0.8300064030213085,
+      "ci_95": [
+        0.8227686756880446,
+        0.8372894716455535
+      ]
+    },
+    "chrf": {
+      "corpus": 85.68985276457289,
+      "sentence_mean": 85.45491264588543,
+      "ci_95": [
+        84.82116891180465,
+        86.07058324518883
+      ]
+    },
+    "gloss_f1": {
+      "micro": 0.8665000000000002,
+      "sentence_mean": 0.8665,
+      "ci_95": [
+        0.86025,
+        0.8723012499999999
+      ]
+    },
+    "pass_at_1": {
+      "mean": 0.9107,
+      "ci_95": [
+        0.9049,
+        0.9158
+      ]
+    },
+    "gloss_validity_rate": 1.0,
+    "error_distribution": {}
+  },
+  "pass_at_k": {
+    "pass@1": 0.909,
+    "pass@2": 0.925,
+    "pass@3": 0.929,
+    "pass@4": 0.931,
+    "pass@5": 0.933
+  },
+  "num_samples_evaluated": 2000,
+  "test_set_size": 4699,
+  "num_completions_per_prompt": 5,
+  "best_of_n": true,
+  "prompting": {
+    "mode": "zero-shot",
+    "source": "config"
+  },
+  "metrics_version": 2,
+  "prompt_context_fingerprint": "7c2dca783d2c241c85722b3804979bb728bcd5fdf5712b29d3a1b5fa8733c5de",
+  "decoding": {
+    "do_sample": true,
+    "temperature": 0.7,
+    "num_samples": 5
+  },
+  "resumed_from": {
+    "resumed": false,
+    "resume_count": 0,
+    "recovered_prompts": 0
+  },
+  "difficulty_breakdown": {
+    "simple": {
+      "n_prompts": 2000,
+      "rouge_l_mean": 0.8566150000000001,
+      "bleu_sentence_mean": 0.8300064030213085,
+      "chrf_sentence_mean": 85.45491264588543,
+      "validity_rate": 1.0,
+      "pass_at_1": 0.909
+    }
+  },
+  "oracle_best_of_n": {
+    "rouge_l_mean": 0.8856690476190476,
+    "rouge_l_std": 0.2851045939173712,
+    "rouge_l_median": 1.0,
+    "valid_rouge_l_mean": 0.8856690476190476,
+    "valid_rouge_l_mean_v3": 0.8856690476190476,
+    "bleu_sentence_mean": 0.8623779992882957,
+    "bleu_corpus": 0.8802112373679785,
+    "chrf_sentence_mean": 88.26566579397779,
+    "chrf_corpus": 88.50817599743216,
+    "gloss_f1_sentence_mean": 0.89375,
+    "gloss_f1_micro": 0.89375,
+    "exact_match": 0.851,
+    "non_copy_token_accuracy": 0.8935103983963919,
+    "non_copy_token_hits": 3566,
+    "non_copy_token_total": 3991,
+    "bigram_log_prob_mean": -5.200422286987305,
+    "bigram_log_prob_std": 0.42934614419937134,
+    "validity_rate": 1.0,
+    "valid_count": 2000,
+    "invalid_count": 0,
+    "pass_at_1": 0.933,
+    "reward_breakdown": {
+      "translation_quality_reward": 0.771338095238095,
+      "bleu_reward": 0.7247559985765927,
+      "gloss_order_reward": 0.7875,
+      "gloss_format_reward": 1.0,
+      "gloss_repetition_reward": 0.0
+    },
+    "detailed_metrics": {
+      "overall_pass_rate": 0.933,
+      "overall_rouge_l": 0.8856690476190476,
+      "total_samples": 2000,
+      "valid_samples": 1866,
+      "rouge_l_percentiles": {
+        "25%": 1.0,
+        "50%": 1.0,
+        "75%": 1.0,
+        "90%": 1.0
+      },
+      "error_distribution": {
+        "low_rouge_l": 134
+      }
+    },
+    "error_distribution": {},
+    "total_completions": 2000,
+    "evaluation_report": {
+      "total_samples": 2000,
+      "rouge_l": {
+        "mean": 0.8856690476190476,
+        "ci_95": [
+          0.8727925297619047,
+          0.8969507142857144
+        ],
+        "percentiles": {
+          "25%": 1.0,
+          "50%": 1.0,
+          "75%": 1.0,
+          "90%": 1.0
+        }
+      },
+      "bleu": {
+        "corpus": 0.8802112373679785,
+        "sentence_mean": 0.8623779992882957,
+        "ci_95": [
+          0.8482253297189898,
+          0.875307160065304
+        ]
+      },
+      "chrf": {
+        "corpus": 88.50817599743216,
+        "sentence_mean": 88.26566579397779,
+        "ci_95": [
+          86.93593164997537,
+          89.38467883218475
+        ]
+      },
+      "gloss_f1": {
+        "micro": 0.89375,
+        "sentence_mean": 0.89375,
+        "ci_95": [
+          0.881,
+          0.9045
+        ]
+      },
+      "pass_at_1": {
+        "mean": 0.933,
+        "ci_95": [
+          0.922,
+          0.943
+        ]
+      },
+      "gloss_validity_rate": 1.0,
+      "error_distribution": {}
+    },
+    "num_samples_evaluated": 2000,
+    "num_completions_per_prompt": 5,
+    "note": "Oracle best-of-N: the gold reference was used to select the best completion per prompt (highest ROUGE-L among valid). NOT deployable — reported separately and never part of the primary metrics."
+  },
+  "provenance": {
+    "config": "experiments/configs/wos-46985/qwen25-3b/ablations/sft-grpo/lr-4e-5.yaml",
+    "checkpoint": "experiments/checkpoints/wos-46985/qwen25-3b/ablations/sft-grpo/lr-4e-5/run_20261123_190115/final",
+    "results_dir": "experiments/results/wos-46985/qwen25-3b/ablations/sft-grpo/lr-4e-5/run_20261123_190115"
+  }
+}
